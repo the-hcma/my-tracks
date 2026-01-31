@@ -1,0 +1,39 @@
+name: PR Validation
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        version: "latest"
+    
+    - name: Set up Python
+      run: uv python install 3.12
+    
+    - name: Install dependencies
+      run: uv sync
+    
+    - name: Check for pending migrations
+      run: |
+        uv run python manage.py makemigrations --check --dry-run
+    
+    - name: Run migrations
+      run: uv run python manage.py migrate
+    
+    - name: Run tests
+      run: uv run pytest --verbose --cov=tracker --cov-report=term-missing
+    
+    - name: Check coverage threshold
+      run: |
+        uv run pytest --cov=tracker --cov-fail-under=90 --cov-report=term-missing
