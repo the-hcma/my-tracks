@@ -67,13 +67,13 @@ class Location(models.Model):
     
     # Core location data (required fields)
     latitude = models.DecimalField(
-        max_digits=9,
-        decimal_places=6,
+        max_digits=10,
+        decimal_places=7,
         help_text="Latitude in decimal degrees (-90 to +90)"
     )
     longitude = models.DecimalField(
-        max_digits=9,
-        decimal_places=6,
+        max_digits=10,
+        decimal_places=7,
         help_text="Longitude in decimal degrees (-180 to +180)"
     )
     timestamp = models.DateTimeField(
