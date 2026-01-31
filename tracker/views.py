@@ -93,10 +93,8 @@ class LocationViewSet(viewsets.ModelViewSet):
                 ip_address=client_ip
             )
             
-            return Response(
-                {'status': 'ok', 'message': f'{msg_type.capitalize()} message stored'},
-                status=status.HTTP_201_CREATED
-            )
+            # OwnTracks expects an empty JSON array response
+            return Response([], status=status.HTTP_200_OK)
         
         serializer = self.get_serializer(data=request.data, context={'client_ip': client_ip})
         if not serializer.is_valid():
@@ -107,10 +105,8 @@ class LocationViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
         
-        return Response(
-            {'status': 'ok', 'message': 'Location received'},
-            status=status.HTTP_201_CREATED
-        )
+        # OwnTracks expects an empty JSON array response
+        return Response([], status=status.HTTP_200_OK)
     
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
