@@ -169,10 +169,15 @@ class LocationSerializer(serializers.ModelSerializer):
         )
         
         # Map OwnTracks fields to model fields
+        # Use explicit None check for longitude to handle 0 values correctly
+        lon_value = attrs.get('lon')
+        if lon_value is None:
+            lon_value = attrs.get('long')
+        
         transformed = {
             'device': device,
             'latitude': attrs.get('lat'),
-            'longitude': attrs.get('lon') or attrs.get('long'),  # Support both 'lon' and 'long'
+            'longitude': lon_value,  # Support both 'lon' and 'long'
             'timestamp': timezone.make_aware(datetime.fromtimestamp(attrs.get('tst'))),
             'accuracy': attrs.get('acc'),
             'altitude': attrs.get('alt'),
@@ -183,6 +188,16 @@ class LocationSerializer(serializers.ModelSerializer):
         
         print(f"✅ Transformed data: {transformed}")
         logger.info(f"Transformed data: {transformed}")
+        
+        # Validate required fields
+        if transformed['latitude'] is None:
+            raise serializers.ValidationError(
+                "Expected latitude field ('lat'), got None"
+            )
+        if transformed['longitude'] is None:
+            raise serializers.ValidationError(
+                "Expected longitude field ('lon' or 'long'), got None"
+            )
         
         # Validate latitude range
         if not -90 <= transformed['latitude'] <= 90:
