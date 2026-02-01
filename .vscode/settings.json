@@ -1,0 +1,18 @@
+{
+  // Auto-save files to avoid "keep or undo" prompts
+  "files.autoSave": "afterDelay",
+  "files.autoSaveDelay": 1000,
+  
+  // Automatically use the version on disk when files change externally
+  "files.useExperimentalFileWatcher": true,
+  
+  // Don't prompt for external changes, just reload
+  "git.autoStash": true,
+  
+  // Python-specific settings
+  "python.analysis.typeCheckingMode": "basic",
+  "[python]": {
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "ms-python.black-formatter"
+  }
+}
