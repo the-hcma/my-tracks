@@ -157,19 +157,34 @@ def trace(self, message, *args, **kwargs):
 
 logging.Logger.trace = trace
 
+# Custom filter to set health check requests to TRACE level
+class HealthCheckFilter(logging.Filter):
+    def filter(self, record):
+        # Check if this is a health check request
+        if hasattr(record, 'msg') and '/health/' in str(record.msg):
+            record.levelno = TRACE_LEVEL
+            record.levelname = 'TRACE'
+        return True
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
+    'filters': {
+        'health_check_filter': {
+            '()': 'mytracks.settings.HealthCheckFilter',
+        },
+    },
     'formatters': {
         'verbose': {
-            'format': '{levelname} {asctime} {module} {message}',
-            'style': '{',
+            'format': '%(asctime)s.%(msecs)03d %(levelname)-7s %(module)s %(message)s',
+            'datefmt': '%Y%m%d-%H:%M:%S',
         },
     },
     'handlers': {
         'console': {
             'class': 'logging.StreamHandler',
             'formatter': 'verbose',
+            'filters': ['health_check_filter'],
         },
     },
     'root': {
@@ -180,6 +195,11 @@ LOGGING = {
         'tracker': {
             'handlers': ['console'],
             'level': 'INFO',
+            'propagate': False,
+        },
+        'django.server': {
+            'handlers': ['console'],
+            'level': TRACE_LEVEL,
             'propagate': False,
         },
     },
