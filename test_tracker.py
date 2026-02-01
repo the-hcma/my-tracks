@@ -8,6 +8,7 @@ import pytest
 from django.utils import timezone
 from datetime import datetime, timedelta
 from decimal import Decimal
+from rest_framework import status
 from rest_framework.test import APIClient
 from tracker.models import Device, Location
 
@@ -133,7 +134,7 @@ class TestLocationAPI:
             format='json'
         )
         
-        assert response.status_code == 200
+        assert response.status_code == status.HTTP_200_OK
         assert response.data == []
         
         # Verify device was created
@@ -162,7 +163,7 @@ class TestLocationAPI:
             format='json'
         )
         
-        assert response.status_code == 200
+        assert response.status_code == status.HTTP_200_OK
         assert response.data == []
     
     def test_create_location_invalid_latitude(self, api_client: APIClient) -> None:
@@ -180,7 +181,7 @@ class TestLocationAPI:
             format='json'
         )
         
-        assert response.status_code == 400
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert 'latitude' in str(response.data).lower()
     
     def test_create_location_invalid_longitude(self, api_client: APIClient) -> None:
@@ -198,7 +199,7 @@ class TestLocationAPI:
             format='json'
         )
         
-        assert response.status_code == 400
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert 'longitude' in str(response.data).lower()
     
     def test_create_location_invalid_battery(self, api_client: APIClient) -> None:
@@ -217,14 +218,39 @@ class TestLocationAPI:
             format='json'
         )
         
-        assert response.status_code == 400
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert 'battery' in str(response.data).lower()
+    
+    def test_non_location_message(self, api_client: APIClient) -> None:
+        """Test handling of non-location OwnTracks messages (status, waypoint, etc)."""
+        from tracker.models import OwnTracksMessage
+        
+        payload = {
+            "_type": "status",
+            "tid": "XY",
+            "status": {"battery": 75}
+        }
+        
+        response = api_client.post(
+            '/api/locations/',
+            payload,
+            format='json'
+        )
+        
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data == []
+        
+        # Verify message was stored
+        message = OwnTracksMessage.objects.get(message_type='status')
+        assert message.payload['_type'] == 'status'
+        assert message.device is not None
+        assert message.device.device_id == 'XY'
     
     def test_list_locations(self, api_client: APIClient, sample_location: Location) -> None:
         """Test listing locations."""
         response = api_client.get('/api/locations/')
         
-        assert response.status_code == 200
+        assert response.status_code == status.HTTP_200_OK
         assert 'results' in response.data
         assert len(response.data['results']) >= 1
     
@@ -255,7 +281,7 @@ class TestLocationAPI:
             {'device': 'TEST01'}
         )
         
-        assert response.status_code == 200
+        assert response.status_code == status.HTTP_200_OK
         results = response.data['results']
         assert all(loc['device'] == sample_device.id for loc in results)
     
@@ -294,7 +320,7 @@ class TestLocationAPI:
             {'start_date': start_date}
         )
         
-        assert response.status_code == 200
+        assert response.status_code == status.HTTP_200_OK
         assert len(response.data['results']) == 2
 
 
@@ -306,7 +332,7 @@ class TestDeviceAPI:
         """Test listing devices."""
         response = api_client.get('/api/devices/')
         
-        assert response.status_code == 200
+        assert response.status_code == status.HTTP_200_OK
         assert 'results' in response.data
         assert len(response.data['results']) >= 1
     
@@ -314,7 +340,7 @@ class TestDeviceAPI:
         """Test retrieving device details."""
         response = api_client.get(f'/api/devices/{sample_device.device_id}/')
         
-        assert response.status_code == 200
+        assert response.status_code == status.HTTP_200_OK
         assert response.data['device_id'] == 'TEST01'
         assert response.data['name'] == 'Test Device'
     
@@ -329,6 +355,6 @@ class TestDeviceAPI:
             f'/api/devices/{sample_device.device_id}/locations/'
         )
         
-        assert response.status_code == 200
+        assert response.status_code == status.HTTP_200_OK
         assert 'results' in response.data
         assert len(response.data['results']) >= 1
