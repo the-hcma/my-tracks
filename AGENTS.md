@@ -18,8 +18,19 @@ This document defines the four specialized agents for the OwnTracks Django backe
 4. **Testing Agent** ensures comprehensive test coverage
 5. **Final verification**: All agents confirm VS Code Problems panel is clear
 6. **Coverage verification**: Run `uv run pytest --cov=tracker --cov-fail-under=90` and ensure it passes
+7. **Create feature branch**: NEVER commit or push to main - always create a feature branch
+8. **Manual testing**: Allow user to manually test the changes before creating PR
 
-**Only after all review agents have completed their analysis and approved the changes** should a pull request be created. This ensures code quality, correctness, and adherence to project standards before submission.
+**Only after all review agents have completed their analysis, approved the changes, AND the user has manually tested** should a pull request be created. This ensures code quality, correctness, and adherence to project standards before submission.
+
+**Branch Workflow** (CRITICAL):
+- ✅ **ALWAYS** create a feature branch for changes: `git checkout -b feature/description`
+- ✅ **ALWAYS** push feature branch: `git push -u origin feature/branch-name`
+- ✅ **ALWAYS** create PR from feature branch to main
+- ❌ **NEVER** commit directly to main
+- ❌ **NEVER** push directly to main
+- ❌ **NEVER** attempt `git push origin main`
+- Rationale: Branch protection requires all changes via PR, enables code review, prevents accidental breaking changes
 
 **Pre-PR Quality Gates** (all must pass):
 - ✅ All tests passing
