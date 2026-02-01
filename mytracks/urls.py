@@ -34,6 +34,8 @@ def home(request):
 <html>
 <head>
     <title>My Tracks - OwnTracks Backend</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
     <style>
         :root {{
             --bg-main: #ffffff;
@@ -128,8 +130,11 @@ def home(request):
             background: var(--bg-left);
             color: var(--text-left);
             padding: 20px;
-            overflow-y: auto;
+            overflow-y: hidden;
             border-left: 1px solid var(--border-color);
+            display: grid;
+            grid-template-rows: 1fr 1fr;
+            gap: 20px;
         }}
         h1 {{ color: var(--text-main); margin-top: 0; }}
         h2 {{ color: var(--text-secondary); margin-top: 30px; }}
@@ -261,6 +266,37 @@ def home(request):
         .theme-toggle:hover {{
             transform: scale(1.1);
         }}
+        .map-section {{
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }}
+        .map-header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }}
+        .device-selector {{
+            background: var(--endpoint-bg);
+            color: var(--text-main);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 6px 12px;
+            font-size: 12px;
+            cursor: pointer;
+        }}
+        #map {{
+            flex: 1;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            min-height: 0;
+        }}
+        .activity-section {{
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }}
     </style>
 </head>
 <body>
@@ -322,15 +358,26 @@ def home(request):
         </div>
         
         <div class="right-column">
-            <div class="log-header">
-                <h2>📍 Live Activity</h2>
-                <div class="log-controls">
-                    <span class="log-count" id="log-count">0 events</span>
-                    <button class="reset-button" id="reset-button" title="Clear all events">🗑️ Reset</button>
+            <div class="map-section">
+                <div class="map-header">
+                    <h2>🗺️ Live Map</h2>
+                    <select class="device-selector" id="device-selector">
+                        <option value="">All Devices</option>
+                    </select>
                 </div>
+                <div id="map"></div>
             </div>
-            <div id="log-container">
-                <p id="loading">Waiting for location updates...</p>
+            <div class="activity-section">
+                <div class="log-header">
+                    <h2>📍 Live Activity</h2>
+                    <div class="log-controls">
+                        <span class="log-count" id="log-count">0 events</span>
+                        <button class="reset-button" id="reset-button" title="Clear all events">🗑️ Reset</button>
+                    </div>
+                </div>
+                <div id="log-container">
+                    <p id="loading">Waiting for location updates...</p>
+                </div>
             </div>
         </div>
     </div>
@@ -339,6 +386,10 @@ def home(request):
         let lastTimestamp = null;
         let eventCount = 0;
         let isServerConnected = false;
+        let map = null;
+        let deviceMarkers = {{}};
+        let devices = new Set();
+        let selectedDevice = '';
         
         // Theme management
         function getPreferredTheme() {{
@@ -364,6 +415,99 @@ def home(request):
         
         // Initialize theme
         setTheme(getPreferredTheme());
+        
+        // Initialize map
+        function initMap() {{
+            map = L.map('map').setView([37.7749, -122.4194], 17);
+            L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                maxZoom: 19
+            }}).addTo(map);
+            
+            // Fix map rendering after initial load
+            setTimeout(() => map.invalidateSize(), 100);
+        }}
+        
+        // Initialize map after page load
+        window.addEventListener('load', initMap);
+        
+        // Update device marker on map
+        function updateDeviceMarker(location) {{
+            const deviceName = location.device_name || 'Unknown';
+            const lat = parseFloat(location.latitude);
+            const lon = parseFloat(location.longitude);
+            
+            if (isNaN(lat) || isNaN(lon)) return;
+            
+            // Add device to set and update selector
+            if (!devices.has(deviceName)) {{
+                devices.add(deviceName);
+                const selector = document.getElementById('device-selector');
+                const option = document.createElement('option');
+                option.value = deviceName;
+                option.textContent = deviceName;
+                selector.appendChild(option);
+            }}
+            
+            // Only show marker if no device selected or if it matches selected device
+            if (selectedDevice && selectedDevice !== deviceName) {{
+                // Hide marker if it exists
+                if (deviceMarkers[deviceName]) {{
+                    deviceMarkers[deviceName].remove();
+                    delete deviceMarkers[deviceName];
+                }}
+                return;
+            }}
+            
+            const latLng = [lat, lon];
+            
+            if (deviceMarkers[deviceName]) {{
+                // Update existing marker
+                deviceMarkers[deviceName].setLatLng(latLng);
+                deviceMarkers[deviceName].setPopupContent(getPopupContent(location));
+            }} else {{
+                // Create new marker
+                const marker = L.marker(latLng).addTo(map);
+                marker.bindPopup(getPopupContent(location));
+                deviceMarkers[deviceName] = marker;
+            }}
+            
+            // Center map on the marker if it's the selected device or no selection
+            if (!selectedDevice || selectedDevice === deviceName) {{
+                map.setView(latLng, map.getZoom());
+            }}
+        }}
+        
+        function getPopupContent(location) {{
+            const device = location.device_name || 'Unknown';
+            const time = formatTime(location.timestamp_unix);
+            const lat = parseFloat(location.latitude).toFixed(6);
+            const lon = parseFloat(location.longitude).toFixed(6);
+            const acc = location.accuracy || 'N/A';
+            const batt = location.battery_level || 'N/A';
+            const vel = location.velocity || 0;
+            
+            return `<div style="font-size: 12px;">
+                <strong>${{device}}</strong><br>
+                <em>${{time}}</em><br>
+                <strong>Position:</strong> ${{lat}}, ${{lon}}<br>
+                <strong>Accuracy:</strong> ${{acc}}m<br>
+                <strong>Speed:</strong> ${{vel}} km/h<br>
+                <strong>Battery:</strong> ${{batt}}%
+            </div>`;
+        }}
+        
+        // Device selector change handler
+        document.getElementById('device-selector').addEventListener('change', (e) => {{
+            selectedDevice = e.target.value;
+            
+            // Clear all markers
+            Object.values(deviceMarkers).forEach(marker => marker.remove());
+            deviceMarkers = {{}};
+            
+            // Re-fetch and display locations for selected device
+            fetchLocations();
+        }});
         
         // Server health check
         function checkServerHealth() {{
@@ -464,6 +608,11 @@ def home(request):
             
             eventCount++;
             document.getElementById('log-count').textContent = eventCount + ' event' + (eventCount !== 1 ? 's' : '');
+            
+            // Update map marker
+            if (map) {{
+                updateDeviceMarker(location);
+            }}
         }}
         
         // WebSocket connection for real-time updates

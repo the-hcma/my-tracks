@@ -21,6 +21,8 @@
     "editor.defaultFormatter": "ms-python.black-formatter"
   },
   "chat.tools.terminal.autoApprove": {
-    "uv": true
+    "uv": true,
+    "git checkout": true,
+    "git pull": true
   }
 }
