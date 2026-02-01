@@ -133,8 +133,8 @@ class TestLocationAPI:
             format='json'
         )
         
-        assert response.status_code == 201
-        assert response.data['status'] == 'ok'
+        assert response.status_code == 200
+        assert response.data == []
         
         # Verify device was created
         device = Device.objects.get(device_id='AB')
@@ -162,7 +162,8 @@ class TestLocationAPI:
             format='json'
         )
         
-        assert response.status_code == 201
+        assert response.status_code == 200
+        assert response.data == []
     
     def test_create_location_invalid_latitude(self, api_client: APIClient) -> None:
         """Test that invalid latitude is rejected."""
