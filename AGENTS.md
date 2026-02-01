@@ -17,8 +17,16 @@ This document defines the four specialized agents for the OwnTracks Django backe
 3. **Secondary Critique Agent (GPT-5)** provides independent review
 4. **Testing Agent** ensures comprehensive test coverage
 5. **Final verification**: All agents confirm VS Code Problems panel is clear
+6. **Coverage verification**: Run `uv run pytest --cov=tracker --cov-fail-under=90` and ensure it passes
 
 **Only after all review agents have completed their analysis and approved the changes** should a pull request be created. This ensures code quality, correctness, and adherence to project standards before submission.
+
+**Pre-PR Quality Gates** (all must pass):
+- ✅ All tests passing
+- ✅ **90% minimum code coverage** (`uv run pytest --cov=tracker --cov-fail-under=90`)
+- ✅ No pytest warnings
+- ✅ VS Code Problems panel clear
+- ✅ CI/CD pipeline passes (GitHub Actions)
 
 **After PR is merged**:
 1. Switch to main branch: `git checkout main`
@@ -58,6 +66,17 @@ This document defines the four specialized agents for the OwnTracks Django backe
 - Validate input and raise informative exceptions
 - Use type hints for all public APIs
 - Use `uv` for dependency management
+
+**HTTP Status Codes**:
+- MUST use `rest_framework.status` constants instead of hardcoded numbers
+- Import: `from rest_framework import status`
+- Examples:
+  - ✅ `status.HTTP_200_OK` instead of ❌ `200`
+  - ✅ `status.HTTP_201_CREATED` instead of ❌ `201`
+  - ✅ `status.HTTP_400_BAD_REQUEST` instead of ❌ `400`
+  - ✅ `status.HTTP_404_NOT_FOUND` instead of ❌ `404`
+- Apply to both production code and tests
+- Rationale: Self-documenting, type-safe, prevents typos
 
 **Shell Script Convention**:
 - All shell scripts MUST be created without the `.sh` extension
@@ -155,7 +174,7 @@ This document defines the four specialized agents for the OwnTracks Django backe
 - Use PyHamcrest matchers for expressive assertions
 - Cover all normal use cases with various input sizes
 - Verify percentile calculation accuracy against known values
-- Achieve 100% code coverage
+- **Achieve minimum 90% code coverage** (verified with `uv run pytest --cov=tracker --cov-fail-under=90`)
 - Document test scenarios clearly
 
 **Mandatory Testing Approach**:
@@ -168,7 +187,7 @@ This document defines the four specialized agents for the OwnTracks Django backe
 
 **Quality Gates**:
 - [ ] All traditional unit tests pass
-- [ ] 90+% code coverage achieved
+- [ ] **90% minimum code coverage achieved** (run `uv run pytest --cov=tracker --cov-fail-under=90`)
 - [ ] **VS Code Problems panel is clear** (no errors in test files)
 - [ ] **Tests run without warnings** (no PytestWarnings or configuration issues)
 - [ ] **CI/CD pipeline passes** (GitHub Actions workflow at `.github/workflows/pr-validation.yml`)
