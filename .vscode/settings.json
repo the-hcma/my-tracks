@@ -15,7 +15,14 @@
   "terminal.integrated.tabs.hideCondition": "never",
   
   // Python-specific settings
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python3",
   "python.analysis.typeCheckingMode": "basic",
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}/.venv/lib/python3.12/site-packages"
+  ],
+  "python.analysis.diagnosticSeverityOverrides": {
+    "reportAttributeAccessIssue": "none"
+  },
   "[python]": {
     "editor.formatOnSave": true,
     "editor.defaultFormatter": "ms-python.black-formatter"

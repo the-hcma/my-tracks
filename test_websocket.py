@@ -27,6 +27,7 @@ class TestLocationConsumer:
         
         # Simulate a location update being broadcast
         channel_layer = get_channel_layer()
+        assert channel_layer is not None  # Type guard for Pylance
         test_location = {
             'latitude': '37.774900',
             'longitude': '-122.419400',

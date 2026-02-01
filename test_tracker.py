@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from rest_framework import status
 from rest_framework.test import APIClient
+from rest_framework.response import Response
 from tracker.models import Device, Location
 
 
