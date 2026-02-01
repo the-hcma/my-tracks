@@ -124,12 +124,12 @@ if [ "$LOG_TO_CONSOLE" = true ]; then
     echo ""
     echo "Press CTRL-C to stop the server"
     echo ""
-    daphne -b 0.0.0.0 -p 8080 mytracks.asgi:application
+    daphne -b 0.0.0.0 -p 8080 --verbosity 0 mytracks.asgi:application
 else
     echo "📄 Logging to: $LOG_FILE"
     echo "💡 Tip: Use --console flag to log to console instead"
     echo ""
     echo "Press CTRL-C to stop the server"
     echo ""
-    daphne -b 0.0.0.0 -p 8080 mytracks.asgi:application >> "$LOG_FILE" 2>&1
+    daphne -b 0.0.0.0 -p 8080 --verbosity 0 mytracks.asgi:application >> "$LOG_FILE" 2>&1
 fi
