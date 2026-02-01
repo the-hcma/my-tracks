@@ -94,14 +94,40 @@ test_console_flag() {
 }
 
 test_file_logging() {
-    echo -n "Test: File logging creates timestamped log... "
-    if timeout 2 $SCRIPT 2>&1 | grep -q "Logging to: logs/my-tracks-"; then
+    echo -n "Test: File logging uses fixed log name... "
+    if timeout 2 $SCRIPT 2>&1 | grep -q "Logging to: logs/my-tracks.log"; then
         echo -e "${GREEN}✓ PASS${NC}"
         ((TESTS_PASSED++))
     else
         echo -e "${RED}✗ FAIL${NC}"
         ((TESTS_FAILED++))
     fi
+}
+
+test_log_rotation() {
+    echo -n "Test: Log rotation works... "
+    
+    # Clean up any existing logs
+    rm -f logs/my-tracks.log*
+    
+    # Create a test log file
+    mkdir -p logs
+    echo "test log 1" > logs/my-tracks.log
+    
+    # Start server briefly to trigger rotation
+    timeout 1 $SCRIPT 2>&1 > /dev/null || true
+    
+    # Check that old log was rotated to .1
+    if [ -f "logs/my-tracks.log.1" ] && [ -f "logs/my-tracks.log" ]; then
+        echo -e "${GREEN}✓ PASS${NC}"
+        ((TESTS_PASSED++))
+    else
+        echo -e "${RED}✗ FAIL${NC}"
+        ((TESTS_FAILED++))
+    fi
+    
+    # Clean up test logs
+    rm -f logs/my-tracks.log*
 }
 
 test_shellcheck_passes() {
@@ -133,6 +159,7 @@ test_invalid_argument
 test_valid_log_levels
 test_console_flag
 test_file_logging
+test_log_rotation
 test_shellcheck_passes
 
 echo ""

@@ -99,14 +99,15 @@ This document defines the four specialized agents for the OwnTracks Django backe
 - Default log level: `warning` (balances information with noise reduction)
 - Logs MUST go to a file by default (in `logs/` directory)
 - Provide `--console` flag to output logs to console instead
-- Log files MUST include timestamp: `logs/my-tracks-YYYYMMDD-HHMMSS.log`
+- Log files use fixed name: `logs/my-tracks.log` with automatic rotation
+- Keep last 5 log files: `my-tracks.log.1` through `my-tracks.log.5`
 - Always show log destination on startup
 - Examples:
-  - ✅ `./start-server` (warning level, file logging)
+  - ✅ `./start-server` (warning level, file logging to logs/my-tracks.log)
   - ✅ `./start-server --log-level debug` (debug level, file logging)
   - ✅ `./start-server --console` (warning level, console output)
   - ✅ `./start-server --log-level info --console` (info level, console output)
-- Rationale: Consistent debugging experience, production-ready defaults, preserves logs for analysis
+- Rationale: Consistent debugging experience, production-ready defaults, preserves logs for analysis, automatic cleanup
 
 **Shell Script Quality**:
 - All shell scripts MUST pass shellcheck linting (install via `brew install shellcheck`)

@@ -79,7 +79,25 @@ fi
 # Create logs directory if logging to file
 if [ "$LOG_TO_CONSOLE" = false ]; then
     mkdir -p logs
-    LOG_FILE="logs/my-tracks-$(date +%Y%m%d-%H%M%S).log"
+    
+    # Rotate logs: keep last 5 files
+    LOG_FILE="logs/my-tracks.log"
+    
+    if [ -f "$LOG_FILE" ]; then
+        # Rotate existing logs
+        # Remove oldest log if we already have 5
+        [ -f "logs/my-tracks.log.5" ] && rm -f "logs/my-tracks.log.5"
+        
+        # Shift logs: .4 -> .5, .3 -> .4, etc.
+        for i in 4 3 2 1; do
+            if [ -f "logs/my-tracks.log.$i" ]; then
+                mv "logs/my-tracks.log.$i" "logs/my-tracks.log.$((i + 1))"
+            fi
+        done
+        
+        # Move current log to .1
+        mv "$LOG_FILE" "logs/my-tracks.log.1"
+    fi
 fi
 
 # Export Django logging configuration

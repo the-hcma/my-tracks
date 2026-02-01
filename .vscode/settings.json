@@ -9,6 +9,11 @@
   // Don't prompt for external changes, just reload
   "git.autoStash": true,
   
+  // Terminal settings to prevent spawning too many terminals
+  "terminal.integrated.enablePersistentSessions": false,
+  "terminal.integrated.hideOnStartup": "always",
+  "terminal.integrated.tabs.hideCondition": "never",
+  
   // Python-specific settings
   "python.analysis.typeCheckingMode": "basic",
   "[python]": {
