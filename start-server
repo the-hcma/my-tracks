@@ -21,8 +21,32 @@
 
 set -e
 
-# Trap CTRL-C to exit cleanly
-trap 'echo -e "\n\n👋 Server stopped"; exit 0' INT TERM
+# Server process PID (set when daphne starts)
+SERVER_PID=""
+
+# Cleanup function to stop the server
+cleanup() {
+    echo -e "\n\n👋 Stopping server..."
+    if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
+        kill "$SERVER_PID" 2>/dev/null || true
+        # Wait for process to terminate (max 5 seconds)
+        for i in {1..10}; do
+            if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+                break
+            fi
+            sleep 0.5
+        done
+        # Force kill if still running
+        if kill -0 "$SERVER_PID" 2>/dev/null; then
+            kill -9 "$SERVER_PID" 2>/dev/null || true
+        fi
+    fi
+    echo "👋 Server stopped"
+    exit 0
+}
+
+# Trap CTRL-C and TERM to exit cleanly
+trap cleanup INT TERM
 
 # Default values
 PORT=8080
@@ -194,12 +218,16 @@ if [ "$LOG_TO_CONSOLE" = true ]; then
     echo ""
     echo "Press CTRL-C to stop the server"
     echo ""
-    daphne -b 0.0.0.0 -p "$PORT" --verbosity 0 mytracks.asgi:application
+    daphne -b 0.0.0.0 -p "$PORT" --verbosity 0 mytracks.asgi:application &
+    SERVER_PID=$!
+    wait $SERVER_PID
 else
     echo "📄 Logging to: $LOG_FILE"
     echo "💡 Tip: Use --console flag to log to console instead"
     echo ""
     echo "Press CTRL-C to stop the server"
     echo ""
-    daphne -b 0.0.0.0 -p "$PORT" --verbosity 0 mytracks.asgi:application >> "$LOG_FILE" 2>&1
+    daphne -b 0.0.0.0 -p "$PORT" --verbosity 0 mytracks.asgi:application >> "$LOG_FILE" 2>&1 &
+    SERVER_PID=$!
+    wait $SERVER_PID
 fi
