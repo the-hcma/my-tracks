@@ -3,7 +3,7 @@ name = "my-tracks"
 version = "0.1.0"
 description = "Django backend server for OwnTracks Android app"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
     "django>=5.0,<6.0",
     "djangorestframework>=3.14.0",

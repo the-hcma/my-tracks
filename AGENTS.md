@@ -6,6 +6,8 @@ This document defines the four specialized agents for the OwnTracks Django backe
 
 **Package Manager**: This project uses `uv` as the Python package manager for fast, reliable dependency management.
 
+**Python Version Policy**: Always use the latest stable Python version available via Homebrew. Currently Python 3.14.x is the latest stable release. The project requires Python 3.12+ as minimum, but should be developed and tested with the latest version to ensure compatibility and access to latest features.
+
 ## Workflow Requirements
 
 **CRITICAL**: All changes MUST go through pull requests - direct pushes to main are blocked by branch protection.
@@ -49,7 +51,11 @@ This document defines the four specialized agents for the OwnTracks Django backe
 - ✅ **90% minimum code coverage** (`uv run pytest --cov=tracker --cov-fail-under=90`)
 - ✅ No pytest warnings
 - ✅ VS Code Problems panel clear
-- ✅ CI/CD pipeline passes (GitHub Actions)
+- ✅ **CI/CD pipeline passes** (GitHub Actions at `.github/workflows/pr-validation.yml`)
+  - Verifies Python 3.14 is used (latest stable)
+  - Runs all tests with coverage check
+  - Validates shell scripts with shellcheck
+  - Checks for pending migrations
 
 **After PR is merged**:
 1. Switch to main branch: `git checkout main`

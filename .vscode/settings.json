@@ -15,9 +15,12 @@
   "terminal.integrated.tabs.hideCondition": "never",
   
   // Python-specific settings
-  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python3",
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
   "[python]": {
     "editor.formatOnSave": true,
     "editor.defaultFormatter": "ms-python.black-formatter"
+  },
+  "chat.tools.terminal.autoApprove": {
+    "uv": true
   }
 }

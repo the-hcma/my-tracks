@@ -4,7 +4,7 @@
   "reportMissingImports": true,
   "reportMissingTypeStubs": false,
   "reportAttributeAccessIssue": "none",
-  "pythonVersion": "3.12",
+  "pythonVersion": "3.14",
   "pythonPlatform": "Darwin",
   "typeCheckingMode": "basic"
 }
