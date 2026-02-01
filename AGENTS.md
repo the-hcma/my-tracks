@@ -8,7 +8,9 @@ This document defines the four specialized agents for the OwnTracks Django backe
 
 ## Workflow Requirements
 
-**CRITICAL**: Before creating any pull request, the following workflow MUST be completed:
+**CRITICAL**: All changes MUST go through pull requests - direct pushes to main are blocked by branch protection.
+
+**Before creating any pull request**, the following workflow MUST be completed:
 
 1. **Implementation Agent** completes the code changes
 2. **Primary Critique Agent (Claude)** reviews the implementation
@@ -18,13 +20,24 @@ This document defines the four specialized agents for the OwnTracks Django backe
 
 **Only after all review agents have completed their analysis and approved the changes** should a pull request be created. This ensures code quality, correctness, and adherence to project standards before submission.
 
+**After PR is merged**:
+1. Switch to main branch: `git checkout main`
+2. Pull latest changes: `git pull origin main`
+3. Apply any pending migrations: `uv run python manage.py migrate`
+4. Restart the server: `./start_server`
+
 ### Pull Request Requirements
 
-When creating or updating a pull request:
-- **PR title must accurately reflect all changes** in the PR
-- **PR description must document all changes**, not just the initial ones
-- If additional commits are added to a PR branch, review and update the PR title/description to encompass all changes
-- Ensure the PR description includes comprehensive review completion status for all changes
+**Single Responsibility Principle**:
+- Each PR must address **one single concern** (one feature, one bug fix, one refactor, etc.)
+- DO NOT mix unrelated changes in the same PR (e.g., documentation + bug fixes)
+- If you discover additional issues while working on a PR, create separate PRs for them
+
+**PR Title and Description**:
+- **PR title must accurately reflect the single concern** being addressed
+- **PR description must document only changes related to that concern**
+- Title and description must always match the actual changes in the PR
+- If you realize the PR is addressing multiple concerns, split it into separate PRs
 
 ## Agent 1: Implementation Agent
 
