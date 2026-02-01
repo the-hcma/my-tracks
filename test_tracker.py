@@ -12,6 +12,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 from rest_framework.response import Response
 from tracker.models import Device, Location
+from hamcrest import assert_that, equal_to, is_not, none, contains_string, has_key, has_length, greater_than_or_equal_to, all_of
 
 
 @pytest.fixture
@@ -55,10 +56,10 @@ class TestDeviceModel:
             device_id='DEV001',
             name='My Phone'
         )
-        assert device.device_id == 'DEV001'
-        assert device.name == 'My Phone'
-        assert device.created_at is not None
-        assert device.last_seen is not None
+        assert_that(device.device_id, equal_to('DEV001'))
+        assert_that(device.name, equal_to('My Phone'))
+        assert_that(device.created_at, is_not(none()))
+        assert_that(device.last_seen, is_not(none()))
     
     def test_device_str_representation(self) -> None:
         """Test string representation of device."""
@@ -66,12 +67,12 @@ class TestDeviceModel:
             device_id='DEV002',
             name='Test Device'
         )
-        assert str(device) == 'Test Device (DEV002)'
+        assert_that(str(device), equal_to('Test Device (DEV002)'))
     
     def test_device_str_without_name(self) -> None:
         """Test string representation when name is empty."""
         device = Device.objects.create(device_id='DEV003')
-        assert str(device) == 'DEV003'
+        assert_that(str(device), equal_to('DEV003'))
     
     def test_device_unique_constraint(self) -> None:
         """Test that device_id must be unique."""
@@ -95,19 +96,19 @@ class TestLocationModel:
             accuracy=15,
             battery_level=90
         )
-        assert location.device == sample_device
-        assert location.latitude == Decimal('40.7128')
-        assert location.longitude == Decimal('-74.0060')
-        assert location.timestamp == timestamp
-        assert location.accuracy == 15
-        assert location.battery_level == 90
+        assert_that(location.device, equal_to(sample_device))
+        assert_that(location.latitude, equal_to(Decimal('40.7128')))
+        assert_that(location.longitude, equal_to(Decimal('-74.0060')))
+        assert_that(location.timestamp, equal_to(timestamp))
+        assert_that(location.accuracy, equal_to(15))
+        assert_that(location.battery_level, equal_to(90))
     
     def test_location_str_representation(self, sample_location: Location) -> None:
         """Test string representation of location."""
         result = str(sample_location)
-        assert 'TEST01' in result
-        assert '37.7749' in result
-        assert '-122.4194' in result
+        assert_that(result, contains_string('TEST01'))
+        assert_that(result, contains_string('37.7749'))
+        assert_that(result, contains_string('-122.4194'))
 
 
 @pytest.mark.django_db
@@ -135,19 +136,19 @@ class TestLocationAPI:
             format='json'
         )
         
-        assert response.status_code == status.HTTP_200_OK
-        assert response.data == []
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        assert_that(response.data, equal_to([]))
         
         # Verify device was created
         device = Device.objects.get(device_id='AB')
-        assert device is not None
+        assert_that(device, is_not(none()))
         
         # Verify location was created
         location = Location.objects.get(device=device)
-        assert location.latitude == Decimal('37.7749')
-        assert location.longitude == Decimal('-122.4194')
-        assert location.accuracy == 10
-        assert location.battery_level == 85
+        assert_that(location.latitude, equal_to(Decimal('37.7749')))
+        assert_that(location.longitude, equal_to(Decimal('-122.4194')))
+        assert_that(location.accuracy, equal_to(10))
+        assert_that(location.battery_level, equal_to(85))
     
     def test_create_location_minimal_payload(self, api_client: APIClient) -> None:
         """Test creating location with minimal required fields."""
@@ -164,8 +165,8 @@ class TestLocationAPI:
             format='json'
         )
         
-        assert response.status_code == status.HTTP_200_OK
-        assert response.data == []
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        assert_that(response.data, equal_to([]))
     
     def test_create_location_invalid_latitude(self, api_client: APIClient) -> None:
         """Test that invalid latitude is rejected."""
@@ -182,8 +183,8 @@ class TestLocationAPI:
             format='json'
         )
         
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert 'latitude' in str(response.data).lower()
+        assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
+        assert_that(str(response.data).lower(), contains_string('latitude'))
     
     def test_create_location_invalid_longitude(self, api_client: APIClient) -> None:
         """Test that invalid longitude is rejected."""
@@ -200,8 +201,8 @@ class TestLocationAPI:
             format='json'
         )
         
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert 'longitude' in str(response.data).lower()
+        assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
+        assert_that(str(response.data).lower(), contains_string('longitude'))
     
     def test_create_location_invalid_battery(self, api_client: APIClient) -> None:
         """Test that invalid battery level is rejected."""
@@ -219,8 +220,8 @@ class TestLocationAPI:
             format='json'
         )
         
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert 'battery' in str(response.data).lower()
+        assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
+        assert_that(str(response.data).lower(), contains_string('battery'))
     
     def test_non_location_message(self, api_client: APIClient) -> None:
         """Test handling of non-location OwnTracks messages (status, waypoint, etc)."""
@@ -238,22 +239,22 @@ class TestLocationAPI:
             format='json'
         )
         
-        assert response.status_code == status.HTTP_200_OK
-        assert response.data == []
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        assert_that(response.data, equal_to([]))
         
         # Verify message was stored
         message = OwnTracksMessage.objects.get(message_type='status')
-        assert message.payload['_type'] == 'status'
-        assert message.device is not None
-        assert message.device.device_id == 'XY'
+        assert_that(message.payload['_type'], equal_to('status'))
+        assert_that(message.device, is_not(none()))
+        assert_that(message.device.device_id, equal_to('XY'))
     
     def test_list_locations(self, api_client: APIClient, sample_location: Location) -> None:
         """Test listing locations."""
         response = api_client.get('/api/locations/')
         
-        assert response.status_code == status.HTTP_200_OK
-        assert 'results' in response.data
-        assert len(response.data['results']) >= 1
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        assert_that(response.data, has_key('results'))
+        assert_that(response.data['results'], has_length(greater_than_or_equal_to(1)))
     
     def test_filter_locations_by_device(
         self,
@@ -282,9 +283,10 @@ class TestLocationAPI:
             {'device': 'TEST01'}
         )
         
-        assert response.status_code == status.HTTP_200_OK
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
         results = response.data['results']
-        assert all(loc['device'] == sample_device.id for loc in results)
+        for loc in results:
+            assert_that(loc['device'], equal_to(sample_device.id))
     
     def test_filter_locations_by_date_range(
         self,
@@ -321,8 +323,8 @@ class TestLocationAPI:
             {'start_date': start_date}
         )
         
-        assert response.status_code == status.HTTP_200_OK
-        assert len(response.data['results']) == 2
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        assert_that(response.data['results'], has_length(2))
 
 
 @pytest.mark.django_db
@@ -333,17 +335,17 @@ class TestDeviceAPI:
         """Test listing devices."""
         response = api_client.get('/api/devices/')
         
-        assert response.status_code == status.HTTP_200_OK
-        assert 'results' in response.data
-        assert len(response.data['results']) >= 1
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        assert_that(response.data, has_key('results'))
+        assert_that(response.data['results'], has_length(greater_than_or_equal_to(1)))
     
     def test_get_device_detail(self, api_client: APIClient, sample_device: Device) -> None:
         """Test retrieving device details."""
         response = api_client.get(f'/api/devices/{sample_device.device_id}/')
         
-        assert response.status_code == status.HTTP_200_OK
-        assert response.data['device_id'] == 'TEST01'
-        assert response.data['name'] == 'Test Device'
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        assert_that(response.data['device_id'], equal_to('TEST01'))
+        assert_that(response.data['name'], equal_to('Test Device'))
     
     def test_get_device_locations(
         self,
@@ -356,6 +358,6 @@ class TestDeviceAPI:
             f'/api/devices/{sample_device.device_id}/locations/'
         )
         
-        assert response.status_code == status.HTTP_200_OK
-        assert 'results' in response.data
-        assert len(response.data['results']) >= 1
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        assert_that(response.data, has_key('results'))
+        assert_that(response.data['results'], has_length(greater_than_or_equal_to(1)))

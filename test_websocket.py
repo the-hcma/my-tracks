@@ -6,6 +6,7 @@ from channels.testing import WebsocketCommunicator
 from channels.layers import get_channel_layer
 from mytracks.asgi import application
 import json
+from hamcrest import assert_that, equal_to, is_not, none
 
 
 @pytest.mark.django_db
@@ -17,7 +18,7 @@ class TestLocationConsumer:
         """Test that clients can connect to the WebSocket."""
         communicator = WebsocketCommunicator(application, "/ws/locations/")
         connected, _ = await communicator.connect()
-        assert connected
+        assert_that(connected, equal_to(True))
         await communicator.disconnect()
     
     async def test_location_broadcast(self):
@@ -27,7 +28,7 @@ class TestLocationConsumer:
         
         # Simulate a location update being broadcast
         channel_layer = get_channel_layer()
-        assert channel_layer is not None  # Type guard for Pylance
+        assert_that(channel_layer, is_not(none()))  # Type guard for Pylance
         test_location = {
             'latitude': '37.774900',
             'longitude': '-122.419400',
@@ -46,8 +47,8 @@ class TestLocationConsumer:
         # Receive the message from WebSocket
         response = await communicator.receive_json_from()
         
-        assert response['type'] == 'location'
-        assert response['data'] == test_location
+        assert_that(response['type'], equal_to('location'))
+        assert_that(response['data'], equal_to(test_location))
         
         await communicator.disconnect()
     
