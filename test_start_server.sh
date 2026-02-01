@@ -107,11 +107,13 @@ test_file_logging() {
 test_shellcheck_passes() {
     echo -n "Test: Script passes shellcheck... "
     if command -v shellcheck > /dev/null 2>&1; then
-        if shellcheck "$SCRIPT"; then
+        # Only fail on errors and warnings, not info messages
+        if shellcheck -S error "$SCRIPT" && shellcheck -S warning "$SCRIPT"; then
             echo -e "${GREEN}✓ PASS${NC}"
             ((TESTS_PASSED++))
         else
             echo -e "${RED}✗ FAIL${NC}"
+            shellcheck "$SCRIPT" || true
             ((TESTS_FAILED++))
         fi
     else

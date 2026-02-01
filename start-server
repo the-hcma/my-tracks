@@ -68,6 +68,7 @@ fi
 
 # Activate virtual environment
 if [ -d ".venv" ]; then
+    # shellcheck source=/dev/null
     source .venv/bin/activate
 else
     echo "❌ Error: Virtual environment not found."
