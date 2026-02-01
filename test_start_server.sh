@@ -132,18 +132,37 @@ test_log_rotation() {
 
 test_shellcheck_passes() {
     echo -n "Test: Script passes shellcheck... "
-    if command -v shellcheck > /dev/null 2>&1; then
-        # Only fail on errors and warnings, not info messages
-        if shellcheck -S error "$SCRIPT" && shellcheck -S warning "$SCRIPT"; then
-            echo -e "${GREEN}✓ PASS${NC}"
-            ((TESTS_PASSED++))
+    
+    # Check if shellcheck is installed
+    if ! command -v shellcheck > /dev/null 2>&1; then
+        echo ""
+        echo "❌ shellcheck not found. Attempting to install..."
+        
+        # Try to install via brew (macOS)
+        if command -v brew > /dev/null 2>&1; then
+            if brew install shellcheck; then
+                echo "✅ Successfully installed shellcheck via brew"
+            else
+                echo -e "${RED}✗ FAIL - Could not install shellcheck via brew${NC}"
+                ((TESTS_FAILED++))
+                return
+            fi
         else
-            echo -e "${RED}✗ FAIL${NC}"
-            shellcheck "$SCRIPT" || true
+            echo -e "${RED}✗ FAIL - brew not found, cannot install shellcheck${NC}"
+            echo "Please install shellcheck manually: https://www.shellcheck.net/"
             ((TESTS_FAILED++))
+            return
         fi
+    fi
+    
+    # Run shellcheck (only fail on errors and warnings, not info messages)
+    if shellcheck -S error "$SCRIPT" && shellcheck -S warning "$SCRIPT"; then
+        echo -e "${GREEN}✓ PASS${NC}"
+        ((TESTS_PASSED++))
     else
-        echo -e "${GREEN}⊘ SKIP (shellcheck not installed)${NC}"
+        echo -e "${RED}✗ FAIL${NC}"
+        shellcheck "$SCRIPT" || true
+        ((TESTS_FAILED++))
     fi
 }
 

@@ -462,6 +462,67 @@ def home(request):
             document.getElementById('log-count').textContent = eventCount + ' event' + (eventCount !== 1 ? 's' : '');
         }}
         
+        // WebSocket connection for real-time updates
+        let ws = null;
+        let wsReconnectAttempts = 0;
+        const maxReconnectAttempts = 5;
+        const reconnectDelay = 3000;
+        
+        function connectWebSocket() {{
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${{protocol}}//${{window.location.host}}/ws/locations/`;
+            
+            console.log('Connecting to WebSocket:', wsUrl);
+            
+            try {{
+                ws = new WebSocket(wsUrl);
+                
+                ws.onopen = () => {{
+                    console.log('WebSocket connected');
+                    wsReconnectAttempts = 0;
+                }};
+                
+                ws.onmessage = (event) => {{
+                    try {{
+                        const message = JSON.parse(event.data);
+                        console.log('WebSocket message received:', message);
+                        
+                        if (message.type === 'location' && message.data) {{
+                            addLogEntry(message.data);
+                        }}
+                    }} catch (error) {{
+                        console.error('Error parsing WebSocket message:', error);
+                    }}
+                }};
+                
+                ws.onerror = (error) => {{
+                    console.error('WebSocket error:', error);
+                }};
+                
+                ws.onclose = () => {{
+                    console.log('WebSocket disconnected');
+                    ws = null;
+                    
+                    // Try to reconnect with exponential backoff
+                    if (wsReconnectAttempts < maxReconnectAttempts) {{
+                        wsReconnectAttempts++;
+                        const delay = reconnectDelay * Math.pow(2, wsReconnectAttempts - 1);
+                        console.log(`Reconnecting in ${{delay}}ms (attempt ${{wsReconnectAttempts}})...`);
+                        setTimeout(connectWebSocket, delay);
+                    }} else {{
+                        console.warn('Max reconnection attempts reached, falling back to polling');
+                        startPolling();
+                    }}
+                }};
+            }} catch (error) {{
+                console.error('Failed to create WebSocket:', error);
+                startPolling();
+            }}
+        }}
+        
+        // Fallback polling for when WebSocket is not available
+        let pollingInterval = null;
+        
         async function fetchLocations() {{
             try {{
                 let url = '/api/locations/?ordering=-timestamp&limit=20';
@@ -491,11 +552,19 @@ def home(request):
             }}
         }}
         
-        // Initial fetch
+        function startPolling() {{
+            if (!pollingInterval) {{
+                console.log('Starting polling fallback');
+                fetchLocations(); // Initial fetch
+                pollingInterval = setInterval(fetchLocations, 2000);
+            }}
+        }}
+        
+        // Initial fetch for historical data
         fetchLocations();
         
-        // Poll every 2 seconds
-        setInterval(fetchLocations, 2000);
+        // Start WebSocket connection for real-time updates
+        connectWebSocket();
     </script>
 </body>
 </html>

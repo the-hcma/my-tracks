@@ -13,6 +13,8 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from typing import Any
 from datetime import datetime
+from asgiref.sync import async_to_sync
+from channels.layers import get_channel_layer
 import logging
 from .models import Device, Location, OwnTracksMessage
 from .serializers import DeviceSerializer, LocationSerializer
@@ -104,6 +106,18 @@ class LocationViewSet(viewsets.ModelViewSet):
             logger.error(f"Validation errors: {serializer.errors}")
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
+        
+        # Broadcast new location via WebSocket
+        location_data = serializer.data
+        channel_layer = get_channel_layer()
+        if channel_layer:
+            async_to_sync(channel_layer.group_send)(
+                "locations",
+                {
+                    "type": "location_update",
+                    "data": location_data
+                }
+            )
         
         # OwnTracks expects an empty JSON array response
         return Response([], status=status.HTTP_200_OK)

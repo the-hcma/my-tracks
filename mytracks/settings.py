@@ -32,6 +32,7 @@ ALLOWED_HOSTS: List[str] = ['*']
 # Application definition
 
 INSTALLED_APPS: List[str] = [
+    'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -39,6 +40,7 @@ INSTALLED_APPS: List[str] = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
+    'channels',
     'tracker.apps.TrackerConfig',
 ]
 
@@ -71,6 +73,7 @@ TEMPLATES: List[dict] = [
 ]
 
 WSGI_APPLICATION: str = 'mytracks.wsgi.application'
+ASGI_APPLICATION: str = 'mytracks.asgi.application'
 
 
 # Database
@@ -176,3 +179,10 @@ CSRF_TRUSTED_ORIGINS: List[str] = config(
     default='',
     cast=lambda v: [s.strip() for s in v.split(',') if s.strip()]
 )
+
+# Channels configuration
+CHANNEL_LAYERS: dict = {
+    'default': {
+        'BACKEND': 'channels.layers.InMemoryChannelLayer',
+    }
+}

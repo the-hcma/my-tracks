@@ -10,6 +10,8 @@ dependencies = [
     "python-decouple>=3.8",
     "psycopg2-binary>=2.9.9",
     "gunicorn>=21.2.0",
+    "channels>=4.0.0",
+    "daphne>=4.0.0",
 ]
 
 [project.optional-dependencies]
@@ -17,6 +19,7 @@ dev = [
     "pytest>=7.4.0",
     "pytest-django>=4.5.0",
     "pytest-cov>=4.1.0",
+    "pytest-asyncio>=0.21.0",
     "flake8>=6.1.0",
     "black>=23.7.0",
     "mypy>=1.5.0",
@@ -34,6 +37,8 @@ packages = ["mytracks", "tracker"]
 DJANGO_SETTINGS_MODULE = "mytracks.settings"
 python_files = ["test_*.py", "*_test.py"]
 addopts = "-v --cov=tracker --cov-report=term-missing"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 
 [tool.black]
 line-length = 88
