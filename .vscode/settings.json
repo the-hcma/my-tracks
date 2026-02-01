@@ -27,6 +27,7 @@
   "chat.tools.terminal.autoApprove": {
     "uv": true,
     "git checkout": true,
-    "git pull": true
+    "git pull": true,
+    "shellcheck": true
   }
 }

@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 
 from pathlib import Path
 from typing import List
+
 from decouple import config
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -146,6 +147,7 @@ REST_FRAMEWORK: dict = {
 
 # Logging configuration
 import logging
+import time
 
 # Add custom TRACE level (below DEBUG)
 TRACE_LEVEL = 5
@@ -166,6 +168,20 @@ class HealthCheckFilter(logging.Filter):
             record.levelname = 'TRACE'
         return True
 
+# Custom formatter that uses local time instead of UTC
+class LocalTimeFormatter(logging.Formatter):
+    def formatTime(self, record, datefmt=None):
+        """Override formatTime to use local time instead of UTC."""
+        ct = self.converter(record.created)
+        if datefmt:
+            s = time.strftime(datefmt, ct)
+        else:
+            s = time.strftime("%Y-%m-%d %H:%M:%S", ct)
+            s = "%s,%03d" % (s, record.msecs)
+        return s
+    
+    converter = time.localtime  # Use local time instead of gmtime
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -176,6 +192,7 @@ LOGGING = {
     },
     'formatters': {
         'verbose': {
+            '()': 'mytracks.settings.LocalTimeFormatter',
             'format': '%(asctime)s.%(msecs)03d %(levelname)-7s %(module)s %(message)s',
             'datefmt': '%Y%m%d-%H:%M:%S',
         },

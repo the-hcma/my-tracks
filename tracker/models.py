@@ -4,20 +4,21 @@ Database models for OwnTracks location tracking.
 This module defines the data models for storing device information
 and location data from OwnTracks clients.
 """
+from dataclasses import dataclass
+from typing import Optional
+
 from django.db import models
 from django.utils import timezone
-from typing import Optional
-from dataclasses import dataclass
 
 
 class Device(models.Model):
     """
     Represents a device (phone/tablet) running OwnTracks.
-    
+
     Each device is uniquely identified by its device_id, which is sent
     by the OwnTracks client in location updates.
     """
-    
+
     device_id = models.CharField(
         max_length=100,
         unique=True,
@@ -37,12 +38,12 @@ class Device(models.Model):
         auto_now=True,
         help_text="Last time location data was received from this device"
     )
-    
+
     class Meta:
         ordering = ['-last_seen']
         verbose_name = 'Device'
         verbose_name_plural = 'Devices'
-    
+
     def __str__(self) -> str:
         """Return string representation of the device."""
         if self.name:
@@ -53,34 +54,34 @@ class Device(models.Model):
 class Location(models.Model):
     """
     Represents a single location data point from OwnTracks.
-    
+
     Stores comprehensive location information including coordinates,
     accuracy, altitude, velocity, battery level, and connection type.
     """
-    
+
     device = models.ForeignKey(
         Device,
         on_delete=models.CASCADE,
         related_name='locations',
         help_text="The device that reported this location"
     )
-    
+
     # Core location data (required fields)
     latitude = models.DecimalField(
-        max_digits=10,
-        decimal_places=7,
+        max_digits=15,
+        decimal_places=10,
         help_text="Latitude in decimal degrees (-90 to +90)"
     )
     longitude = models.DecimalField(
-        max_digits=10,
-        decimal_places=7,
+        max_digits=15,
+        decimal_places=10,
         help_text="Longitude in decimal degrees (-180 to +180)"
     )
     timestamp = models.DateTimeField(
         db_index=True,
         help_text="Unix timestamp when location was recorded (from 'tst' field)"
     )
-    
+
     # Optional location metadata
     accuracy = models.IntegerField(
         null=True,
@@ -102,14 +103,14 @@ class Location(models.Model):
         blank=True,
         help_text="Battery percentage 0-100 (from 'batt' field)"
     )
-    
+
     # Connection type: w=WiFi, o=Offline, m=Mobile
     connection_type = models.CharField(
         max_length=1,
         blank=True,
         help_text="Connection type (from 'conn' field): w=WiFi, o=Offline, m=Mobile"
     )
-    
+
     # Tracker ID (2-character display code from OwnTracks)
     tracker_id = models.CharField(
         max_length=10,
@@ -117,20 +118,20 @@ class Location(models.Model):
         default='',
         help_text="OwnTracks tracker ID (from 'tid' field)"
     )
-    
+
     # Client information
     ip_address = models.GenericIPAddressField(
         null=True,
         blank=True,
         help_text="IP address of the client that submitted this location"
     )
-    
+
     # Tracking metadata
     received_at = models.DateTimeField(
         auto_now_add=True,
         help_text="When the server received this location data"
     )
-    
+
     class Meta:
         ordering = ['-timestamp']
         verbose_name = 'Location'
@@ -139,7 +140,7 @@ class Location(models.Model):
             models.Index(fields=['device', '-timestamp']),
             models.Index(fields=['-timestamp']),
         ]
-    
+
     def __str__(self) -> str:
         """Return string representation of the location."""
         return f"{self.device.device_id} @ ({self.latitude}, {self.longitude}) on {self.timestamp}"
@@ -148,11 +149,11 @@ class Location(models.Model):
 class OwnTracksMessage(models.Model):
     """
     Stores all OwnTracks message types (status, lwt, transition, etc.).
-    
+
     This model captures non-location messages from OwnTracks clients,
     storing the complete message payload for debugging and analysis.
     """
-    
+
     device = models.ForeignKey(
         Device,
         on_delete=models.CASCADE,
@@ -161,29 +162,29 @@ class OwnTracksMessage(models.Model):
         blank=True,
         help_text="The device that sent this message (if identifiable)"
     )
-    
+
     message_type = models.CharField(
         max_length=50,
         db_index=True,
         help_text="Type of OwnTracks message (status, lwt, transition, etc.)"
     )
-    
+
     payload = models.JSONField(
         help_text="Complete message payload as JSON"
     )
-    
+
     ip_address = models.GenericIPAddressField(
         null=True,
         blank=True,
         help_text="IP address of the client that submitted this message"
     )
-    
+
     received_at = models.DateTimeField(
         auto_now_add=True,
         db_index=True,
         help_text="When the server received this message"
     )
-    
+
     class Meta:
         ordering = ['-received_at']
         verbose_name = 'OwnTracks Message'
@@ -192,7 +193,7 @@ class OwnTracksMessage(models.Model):
             models.Index(fields=['device', '-received_at']),
             models.Index(fields=['message_type', '-received_at']),
         ]
-    
+
     def __str__(self) -> str:
         """Return string representation of the message."""
         device_str = self.device.device_id if self.device else 'Unknown'

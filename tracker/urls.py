@@ -1,9 +1,11 @@
 """URL routing for tracker app."""
-from django.urls import path, include
-from rest_framework.routers import DefaultRouter
 from typing import List
+
+from django.urls import include, path
 from django.urls.resolvers import URLPattern, URLResolver
-from .views import LocationViewSet, DeviceViewSet
+from rest_framework.routers import DefaultRouter
+
+from .views import DeviceViewSet, LocationViewSet
 
 router = DefaultRouter()
 router.register(r'locations', LocationViewSet, basename='location')

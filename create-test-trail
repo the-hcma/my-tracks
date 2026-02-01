@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# Create test trail data for visualization testing
+
+set -e
+
+PORT=18080
+BASE_URL="http://localhost:$PORT"
+DEVICE_ID="TESTDEVICE"
+
+echo "Creating test trail for device: $DEVICE_ID"
+echo "Target: $BASE_URL"
+echo ""
+
+# Get current timestamp
+NOW=$(date +%s)
+
+# Create 10 locations spanning 90 minutes
+for i in {1..10}; do
+    # Calculate coordinates (moving northeast) - format to 7 decimal places
+    LAT=$(python3 -c "print(f'{37.7749 + $i * 0.001:.7f}')")
+    LON=$(python3 -c "print(f'{-122.4194 + $i * 0.001:.7f}')")
+    
+    # Calculate timestamp (9 minutes apart, going backwards)
+    OFFSET=$((( 10 - i ) * 540))  # 540 seconds = 9 minutes
+    TST=$(( NOW - OFFSET ))
+    
+    # Create location
+    RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$BASE_URL/api/locations/" \
+        -H "Content-Type: application/json" \
+        -d "{
+            \"_type\": \"location\",
+            \"tid\": \"hc\",
+            \"lat\": $LAT,
+            \"lon\": $LON,
+            \"tst\": $TST,
+            \"topic\": \"owntracks/user/$DEVICE_ID\"
+        }")
+    
+    HTTP_CODE=$(echo "$RESPONSE" | tail -n 1)
+    
+    if [ "$HTTP_CODE" = "201" ]; then
+        MINUTES_AGO=$(( OFFSET / 60 ))
+        echo "✓ Created location $i/10 ($MINUTES_AGO minutes ago)"
+    else
+        echo "✗ Failed to create location $i/10 (HTTP $HTTP_CODE)"
+    fi
+    
+    sleep 0.1
+done
+
+echo ""
+echo "✅ Test trail created!"
+echo ""
+echo "📍 View at: $BASE_URL/"
+echo "   - Select '$DEVICE_ID' from device dropdown"
+echo "   - Adjust time range to 2 hours"
+echo "   - Trail should appear on map"

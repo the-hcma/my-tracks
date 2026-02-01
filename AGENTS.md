@@ -56,7 +56,12 @@ This document defines the four specialized agents for the OwnTracks Django backe
   - Runs all tests with coverage check
   - Validates shell scripts with shellcheck
   - Checks for pending migrations
-
+**Server Management**:
+- ❌ **NEVER start the production server** (`./start-server`) during development or testing
+- ✅ Tests run using Django's test framework (no server needed)
+- ✅ Manual testing should be done by user on their running server
+- ❌ Do not run curl/http commands against port 8080 during automated testing
+- Rationale: Prevents interference with user's running server, avoids port conflicts
 **After PR is merged**:
 1. Switch to main branch: `git checkout main`
 2. Pull latest changes: `git pull origin main`
@@ -158,6 +163,23 @@ This document defines the four specialized agents for the OwnTracks Django backe
 - Example: ✅ "Expected a sequence, got int" ❌ "Invalid input type"
 - Example: ✅ "All values must be numeric (int or float), got str" ❌ "must be numeric"
 
+**Code Formatting Standards**:
+- **Empty lines MUST NOT contain any whitespace** (no trailing spaces or tabs)
+- **Imports MUST be sorted** using isort (PEP 8 import ordering)
+- Import order: standard library, third-party, local application
+- Run `isort .` to automatically sort imports before committing
+- Run `find . -name "*.py" -type f -exec sed -i '' 's/^[[:space:]]*$//' {} +` to remove trailing whitespace
+- Rationale: Consistent code style, reduces git diff noise, improves readability
+
+**Timezone Handling**:
+- **Database MUST store all timestamps in UTC** (`TIME_ZONE = 'UTC'`, `USE_TZ = True`)
+- **Display timestamps in local timezone** for logs and web UI
+- Use Django's timezone-aware datetime objects (`timezone.now()`, `timezone.make_aware()`)
+- Logs: Use `LocalTimeFormatter` to convert UTC to local time in output
+- Web UI: Convert Unix timestamps to local time using JavaScript's `Date` object
+- API: Return `timestamp_unix` (Unix timestamp) for client-side timezone conversion
+- Rationale: Consistent storage in UTC, flexible display in user's timezone, no timezone confusion
+
 ## Agent 2: Critique Agent (Claude)
 
 **Model**: `claude-sonnet-4.5` (see AGENT_MODELS.md)
@@ -192,6 +214,9 @@ This document defines the four specialized agents for the OwnTracks Django backe
 - [ ] Error messages are informative (include both expected and actual values)
 - [ ] Naming conventions followed (values, descriptive mappings)
 - [ ] No dead code (unused methods, variables, imports, or parameters)
+- [ ] **Empty lines have no whitespace** (run `find . -name "*.py" -type f -exec sed -i '' 's/^[[:space:]]*$//' {} +`)
+- [ ] **Imports are sorted** (run `isort .` to fix)
+- [ ] **Timezone handling correct** (database stores UTC, displays show local time)
 - [ ] **VS Code Problems panel is clear** (no import errors, type errors, or linting issues)
 - [ ] **Tests run without warnings** (pytest should produce no warnings)
 - [ ] **CI/CD pipeline passes** (GitHub Actions workflow at `.github/workflows/pr-validation.yml`)
@@ -219,6 +244,9 @@ This document defines the four specialized agents for the OwnTracks Django backe
 - Edge cases from a different angle
 - Look for dead code (unused methods, setup fixtures that never run, unreachable code)
 - Error message quality: ensure exceptions provide context with expected vs actual values
+- **Verify empty lines have no whitespace** (check for trailing spaces)
+- **Verify imports are sorted** (should follow PEP 8 ordering)
+- **Verify timezone handling correct** (database stores UTC, displays show local time)
 - **Verify VS Code Problems panel is clear** (use `get_errors()` tool)
 - **Verify tests run without warnings** (check pytest output for PytestWarnings)
 - **Verify CI/CD pipeline passes** (check GitHub Actions at `.github/workflows/pr-validation.yml`)

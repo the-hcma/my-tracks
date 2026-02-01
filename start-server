@@ -1,31 +1,38 @@
 #!/usr/bin/env bash
 #
-# Start the Django development server on port 8080
+# Start the Django development server
 #
 # Usage:
 #   ./start-server [OPTIONS]
 #
 # Options:
+#   --port PORT          Set server port (default: 8080, testing: 18080)
 #   --log-level LEVEL    Set Django log level (trace, debug, info, warning, error, critical)
 #                        Default: warning
 #   --console            Output logs to console instead of file
 #   -h, --help           Show this help message
 #
 # Examples:
-#   ./start-server                    # Start with default (warning level, file logging)
+#   ./start-server                    # Start with default (port 8080, warning level, file logging)
+#   ./start-server --port 18080       # Start on port 18080 for testing
 #   ./start-server --log-level debug  # Debug level, logs to file
 #   ./start-server --console          # Warning level, logs to console
-#   ./start-server --log-level info --console  # Info level, console output
+#   ./start-server --port 18080 --log-level info --console  # Testing port, info level, console output
 
 set -e
 
 # Default values
+PORT=8080
 LOG_LEVEL="WARNING"
 LOG_TO_CONSOLE=false
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
+        --port)
+            PORT="$2"
+            shift 2
+            ;;
         --log-level)
             LOG_LEVEL=$(echo "$2" | tr '[:lower:]' '[:upper:]')
             shift 2
@@ -46,6 +53,13 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Validate port
+if ! [[ "$PORT" =~ ^[0-9]+$ ]] || [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
+    echo "Error: Invalid port number: $PORT"
+    echo "Port must be a number between 1 and 65535"
+    exit 1
+fi
+
 # Validate log level
 case $LOG_LEVEL in
     TRACE|DEBUG|INFO|WARNING|ERROR|CRITICAL)
@@ -60,6 +74,59 @@ esac
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
+
+# Check if server is already running on this port
+EXISTING_PIDS=$(lsof -ti tcp:"$PORT" 2>/dev/null | tr '\n' ' ' | sed 's/ $//' || true)
+
+if [ -n "$EXISTING_PIDS" ]; then
+    echo "⚠️  Server already running on port $PORT"
+    echo ""
+    
+    # Show all processes using this port
+    for pid in $EXISTING_PIDS; do
+        PROCESS_INFO=$(ps -p "$pid" -o command= 2>/dev/null || echo "unknown process")
+        echo "  PID $pid: $PROCESS_INFO"
+    done
+    echo ""
+    
+    # Ask user what to do
+    read -r -p "Stop all processes on port $PORT and start a new server? [y/N] " response
+    case "$response" in
+        [yY][eE][sS]|[yY])
+            # Stop all processes
+            for pid in $EXISTING_PIDS; do
+                echo "Stopping process $pid..."
+                kill "$pid" 2>/dev/null || true
+            done
+            
+            # Wait for processes to terminate (max 5 seconds)
+            sleep 1
+            for i in {1..10}; do
+                STILL_RUNNING=$(lsof -ti tcp:"$PORT" 2>/dev/null || true)
+                if [ -z "$STILL_RUNNING" ]; then
+                    echo "✅ All processes stopped"
+                    sleep 1  # Give port time to be released
+                    break
+                fi
+                sleep 0.5
+            done
+            
+            # Force kill any remaining processes
+            STILL_RUNNING=$(lsof -ti tcp:"$PORT" 2>/dev/null || true)
+            if [ -n "$STILL_RUNNING" ]; then
+                echo "Some processes still running, forcing termination..."
+                for pid in $STILL_RUNNING; do
+                    kill -9 "$pid" 2>/dev/null || true
+                done
+                sleep 1
+            fi
+            ;;
+        *)
+            echo "Cancelled. Existing server(s) will continue running."
+            exit 0
+            ;;
+    esac
+fi
 
 # Add uv to PATH if it exists
 if [ -d "$HOME/.local/bin" ]; then
@@ -106,13 +173,13 @@ export DJANGO_LOG_LEVEL="$LOG_LEVEL"
 # Get the local IP address
 LOCAL_IP=$(ipconfig getifaddr en0 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}' || echo "unknown")
 
-# Start server on port 8080, bound to all interfaces for LAN access
-echo "🚀 Starting Django server on http://0.0.0.0:8080/"
+# Start server on specified port, bound to all interfaces for LAN access
+echo "🚀 Starting Django server on http://0.0.0.0:$PORT/"
 echo ""
 echo "📡 Network Access:"
-echo "   Local:   http://localhost:8080/"
+echo "   Local:   http://localhost:$PORT/"
 if [ "$LOCAL_IP" != "unknown" ]; then
-    echo "   Network: http://$LOCAL_IP:8080/"
+    echo "   Network: http://$LOCAL_IP:$PORT/"
 else
     echo "   Network: Unable to determine IP address"
 fi
@@ -124,12 +191,12 @@ if [ "$LOG_TO_CONSOLE" = true ]; then
     echo ""
     echo "Press CTRL-C to stop the server"
     echo ""
-    daphne -b 0.0.0.0 -p 8080 --verbosity 0 mytracks.asgi:application
+    daphne -b 0.0.0.0 -p "$PORT" --verbosity 0 mytracks.asgi:application
 else
     echo "📄 Logging to: $LOG_FILE"
     echo "💡 Tip: Use --console flag to log to console instead"
     echo ""
     echo "Press CTRL-C to stop the server"
     echo ""
-    daphne -b 0.0.0.0 -p 8080 --verbosity 0 mytracks.asgi:application >> "$LOG_FILE" 2>&1
+    daphne -b 0.0.0.0 -p "$PORT" --verbosity 0 mytracks.asgi:application >> "$LOG_FILE" 2>&1
 fi

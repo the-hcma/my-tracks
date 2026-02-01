@@ -4,18 +4,21 @@ API views for OwnTracks location tracking.
 This module provides REST API endpoints for receiving location data
 from OwnTracks clients and querying stored location history.
 """
-from rest_framework import viewsets, status
+import logging
+from datetime import datetime
+from typing import Any
+
+from asgiref.sync import async_to_sync
+from channels.layers import get_channel_layer
+from django.utils import timezone
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
+from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
-from django.utils.decorators import method_decorator
-from django.views.decorators.csrf import csrf_exempt
-from typing import Any
-from datetime import datetime
-from asgiref.sync import async_to_sync
-from channels.layers import get_channel_layer
-import logging
+
 from .models import Device, Location, OwnTracksMessage
 from .serializers import DeviceSerializer, LocationSerializer
 
@@ -26,29 +29,29 @@ logger = logging.getLogger(__name__)
 class LocationViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing location data.
-    
+
     Provides endpoints for:
     - POST: Receive location data from OwnTracks clients
     - GET: Query location history
     - Filter by device, date range, etc.
     """
-    
+
     queryset = Location.objects.all()
     serializer_class = LocationSerializer
     permission_classes = [AllowAny]
-    
+
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         Handle incoming location data from OwnTracks client.
-        
+
         Accepts OwnTracks JSON format and creates a new location record.
-        
+
         Args:
             request: HTTP request with OwnTracks JSON payload
-            
+
         Returns:
             Response with 201 Created status on success
-            
+
         Raises:
             ValidationError: If payload is invalid
         """
@@ -58,41 +61,41 @@ class LocationViewSet(viewsets.ModelViewSet):
             client_ip = x_forwarded_for.split(',')[0]
         else:
             client_ip = request.META.get('REMOTE_ADDR')
-        
+
         print("="*80)
         print(f"📍 Incoming location request from: {client_ip}")
         print(f"📦 Request data: {request.data}")
         print(f"📋 Content-Type: {request.content_type}")
         print("="*80)
-        
+
         logger.info("="*80)
         logger.info(f"Incoming location request from: {client_ip}")
         logger.info(f"Request data: {request.data}")
         logger.info(f"Content-Type: {request.content_type}")
         logger.info("="*80)
-        
+
         # Check message type
         msg_type = request.data.get('_type', 'location')
-        
+
         if msg_type != 'location':
             print(f"ℹ️  Received non-location message: {msg_type}")
             logger.info(f"Received non-location message type: {msg_type}, storing")
-            
+
             # Try to identify the device - prioritize topic over tid
             device = None
             device_id = None
-            
+
             # Extract from topic first (format: owntracks/user/deviceid)
             if 'topic' in request.data:
                 topic = request.data['topic']
                 parts = topic.split('/')
                 if len(parts) >= 3:
                     device_id = parts[-1]
-            
+
             # Fallback to tid
             if not device_id:
                 device_id = request.data.get('tid')
-            
+
             if device_id:
                 device, created = Device.objects.get_or_create(
                     device_id=device_id,
@@ -105,7 +108,7 @@ class LocationViewSet(viewsets.ModelViewSet):
                 else:
                     print(f"🔌 Device reconnected: {device_id} from {client_ip}")
                     logger.debug(f"Device reconnected: {device_id} from {client_ip}")
-            
+
             # Store the message
             OwnTracksMessage.objects.create(
                 device=device,
@@ -113,10 +116,10 @@ class LocationViewSet(viewsets.ModelViewSet):
                 payload=request.data,
                 ip_address=client_ip
             )
-            
+
             # OwnTracks expects an empty JSON array response
             return Response([], status=status.HTTP_200_OK)
-        
+
         # Extract device_id from topic if present (format: owntracks/user/deviceid)
         data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
         if 'topic' in data and 'device_id' not in data:
@@ -125,7 +128,7 @@ class LocationViewSet(viewsets.ModelViewSet):
             if len(parts) >= 3:
                 data['device_id'] = parts[-1]  # Get last part of topic path
                 logger.info(f"Extracted device_id '{parts[-1]}' from topic '{topic}'")
-        
+
         serializer = self.get_serializer(data=data, context={'client_ip': client_ip})
         if not serializer.is_valid():
             print("="*80)
@@ -134,7 +137,7 @@ class LocationViewSet(viewsets.ModelViewSet):
             logger.error(f"Validation errors: {serializer.errors}")
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
-        
+
         # Broadcast new location via WebSocket
         location_data = serializer.data
         channel_layer = get_channel_layer()
@@ -146,28 +149,28 @@ class LocationViewSet(viewsets.ModelViewSet):
                     "data": location_data
                 }
             )
-        
+
         # OwnTracks expects an empty JSON array response
         return Response([], status=status.HTTP_200_OK)
-    
+
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         List location history with optional filtering.
-        
+
         Query parameters:
         - device: Filter by device ID
         - start_date: ISO 8601 datetime (e.g., 2024-01-01T00:00:00Z)
         - end_date: ISO 8601 datetime
         - limit: Maximum number of results
-        
+
         Args:
             request: HTTP request with query parameters
-            
+
         Returns:
             Paginated list of location records
         """
         queryset = self.get_queryset()
-        
+
         # Filter by device
         device_id = request.query_params.get('device')
         if device_id:
@@ -181,10 +184,24 @@ class LocationViewSet(viewsets.ModelViewSet):
                     },
                     status=status.HTTP_404_NOT_FOUND
                 )
-        
+
         # Filter by date range
         start_date = request.query_params.get('start_date')
-        if start_date:
+        start_time = request.query_params.get('start_time')  # Unix timestamp
+
+        if start_time:
+            try:
+                start_timestamp = int(start_time)
+                start_dt = timezone.make_aware(datetime.fromtimestamp(start_timestamp))
+                queryset = queryset.filter(timestamp__gte=start_dt)
+            except (ValueError, OSError) as e:
+                return Response(
+                    {
+                        'error': f"Expected Unix timestamp for start_time, got invalid value: {e}"
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        elif start_date:
             try:
                 start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
                 queryset = queryset.filter(timestamp__gte=start_dt)
@@ -195,7 +212,7 @@ class LocationViewSet(viewsets.ModelViewSet):
                     },
                     status=status.HTTP_400_BAD_REQUEST
                 )
-        
+
         end_date = request.query_params.get('end_date')
         if end_date:
             try:
@@ -208,12 +225,12 @@ class LocationViewSet(viewsets.ModelViewSet):
                     },
                     status=status.HTTP_400_BAD_REQUEST
                 )
-        
+
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
             return self.get_paginated_response(serializer.data)
-        
+
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
@@ -221,36 +238,36 @@ class LocationViewSet(viewsets.ModelViewSet):
 class DeviceViewSet(viewsets.ReadOnlyModelViewSet):
     """
     ViewSet for managing devices.
-    
+
     Provides read-only endpoints for:
     - GET /devices/: List all devices
     - GET /devices/{id}/: Get device details
     - GET /devices/{id}/locations/: Get locations for specific device
     """
-    
+
     queryset = Device.objects.all()
     serializer_class = DeviceSerializer
     lookup_field = 'device_id'
-    
+
     @action(detail=True, methods=['get'])
     def locations(self, request: Request, device_id: str = None) -> Response:
         """
         Get all locations for a specific device.
-        
+
         Args:
             request: HTTP request
             device_id: Device identifier
-            
+
         Returns:
             Paginated list of locations for the device
         """
         device = self.get_object()
         locations = device.locations.all()
-        
+
         page = self.paginate_queryset(locations)
         if page is not None:
             serializer = LocationSerializer(page, many=True)
             return self.get_paginated_response(serializer.data)
-        
+
         serializer = LocationSerializer(locations, many=True)
         return Response(serializer.data)

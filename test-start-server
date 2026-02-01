@@ -130,6 +130,43 @@ test_log_rotation() {
     rm -f logs/my-tracks.log*
 }
 
+test_custom_port() {
+    echo -n "Test: Custom port (18080) accepted... "
+    if timeout 2 $SCRIPT --port 18080 2>&1 | grep -q "Starting Django server on http://0.0.0.0:18080/"; then
+        echo -e "${GREEN}✓ PASS${NC}"
+        ((TESTS_PASSED++))
+    else
+        echo -e "${RED}✗ FAIL${NC}"
+        ((TESTS_FAILED++))
+    fi
+}
+
+test_invalid_port() {
+    echo -n "Test: Invalid port rejected... "
+    if $SCRIPT --port 999999 2>&1 | grep -qi "Invalid port"; then
+        echo -e "${GREEN}✓ PASS${NC}"
+        ((TESTS_PASSED++))
+    else
+        echo -e "${RED}✗ FAIL${NC}"
+        echo "  Expected: 'Invalid port' message"
+        echo "  Got: $($SCRIPT --port 999999 2>&1)"
+        ((TESTS_FAILED++))
+    fi
+}
+
+test_non_numeric_port() {
+    echo -n "Test: Non-numeric port rejected... "
+    if $SCRIPT --port abc 2>&1 | grep -qi "Invalid port"; then
+        echo -e "${GREEN}✓ PASS${NC}"
+        ((TESTS_PASSED++))
+    else
+        echo -e "${RED}✗ FAIL${NC}"
+        echo "  Expected: 'Invalid port' message"
+        echo "  Got: $($SCRIPT --port abc 2>&1)"
+        ((TESTS_FAILED++))
+    fi
+}
+
 test_shellcheck_passes() {
     echo -n "Test: Script passes shellcheck... "
     
@@ -179,6 +216,9 @@ test_valid_log_levels
 test_console_flag
 test_file_logging
 test_log_rotation
+test_custom_port
+test_invalid_port
+test_non_numeric_port
 test_shellcheck_passes
 
 echo ""
