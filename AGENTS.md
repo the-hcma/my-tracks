@@ -19,9 +19,21 @@ This document defines the four specialized agents for the OwnTracks Django backe
 5. **Final verification**: All agents confirm VS Code Problems panel is clear
 6. **Coverage verification**: Run `uv run pytest --cov=tracker --cov-fail-under=90` and ensure it passes
 7. **Create feature branch**: NEVER commit or push to main - always create a feature branch
-8. **Manual testing**: Allow user to manually test the changes before creating PR
 
-**Only after all review agents have completed their analysis, approved the changes, AND the user has manually tested** should a pull request be created. This ensures code quality, correctness, and adherence to project standards before submission.
+**Pull Request Workflow** (CRITICAL):
+
+1. **Create PR**: Once all pre-PR quality gates pass, create the pull request
+2. **Wait for CI/CD**: Poll GitHub Actions frequently (every 5 seconds) until all checks pass
+3. **User Testing**: After CI passes, inform user that PR is ready for manual testing
+4. **User Approval**: Wait for explicit user approval before proceeding
+5. **Merge PR**: Only after user approval, merge the PR using squash method
+6. **Cleanup**: Delete feature branch and update local main
+
+**DO NOT**:
+- ❌ Create PR before all quality gates pass
+- ❌ Ask user to test before CI/CD passes
+- ❌ Merge PR without explicit user approval
+- ❌ Skip waiting for CI/CD checks
 
 **Branch Workflow** (CRITICAL):
 - ✅ **ALWAYS** create a feature branch for changes: `git checkout -b feature/description`
