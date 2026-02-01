@@ -28,7 +28,7 @@ jobs:
       run: sudo apt-get update && sudo apt-get install -y shellcheck
     
     - name: Run shell script tests
-      run: ./test_start_server.sh
+      run: ./test-start-server
     
     - name: Check for pending migrations
       run: |

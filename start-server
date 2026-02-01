@@ -6,7 +6,7 @@
 #   ./start-server [OPTIONS]
 #
 # Options:
-#   --log-level LEVEL    Set Django log level (debug, info, warning, error, critical)
+#   --log-level LEVEL    Set Django log level (trace, debug, info, warning, error, critical)
 #                        Default: warning
 #   --console            Output logs to console instead of file
 #   -h, --help           Show this help message
@@ -48,11 +48,11 @@ done
 
 # Validate log level
 case $LOG_LEVEL in
-    DEBUG|INFO|WARNING|ERROR|CRITICAL)
+    TRACE|DEBUG|INFO|WARNING|ERROR|CRITICAL)
         ;;
     *)
         echo "Error: Invalid log level: $LOG_LEVEL"
-        echo "Valid levels: debug, info, warning, error, critical"
+        echo "Valid levels: trace, debug, info, warning, error, critical"
         exit 1
         ;;
 esac

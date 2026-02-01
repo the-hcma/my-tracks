@@ -163,10 +163,21 @@ class LocationSerializer(serializers.ModelSerializer):
             )
         
         # Get or create device
-        device, _ = Device.objects.get_or_create(
+        device, created = Device.objects.get_or_create(
             device_id=device_id,
             defaults={'name': f'Device {device_id}'}
         )
+        
+        # Always log device connections (special case - always appears)
+        client_ip = self.context.get('client_ip', 'unknown')
+        if created:
+            # Use print to bypass log level filtering for device connections
+            print(f"🔌 New device connected: {device_id} from {client_ip}")
+            logger.info(f"New device connected: {device_id} from {client_ip}")
+        else:
+            # Use print for reconnections too
+            print(f"🔌 Device reconnected: {device_id} from {client_ip}")
+            logger.debug(f"Device reconnected: {device_id} from {client_ip}")
         
         # Map OwnTracks fields to model fields
         # Use explicit None check for longitude to handle 0 values correctly

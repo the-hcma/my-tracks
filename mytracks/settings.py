@@ -145,6 +145,18 @@ REST_FRAMEWORK: dict = {
 }
 
 # Logging configuration
+import logging
+
+# Add custom TRACE level (below DEBUG)
+TRACE_LEVEL = 5
+logging.addLevelName(TRACE_LEVEL, 'TRACE')
+
+def trace(self, message, *args, **kwargs):
+    if self.isEnabledFor(TRACE_LEVEL):
+        self._log(TRACE_LEVEL, message, args, **kwargs)
+
+logging.Logger.trace = trace
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,

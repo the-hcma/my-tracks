@@ -64,7 +64,7 @@ test_valid_log_levels() {
     echo -n "Test: Valid log levels accepted... "
     local all_valid=true
     
-    for level in debug info warning error critical; do
+    for level in trace debug info warning error critical; do
         # Test that the script accepts the log level without error
         # We use a timeout and kill it quickly since we don't actually want to start the server
         if ! timeout 2 $SCRIPT --log-level "$level" 2>&1 | grep -q "Log level: $(echo "$level" | tr '[:lower:]' '[:upper:]')"; then

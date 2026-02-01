@@ -113,13 +113,13 @@ This document defines the four specialized agents for the OwnTracks Django backe
 - All shell scripts MUST pass shellcheck linting
 - shellcheck is MANDATORY - if not installed, test script will automatically install it via brew
 - Installation failure blocks the build (test fails if shellcheck cannot be installed)
-- Each shell script SHOULD have a corresponding test file (e.g., `test_script_name.sh`)
+- Each shell script SHOULD have a corresponding test file (e.g., `test-script-name`)
 - Test files must validate:
   - Help message display
   - Invalid argument handling
   - Expected flag behaviors
   - Shellcheck compliance (no longer skipped - auto-installs if missing)
-- Run tests before committing: `./test_script_name.sh`
+- Run tests before committing: `./test-script-name`
 - Rationale: Catches common shell scripting errors, ensures reliability, consistent tooling across environments
 
 **Error Message Guidelines**:

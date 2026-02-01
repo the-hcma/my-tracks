@@ -82,10 +82,17 @@ class LocationViewSet(viewsets.ModelViewSet):
             device = None
             device_id = request.data.get('tid')
             if device_id:
-                device, _ = Device.objects.get_or_create(
+                device, created = Device.objects.get_or_create(
                     device_id=device_id,
                     defaults={'name': f'Device {device_id}'}
                 )
+                # Always log device connections (special case - always appears)
+                if created:
+                    print(f"🔌 New device connected: {device_id} from {client_ip}")
+                    logger.info(f"New device connected: {device_id} from {client_ip}")
+                else:
+                    print(f"🔌 Device reconnected: {device_id} from {client_ip}")
+                    logger.debug(f"Device reconnected: {device_id} from {client_ip}")
             
             # Store the message
             OwnTracksMessage.objects.create(
