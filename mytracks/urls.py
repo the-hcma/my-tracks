@@ -339,6 +339,11 @@ def home(request):
         .hidden {{
             display: none !important;
         }}
+        /* Leaflet tooltip styling for waypoints - prevent wrapping */
+        .waypoint-tooltip.leaflet-tooltip {{
+            max-width: none !important;
+            white-space: nowrap !important;
+        }}
     </style>
 </head>
 <body>
@@ -402,7 +407,7 @@ def home(request):
         <div class="right-column">
             <div class="map-section">
                 <div class="map-header">
-                    <h2>🗺️ Live Map</h2>
+                    <h2 id="map-title">🗺️ Live Map</h2>
                     <div class="map-controls">
                         <div class="mode-toggle">
                             <button id="live-mode-btn" class="active">📡 Live</button>
@@ -424,7 +429,7 @@ def home(request):
             </div>
             <div class="activity-section">
                 <div class="log-header">
-                    <h2>📍 Live Activity</h2>
+                    <h2 id="activity-title">📍 Live Activity</h2>
                     <div class="log-controls">
                         <span class="log-count" id="log-count">0 events</span>
                         <button class="reset-button" id="reset-button" title="Clear all events">🗑️ Reset</button>
@@ -448,6 +453,101 @@ def home(request):
         let selectedDevice = '';
         let timeRangeHours = 2;
         let isLiveMode = true; // Track current mode
+        let needsFitBounds = true; // Only fit bounds on initial trail load
+        let isRestoringState = false; // Flag to prevent saving during restore
+
+        // UI State persistence
+        function saveUIState() {{
+            // Don't save while restoring state
+            if (isRestoringState) return;
+            
+            const state = {{
+                isLiveMode: isLiveMode,
+                selectedDevice: selectedDevice,
+                timeRangeHours: timeRangeHours
+            }};
+            localStorage.setItem('mytracks-ui-state', JSON.stringify(state));
+        }}
+
+        // Save map position separately (called on map move/zoom)
+        function saveMapPosition() {{
+            if (!map || isRestoringState) return;
+            const center = map.getCenter();
+            const mapState = {{
+                lat: center.lat,
+                lng: center.lng,
+                zoom: map.getZoom()
+            }};
+            localStorage.setItem('mytracks-map-position', JSON.stringify(mapState));
+        }}
+
+        function loadMapPosition() {{
+            try {{
+                const saved = localStorage.getItem('mytracks-map-position');
+                if (saved) {{
+                    return JSON.parse(saved);
+                }}
+            }} catch (e) {{
+                console.error('Error loading map position:', e);
+            }}
+            return null;
+        }}
+
+        function loadUIState() {{
+            try {{
+                const saved = localStorage.getItem('mytracks-ui-state');
+                if (saved) {{
+                    return JSON.parse(saved);
+                }}
+            }} catch (e) {{
+                console.error('Error loading UI state:', e);
+            }}
+            return null;
+        }}
+
+        // Store pending restore state for after devices are loaded
+        let pendingRestoreState = null;
+
+        function restoreUIState() {{
+            const state = loadUIState();
+            if (!state) return;
+
+            isRestoringState = true;
+
+            // Restore time range
+            if (state.timeRangeHours) {{
+                timeRangeHours = state.timeRangeHours;
+                document.getElementById('time-range-selector').value = timeRangeHours;
+            }}
+
+            // Restore mode
+            if (state.isLiveMode === false) {{
+                // Store state for device restoration after devices load
+                pendingRestoreState = state;
+                switchToHistoricMode();
+            }}
+
+            isRestoringState = false;
+        }}
+
+        // Called after devices are populated to complete restoration
+        function completeStateRestore() {{
+            if (!pendingRestoreState || !pendingRestoreState.selectedDevice) return;
+            
+            const selector = document.getElementById('device-selector');
+            const deviceOption = selector.querySelector(`option[value="${{pendingRestoreState.selectedDevice}}"]`);
+            
+            if (deviceOption) {{
+                isRestoringState = true;
+                selectedDevice = pendingRestoreState.selectedDevice;
+                selector.value = selectedDevice;
+                // Don't fit bounds - we have a saved map position
+                fetchAndDisplayTrail();
+                isRestoringState = false;
+            }}
+            
+            pendingRestoreState = null;
+        }}
 
         // Theme management
         function getPreferredTheme() {{
@@ -482,11 +582,26 @@ def home(request):
                 scrollWheelZoom: true,
                 doubleClickZoom: true,
                 boxZoom: true
-            }}).setView([37.7749, -122.4194], 17);
+            }});
+
+            // Restore saved map position or use default
+            const savedPosition = loadMapPosition();
+            if (savedPosition) {{
+                map.setView([savedPosition.lat, savedPosition.lng], savedPosition.zoom);
+                // Don't fit bounds on restore since we have a saved position
+                needsFitBounds = false;
+            }} else {{
+                map.setView([37.7749, -122.4194], 17);
+            }}
+
             L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
                 attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
                 maxZoom: 19
             }}).addTo(map);
+
+            // Save map position on move/zoom
+            map.on('moveend', saveMapPosition);
+            map.on('zoomend', saveMapPosition);
 
             // Fix map rendering after initial load
             setTimeout(() => map.invalidateSize(), 100);
@@ -511,6 +626,11 @@ def home(request):
                 option.value = deviceName;
                 option.textContent = deviceName;
                 selector.appendChild(option);
+                
+                // Try to complete state restoration if we just added the pending device
+                if (pendingRestoreState && pendingRestoreState.selectedDevice === deviceName) {{
+                    completeStateRestore();
+                }}
             }}
 
             // In live mode, show all devices; in historic mode, filter by selection
@@ -536,15 +656,11 @@ def home(request):
                 deviceMarkers[deviceName] = marker;
             }}
 
-            // Center map on the marker in live mode or if it matches selected device
-            if (isLiveMode || (!selectedDevice || selectedDevice === deviceName)) {{
+            // Center map on the marker in live mode only
+            if (isLiveMode) {{
                 map.setView(latLng, map.getZoom());
             }}
-
-            // Refresh trail if in historic mode and this is the selected device
-            if (!isLiveMode && selectedDevice && selectedDevice === deviceName) {{
-                fetchAndDisplayTrail();
-            }}
+            // In historic mode, don't auto-refresh trail on every location update
         }}
 
         function getPopupContent(location) {{
@@ -568,26 +684,39 @@ def home(request):
 
         // Cache for reverse geocoding results
         const geocodeCache = new Map();
-        let lastGeocodingTime = 0;
+        const geocodingQueue = [];
+        let isProcessingQueue = false;
         const GEOCODING_DELAY = 1000; // 1 second delay between requests
 
+        // Process geocoding queue one at a time
+        async function processGeocodingQueue() {{
+            if (isProcessingQueue || geocodingQueue.length === 0) {{
+                return;
+            }}
+
+            isProcessingQueue = true;
+
+            while (geocodingQueue.length > 0) {{
+                const {{ lat, lon, resolve, reject }} = geocodingQueue.shift();
+                
+                try {{
+                    const address = await fetchAddress(lat, lon);
+                    resolve(address);
+                }} catch (error) {{
+                    reject(error);
+                }}
+
+                // Wait before processing next request
+                if (geocodingQueue.length > 0) {{
+                    await new Promise(resolve => setTimeout(resolve, GEOCODING_DELAY));
+                }}
+            }}
+
+            isProcessingQueue = false;
+        }}
+
         // Fetch address from coordinates using Nominatim reverse geocoding
-        async function getAddress(lat, lon) {{
-            const key = `${{lat.toFixed(6)}},${{lon.toFixed(6)}}`;
-            
-            // Check cache first
-            if (geocodeCache.has(key)) {{
-                return geocodeCache.get(key);
-            }}
-
-            // Rate limiting: wait if needed
-            const now = Date.now();
-            const timeSinceLastRequest = now - lastGeocodingTime;
-            if (timeSinceLastRequest < GEOCODING_DELAY) {{
-                await new Promise(resolve => setTimeout(resolve, GEOCODING_DELAY - timeSinceLastRequest));
-            }}
-            lastGeocodingTime = Date.now();
-
+        async function fetchAddress(lat, lon) {{
             try {{
                 const response = await fetch(
                     `https://nominatim.openstreetmap.org/reverse?format=json&lat=${{lat}}&lon=${{lon}}&zoom=18&addressdetails=1`,
@@ -604,32 +733,90 @@ def home(request):
                 }}
                 
                 const data = await response.json();
-                const address = data.display_name || `${{lat.toFixed(3)}}, ${{lon.toFixed(3)}}`;
-                
-                // Cache the result
-                geocodeCache.set(key, address);
-                
-                return address;
+                return data.display_name || `${{lat.toFixed(3)}}, ${{lon.toFixed(3)}}`;
             }} catch (error) {{
                 console.error('Geocoding error:', error);
                 return `${{lat.toFixed(3)}}, ${{lon.toFixed(3)}}`;
             }}
         }}
 
-        // Fetch and display location trail for selected device and time range
-        async function fetchAndDisplayTrail() {{
-            if (!selectedDevice) {{
-                // Clear all trails if no device selected
-                Object.values(deviceTrails).forEach(trail => {{
-                    if (trail.polyline) trail.polyline.remove();
-                    if (trail.markers) trail.markers.forEach(m => m.remove());
-                }});
-                deviceTrails = {{}};
-                return;
+        // Queue-based geocoding to prevent overwhelming the API
+        async function getAddress(lat, lon) {{
+            const key = `${{lat.toFixed(6)}},${{lon.toFixed(6)}}`;
+            
+            // Check cache first
+            if (geocodeCache.has(key)) {{
+                return geocodeCache.get(key);
             }}
 
+            // Add to queue and return a promise
+            return new Promise((resolve, reject) => {{
+                geocodingQueue.push({{ lat, lon, resolve, reject }});
+                processGeocodingQueue();
+            }}).then(address => {{
+                // Cache the result
+                geocodeCache.set(key, address);
+                return address;
+            }});
+        }}
+
+        // Fetch and display location trail for selected device and time range
+        async function fetchAndDisplayTrail() {{
             const now = Date.now() / 1000;
             const startTime = now - (timeRangeHours * 3600);
+
+            // Clear existing trails
+            Object.values(deviceTrails).forEach(trail => {{
+                if (trail.polyline) trail.polyline.remove();
+                if (trail.markers) trail.markers.forEach(m => m.remove());
+            }});
+            deviceTrails = {{}};
+
+            if (!selectedDevice) {{
+                // "All Devices" selected - show all device markers
+                try {{
+                    const response = await fetch(`/api/locations/?start_time=${{Math.floor(startTime)}}&ordering=-timestamp`);
+                    if (!response.ok) return;
+
+                    const data = await response.json();
+                    const locations = data.results || [];
+
+                    // Show summary in activity section
+                    displayHistoricWaypoints(locations);
+
+                    // Group locations by device and show latest marker for each
+                    const latestByDevice = {{}};
+                    locations.forEach(loc => {{
+                        const device = loc.device_name || 'Unknown';
+                        if (!latestByDevice[device]) {{
+                            latestByDevice[device] = loc;
+                        }}
+                    }});
+
+                    // Create markers for each device's latest position
+                    Object.values(latestByDevice).forEach(loc => {{
+                        updateDeviceMarker(loc);
+                    }});
+
+                    // Fit bounds to show all devices
+                    if (needsFitBounds && Object.keys(latestByDevice).length > 0) {{
+                        const bounds = L.latLngBounds(
+                            Object.values(latestByDevice).map(loc => 
+                                [parseFloat(loc.latitude), parseFloat(loc.longitude)]
+                            )
+                        );
+                        if (Object.keys(latestByDevice).length === 1) {{
+                            map.setView(bounds.getCenter(), 17);
+                        }} else {{
+                            map.fitBounds(bounds, {{ padding: [50, 50], maxZoom: 17 }});
+                        }}
+                        needsFitBounds = false;
+                    }}
+                }} catch (error) {{
+                    console.error('Error fetching all devices:', error);
+                }}
+                return;
+            }}
 
             try {{
                 const response = await fetch(`/api/locations/?device=${{selectedDevice}}&start_time=${{Math.floor(startTime)}}`);
@@ -637,6 +824,9 @@ def home(request):
 
                 const data = await response.json();
                 const locations = data.results || [];
+
+                // Update activity section with waypoints
+                displayHistoricWaypoints(locations);
 
                 if (locations.length === 0) return;
 
@@ -689,22 +879,57 @@ def home(request):
                             iconAnchor: [12, 12]
                         }});
 
-                        const marker = L.marker(latLng, {{ icon: waypointIcon }})
-                            .bindPopup(getPopupContent(loc))
-                            .bindTooltip(`${{new Date(loc.timestamp_unix * 1000).toLocaleString()}}<br>${{latLng[0].toFixed(3)}}, ${{latLng[1].toFixed(3)}}`, {{ 
-                                permanent: false,
-                                direction: 'top',
-                                offset: [0, -12]
-                            }})
-                            .addTo(map);
+                        // Format timestamp for display
+                        const timestamp = loc.timestamp_unix ? 
+                            new Date(loc.timestamp_unix * 1000).toLocaleString() : 
+                            'Unknown time';
 
-                        // Fetch and update tooltip with address
-                        const localTime = new Date(loc.timestamp_unix * 1000).toLocaleString();
-                        getAddress(latLng[0], latLng[1]).then(address => {{
-                            marker.setTooltipContent(`${{localTime}}<br>${{address}}`);
-                        }}).catch(error => {{
-                            console.error('Error fetching address:', error);
-                            // Keep the time and lat/lon if geocoding fails
+                        const marker = L.marker(latLng, {{ 
+                            icon: waypointIcon
+                        }}).addTo(map);
+
+                        // Add tooltip with waypoint info (shown on hover)
+                        marker.bindTooltip(
+                            `<b>#${{waypointNumber}}</b><br>${{timestamp}}`,
+                            {{ 
+                                permanent: false, 
+                                direction: 'top',
+                                offset: [0, -12],
+                                className: 'waypoint-tooltip'
+                            }}
+                        );
+
+                        // Create popup content (will be updated with address on click)
+                        const popupContent = `
+                            <div class="waypoint-popup">
+                                <b>Waypoint #${{waypointNumber}}</b><br>
+                                ${{timestamp}}<br>
+                                <span class="loading-address">📍 Click to load address...</span>
+                            </div>
+                        `;
+                        marker.bindPopup(popupContent);
+
+                        // Lazy load address on click
+                        marker.on('click', async function() {{
+                            const popup = this.getPopup();
+                            const content = popup.getContent();
+                            
+                            // Only geocode if not already loaded
+                            if (content.includes('loading-address')) {{
+                                try {{
+                                    const address = await reverseGeocode(latLng[0], latLng[1]);
+                                    const newContent = `
+                                        <div class="waypoint-popup">
+                                            <b>Waypoint #${{waypointNumber}}</b><br>
+                                            ${{timestamp}}<br>
+                                            📍 ${{address}}
+                                        </div>
+                                    `;
+                                    popup.setContent(newContent);
+                                }} catch (e) {{
+                                    console.error('Geocoding error:', e);
+                                }}
+                            }}
                         }});
 
                         trailElements.markers.push(marker);
@@ -723,17 +948,20 @@ def home(request):
 
                     deviceTrails[selectedDevice] = trailElements;
 
-                    // Fit map to show all waypoints
-                    if (path.length === 1) {{
-                        // Single location - center and zoom to street level
-                        map.setView(path[0], 17);
-                    }} else {{
-                        // Multiple locations - fit to show all with appropriate padding
-                        const bounds = L.latLngBounds(path);
-                        map.fitBounds(bounds, {{ 
-                            padding: [50, 50],
-                            maxZoom: 17  // Don't zoom in too much even for close points
-                        }});
+                    // Fit map to show all waypoints only on initial load
+                    if (needsFitBounds) {{
+                        if (path.length === 1) {{
+                            // Single location - center and zoom to street level
+                            map.setView(path[0], 17);
+                        }} else {{
+                            // Multiple locations - fit to show all with appropriate padding
+                            const bounds = L.latLngBounds(path);
+                            map.fitBounds(bounds, {{ 
+                                padding: [50, 50],
+                                maxZoom: 17  // Don't zoom in too much even for close points
+                            }});
+                        }}
+                        needsFitBounds = false;
                     }}
                 }}
 
@@ -759,20 +987,32 @@ def home(request):
             }});
             deviceTrails = {{}};
 
+            // Fit bounds when changing device selection
+            needsFitBounds = true;
+
             // Fetch and display trail for selected device (only in historic mode)
             if (!isLiveMode) {{
                 fetchAndDisplayTrail();
             }}
+
+            // Save UI state
+            saveUIState();
         }});
 
         // Time range selector change handler
         document.getElementById('time-range-selector').addEventListener('change', (e) => {{
             timeRangeHours = parseInt(e.target.value);
 
+            // Fit bounds when changing time range
+            needsFitBounds = true;
+
             // Refresh trail with new time range (only in historic mode)
             if (!isLiveMode && selectedDevice) {{
                 fetchAndDisplayTrail();
             }}
+
+            // Save UI state
+            saveUIState();
         }});
 
         // Mode toggle handlers
@@ -783,12 +1023,17 @@ def home(request):
             document.getElementById('live-mode-btn').classList.add('active');
             document.getElementById('historic-mode-btn').classList.remove('active');
             
+            // Update title
+            document.getElementById('activity-title').textContent = '📍 Live Activity';
+            document.getElementById('map-title').textContent = '🗺️ Live Map';
+            
             // Hide historic controls
             document.getElementById('time-range-selector').classList.add('hidden');
             document.getElementById('device-selector').classList.add('hidden');
             
-            // Re-enable activity section
-            document.querySelector('.activity-section').classList.remove('inactive');
+            // Clear activity section for live updates
+            clearActivitySection('Waiting for location updates...');
+            eventCount = 0;
             
             // Clear selection and trails
             selectedDevice = '';
@@ -805,25 +1050,39 @@ def home(request):
                     marker.addTo(map);
                 }}
             }});
+
+            // Save UI state
+            saveUIState();
         }}
 
         function switchToHistoricMode() {{
             isLiveMode = false;
+            // Only fit bounds if not restoring state (user has saved map position)
+            if (!isRestoringState) {{
+                needsFitBounds = true;
+            }}
             
             // Update button states
             document.getElementById('live-mode-btn').classList.remove('active');
             document.getElementById('historic-mode-btn').classList.add('active');
             
+            // Update title
+            document.getElementById('map-title').textContent = '🗺️ Historic Map';
+            document.getElementById('activity-title').textContent = '📅 Historic Trail';
+            
             // Show historic controls
             document.getElementById('time-range-selector').classList.remove('hidden');
             document.getElementById('device-selector').classList.remove('hidden');
             
-            // Gray out activity section
-            document.querySelector('.activity-section').classList.add('inactive');
-            
-            // Clear all markers initially (will be restored when device selected)
+            // Clear markers (will be restored by fetchAndDisplayTrail)
             Object.values(deviceMarkers).forEach(marker => marker.remove());
             deviceMarkers = {{}};
+
+            // Fetch and display trail (works for both All Devices and specific device)
+            fetchAndDisplayTrail();
+
+            // Save UI state
+            saveUIState();
         }}
 
         document.getElementById('live-mode-btn').addEventListener('click', switchToLiveMode);
@@ -889,6 +1148,48 @@ def home(request):
             const seconds = String(date.getSeconds()).padStart(2, '0');
             const ms = String(date.getMilliseconds()).padStart(3, '0');
             return `${{hours}}:${{minutes}}:${{seconds}}.${{ms}}`;
+        }}
+
+        // Clear activity section and show a message
+        function clearActivitySection(message) {{
+            const container = document.getElementById('log-container');
+            container.innerHTML = `<p id="loading">${{message}}</p>`;
+            document.getElementById('log-count').textContent = '0 waypoints';
+        }}
+
+        // Display historic waypoints in activity section
+        function displayHistoricWaypoints(locations) {{
+            const container = document.getElementById('log-container');
+            container.innerHTML = ''; // Clear existing content
+            
+            if (locations.length === 0) {{
+                container.innerHTML = '<p id="loading">No waypoints found for selected time range</p>';
+                document.getElementById('log-count').textContent = '0 waypoints';
+                return;
+            }}
+            
+            // Display in chronological order (oldest first, matching map waypoint numbers)
+            const chronological = [...locations].reverse();
+            
+            chronological.forEach((loc, index) => {{
+                const waypointNumber = index + 1;
+                const entry = document.createElement('div');
+                entry.className = 'log-entry';
+                
+                const time = formatTime(loc.timestamp_unix);
+                const lat = parseFloat(loc.latitude).toFixed(6);
+                const lon = parseFloat(loc.longitude).toFixed(6);
+                const acc = loc.accuracy || 'N/A';
+                const alt = loc.altitude || 0;
+                const vel = loc.velocity || 0;
+                const batt = loc.battery_level || 'N/A';
+                
+                entry.innerHTML = `<span class="log-time"><b>#${{waypointNumber}}</b> ${{time}}</span> | <span class="log-coords">${{lat}}, ${{lon}}</span> | <span class="log-meta">acc:${{acc}}m alt:${{alt}}m vel:${{vel}}km/h batt:${{batt}}%</span>`;
+                
+                container.appendChild(entry);
+            }});
+            
+            document.getElementById('log-count').textContent = locations.length + ' waypoint' + (locations.length !== 1 ? 's' : '');
         }}
 
         function addLogEntry(location) {{
@@ -1046,20 +1347,23 @@ def home(request):
             }}
         }}
 
-        // Initial fetch for historical data (only in live mode)
-        if (isLiveMode) {{
-            fetchLocations();
-        }}
+        // Restore UI state from localStorage
+        restoreUIState();
 
-        // Start WebSocket connection for real-time updates (only in live mode)
-        if (isLiveMode) {{
-            connectWebSocket();
-        }}
+        // Initial fetch for historical data (always needed to populate device list)
+        fetchLocations();
+
+        // Start WebSocket connection for real-time updates
+        connectWebSocket();
     </script>
 </body>
 </html>
 """.format(hostname=hostname, local_ip=local_ip)
-    return HttpResponse(html)
+    response = HttpResponse(html)
+    response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response['Pragma'] = 'no-cache'
+    response['Expires'] = '0'
+    return response
 
 
 urlpatterns: List[URLPattern | URLResolver] = [
