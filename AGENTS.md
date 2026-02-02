@@ -136,7 +136,12 @@ This document defines the four specialized agents for the OwnTracks Django backe
 - Examples: `setup` (not `setup.sh`), `start-server` (not `start_server.sh` or `start_server`)
 - Make scripts executable with `chmod +x scriptname`
 - Use shebang `#!/usr/bin/env bash` for portability
-- Rationale: Cleaner command-line interface, Unix convention
+- **Variable naming**: Use lowercase for local/non-exported variables, UPPERCASE only for exported environment variables
+  - ✅ `port=8080` (local variable)
+  - ✅ `log_level="WARNING"` (local variable)
+  - ✅ `export DJANGO_LOG_LEVEL="$log_level"` (exported to environment)
+  - ❌ `PORT=8080` (uppercase for non-exported variable)
+- Rationale: Cleaner command-line interface, Unix convention, distinguishes local from exported variables
 
 **Shell Script Logging Convention**:
 - Scripts that run services MUST support configurable logging

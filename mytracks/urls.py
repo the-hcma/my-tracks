@@ -427,7 +427,7 @@ def home(request):
 
     <h2>📚 Documentation</h2>
     <ul>
-        <li><a href="https://github.com/yourusername/my-tracks">GitHub Repository</a></li>
+        <li><a href="https://github.com/thehcma/my-tracks">GitHub Repository</a></li>
         <li>See <code>API.md</code> for complete API reference</li>
         <li>See <code>README.md</code> for setup instructions</li>
     </ul>
