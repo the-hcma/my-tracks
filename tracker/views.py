@@ -80,11 +80,11 @@ class LocationViewSet(viewsets.ModelViewSet):
         if msg_type != 'location':
             print(f"ℹ️  Received non-location message: {msg_type}")
             logger.info(f"Received non-location message type: {msg_type}, storing")
-            
+
             # Try to identify the device - prioritize topic over tid
             device = None
             device_id = None
-            
+
             # Convert request.data to dict for type-safe access
             raw_data = request.data
             field_name_to_value: dict[str, Any] = {

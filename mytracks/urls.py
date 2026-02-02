@@ -493,7 +493,7 @@ def home(request):
         function saveUIState() {{
             // Don't save while restoring state
             if (isRestoringState) return;
-            
+
             const state = {{
                 isLiveMode: isLiveMode,
                 selectedDevice: selectedDevice,
@@ -566,10 +566,10 @@ def home(request):
         // Called after devices are populated to complete restoration
         function completeStateRestore() {{
             if (!pendingRestoreState || !pendingRestoreState.selectedDevice) return;
-            
+
             const selector = document.getElementById('device-selector');
             const deviceOption = selector.querySelector(`option[value="${{pendingRestoreState.selectedDevice}}"]`);
-            
+
             if (deviceOption) {{
                 isRestoringState = true;
                 selectedDevice = pendingRestoreState.selectedDevice;
@@ -578,7 +578,7 @@ def home(request):
                 fetchAndDisplayTrail();
                 isRestoringState = false;
             }}
-            
+
             pendingRestoreState = null;
         }}
 
@@ -591,7 +591,7 @@ def home(request):
         function getDateRangeText(hours) {{
             const now = new Date();
             const startDate = new Date(now.getTime() - hours * 60 * 60 * 1000);
-            
+
             // If same day, just show one date
             if (startDate.toDateString() === now.toDateString()) {{
                 return formatDateForTitle(now);
@@ -714,7 +714,7 @@ def home(request):
                 option.value = deviceName;
                 option.textContent = deviceName;
                 selector.appendChild(option);
-                
+
                 // Try to complete state restoration if we just added the pending device
                 if (pendingRestoreState && pendingRestoreState.selectedDevice === deviceName) {{
                     completeStateRestore();
@@ -786,7 +786,7 @@ def home(request):
 
             while (geocodingQueue.length > 0) {{
                 const {{ lat, lon, resolve, reject }} = geocodingQueue.shift();
-                
+
                 try {{
                     const address = await fetchAddress(lat, lon);
                     resolve(address);
@@ -814,12 +814,12 @@ def home(request):
                         }}
                     }}
                 );
-                
+
                 if (!response.ok) {{
                     console.error('Geocoding failed:', response.status);
                     return `${{lat.toFixed(3)}}, ${{lon.toFixed(3)}}`;
                 }}
-                
+
                 const data = await response.json();
                 return data.display_name || `${{lat.toFixed(3)}}, ${{lon.toFixed(3)}}`;
             }} catch (error) {{
@@ -831,7 +831,7 @@ def home(request):
         // Queue-based geocoding to prevent overwhelming the API
         async function getAddress(lat, lon) {{
             const key = `${{lat.toFixed(6)}},${{lon.toFixed(6)}}`;
-            
+
             // Check cache first
             if (geocodeCache.has(key)) {{
                 return geocodeCache.get(key);
@@ -846,6 +846,43 @@ def home(request):
                 geocodeCache.set(key, address);
                 return address;
             }});
+        }}
+
+        // Collapse consecutive waypoints at the same location into a single point
+        // Uses the oldest timestamp for the collapsed point (first occurrence in chronological order)
+        // Threshold: locations within ~10 meters are considered "same location"
+        function collapseLocations(locations) {{
+            if (locations.length === 0) return [];
+
+            const PRECISION = 4;  // ~11 meters precision at equator
+            const collapsed = [];
+            let currentGroup = [locations[0]];
+            let currentKey = `${{parseFloat(locations[0].latitude).toFixed(PRECISION)}},${{parseFloat(locations[0].longitude).toFixed(PRECISION)}}`;
+
+            for (let i = 1; i < locations.length; i++) {{
+                const loc = locations[i];
+                const key = `${{parseFloat(loc.latitude).toFixed(PRECISION)}},${{parseFloat(loc.longitude).toFixed(PRECISION)}}`;
+
+                if (key === currentKey) {{
+                    // Same location - add to current group
+                    currentGroup.push(loc);
+                }} else {{
+                    // New location - save current group and start new one
+                    // Use the OLDEST (first) location in the group as the representative
+                    const representative = {{ ...currentGroup[0], _collapsedCount: currentGroup.length }};
+                    collapsed.push(representative);
+                    currentGroup = [loc];
+                    currentKey = key;
+                }}
+            }}
+
+            // Don't forget the last group
+            if (currentGroup.length > 0) {{
+                const representative = {{ ...currentGroup[0], _collapsedCount: currentGroup.length }};
+                collapsed.push(representative);
+            }}
+
+            return collapsed;
         }}
 
         // Fetch and display location trail for selected device and time range
@@ -933,18 +970,23 @@ def home(request):
                     .filter(loc => loc.latitude && loc.longitude)
                     .reverse();
 
-                // Create path from location coordinates
-                const path = chronologicalLocations.map(loc => 
+                // Collapse consecutive waypoints at same location (only shows movement)
+                // Each collapsed point uses the oldest timestamp from the group
+                const collapsedLocations = collapseLocations(chronologicalLocations);
+
+                // Create path from collapsed location coordinates
+                const path = collapsedLocations.map(loc => 
                     [parseFloat(loc.latitude), parseFloat(loc.longitude)]
                 );
 
                 const trailElements = {{ polyline: null, markers: [] }};
 
                 if (path.length > 0) {{
-                    // Add numbered waypoint markers
-                    chronologicalLocations.forEach((loc, index) => {{
+                    // Add numbered waypoint markers (using collapsed locations)
+                    collapsedLocations.forEach((loc, index) => {{
                         const waypointNumber = index + 1;
                         const latLng = [parseFloat(loc.latitude), parseFloat(loc.longitude)];
+                        const collapsedCount = loc._collapsedCount || 1;
 
                         // Create custom numbered icon
                         const waypointIcon = L.divIcon({{
@@ -972,13 +1014,17 @@ def home(request):
                             new Date(loc.timestamp_unix * 1000).toLocaleString() : 
                             'Unknown time';
 
+                        // Show count if multiple waypoints were collapsed at this location
+                        const countInfo = collapsedCount > 1 ? 
+                            `<br><i>(${{collapsedCount}} waypoints)</i>` : '';
+
                         const marker = L.marker(latLng, {{ 
                             icon: waypointIcon
                         }}).addTo(map);
 
                         // Add tooltip with waypoint info (shown on hover)
                         marker.bindTooltip(
-                            `<b>#${{waypointNumber}}</b><br>${{timestamp}}`,
+                            `<b>#${{waypointNumber}}</b><br>${{timestamp}}${{countInfo}}`,
                             {{ 
                                 permanent: false, 
                                 direction: 'top',
@@ -988,10 +1034,13 @@ def home(request):
                         );
 
                         // Create popup content (will be updated with address on click)
+                        const collapsedInfo = collapsedCount > 1 ? 
+                            `<i>(${{collapsedCount}} waypoints at this location)</i><br>` : '';
                         const popupContent = `
                             <div class="waypoint-popup">
                                 <b>Waypoint #${{waypointNumber}}</b><br>
                                 ${{timestamp}}<br>
+                                ${{collapsedInfo}}
                                 <span class="loading-address">📍 Click to load address...</span>
                             </div>
                         `;
@@ -1001,7 +1050,7 @@ def home(request):
                         marker.on('click', async function() {{
                             const popup = this.getPopup();
                             const content = popup.getContent();
-                            
+
                             // Only geocode if not already loaded
                             if (content.includes('loading-address')) {{
                                 try {{
@@ -1110,25 +1159,25 @@ def home(request):
         // Mode toggle handlers
         function switchToLiveMode() {{
             isLiveMode = true;
-            
+
             // Update button states
             document.getElementById('live-mode-btn').classList.add('active');
             document.getElementById('historic-mode-btn').classList.remove('active');
-            
+
             // Update title with today's date
             const todayText = formatDateForTitle(new Date());
             document.getElementById('activity-title').textContent = `📍 Live Activity - ${{todayText}}`;
             document.getElementById('map-title').textContent = '🗺️ Live Map';
-            
+
             // Hide historic controls
             document.getElementById('time-range-selector').classList.add('hidden');
             document.getElementById('device-selector').classList.add('hidden');
-            
+
             // Clear activity section for live updates
             clearActivitySection('Loading last hour of activity...');
             eventCount = 0;
             lastTimestamp = null;  // Reset to allow fresh load
-            
+
             // Clear selection and trails
             selectedDevice = '';
             document.getElementById('device-selector').value = '';
@@ -1137,11 +1186,11 @@ def home(request):
                 if (trail.markers) trail.markers.forEach(m => m.remove());
             }});
             deviceTrails = {{}};
-            
+
             // Clear device markers for fresh load
             Object.values(deviceMarkers).forEach(marker => marker.remove());
             deviceMarkers = {{}};
-            
+
             // Load last hour of activity data
             loadLiveActivityHistory();
 
@@ -1155,20 +1204,20 @@ def home(request):
             if (!isRestoringState) {{
                 needsFitBounds = true;
             }}
-            
+
             // Update button states
             document.getElementById('live-mode-btn').classList.remove('active');
             document.getElementById('historic-mode-btn').classList.add('active');
-            
+
             // Update title with date range
             const dateRangeText = getDateRangeText(timeRangeHours);
             document.getElementById('map-title').textContent = '🗺️ Historic Map';
             document.getElementById('activity-title').textContent = `📅 Historic Trail - ${{dateRangeText}}`;
-            
+
             // Show historic controls
             document.getElementById('time-range-selector').classList.remove('hidden');
             document.getElementById('device-selector').classList.remove('hidden');
-            
+
             // Clear markers (will be restored by fetchAndDisplayTrail)
             Object.values(deviceMarkers).forEach(marker => marker.remove());
             deviceMarkers = {{}};
@@ -1241,13 +1290,13 @@ def home(request):
             const date = new Date(timestamp * 1000);
             const today = new Date();
             const isToday = date.toDateString() === today.toDateString();
-            
+
             const hours = String(date.getHours()).padStart(2, '0');
             const minutes = String(date.getMinutes()).padStart(2, '0');
             const seconds = String(date.getSeconds()).padStart(2, '0');
             const ms = String(date.getMilliseconds()).padStart(3, '0');
             const timeStr = `${{hours}}:${{minutes}}:${{seconds}}.${{ms}}`;
-            
+
             // Include date if requested or if not today
             if (includeDate || !isToday) {{
                 const month = date.toLocaleDateString('en-US', {{ month: 'short' }});
@@ -1265,23 +1314,30 @@ def home(request):
         }}
 
         // Display historic waypoints in activity section
+        // Shows collapsed waypoints (same location = single entry) with counts
         function displayHistoricWaypoints(locations) {{
             const container = document.getElementById('log-container');
             container.innerHTML = ''; // Clear existing content
-            
+
             if (locations.length === 0) {{
                 container.innerHTML = '<p id="loading">No waypoints found for selected time range</p>';
                 document.getElementById('log-count').textContent = '0 waypoints';
                 return;
             }}
-            
-            // Display in reverse chronological order (newest first at top)
-            // API returns newest first with ordering=-timestamp
-            locations.forEach((loc, index) => {{
-                const waypointNumber = locations.length - index;  // Oldest = #1, newest = #N
+
+            // Collapse consecutive waypoints at same location
+            // API returns newest first, so we reverse to get chronological order for collapsing
+            const chronological = [...locations].reverse();
+            const collapsedLocations = collapseLocations(chronological);
+            // Reverse back to show newest first in the list
+            const displayLocations = [...collapsedLocations].reverse();
+
+            // Display collapsed waypoints (newest first at top)
+            displayLocations.forEach((loc, index) => {{
+                const waypointNumber = collapsedLocations.length - index;  // Oldest = #1, newest = #N
                 const entry = document.createElement('div');
                 entry.className = 'log-entry';
-                
+
                 const time = formatTime(loc.timestamp_unix, true);  // Always show date in historic view
                 const lat = parseFloat(loc.latitude).toFixed(6);
                 const lon = parseFloat(loc.longitude).toFixed(6);
@@ -1289,13 +1345,24 @@ def home(request):
                 const alt = loc.altitude || 0;
                 const vel = loc.velocity || 0;
                 const batt = loc.battery_level || 'N/A';
-                
-                entry.innerHTML = `<span class="log-time"><b>#${{waypointNumber}}</b> ${{time}}</span> | <span class="log-coords">${{lat}}, ${{lon}}</span> | <span class="log-meta">acc:${{acc}}m alt:${{alt}}m vel:${{vel}}km/h batt:${{batt}}%</span>`;
-                
+                const collapsedCount = loc._collapsedCount || 1;
+
+                // Show count if multiple waypoints were collapsed
+                const countBadge = collapsedCount > 1 ? 
+                    `<span style="background:#6c757d;color:white;padding:1px 5px;border-radius:10px;font-size:10px;margin-left:5px;">×${{collapsedCount}}</span>` : '';
+
+                entry.innerHTML = `<span class="log-time"><b>#${{waypointNumber}}</b>${{countBadge}} ${{time}}</span> | <span class="log-coords">${{lat}}, ${{lon}}</span> | <span class="log-meta">acc:${{acc}}m alt:${{alt}}m vel:${{vel}}km/h batt:${{batt}}%</span>`;
+
                 container.appendChild(entry);
             }});
-            
-            document.getElementById('log-count').textContent = locations.length + ' waypoint' + (locations.length !== 1 ? 's' : '');
+
+            // Show both collapsed count and original count
+            const collapsedCount = collapsedLocations.length;
+            const originalCount = locations.length;
+            const countText = collapsedCount < originalCount ?
+                `${{collapsedCount}} location${{collapsedCount !== 1 ? 's' : ''}} (${{originalCount}} waypoints)` :
+                `${{originalCount}} waypoint${{originalCount !== 1 ? 's' : ''}}`;
+            document.getElementById('log-count').textContent = countText;
         }}
 
         function addLogEntry(location, skipScroll = false) {{
@@ -1320,7 +1387,7 @@ def home(request):
             const batt = location.battery_level || 'N/A';
             const conn = location.connection_type === 'w' ? 'WiFi' : location.connection_type === 'm' ? 'Mobile' : 'N/A';
             const ip = location.ip_address || 'N/A';
-            
+
             // Show device with tracker ID if available
             let deviceDisplay = device;
             if (trackerId) {{
@@ -1328,9 +1395,9 @@ def home(request):
             }} else if (device !== deviceId) {{
                 deviceDisplay = `${{device}} (${{deviceId}})`;
             }}
-            
+
             entry.innerHTML = `<span class="log-time">${{time}}</span> | <span class="log-device">${{deviceDisplay}}</span> | <span class="log-ip">${{ip}}</span> | <span class="log-coords">${{lat}}, ${{lon}}</span> | <span class="log-meta">acc:${{acc}}m alt:${{alt}}m vel:${{vel}}km/h batt:${{batt}}% ${{conn}}</span>`;
-            
+
             container.insertBefore(entry, container.firstChild);
 
             // Auto-scroll so newest entry is roughly in the middle of the view
@@ -1358,27 +1425,27 @@ def home(request):
         async function loadLiveActivityHistory() {{
             const now = Date.now() / 1000;
             const oneHourAgo = now - 3600;  // 1 hour in seconds
-            
+
             try {{
                 const response = await fetch(`/api/locations/?start_time=${{Math.floor(oneHourAgo)}}&ordering=-timestamp&limit=100`);
                 if (!response.ok) return;
-                
+
                 const data = await response.json();
                 const locations = data.results || [];
-                
+
                 if (locations.length === 0) {{
                     return;
                 }}
-                
+
                 const container = document.getElementById('log-container');
                 const loading = document.getElementById('loading');
                 if (loading) loading.remove();
-                
+
                 // Display locations (already newest first from API)
                 locations.forEach((loc, index) => {{
                     const entry = document.createElement('div');
                     entry.className = 'log-entry';
-                    
+
                     const time = formatTime(loc.timestamp_unix, true);  // Show date for context
                     const device = loc.device_name || 'Unknown';
                     const deviceId = loc.device_id_display || 'N/A';
@@ -1391,27 +1458,27 @@ def home(request):
                     const batt = loc.battery_level || 'N/A';
                     const conn = loc.connection_type === 'w' ? 'WiFi' : loc.connection_type === 'm' ? 'Mobile' : 'N/A';
                     const ip = loc.ip_address || 'N/A';
-                    
+
                     let deviceDisplay = device;
                     if (trackerId) {{
                         deviceDisplay = `${{device}} (${{trackerId}})`;
                     }} else if (device !== deviceId) {{
                         deviceDisplay = `${{device}} (${{deviceId}})`;
                     }}
-                    
+
                     entry.innerHTML = `<span class="log-time">${{time}}</span> | <span class="log-device">${{deviceDisplay}}</span> | <span class="log-ip">${{ip}}</span> | <span class="log-coords">${{lat}}, ${{lon}}</span> | <span class="log-meta">acc:${{acc}}m alt:${{alt}}m vel:${{vel}}km/h batt:${{batt}}% ${{conn}}</span>`;
-                    
+
                     container.appendChild(entry);
-                    
+
                     // Update device marker (only for latest position of each device)
                     if (index === 0 || !deviceMarkers[device]) {{
                         updateDeviceMarker(loc);
                     }}
                 }});
-                
+
                 eventCount = locations.length;
                 document.getElementById('log-count').textContent = eventCount + ' event' + (eventCount !== 1 ? 's' : '') + ' (last hour)';
-                
+
                 // Track the newest timestamp for incremental updates
                 if (locations.length > 0) {{
                     lastTimestamp = locations[0].timestamp_unix;
@@ -1500,7 +1567,7 @@ def home(request):
                         // Results come in newest-first, so reverse for initial display
                         const isInitialLoad = lastTimestamp === null;
                         const locsToProcess = isInitialLoad ? [...data.results].reverse() : data.results;
-                        
+
                         let newestEntry = null;
                         for (const loc of locsToProcess) {{
                             // Only add if we haven't seen this timestamp yet
@@ -1510,7 +1577,7 @@ def home(request):
                                 newestEntry = loc;
                             }}
                         }}
-                        
+
                         // After initial batch load, scroll to show the newest entry
                         if (isInitialLoad && newestEntry) {{
                             // Use setTimeout to ensure DOM is fully rendered before scrolling
@@ -1521,7 +1588,7 @@ def home(request):
                                 }}
                             }}, 100);
                         }}
-                        
+
                         // Update last timestamp to the newest one
                         if (data.results.length > 0) {{
                             lastTimestamp = data.results[0].timestamp_unix;

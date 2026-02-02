@@ -178,7 +178,7 @@ class LocalTimeFormatter(logging.Formatter):
             s = time.strftime("%Y-%m-%d %H:%M:%S", ct)
             s = "%s,%03d" % (s, record.msecs)
         return s
-    
+
     converter = time.localtime  # Use local time instead of gmtime
 
 LOGGING = {

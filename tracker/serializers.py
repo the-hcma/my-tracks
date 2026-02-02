@@ -112,15 +112,15 @@ class LocationSerializer(serializers.ModelSerializer):
         if obj.device.name and not obj.device.name.startswith('Device '):
             return obj.device.name
         return obj.device.device_id
-    
+
     def get_device_id_display(self, obj: Location) -> str:
         """Return the device ID for display."""
         return obj.device.device_id
-    
+
     def get_tid_display(self, obj: Location) -> str:
         """Return the tracker ID (tid) from the original message if available."""
         return str(obj.tracker_id) if obj.tracker_id else ""
-    
+
     def get_timestamp_unix(self, obj: Location) -> int:
         """Return timestamp as Unix timestamp for JavaScript."""
         return int(obj.timestamp.timestamp())
@@ -169,10 +169,10 @@ class LocationSerializer(serializers.ModelSerializer):
         logger.info(f"Raw attrs: {attrs}")
         logger.info(f"Available keys: {list(attrs.keys())}")
         logger.info("="*80)
-        
+
         # Device identification - prioritize topic over tid
         device_id = attrs.get('device_id')
-        
+
         # Extract device ID from topic if present (format: owntracks/user/deviceid)
         if not device_id and 'topic' in attrs:
             topic = attrs.get('topic', '')
@@ -180,11 +180,11 @@ class LocationSerializer(serializers.ModelSerializer):
             if len(parts) >= 3:
                 device_id = parts[-1]  # Get last part of topic path
                 logger.info(f"Extracted device_id '{device_id}' from topic '{topic}'")
-        
+
         # Fallback to tid if no topic available
         if not device_id:
             device_id = attrs.get('tid')
-        
+
         if not device_id:
             logger.error("Missing device_id, topic, or tid field")
             raise serializers.ValidationError(

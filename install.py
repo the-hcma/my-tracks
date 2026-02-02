@@ -28,24 +28,24 @@ def main() -> None:
     print("OwnTracks Django Backend - Installation Script")
     print("=" * 60)
     print()
-    
+
     # Check if PROJECT_FILES.txt exists
     project_files = Path("PROJECT_FILES.txt")
     if not project_files.exists():
         print("❌ Error: PROJECT_FILES.txt not found!")
         print("Please ensure you're running this script from the project root.")
         sys.exit(1)
-    
+
     print("📁 Creating project structure...")
-    
+
     # Read PROJECT_FILES.txt and extract file contents
     content = project_files.read_text()
-    
+
     # Split by file markers
     files = {}
     current_file = None
     current_content = []
-    
+
     for line in content.split('\n'):
         if line.startswith('# ===== ') and line.endswith(' ====='):
             # Save previous file
@@ -56,16 +56,16 @@ def main() -> None:
             current_content = []
         elif current_file:
             current_content.append(line)
-    
+
     # Save last file
     if current_file:
         files[current_file] = '\n'.join(current_content)
-    
+
     # Create all files
     for filepath, file_content in files.items():
         if filepath and file_content.strip():
             create_file(filepath, file_content.strip() + '\n')
-    
+
     print()
     print("✅ Project structure created successfully!")
     print()
