@@ -1488,6 +1488,38 @@ def home(request):
             }}
         }}
 
+        // Refresh live activity with updates since last known timestamp (for reconnect)
+        async function refreshLiveActivitySinceLastUpdate() {{
+            if (!lastTimestamp) {{
+                // No previous data, do a full load
+                loadLiveActivityHistory();
+                return;
+            }}
+
+            try {{
+                // Fetch only locations newer than our last known timestamp
+                const response = await fetch(`/api/locations/?start_time=${{lastTimestamp + 1}}&ordering=timestamp&limit=100`);
+                if (!response.ok) return;
+
+                const data = await response.json();
+                const locations = data.results || [];
+
+                if (locations.length === 0) {{
+                    console.log('No new locations since last update');
+                    return;
+                }}
+
+                console.log(`Found ${{locations.length}} new location(s) since last update`);
+
+                // Add each new location (already in chronological order)
+                locations.forEach(loc => {{
+                    addLogEntry(loc);
+                }});
+            }} catch (error) {{
+                console.error('Error refreshing live activity:', error);
+            }}
+        }}
+
         // WebSocket connection for real-time updates
         let ws = null;
         let wsReconnectAttempts = 0;
@@ -1525,6 +1557,12 @@ def home(request):
                                 console.log('Server restarted (was:', serverStartupTimestamp, 'now:', message.server_startup, '), refreshing page...');
                                 window.location.reload();
                                 return;
+                            }} else {{
+                                // Same server, but we reconnected - refresh live data to catch up on missed updates
+                                console.log('WebSocket reconnected, refreshing live activity...');
+                                if (isLiveMode) {{
+                                    refreshLiveActivitySinceLastUpdate();
+                                }}
                             }}
                         }}
 
