@@ -3,7 +3,7 @@
 # Start the Django development server
 #
 # Usage:
-#   ./start-server [OPTIONS]
+#   ./my-tracks-server [OPTIONS]
 #
 # Options:
 #   --port PORT          Set server port (default: 8080, testing: 18080)
@@ -13,11 +13,11 @@
 #   -h, --help           Show this help message
 #
 # Examples:
-#   ./start-server                    # Start with default (port 8080, warning level, file logging)
-#   ./start-server --port 18080       # Start on port 18080 for testing
-#   ./start-server --log-level debug  # Debug level, logs to file
-#   ./start-server --console          # Warning level, logs to console
-#   ./start-server --port 18080 --log-level info --console  # Testing port, info level, console output
+#   ./my-tracks-server                    # Start with default (port 8080, warning level, file logging)
+#   ./my-tracks-server --port 18080       # Start on port 18080 for testing
+#   ./my-tracks-server --log-level debug  # Debug level, logs to file
+#   ./my-tracks-server --console          # Warning level, logs to console
+#   ./my-tracks-server --port 18080 --log-level info --console  # Testing port, info level, console output
 
 set -e
 
@@ -95,7 +95,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             echo "Error: Unknown option: $1"
-            echo "Run './start-server --help' for usage information"
+            echo "Run './my-tracks-server --help' for usage information"
             exit 1
             ;;
     esac

@@ -10,13 +10,13 @@ This document provides guidelines for testing the OwnTracks backend server.
 
 ```bash
 # Start test server on port 18080
-./start-server --port 18080
+./my-tracks-server --port 18080
 
 # With console logging for debugging
-./start-server --port 18080 --console
+./my-tracks-server --port 18080 --console
 
 # With debug log level
-./start-server --port 18080 --log-level debug --console
+./my-tracks-server --port 18080 --log-level debug --console
 ```
 
 ### Test URLs

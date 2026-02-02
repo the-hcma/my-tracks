@@ -39,7 +39,7 @@ jobs:
       run: sudo apt-get update && sudo apt-get install -y shellcheck
     
     - name: Run shell script tests
-      run: ./test-start-server
+      run: ./test-my-tracks-server
     
     - name: Check import sorting with isort
       run: uv run isort --check-only --diff tracker mytracks

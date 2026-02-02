@@ -61,7 +61,7 @@ This document defines the four specialized agents for the OwnTracks Django backe
   - Validates shell scripts with shellcheck
   - Checks for pending migrations
 **Server Management**:
-- ❌ **NEVER start the production server** (`./start-server`) during development or testing
+- ❌ **NEVER start the production server** (`./my-tracks-server`) during development or testing
 - ✅ Tests run using Django's test framework (no server needed)
 - ✅ Manual testing should be done by user on their running server
 - ❌ Do not run curl/http commands against port 8080 during automated testing
@@ -70,7 +70,7 @@ This document defines the four specialized agents for the OwnTracks Django backe
 1. Switch to main branch: `git checkout main`
 2. Pull latest changes: `git pull origin main`
 3. Apply any pending migrations: `uv run python manage.py migrate`
-4. Restart the server: `./start-server`
+4. Restart the server: `./my-tracks-server`
 
 **GitHub Actions Polling**:
 - When checking CI/CD status, poll frequently to minimize wait time
@@ -147,7 +147,7 @@ This document defines the four specialized agents for the OwnTracks Django backe
 **Shell Script Convention**:
 - All shell scripts MUST be created without the `.sh` extension
 - Use hyphens for multi-word script names (kebab-case)
-- Examples: `setup` (not `setup.sh`), `start-server` (not `start_server.sh` or `start_server`)
+- Examples: `setup` (not `setup.sh`), `my-tracks-server` (not `start_server.sh` or `start_server`)
 - Make scripts executable with `chmod +x scriptname`
 - Use shebang `#!/usr/bin/env bash` for portability
 - **Variable naming**: Use lowercase for local/non-exported variables, UPPERCASE only for exported environment variables
@@ -167,10 +167,10 @@ This document defines the four specialized agents for the OwnTracks Django backe
 - Keep last 5 log files: `my-tracks.log.1` through `my-tracks.log.5`
 - Always show log destination on startup
 - Examples:
-  - ✅ `./start-server` (warning level, file logging to logs/my-tracks.log)
-  - ✅ `./start-server --log-level debug` (debug level, file logging)
-  - ✅ `./start-server --console` (warning level, console output)
-  - ✅ `./start-server --log-level info --console` (info level, console output)
+  - ✅ `./my-tracks-server` (warning level, file logging to logs/my-tracks.log)
+  - ✅ `./my-tracks-server --log-level debug` (debug level, file logging)
+  - ✅ `./my-tracks-server --console` (warning level, console output)
+  - ✅ `./my-tracks-server --log-level info --console` (info level, console output)
 - Rationale: Consistent debugging experience, production-ready defaults, preserves logs for analysis, automatic cleanup
 
 **Shell Script Quality**:

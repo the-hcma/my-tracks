@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Tests for the start-server script
+# Tests for the my-tracks-server script
 #
 # This test suite validates:
 # - Help message display
@@ -14,7 +14,7 @@ set +e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR" || exit 1
 
-SCRIPT="./start-server"
+SCRIPT="./my-tracks-server"
 TESTS_PASSED=0
 TESTS_FAILED=0
 
@@ -205,7 +205,7 @@ test_shellcheck_passes() {
 
 # Run all tests
 echo "========================================"
-echo "Running start-server script tests"
+echo "Running my-tracks-server script tests"
 echo "========================================"
 echo ""
 

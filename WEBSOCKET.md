@@ -117,7 +117,7 @@ uv run pytest test_websocket.py::TestLocationConsumer::test_websocket_connect -v
 
 ### Manual Testing
 
-1. Start server: `./start-server`
+1. Start server: `./my-tracks-server`
 2. Open browser to `http://localhost:8080/`
 3. Run load generator: `./generate_load`
 4. Watch Live Activity panel update in real-time
@@ -192,7 +192,7 @@ console.log('WebSocket ready state:', ws.readyState);
 Start with debug logging:
 
 ```bash
-./start-server --log-level debug --console
+./my-tracks-server --log-level debug --console
 ```
 
 Watch for:
