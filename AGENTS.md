@@ -49,11 +49,15 @@ This document defines the four specialized agents for the OwnTracks Django backe
 **Pre-PR Quality Gates** (all must pass):
 - ✅ All tests passing
 - ✅ **90% minimum code coverage** (`uv run pytest --cov=tracker --cov-fail-under=90`)
+- ✅ **Pyright type checking passes** (`uv run pyright`) - enforces type annotation consistency
+- ✅ **Imports sorted with isort** (`uv run isort --check-only tracker mytracks`)
 - ✅ No pytest warnings
 - ✅ VS Code Problems panel clear
 - ✅ **CI/CD pipeline passes** (GitHub Actions at `.github/workflows/pr-validation.yml`)
   - Verifies Python 3.14 is used (latest stable)
   - Runs all tests with coverage check
+  - Validates type annotations with Pyright
+  - Validates import sorting with isort
   - Validates shell scripts with shellcheck
   - Checks for pending migrations
 **Server Management**:
@@ -118,6 +122,16 @@ This document defines the four specialized agents for the OwnTracks Django backe
 - Validate input and raise informative exceptions
 - Use type hints for all public APIs
 - Use `uv` for dependency management
+
+**Modern Python Typing**:
+- Use built-in generic types instead of `typing` module equivalents (Python 3.9+)
+- Examples:
+  - ✅ `list[str]` instead of ❌ `List[str]`
+  - ✅ `dict[str, Any]` instead of ❌ `Dict[str, Any]`
+  - ✅ `tuple[str, ...]` instead of ❌ `Tuple[str, ...]`
+  - ✅ `set[int]` instead of ❌ `Set[int]`
+- Only import from `typing` what you actually need (e.g., `Any`, `cast`, `TypeVar`)
+- Rationale: Cleaner code, no unnecessary imports, follows modern Python conventions
 
 **HTTP Status Codes**:
 - MUST use `rest_framework.status` constants instead of hardcoded numbers
@@ -216,8 +230,12 @@ This document defines the four specialized agents for the OwnTracks Django backe
 - Use descriptive names for mappings that show key→value relationship:
   - ✅ `index_to_value` (clear: index maps to value)
   - ✅ `user_id_to_name` (clear: user ID maps to name)
-  - ❌ `value_map` (unclear: what's the key? what's the value?)
-  - ❌ `data_dict` (unclear: what maps to what?)
+  - ✅ `user_id_to_attributes` (clear: user ID maps to attributes)
+  - ✅ `field_name_to_value` (clear: field name maps to value, e.g., for request data)
+- Extract key and value names from context to form `{key}_to_{value}` pattern:
+  - ❌ `value_map` → ✅ Identify what the key and value represent (e.g., `device_id_to_location`)
+  - ❌ `data_dict` → ✅ Identify what maps to what (e.g., `timestamp_to_reading`)
+  - ❌ `request_dict` → ✅ `field_name_to_value` (request data is field names mapping to values)
 - Variable names should be self-documenting
 - Avoid generic suffixes like `_map`, `_dict` when more specific names are available
 

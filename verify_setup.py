@@ -8,17 +8,16 @@ checking all necessary files, dependencies, and configurations.
 
 import sys
 from pathlib import Path
-from typing import List, Tuple
 
 
 class SetupVerifier:
     """Verify Django project setup."""
-    
+
     def __init__(self) -> None:
         """Initialize verifier."""
-        self.errors: List[str] = []
-        self.warnings: List[str] = []
-        self.success: List[str] = []
+        self.errors: list[str] = []
+        self.warnings: list[str] = []
+        self.success: list[str] = []
     
     def check_file_exists(self, filepath: str, required: bool = True) -> bool:
         """Check if a file exists."""

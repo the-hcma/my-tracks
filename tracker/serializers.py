@@ -6,7 +6,7 @@ OwnTracks JSON payloads and Django model instances.
 """
 import logging
 from datetime import datetime
-from typing import Any, Dict
+from typing import Any
 
 from django.utils import timezone
 from rest_framework import serializers
@@ -119,7 +119,7 @@ class LocationSerializer(serializers.ModelSerializer):
     
     def get_tid_display(self, obj: Location) -> str:
         """Return the tracker ID (tid) from the original message if available."""
-        return obj.tracker_id if obj.tracker_id else ""
+        return str(obj.tracker_id) if obj.tracker_id else ""
     
     def get_timestamp_unix(self, obj: Location) -> int:
         """Return timestamp as Unix timestamp for JavaScript."""
@@ -141,7 +141,7 @@ class LocationSerializer(serializers.ModelSerializer):
             'accuracy', 'altitude', 'velocity', 'battery_level', 'connection_type'
         ]
 
-    def validate(self, attrs: Dict[str, Any]) -> Dict[str, Any]:
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         """
         Validate and transform OwnTracks format to internal format.
 
@@ -214,11 +214,15 @@ class LocationSerializer(serializers.ModelSerializer):
         if lon_value is None:
             lon_value = attrs.get('long')
 
+        tst_value = attrs.get('tst')
+        if tst_value is None:
+            raise serializers.ValidationError("Expected timestamp field ('tst'), got None")
+
         transformed = {
             'device': device,
             'latitude': attrs.get('lat'),
             'longitude': lon_value,  # Support both 'lon' and 'long'
-            'timestamp': timezone.make_aware(datetime.fromtimestamp(attrs.get('tst'))),
+            'timestamp': timezone.make_aware(datetime.fromtimestamp(float(tst_value))),
             'accuracy': attrs.get('acc'),
             'altitude': attrs.get('alt'),
             'velocity': attrs.get('vel'),

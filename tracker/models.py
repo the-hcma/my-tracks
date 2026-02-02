@@ -48,7 +48,7 @@ class Device(models.Model):
         """Return string representation of the device."""
         if self.name:
             return f"{self.name} ({self.device_id})"
-        return self.device_id
+        return str(self.device_id)
 
 
 class Location(models.Model):

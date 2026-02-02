@@ -10,7 +10,6 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 """
 
 from pathlib import Path
-from typing import List
 
 from decouple import config
 
@@ -22,17 +21,17 @@ BASE_DIR: Path = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY: str = config('SECRET_KEY', default='django-insecure-change-me-in-production')
+SECRET_KEY: str = str(config('SECRET_KEY', default='django-insecure-change-me-in-production'))
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG: bool = config('DEBUG', default=True, cast=bool)
 
-ALLOWED_HOSTS: List[str] = ['*']
+ALLOWED_HOSTS: list[str] = ['*']
 
 
 # Application definition
 
-INSTALLED_APPS: List[str] = [
+INSTALLED_APPS: list[str] = [
     'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
@@ -45,7 +44,7 @@ INSTALLED_APPS: List[str] = [
     'tracker.apps.TrackerConfig',
 ]
 
-MIDDLEWARE: List[str] = [
+MIDDLEWARE: list[str] = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -57,7 +56,7 @@ MIDDLEWARE: List[str] = [
 
 ROOT_URLCONF: str = 'mytracks.urls'
 
-TEMPLATES: List[dict] = [
+TEMPLATES: list[dict] = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
         'DIRS': [],
@@ -91,7 +90,7 @@ DATABASES: dict = {
 # Password validation
 # https://docs.djangoproject.com/en/5.0/ref/settings/#auth-password-validators
 
-AUTH_PASSWORD_VALIDATORS: List[dict] = [
+AUTH_PASSWORD_VALIDATORS: list[dict] = [
     {
         'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
     },
@@ -223,10 +222,12 @@ LOGGING = {
 }
 
 # CSRF exemption for OwnTracks endpoints (they use device authentication)
-CSRF_TRUSTED_ORIGINS: List[str] = config(
-    'CSRF_TRUSTED_ORIGINS',
-    default='',
-    cast=lambda v: [s.strip() for s in v.split(',') if s.strip()]
+def _parse_csrf_origins(value: str) -> list[str]:
+    """Parse comma-separated CSRF origins from environment."""
+    return [s.strip() for s in value.split(',') if s.strip()]
+
+CSRF_TRUSTED_ORIGINS: list[str] = _parse_csrf_origins(
+    str(config('CSRF_TRUSTED_ORIGINS', default=''))
 )
 
 # Channels configuration

@@ -41,6 +41,9 @@ jobs:
     - name: Run shell script tests
       run: ./test-start-server
     
+    - name: Check import sorting with isort
+      run: uv run isort --check-only --diff tracker mytracks
+
     - name: Check for pending migrations
       run: |
         uv run python manage.py makemigrations --check --dry-run

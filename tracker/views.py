@@ -6,7 +6,7 @@ from OwnTracks clients and querying stored location history.
 """
 import logging
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
@@ -85,17 +85,23 @@ class LocationViewSet(viewsets.ModelViewSet):
             device = None
             device_id = None
             
+            # Convert request.data to dict for type-safe access
+            raw_data = request.data
+            field_name_to_value: dict[str, Any] = {
+                str(k): v for k, v in (raw_data.items() if hasattr(raw_data, 'items') else [])
+            }
+
             # Extract from topic first (format: owntracks/user/deviceid)
-            if 'topic' in request.data:
-                topic = request.data['topic']
+            if 'topic' in field_name_to_value:
+                topic = str(field_name_to_value['topic'])
                 parts = topic.split('/')
                 if len(parts) >= 3:
                     device_id = parts[-1]
-            
+
             # Fallback to tid
             if not device_id:
-                device_id = request.data.get('tid')
-            
+                device_id = field_name_to_value.get('tid')
+
             if device_id:
                 device, created = Device.objects.get_or_create(
                     device_id=device_id,
@@ -113,23 +119,26 @@ class LocationViewSet(viewsets.ModelViewSet):
             OwnTracksMessage.objects.create(
                 device=device,
                 message_type=msg_type,
-                payload=request.data,
+                payload=field_name_to_value,
                 ip_address=client_ip
             )
 
             # OwnTracks expects an empty JSON array response
             return Response([], status=status.HTTP_200_OK)
-        
+
         # Extract device_id from topic if present (format: owntracks/user/deviceid)
-        data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
-        if 'topic' in data and 'device_id' not in data:
-            topic = data['topic']
+        raw_data = request.data
+        field_name_to_value: dict[str, Any] = {
+            str(k): v for k, v in (raw_data.items() if hasattr(raw_data, 'items') else [])
+        }
+        if 'topic' in field_name_to_value and 'device_id' not in field_name_to_value:
+            topic = str(field_name_to_value['topic'])
             parts = topic.split('/')
             if len(parts) >= 3:
-                data['device_id'] = parts[-1]  # Get last part of topic path
+                field_name_to_value['device_id'] = parts[-1]  # Get last part of topic path
                 logger.info(f"Extracted device_id '{parts[-1]}' from topic '{topic}'")
-        
-        serializer = self.get_serializer(data=data, context={'client_ip': client_ip})
+
+        serializer = self.get_serializer(data=field_name_to_value, context={'client_ip': client_ip})
         if not serializer.is_valid():
             print("="*80)
             print(f"❌ Validation errors: {serializer.errors}")
@@ -250,7 +259,7 @@ class DeviceViewSet(viewsets.ReadOnlyModelViewSet):
     lookup_field = 'device_id'
 
     @action(detail=True, methods=['get'])
-    def locations(self, request: Request, device_id: str = None) -> Response:
+    def locations(self, request: Request, device_id: str | None = None) -> Response:
         """
         Get all locations for a specific device.
 

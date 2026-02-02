@@ -5,7 +5,6 @@ The `urlpatterns` list routes URLs to views. For more information please see:
     https://docs.djangoproject.com/en/5.0/topics/http/urls/
 """
 import socket
-from typing import List
 
 from django.contrib import admin
 from django.http import HttpResponse, JsonResponse
@@ -34,6 +33,7 @@ def home(request):
     html = """<!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
     <title>My Tracks - OwnTracks Backend</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🗺️</text></svg>">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
@@ -1548,14 +1548,14 @@ def home(request):
 </body>
 </html>
 """.format(hostname=hostname, local_ip=local_ip)
-    response = HttpResponse(html)
+    response = HttpResponse(content=html, content_type='text/html; charset=utf-8')  # type: ignore[arg-type]
     response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
     response['Pragma'] = 'no-cache'
     response['Expires'] = '0'
     return response
 
 
-urlpatterns: List[URLPattern | URLResolver] = [
+urlpatterns: list[URLPattern | URLResolver] = [
     path('', home, name='home'),
     path('health/', health, name='health'),
     path('admin/', admin.site.urls),
