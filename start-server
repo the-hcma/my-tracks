@@ -22,35 +22,42 @@
 set -e
 
 # Server process PID (set when daphne starts)
-SERVER_PID=""
+server_pid=""
+cleanup_done=false
 
 # Cleanup function to stop the server
 cleanup() {
+    # Prevent duplicate cleanup
+    if [ "$cleanup_done" = true ]; then
+        return
+    fi
+    cleanup_done=true
+    
     echo -e "\n\n👋 Stopping server..."
-    if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
+    if [ -n "$server_pid" ] && kill -0 "$server_pid" 2>/dev/null; then
         # Send SIGTERM first for graceful shutdown
-        kill -TERM "$SERVER_PID" 2>/dev/null || true
-        echo "   Waiting for server to terminate (PID: $SERVER_PID)..."
+        kill -TERM "$server_pid" 2>/dev/null || true
+        echo "   Waiting for server to terminate (PID: $server_pid)..."
         # Wait for process to terminate (max 5 seconds)
         for i in {1..10}; do
-            if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+            if ! kill -0 "$server_pid" 2>/dev/null; then
                 echo "   Server terminated gracefully"
                 break
             fi
             sleep 0.5
         done
         # Force kill if still running
-        if kill -0 "$SERVER_PID" 2>/dev/null; then
+        if kill -0 "$server_pid" 2>/dev/null; then
             echo "   Server still running, forcing termination..."
-            kill -9 "$SERVER_PID" 2>/dev/null || true
+            kill -9 "$server_pid" 2>/dev/null || true
             sleep 0.5
         fi
     fi
     # Also check for any orphaned processes on the port
-    REMAINING=$(lsof -ti tcp:"$PORT" 2>/dev/null || true)
-    if [ -n "$REMAINING" ]; then
-        echo "   Cleaning up orphaned processes on port $PORT..."
-        for pid in $REMAINING; do
+    remaining=$(lsof -ti tcp:"$port" 2>/dev/null || true)
+    if [ -n "$remaining" ]; then
+        echo "   Cleaning up orphaned processes on port $port..."
+        for pid in $remaining; do
             kill -9 "$pid" 2>/dev/null || true
         done
         sleep 0.5
@@ -63,23 +70,23 @@ cleanup() {
 trap cleanup INT TERM EXIT
 
 # Default values
-PORT=8080
-LOG_LEVEL="WARNING"
-LOG_TO_CONSOLE=false
+port=8080
+log_level="WARNING"
+log_to_console=false
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
         --port)
-            PORT="$2"
+            port="$2"
             shift 2
             ;;
         --log-level)
-            LOG_LEVEL=$(echo "$2" | tr '[:lower:]' '[:upper:]')
+            log_level=$(echo "$2" | tr '[:lower:]' '[:upper:]')
             shift 2
             ;;
         --console)
-            LOG_TO_CONSOLE=true
+            log_to_console=true
             shift
             ;;
         -h|--help)
@@ -95,47 +102,47 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Validate port
-if ! [[ "$PORT" =~ ^[0-9]+$ ]] || [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
-    echo "Error: Invalid port number: $PORT"
+if ! [[ "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+    echo "Error: Invalid port number: $port"
     echo "Port must be a number between 1 and 65535"
     exit 1
 fi
 
 # Validate log level
-case $LOG_LEVEL in
+case $log_level in
     TRACE|DEBUG|INFO|WARNING|ERROR|CRITICAL)
         ;;
     *)
-        echo "Error: Invalid log level: $LOG_LEVEL"
+        echo "Error: Invalid log level: $log_level"
         echo "Valid levels: trace, debug, info, warning, error, critical"
         exit 1
         ;;
 esac
 
 # Get the directory where this script is located
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$script_dir"
 
 # Check if server is already running on this port
-EXISTING_PIDS=$(lsof -ti tcp:"$PORT" 2>/dev/null | tr '\n' ' ' | sed 's/ $//' || true)
+existing_pids=$(lsof -ti tcp:"$port" 2>/dev/null | tr '\n' ' ' | sed 's/ $//' || true)
 
-if [ -n "$EXISTING_PIDS" ]; then
-    echo "⚠️  Server already running on port $PORT"
+if [ -n "$existing_pids" ]; then
+    echo "⚠️  Server already running on port $port"
     echo ""
     
     # Show all processes using this port
-    for pid in $EXISTING_PIDS; do
-        PROCESS_INFO=$(ps -p "$pid" -o command= 2>/dev/null || echo "unknown process")
-        echo "  PID $pid: $PROCESS_INFO"
+    for pid in $existing_pids; do
+        process_info=$(ps -p "$pid" -o command= 2>/dev/null || echo "unknown process")
+        echo "  PID $pid: $process_info"
     done
     echo ""
     
     # Ask user what to do
-    read -r -p "Stop all processes on port $PORT and start a new server? [y/N] " response
+    read -r -p "Stop all processes on port $port and start a new server? [y/N] " response
     case "$response" in
         [yY][eE][sS]|[yY])
             # Stop all processes
-            for pid in $EXISTING_PIDS; do
+            for pid in $existing_pids; do
                 echo "Stopping process $pid..."
                 kill "$pid" 2>/dev/null || true
             done
@@ -143,8 +150,8 @@ if [ -n "$EXISTING_PIDS" ]; then
             # Wait for processes to terminate (max 5 seconds)
             sleep 1
             for i in {1..10}; do
-                STILL_RUNNING=$(lsof -ti tcp:"$PORT" 2>/dev/null || true)
-                if [ -z "$STILL_RUNNING" ]; then
+                still_running=$(lsof -ti tcp:"$port" 2>/dev/null || true)
+                if [ -z "$still_running" ]; then
                     echo "✅ All processes stopped"
                     sleep 1  # Give port time to be released
                     break
@@ -153,10 +160,10 @@ if [ -n "$EXISTING_PIDS" ]; then
             done
             
             # Force kill any remaining processes
-            STILL_RUNNING=$(lsof -ti tcp:"$PORT" 2>/dev/null || true)
-            if [ -n "$STILL_RUNNING" ]; then
+            still_running=$(lsof -ti tcp:"$port" 2>/dev/null || true)
+            if [ -n "$still_running" ]; then
                 echo "Some processes still running, forcing termination..."
-                for pid in $STILL_RUNNING; do
+                for pid in $still_running; do
                     kill -9 "$pid" 2>/dev/null || true
                 done
                 sleep 1
@@ -185,13 +192,13 @@ else
 fi
 
 # Create logs directory if logging to file
-if [ "$LOG_TO_CONSOLE" = false ]; then
+if [ "$log_to_console" = false ]; then
     mkdir -p logs
     
     # Rotate logs: keep last 5 files
-    LOG_FILE="logs/my-tracks.log"
+    log_file="logs/my-tracks.log"
     
-    if [ -f "$LOG_FILE" ]; then
+    if [ -f "$log_file" ]; then
         # Rotate existing logs
         # Remove oldest log if we already have 5
         [ -f "logs/my-tracks.log.5" ] && rm -f "logs/my-tracks.log.5"
@@ -204,50 +211,50 @@ if [ "$LOG_TO_CONSOLE" = false ]; then
         done
         
         # Move current log to .1
-        mv "$LOG_FILE" "logs/my-tracks.log.1"
+        mv "$log_file" "logs/my-tracks.log.1"
     fi
 fi
 
 # Export Django logging configuration
-export DJANGO_LOG_LEVEL="$LOG_LEVEL"
+export DJANGO_LOG_LEVEL="$log_level"
 
 # Get the local IP address
-LOCAL_IP=$(ipconfig getifaddr en0 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}' || echo "unknown")
+local_ip=$(ipconfig getifaddr en0 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}' || echo "unknown")
 
 # Start server on specified port, bound to all interfaces for LAN access
-echo "🚀 Starting Django server on http://0.0.0.0:$PORT/"
+echo "🚀 Starting Django server on http://0.0.0.0:$port/"
 echo ""
 echo "📡 Network Access:"
-echo "   Local:   http://localhost:$PORT/"
-if [ "$LOCAL_IP" != "unknown" ]; then
-    echo "   Network: http://$LOCAL_IP:$PORT/"
+echo "   Local:   http://localhost:$port/"
+if [ "$local_ip" != "unknown" ]; then
+    echo "   Network: http://$local_ip:$port/"
 else
     echo "   Network: Unable to determine IP address"
 fi
 echo ""
-echo "📝 Log level: $LOG_LEVEL"
+echo "📝 Log level: $log_level"
 
-if [ "$LOG_TO_CONSOLE" = true ]; then
+if [ "$log_to_console" = true ]; then
     echo "📺 Logging to: console"
     echo ""
     echo "Press CTRL-C to stop the server"
     echo ""
-    daphne -b 0.0.0.0 -p "$PORT" --verbosity 0 mytracks.asgi:application &
-    SERVER_PID=$!
+    daphne -b 0.0.0.0 -p "$port" --verbosity 0 mytracks.asgi:application &
+    server_pid=$!
     # Wait for the server process, ignoring the interrupt signal during wait
     # The trap will handle cleanup
-    wait $SERVER_PID 2>/dev/null || true
+    wait $server_pid 2>/dev/null || true
 else
-    echo "📄 Logging to: $LOG_FILE"
+    echo "📄 Logging to: $log_file"
     echo "💡 Tip: Use --console flag to log to console instead"
     echo ""
     echo "Press CTRL-C to stop the server"
     echo ""
-    daphne -b 0.0.0.0 -p "$PORT" --verbosity 0 mytracks.asgi:application >> "$LOG_FILE" 2>&1 &
-    SERVER_PID=$!
+    daphne -b 0.0.0.0 -p "$port" --verbosity 0 mytracks.asgi:application >> "$log_file" 2>&1 &
+    server_pid=$!
     # Wait for the server process, ignoring the interrupt signal during wait
     # The trap will handle cleanup
-    wait $SERVER_PID 2>/dev/null || true
+    wait $server_pid 2>/dev/null || true
 fi
 
 # If we get here without the trap, ensure cleanup runs
