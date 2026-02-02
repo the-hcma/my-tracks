@@ -1493,6 +1493,7 @@ def home(request):
         let wsReconnectAttempts = 0;
         const maxReconnectAttempts = 5;
         const reconnectDelay = 3000;
+        let serverStartupTimestamp = null;  // Track server version
 
         function connectWebSocket() {{
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -1512,6 +1513,20 @@ def home(request):
                     try {{
                         const message = JSON.parse(event.data);
                         console.log('WebSocket message received:', message);
+
+                        // Handle welcome message with server version
+                        if (message.type === 'welcome' && message.server_startup) {{
+                            if (serverStartupTimestamp === null) {{
+                                // First connection, store the version
+                                serverStartupTimestamp = message.server_startup;
+                                console.log('Server startup timestamp:', serverStartupTimestamp);
+                            }} else if (serverStartupTimestamp !== message.server_startup) {{
+                                // Server has restarted, refresh the page
+                                console.log('Server restarted (was:', serverStartupTimestamp, 'now:', message.server_startup, '), refreshing page...');
+                                window.location.reload();
+                                return;
+                            }}
+                        }}
 
                         // Only process messages in live mode
                         if (isLiveMode && message.type === 'location' && message.data) {{

@@ -8,6 +8,8 @@ from typing import Any
 
 from channels.generic.websocket import AsyncWebsocketConsumer
 
+from tracker import STARTUP_TIMESTAMP
+
 
 class LocationConsumer(AsyncWebsocketConsumer):
     """
@@ -22,6 +24,13 @@ class LocationConsumer(AsyncWebsocketConsumer):
         # Add this channel to the locations group
         await self.channel_layer.group_add("locations", self.channel_name)
         await self.accept()
+
+        # Send welcome message with server startup timestamp
+        # Clients use this to detect backend restarts and refresh the page
+        await self.send(text_data=json.dumps({
+            'type': 'welcome',
+            'server_startup': STARTUP_TIMESTAMP
+        }))
 
     async def disconnect(self, close_code: int) -> None:
         """Handle WebSocket disconnection."""
