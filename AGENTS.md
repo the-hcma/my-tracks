@@ -75,6 +75,17 @@ This document defines the four specialized agents for the OwnTracks Django backe
 - Avoid long waits (20-30 seconds) between checks
 - Rationale: Faster feedback loop, better user experience
 
+### Data Safety Requirements
+
+**CRITICAL - User Data Protection**:
+- ❌ **NEVER delete, modify, or purge user data without explicit user approval**
+- ❌ **NEVER run destructive database operations** (DELETE, TRUNCATE, DROP) without asking first
+- ✅ **ALWAYS ask before**: removing duplicates, cleaning up records, migrating data destructively
+- ✅ **ALWAYS offer to create a backup** before any data modification
+- If a migration or fix requires data deletion, present the impact to the user first
+- Example: "This will delete 93 duplicate records. Should I proceed? Would you like a backup first?"
+- Rationale: User data is irreplaceable; err on the side of caution
+
 ### Pull Request Requirements
 
 **Single Responsibility Principle**:
