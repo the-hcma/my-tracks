@@ -624,7 +624,12 @@ def home(request):
 
         // Sidebar collapse management
         function getSidebarState() {{
-            return localStorage.getItem('sidebar-collapsed') === 'true';
+            // Default to collapsed, but respect user preference if set
+            const saved = localStorage.getItem('sidebar-collapsed');
+            if (saved === null) {{
+                return true;  // Default: collapsed
+            }}
+            return saved === 'true';
         }}
 
         function setSidebarState(collapsed) {{
