@@ -1,5 +1,6 @@
 # Run this script to create the project structure:
-# bash setup.sh
+# ./setup
+
 #
 # Then manually create the following files in their respective directories:
 # 

@@ -251,22 +251,52 @@ def home(request):
             color: var(--log-time-color);
             font-style: italic;
         }}
-        .theme-toggle {{
-            position: fixed;
-            top: 20px;
-            left: 20px;
+        .header-toggle {{
             background: var(--endpoint-bg);
             border: 2px solid var(--border-color);
             border-radius: 50px;
-            padding: 8px 16px;
+            padding: 6px 14px;
             cursor: pointer;
-            font-size: 20px;
+            font-size: 16px;
             transition: all 0.3s ease;
-            z-index: 1000;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
         }}
-        .theme-toggle:hover {{
+        .header-toggle:hover {{
             transform: scale(1.1);
+        }}
+        .status-indicator {{
+            background: var(--endpoint-bg);
+            border: 2px solid var(--border-color);
+            border-radius: 50px;
+            padding: 6px 14px;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }}
+        .status-dot {{
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #ffc107;
+            transition: background 0.3s ease;
+        }}
+        .status-dot.connected {{
+            background: #28a745;
+        }}
+        .status-dot.disconnected {{
+            background: #dc3545;
+        }}
+        .container.sidebar-collapsed {{
+            grid-template-columns: 0fr 1fr;
+        }}
+        .container.sidebar-collapsed .left-column {{
+            padding: 0;
+            overflow: hidden;
+            opacity: 0;
+            pointer-events: none;
+        }}
+        .left-column {{
+            transition: padding 0.3s ease, opacity 0.3s ease;
         }}
         .map-section {{
             display: flex;
@@ -347,8 +377,7 @@ def home(request):
     </style>
 </head>
 <body>
-    <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme">🌙</button>
-    <div class="container">
+    <div class="container" id="main-container">
         <div class="left-column">
             <h1>🗺️ My Tracks - OwnTracks Backend</h1>
             <p class="status" id="server-status">🔄 Checking server status...</p>
@@ -423,6 +452,12 @@ def home(request):
                         <select class="device-selector hidden" id="device-selector">
                             <option value="">All Devices</option>
                         </select>
+                        <div class="status-indicator" id="server-status-indicator" title="Server status">
+                            <span class="status-dot" id="status-dot"></span>
+                            <span id="status-text">Checking...</span>
+                        </div>
+                        <button class="header-toggle" id="sidebar-toggle" aria-label="Toggle sidebar">◀</button>
+                        <button class="header-toggle" id="theme-toggle" aria-label="Toggle theme">🌙</button>
                     </div>
                 </div>
                 <div id="map"></div>
@@ -570,6 +605,38 @@ def home(request):
             const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
             setTheme(newTheme);
         }}
+
+        // Sidebar collapse management
+        function getSidebarState() {{
+            return localStorage.getItem('sidebar-collapsed') === 'true';
+        }}
+
+        function setSidebarState(collapsed) {{
+            const container = document.getElementById('main-container');
+            const toggle = document.getElementById('sidebar-toggle');
+            if (collapsed) {{
+                container.classList.add('sidebar-collapsed');
+                toggle.textContent = '▶';
+            }} else {{
+                container.classList.remove('sidebar-collapsed');
+                toggle.textContent = '◀';
+            }}
+            localStorage.setItem('sidebar-collapsed', collapsed);
+            // Invalidate map size after transition
+            setTimeout(() => {{
+                if (map) map.invalidateSize();
+            }}, 350);
+        }}
+
+        function toggleSidebar() {{
+            const container = document.getElementById('main-container');
+            const isCollapsed = container.classList.contains('sidebar-collapsed');
+            setSidebarState(!isCollapsed);
+        }}
+
+        // Initialize sidebar state
+        setSidebarState(getSidebarState());
+        document.getElementById('sidebar-toggle').addEventListener('click', toggleSidebar);
 
         // Initialize theme
         setTheme(getPreferredTheme());
@@ -775,7 +842,7 @@ def home(request):
             if (!selectedDevice) {{
                 // "All Devices" selected - show all device markers
                 try {{
-                    const response = await fetch(`/api/locations/?start_time=${{Math.floor(startTime)}}&ordering=-timestamp`);
+                    const response = await fetch(`/api/locations/?start_time=${{Math.floor(startTime)}}&ordering=-timestamp&limit=1000`);
                     if (!response.ok) return;
 
                     const data = await response.json();
@@ -819,7 +886,7 @@ def home(request):
             }}
 
             try {{
-                const response = await fetch(`/api/locations/?device=${{selectedDevice}}&start_time=${{Math.floor(startTime)}}`);
+                const response = await fetch(`/api/locations/?device=${{selectedDevice}}&start_time=${{Math.floor(startTime)}}&limit=1000`);;
                 if (!response.ok) return;
 
                 const data = await response.json();
@@ -1108,12 +1175,18 @@ def home(request):
 
         function updateServerStatus(connected) {{
             const statusEl = document.getElementById('server-status');
+            const statusDot = document.getElementById('status-dot');
+            const statusText = document.getElementById('status-text');
             if (connected) {{
                 statusEl.innerHTML = '✅ Server is running!';
                 statusEl.style.color = 'var(--status-color)';
+                statusDot.className = 'status-dot connected';
+                statusText.textContent = 'Connected';
             }} else {{
                 statusEl.innerHTML = '❌ Server disconnected!';
                 statusEl.style.color = '#dc3545';
+                statusDot.className = 'status-dot disconnected';
+                statusText.textContent = 'Disconnected';
             }}
         }}
 

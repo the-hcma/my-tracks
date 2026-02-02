@@ -172,7 +172,8 @@ my-tracks/
 
 ```bash
 # Run automated setup
-bash setup.sh
+./setup
+
 
 # Start server
 python manage.py runserver

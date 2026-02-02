@@ -8,13 +8,21 @@ echo "OwnTracks Django Backend - Setup Script"
 echo "================================================"
 echo ""
 
-# Check if Python 3.12+ is available
+# Check if Python 3.14+ is available
 echo "Checking Python version..."
 if command -v python3 &> /dev/null; then
-    PYTHON_VERSION=$(python3 --version | cut -d' ' -f2 | cut -d'.' -f1,2)
-    echo "✓ Found Python $PYTHON_VERSION"
+    PYTHON_VERSION=$(python3 --version | cut -d' ' -f2)
+    PYTHON_MAJOR=$(echo "$PYTHON_VERSION" | cut -d'.' -f1)
+    PYTHON_MINOR=$(echo "$PYTHON_VERSION" | cut -d'.' -f2)
+    
+    if [ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -ge 14 ]; then
+        echo "✓ Found Python $PYTHON_VERSION"
+    else
+        echo "❌ Python 3.14 or higher is required. Found $PYTHON_VERSION"
+        exit 1
+    fi
 else
-    echo "❌ Python 3 not found. Please install Python 3.12 or higher."
+    echo "❌ Python 3 not found. Please install Python 3.14 or higher."
     exit 1
 fi
 

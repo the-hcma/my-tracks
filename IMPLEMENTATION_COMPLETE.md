@@ -189,7 +189,8 @@ my-tracks/
 │   ├── .gitignore
 │   └── LICENSE
 ├── Scripts (4 files)
-│   ├── setup.sh
+│   ├── setup
+
 │   ├── install.py
 │   ├── verify_setup.py
 │   └── PROJECT_FILES.txt
@@ -245,7 +246,8 @@ my-tracks/
 
 ## 📈 Next Steps for Users
 
-### Development
+### Deve./setup`
+
 1. Run `bash setup.sh`
 2. Start server: `python manage.py runserver`
 3. Configure OwnTracks app

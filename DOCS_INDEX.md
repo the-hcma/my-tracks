@@ -159,7 +159,7 @@ See [AGENTS.md](AGENTS.md) for the development workflow and agent responsibiliti
 | AGENTS.md | Development workflow | Contributors |
 | pyproject.toml | Package config | Build tools |
 | manage.py | Django CLI | Developers |
-| setup.sh | Auto setup | New users |
+| setup | Auto setup | New users |
 | verify_setup.py | Setup verification | Everyone |
 | test_tracker.py | Test suite | Developers/QA |
 

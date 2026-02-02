@@ -28,25 +28,39 @@ SERVER_PID=""
 cleanup() {
     echo -e "\n\n👋 Stopping server..."
     if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
-        kill "$SERVER_PID" 2>/dev/null || true
+        # Send SIGTERM first for graceful shutdown
+        kill -TERM "$SERVER_PID" 2>/dev/null || true
+        echo "   Waiting for server to terminate (PID: $SERVER_PID)..."
         # Wait for process to terminate (max 5 seconds)
         for i in {1..10}; do
             if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+                echo "   Server terminated gracefully"
                 break
             fi
             sleep 0.5
         done
         # Force kill if still running
         if kill -0 "$SERVER_PID" 2>/dev/null; then
+            echo "   Server still running, forcing termination..."
             kill -9 "$SERVER_PID" 2>/dev/null || true
+            sleep 0.5
         fi
+    fi
+    # Also check for any orphaned processes on the port
+    REMAINING=$(lsof -ti tcp:"$PORT" 2>/dev/null || true)
+    if [ -n "$REMAINING" ]; then
+        echo "   Cleaning up orphaned processes on port $PORT..."
+        for pid in $REMAINING; do
+            kill -9 "$pid" 2>/dev/null || true
+        done
+        sleep 0.5
     fi
     echo "👋 Server stopped"
     exit 0
 }
 
 # Trap CTRL-C and TERM to exit cleanly
-trap cleanup INT TERM
+trap cleanup INT TERM EXIT
 
 # Default values
 PORT=8080
@@ -220,7 +234,9 @@ if [ "$LOG_TO_CONSOLE" = true ]; then
     echo ""
     daphne -b 0.0.0.0 -p "$PORT" --verbosity 0 mytracks.asgi:application &
     SERVER_PID=$!
-    wait $SERVER_PID
+    # Wait for the server process, ignoring the interrupt signal during wait
+    # The trap will handle cleanup
+    wait $SERVER_PID 2>/dev/null || true
 else
     echo "📄 Logging to: $LOG_FILE"
     echo "💡 Tip: Use --console flag to log to console instead"
@@ -229,5 +245,11 @@ else
     echo ""
     daphne -b 0.0.0.0 -p "$PORT" --verbosity 0 mytracks.asgi:application >> "$LOG_FILE" 2>&1 &
     SERVER_PID=$!
-    wait $SERVER_PID
+    # Wait for the server process, ignoring the interrupt signal during wait
+    # The trap will handle cleanup
+    wait $SERVER_PID 2>/dev/null || true
 fi
+
+# If we get here without the trap, ensure cleanup runs
+# (This handles the case where wait returns normally)
+trap - EXIT

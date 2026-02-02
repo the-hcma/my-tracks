@@ -260,7 +260,8 @@ class LocationSerializer(serializers.ModelSerializer):
                     f"Expected battery level between 0 and 100, got {transformed['battery_level']}"
                 )
 
-        return transformed    
+        return transformed
+
     def create(self, validated_data):
         """Create location instance with IP address from context."""
         # Get IP address from context if available
