@@ -151,13 +151,29 @@ class LocationViewSet(viewsets.ModelViewSet):
         location_data = serializer.data
         channel_layer = get_channel_layer()
         if channel_layer:
-            async_to_sync(channel_layer.group_send)(
-                "locations",
-                {
-                    "type": "location_update",
-                    "data": location_data
-                }
-            )
+            try:
+                async_to_sync(channel_layer.group_send)(
+                    "locations",
+                    {
+                        "type": "location_update",
+                        "data": location_data
+                    }
+                )
+                logger.debug(
+                    "WebSocket broadcast sent",
+                    extra={
+                        "location_id": location_data.get("id"),
+                        "device_id": location_data.get("device_id_display"),
+                    }
+                )
+            except Exception as e:
+                logger.error(
+                    "WebSocket broadcast failed",
+                    extra={"location_id": location_data.get("id"), "error": str(e)},
+                    exc_info=True
+                )
+        else:
+            logger.warning("WebSocket broadcast skipped: no channel layer configured")
 
         # OwnTracks expects an empty JSON array response
         return Response([], status=status.HTTP_200_OK)
@@ -231,6 +247,42 @@ class LocationViewSet(viewsets.ModelViewSet):
                 return Response(
                     {
                         'error': f"Expected ISO 8601 datetime for end_date, got invalid format: {e}"
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        # Apply resolution-based thinning (for coarse mode)
+        # resolution parameter specifies minimum seconds between waypoints
+        resolution = request.query_params.get('resolution')
+        if resolution:
+            try:
+                resolution_seconds = int(resolution)
+                if resolution_seconds > 0:
+                    # Get all matching locations ordered by timestamp
+                    all_locations = list(queryset.order_by('timestamp'))
+                    if all_locations:
+                        # Thin out to roughly one point per resolution_seconds
+                        thinned = [all_locations[0]]
+                        last_timestamp = all_locations[0].timestamp
+                        for loc in all_locations[1:]:
+                            time_diff = (loc.timestamp - last_timestamp).total_seconds()
+                            if time_diff >= resolution_seconds:
+                                thinned.append(loc)
+                                last_timestamp = loc.timestamp
+                        # Always include the last point
+                        if thinned[-1] != all_locations[-1]:
+                            thinned.append(all_locations[-1])
+                        # Return thinned results directly (bypass pagination)
+                        serializer = self.get_serializer(thinned, many=True)
+                        return Response({
+                            'results': serializer.data,
+                            'count': len(thinned),
+                            'resolution_applied': resolution_seconds
+                        })
+            except ValueError:
+                return Response(
+                    {
+                        'error': f"Expected integer for resolution, got '{resolution}'"
                     },
                     status=status.HTTP_400_BAD_REQUEST
                 )

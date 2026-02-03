@@ -465,3 +465,144 @@ class TestDeviceAPI:
         assert_that(response.status_code, equal_to(status.HTTP_200_OK))
         assert_that(response.data, has_key('results'))
         assert_that(response.data['results'], has_length(greater_than_or_equal_to(1)))
+
+
+@pytest.mark.django_db
+class TestResolutionThinning:
+    """Test cases for the resolution-based waypoint thinning feature."""
+
+    def test_resolution_always_includes_first_and_last_points(
+        self, api_client: APIClient, sample_device: Device
+    ) -> None:
+        """Test that coarse resolution always includes first and last waypoints."""
+        base_time = timezone.now() - timedelta(hours=1)
+
+        # Create 10 locations, one every 2 minutes
+        locations = []
+        for i in range(10):
+            loc = Location.objects.create(
+                device=sample_device,
+                latitude=Decimal('37.7749') + Decimal(str(i * 0.001)),
+                longitude=Decimal('-122.4194'),
+                timestamp=base_time + timedelta(minutes=i * 2),
+                accuracy=10
+            )
+            locations.append(loc)
+
+        # Request with 6-minute resolution (should get ~3-4 points: first, middle, last)
+        start_time = int((base_time - timedelta(minutes=1)).timestamp())
+        response = api_client.get(
+            f'/api/locations/?device={sample_device.device_id}'
+            f'&start_time={start_time}&resolution=360'
+        )
+
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        results = response.data['results']
+
+        # Must have at least 2 points (first and last)
+        assert_that(len(results), greater_than_or_equal_to(2))
+
+        # First result should be the earliest timestamp (first location)
+        first_result_ts = results[0]['timestamp_unix']
+        last_result_ts = results[-1]['timestamp_unix']
+
+        first_location_ts = int(locations[0].timestamp.timestamp())
+        last_location_ts = int(locations[-1].timestamp.timestamp())
+
+        assert_that(first_result_ts, equal_to(first_location_ts))
+        assert_that(last_result_ts, equal_to(last_location_ts))
+
+    def test_resolution_thins_to_expected_interval(
+        self, api_client: APIClient, sample_device: Device
+    ) -> None:
+        """Test that resolution parameter thins waypoints to expected intervals."""
+        base_time = timezone.now() - timedelta(hours=1)
+
+        # Create 60 locations, one every minute (simulating 1 hour of data)
+        for i in range(60):
+            Location.objects.create(
+                device=sample_device,
+                latitude=Decimal('37.7749') + Decimal(str(i * 0.0001)),
+                longitude=Decimal('-122.4194'),
+                timestamp=base_time + timedelta(minutes=i),
+                accuracy=10
+            )
+
+        # Request with 6-minute resolution (360 seconds)
+        # Should get ~10 points per hour plus first/last
+        start_time = int((base_time - timedelta(minutes=1)).timestamp())
+        response = api_client.get(
+            f'/api/locations/?device={sample_device.device_id}'
+            f'&start_time={start_time}&resolution=360'
+        )
+
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        results = response.data['results']
+
+        # Should have roughly 10-12 points (60 min / 6 min = 10, plus first/last)
+        assert_that(len(results), greater_than_or_equal_to(10))
+        # But much less than the original 60
+        assert_that(len(results), is_not(greater_than_or_equal_to(30)))
+
+    def test_medium_resolution_thins_to_three_minute_interval(
+        self, api_client: APIClient, sample_device: Device
+    ) -> None:
+        """Test that medium resolution (180s) provides ~20 points per hour."""
+        base_time = timezone.now() - timedelta(hours=1)
+
+        # Create 60 locations, one every minute (simulating 1 hour of data)
+        for i in range(60):
+            Location.objects.create(
+                device=sample_device,
+                latitude=Decimal('37.7749') + Decimal(str(i * 0.0001)),
+                longitude=Decimal('-122.4194'),
+                timestamp=base_time + timedelta(minutes=i),
+                accuracy=10
+            )
+
+        # Request with 3-minute resolution (180 seconds)
+        # Should get ~20 points per hour plus first/last
+        start_time = int((base_time - timedelta(minutes=1)).timestamp())
+        response = api_client.get(
+            f'/api/locations/?device={sample_device.device_id}'
+            f'&start_time={start_time}&resolution=180'
+        )
+
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        results = response.data['results']
+
+        # Should have roughly 20-22 points (60 min / 3 min = 20, plus first/last)
+        assert_that(len(results), greater_than_or_equal_to(18))
+        # But less than 40 (proving it's thinning)
+        assert_that(len(results), is_not(greater_than_or_equal_to(40)))
+        # And more than coarse (which gives ~10)
+        assert_that(len(results), greater_than_or_equal_to(15))
+
+    def test_resolution_zero_returns_all_points(
+        self, api_client: APIClient, sample_device: Device
+    ) -> None:
+        """Test that resolution=0 does not thin waypoints."""
+        base_time = timezone.now() - timedelta(hours=1)
+
+        # Create 5 locations
+        for i in range(5):
+            Location.objects.create(
+                device=sample_device,
+                latitude=Decimal('37.7749'),
+                longitude=Decimal('-122.4194'),
+                timestamp=base_time + timedelta(minutes=i),
+                accuracy=10
+            )
+
+        start_time = int((base_time - timedelta(minutes=1)).timestamp())
+
+        # Request with resolution=0 should return all points via normal pagination
+        response = api_client.get(
+            f'/api/locations/?device={sample_device.device_id}'
+            f'&start_time={start_time}&resolution=0'
+        )
+
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        # resolution=0 should not apply thinning (uses normal response)
+        results = response.data['results']
+        assert_that(len(results), equal_to(5))
