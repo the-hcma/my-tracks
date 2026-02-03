@@ -258,7 +258,7 @@ class LocationViewSet(viewsets.ModelViewSet):
             try:
                 resolution_seconds = int(resolution)
                 if resolution_seconds > 0:
-                    # Get all matching locations ordered by timestamp
+                    # Get all matching locations ordered by timestamp (ascending for thinning)
                     all_locations = list(queryset.order_by('timestamp'))
                     if all_locations:
                         # Thin out to roughly one point per resolution_seconds
@@ -272,6 +272,8 @@ class LocationViewSet(viewsets.ModelViewSet):
                         # Always include the last point
                         if thinned[-1] != all_locations[-1]:
                             thinned.append(all_locations[-1])
+                        # Reverse to return newest first (matching -timestamp ordering)
+                        thinned.reverse()
                         # Return thinned results directly (bypass pagination)
                         serializer = self.get_serializer(thinned, many=True)
                         return Response({

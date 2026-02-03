@@ -502,15 +502,17 @@ class TestResolutionThinning:
         # Must have at least 2 points (first and last)
         assert_that(len(results), greater_than_or_equal_to(2))
 
-        # First result should be the earliest timestamp (first location)
+        # Results are returned newest first (descending order)
+        # First result should be the newest (last location)
+        # Last result should be the oldest (first location)
         first_result_ts = results[0]['timestamp_unix']
         last_result_ts = results[-1]['timestamp_unix']
 
         first_location_ts = int(locations[0].timestamp.timestamp())
         last_location_ts = int(locations[-1].timestamp.timestamp())
 
-        assert_that(first_result_ts, equal_to(first_location_ts))
-        assert_that(last_result_ts, equal_to(last_location_ts))
+        assert_that(first_result_ts, equal_to(last_location_ts))  # newest first
+        assert_that(last_result_ts, equal_to(first_location_ts))  # oldest last
 
     def test_resolution_thins_to_expected_interval(
         self, api_client: APIClient, sample_device: Device
