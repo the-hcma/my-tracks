@@ -6,20 +6,13 @@ including model validation, API endpoints, and OwnTracks protocol compatibility.
 """
 from datetime import datetime, timedelta
 from decimal import Decimal
+from typing import Any
 
 import pytest
 from django.utils import timezone
-from hamcrest import (
-    all_of,
-    assert_that,
-    contains_string,
-    equal_to,
-    greater_than_or_equal_to,
-    has_key,
-    has_length,
-    is_not,
-    none,
-)
+from hamcrest import (all_of, assert_that, contains_string, equal_to,
+                      greater_than_or_equal_to, has_key, has_length, is_not,
+                      none)
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.test import APIClient
@@ -34,7 +27,7 @@ def api_client() -> APIClient:
 
 
 @pytest.fixture
-def sample_device(db) -> Device:
+def sample_device(db: Any) -> Device:
     """Create a sample device for testing."""
     return Device.objects.create(
         device_id='TEST01',
@@ -43,7 +36,7 @@ def sample_device(db) -> Device:
 
 
 @pytest.fixture
-def sample_location(db, sample_device: Device) -> Location:
+def sample_location(db: Any, sample_device: Device) -> Location:
     """Create a sample location for testing."""
     return Location.objects.create(
         device=sample_device,
@@ -121,6 +114,29 @@ class TestLocationModel:
         assert_that(result, contains_string('TEST01'))
         assert_that(result, contains_string('37.7749'))
         assert_that(result, contains_string('-122.4194'))
+
+    def test_coordinate_precision_from_schema(self) -> None:
+        """Test that coordinate precision can be extracted from model schema.
+
+        This tests the mechanism used by the frontend to derive collapse precision
+        from the database schema, ensuring it doesn't rely on hardcoded values.
+        """
+        lat_field = Location._meta.get_field('latitude')
+        lon_field = Location._meta.get_field('longitude')
+
+        # Verify both fields have the same precision
+        assert_that(lat_field.decimal_places, equal_to(lon_field.decimal_places))
+
+        # Verify precision is defined (not None)
+        assert_that(lat_field.decimal_places, is_not(none()))
+
+        # Verify precision is reasonable (at least 5 for ~1m accuracy)
+        assert_that(lat_field.decimal_places, greater_than_or_equal_to(5))
+
+        # Test the collapse precision calculation (same logic as in urls.py)
+        db_decimal_places = lat_field.decimal_places or 10
+        collapse_precision = min(db_decimal_places, 5)
+        assert_that(collapse_precision, equal_to(5))
 
 
 @pytest.mark.django_db
@@ -608,3 +624,23 @@ class TestResolutionThinning:
         # resolution=0 should not apply thinning (uses normal response)
         results = response.data['results']
         assert_that(len(results), equal_to(5))
+
+
+@pytest.mark.django_db
+class TestHomeView:
+    """Tests for the home page view."""
+
+    def test_home_page_includes_collapse_precision(self, api_client: APIClient) -> None:
+        """Test that the home page includes the collapse precision derived from DB."""
+        response = api_client.get('/')
+
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+
+        # The response content should contain the precision configuration
+        content = response.content.decode('utf-8')
+
+        # Verify the PRECISION constant is set to 5 (derived from DB schema)
+        assert_that(content, contains_string('const PRECISION = 5'))
+
+        # Verify the comment explaining the precision source
+        assert_that(content, contains_string('Precision from DB schema'))

@@ -12,6 +12,8 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.urls import include, path
 from django.urls.resolvers import URLPattern, URLResolver
 
+from tracker.models import Location
+
 logger = logging.getLogger(__name__)
 
 
@@ -82,6 +84,15 @@ def home(request: HttpRequest) -> HttpResponse:
         local_ip = "Unable to detect"
 
     hostname = socket.gethostname()
+
+    # Get coordinate precision from database schema
+    # The Location model defines decimal_places for lat/lon fields
+    # We use this to derive a sensible collapsing precision (~1 meter = 5 decimals)
+    lat_field = Location._meta.get_field('latitude')
+    db_decimal_places = lat_field.decimal_places or 10  # Default to 10 if not set
+    # For collapsing, use 5 decimals (~1.1m precision) - derived from DB but practical
+    # This avoids over-aggregation while still grouping GPS jitter
+    collapse_precision = min(db_decimal_places, 5)
 
     html = """<!DOCTYPE html>
 <html>
@@ -946,11 +957,13 @@ def home(request: HttpRequest) -> HttpResponse:
 
         // Collapse consecutive waypoints at the same location into a single point
         // Uses the oldest timestamp for the collapsed point (first occurrence in chronological order)
-        // Threshold: locations within ~10 meters are considered "same location"
+        // Precision derived from database schema (decimal_places), capped at 5 (~1.1m)
         function collapseLocations(locations) {{
             if (locations.length === 0) return [];
 
-            const PRECISION = 4;  // ~11 meters precision at equator
+            // Precision from DB schema: {collapse_precision} decimals
+            // 5 decimals ≈ 1.1m, 4 decimals ≈ 11m, 6 decimals ≈ 0.1m
+            const PRECISION = {collapse_precision};
             const collapsed = [];
             let currentGroup = [locations[0]];
             let currentKey = `${{parseFloat(locations[0].latitude).toFixed(PRECISION)}},${{parseFloat(locations[0].longitude).toFixed(PRECISION)}}`;
@@ -1824,12 +1837,12 @@ def home(request: HttpRequest) -> HttpResponse:
             const mapSection = document.querySelector('.map-section');
             const activitySection = document.querySelector('.activity-section');
             const rightColumn = document.querySelector('.right-column');
-            
+
             let isResizing = false;
             let startY = 0;
             let startMapHeight = 0;
             let startActivityHeight = 0;
-            
+
             // Restore saved panel sizes
             const savedMapHeight = localStorage.getItem('mytracks-map-height');
             if (savedMapHeight) {{
@@ -1841,28 +1854,28 @@ def home(request: HttpRequest) -> HttpResponse:
                 }}
                 // Otherwise keep CSS defaults (50/50)
             }}
-            
+
             resizeHandle.addEventListener('mousedown', (e) => {{
                 isResizing = true;
                 startY = e.clientY;
                 startMapHeight = mapSection.offsetHeight;
                 startActivityHeight = activitySection.offsetHeight;
-                
+
                 document.body.style.cursor = 'ns-resize';
                 document.body.style.userSelect = 'none';
-                
+
                 e.preventDefault();
             }});
-            
+
             document.addEventListener('mousemove', (e) => {{
                 if (!isResizing) return;
-                
+
                 const deltaY = e.clientY - startY;
                 const totalHeight = startMapHeight + startActivityHeight;
-                
+
                 let newMapHeight = startMapHeight + deltaY;
                 let newActivityHeight = startActivityHeight - deltaY;
-                
+
                 // Minimum heights (100px each)
                 const minHeight = 100;
                 if (newMapHeight < minHeight) {{
@@ -1873,27 +1886,27 @@ def home(request: HttpRequest) -> HttpResponse:
                     newActivityHeight = minHeight;
                     newMapHeight = totalHeight - minHeight;
                 }}
-                
+
                 const mapPercent = (newMapHeight / totalHeight) * 100;
                 mapSection.style.flex = `0 0 ${{mapPercent}}%`;
                 activitySection.style.flex = `0 0 ${{100 - mapPercent}}%`;
-                
+
                 // Invalidate map size during resize
                 if (map) map.invalidateSize();
             }});
-            
+
             document.addEventListener('mouseup', () => {{
                 if (!isResizing) return;
                 isResizing = false;
-                
+
                 document.body.style.cursor = '';
                 document.body.style.userSelect = '';
-                
+
                 // Save panel sizes
                 const totalHeight = mapSection.offsetHeight + activitySection.offsetHeight;
                 const mapPercent = (mapSection.offsetHeight / totalHeight) * 100;
                 localStorage.setItem('mytracks-map-height', mapPercent.toString());
-                
+
                 // Final map size invalidation
                 if (map) map.invalidateSize();
             }});
@@ -1901,7 +1914,7 @@ def home(request: HttpRequest) -> HttpResponse:
     </script>
 </body>
 </html>
-""".format(hostname=hostname, local_ip=local_ip)
+""".format(hostname=hostname, local_ip=local_ip, collapse_precision=collapse_precision)
     response = HttpResponse(content=html, content_type='text/html; charset=utf-8')  # type: ignore[arg-type]
     response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
     response['Pragma'] = 'no-cache'
