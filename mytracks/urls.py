@@ -315,7 +315,8 @@ def home(request):
             align-items: center;
         }}
         .device-selector,
-        .time-range-selector {{
+        .time-range-selector,
+        .resolution-selector {{
             background: var(--endpoint-bg);
             color: var(--text-main);
             border: 1px solid var(--border-color);
@@ -447,6 +448,11 @@ def home(request):
                             <option value="12">Last 12 hours</option>
                             <option value="24">Last 24 hours</option>
                         </select>
+                        <select class="resolution-selector hidden" id="resolution-selector" title="Trail precision: Coarse ~10 pts/hr, Medium ~20 pts/hr, Precise all">
+                            <option value="360">🔍 Coarse</option>
+                            <option value="180">📍 Medium</option>
+                            <option value="0" selected>🎯 Precise</option>
+                        </select>
                         <select class="device-selector hidden" id="device-selector">
                             <option value="">All Devices</option>
                         </select>
@@ -485,6 +491,7 @@ def home(request):
         let devices = new Set();
         let selectedDevice = '';
         let timeRangeHours = 2;
+        let trailResolution = 0; // 0 = precise (all points), 360 = coarse (~10/hour)
         let isLiveMode = true; // Track current mode
         let needsFitBounds = true; // Only fit bounds on initial trail load
         let isRestoringState = false; // Flag to prevent saving during restore
@@ -497,7 +504,8 @@ def home(request):
             const state = {{
                 isLiveMode: isLiveMode,
                 selectedDevice: selectedDevice,
-                timeRangeHours: timeRangeHours
+                timeRangeHours: timeRangeHours,
+                trailResolution: trailResolution
             }};
             localStorage.setItem('mytracks-ui-state', JSON.stringify(state));
         }}
@@ -551,6 +559,12 @@ def home(request):
             if (state.timeRangeHours) {{
                 timeRangeHours = state.timeRangeHours;
                 document.getElementById('time-range-selector').value = timeRangeHours;
+            }}
+
+            // Restore resolution
+            if (state.trailResolution !== undefined) {{
+                trailResolution = state.trailResolution;
+                document.getElementById('resolution-selector').value = trailResolution;
             }}
 
             // Restore mode
@@ -900,7 +914,11 @@ def home(request):
             if (!selectedDevice) {{
                 // "All Devices" selected - show all device markers
                 try {{
-                    const response = await fetch(`/api/locations/?start_time=${{Math.floor(startTime)}}&ordering=-timestamp&limit=1000`);
+                    let url = `/api/locations/?start_time=${{Math.floor(startTime)}}&ordering=-timestamp&limit=1000`;
+                    if (trailResolution > 0) {{
+                        url += `&resolution=${{trailResolution}}`;
+                    }}
+                    const response = await fetch(url);
                     if (!response.ok) return;
 
                     const data = await response.json();
@@ -944,7 +962,11 @@ def home(request):
             }}
 
             try {{
-                const response = await fetch(`/api/locations/?device=${{selectedDevice}}&start_time=${{Math.floor(startTime)}}&ordering=-timestamp&limit=1000`);
+                let url = `/api/locations/?device=${{selectedDevice}}&start_time=${{Math.floor(startTime)}}&ordering=-timestamp&limit=1000`;
+                if (trailResolution > 0) {{
+                    url += `&resolution=${{trailResolution}}`;
+                }}
+                const response = await fetch(url);
                 if (!response.ok) return;
 
                 const data = await response.json();
@@ -1156,6 +1178,19 @@ def home(request):
             saveUIState();
         }});
 
+        // Resolution selector change handler
+        document.getElementById('resolution-selector').addEventListener('change', (e) => {{
+            trailResolution = parseInt(e.target.value);
+
+            // Refresh trail with new resolution (only in historic mode)
+            if (!isLiveMode) {{
+                fetchAndDisplayTrail();
+            }}
+
+            // Save UI state
+            saveUIState();
+        }});
+
         // Mode toggle handlers
         function switchToLiveMode() {{
             isLiveMode = true;
@@ -1171,6 +1206,7 @@ def home(request):
 
             // Hide historic controls
             document.getElementById('time-range-selector').classList.add('hidden');
+            document.getElementById('resolution-selector').classList.add('hidden');
             document.getElementById('device-selector').classList.add('hidden');
 
             // Clear activity section for live updates
@@ -1216,6 +1252,7 @@ def home(request):
 
             // Show historic controls
             document.getElementById('time-range-selector').classList.remove('hidden');
+            document.getElementById('resolution-selector').classList.remove('hidden');
             document.getElementById('device-selector').classList.remove('hidden');
 
             // Clear markers (will be restored by fetchAndDisplayTrail)
