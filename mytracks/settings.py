@@ -57,7 +57,7 @@ MIDDLEWARE: list[str] = [
 
 ROOT_URLCONF: str = 'mytracks.urls'
 
-TEMPLATES: list[dict] = [
+TEMPLATES: list[dict[str, Any]] = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
         'DIRS': [],
@@ -80,7 +80,7 @@ ASGI_APPLICATION: str = 'mytracks.asgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.0/ref/settings/#databases
 
-DATABASES: dict = {
+DATABASES: dict[str, Any] = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
@@ -91,7 +91,7 @@ DATABASES: dict = {
 # Password validation
 # https://docs.djangoproject.com/en/5.0/ref/settings/#auth-password-validators
 
-AUTH_PASSWORD_VALIDATORS: list[dict] = [
+AUTH_PASSWORD_VALIDATORS: list[dict[str, Any]] = [
     {
         'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
     },
@@ -131,7 +131,7 @@ DEFAULT_AUTO_FIELD: str = 'django.db.models.BigAutoField'
 
 
 # REST Framework settings
-REST_FRAMEWORK: dict = {
+REST_FRAMEWORK: dict[str, Any] = {
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
     ],
@@ -232,7 +232,7 @@ CSRF_TRUSTED_ORIGINS: list[str] = _parse_csrf_origins(
 )
 
 # Channels configuration
-CHANNEL_LAYERS: dict = {
+CHANNEL_LAYERS: dict[str, Any] = {
     'default': {
         'BACKEND': 'channels.layers.InMemoryChannelLayer',
     }

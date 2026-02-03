@@ -7,8 +7,8 @@
   "reportMissingTypeStubs": false,
   "reportAttributeAccessIssue": "none",
   "reportMissingParameterType": "error",
-  "reportMissingTypeArgument": "warning",
-  "reportUnknownParameterType": "warning",
+  "reportMissingTypeArgument": "error",
+  "reportUnknownParameterType": "error",
   "pythonVersion": "3.14",
   "pythonPlatform": "Darwin",
   "typeCheckingMode": "basic"
