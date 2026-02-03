@@ -1,0 +1,78 @@
+name: Cleanup Merged Branches
+
+on:
+  schedule:
+    # Run daily at 6 AM UTC
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    # Allow manual trigger
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup-merged-branches:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Cleanup all merged branches
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        echo "🔍 Finding all branches..."
+        
+        # Get all branches except main
+        BRANCHES=$(gh api repos/${{ github.repository }}/branches --paginate --jq '.[].name' | grep -v '^main$')
+        
+        if [ -z "$BRANCHES" ]; then
+          echo "ℹ️ No branches found (besides main)"
+          exit 0
+        fi
+        
+        echo "Found $(echo "$BRANCHES" | wc -l | tr -d ' ') branches to check"
+        echo ""
+        
+        # Calculate date 30 days ago (for closed PR cleanup)
+        THIRTY_DAYS_AGO=$(date -u -d '30 days ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-30d +%Y-%m-%dT%H:%M:%SZ)
+        echo "Cutoff date for closed PRs: ${THIRTY_DAYS_AGO}"
+        echo ""
+        
+        DELETED=0
+        KEPT=0
+        
+        for BRANCH in $BRANCHES; do
+          echo "Checking branch: ${BRANCH}..."
+          
+          # Search for closed PRs that used this branch as head
+          PR_DATA=$(gh api "repos/${{ github.repository }}/pulls?state=closed&head=${{ github.repository_owner }}:${BRANCH}" --jq '.[0] | {number, merged, closed_at}' 2>/dev/null || echo "")
+          
+          if [ -z "$PR_DATA" ] || [ "$PR_DATA" = "null" ]; then
+            echo "  No closed PR found for this branch, keeping"
+            KEPT=$((KEPT + 1))
+            continue
+          fi
+          
+          PR_NUMBER=$(echo "$PR_DATA" | jq -r '.number')
+          PR_MERGED=$(echo "$PR_DATA" | jq -r '.merged')
+          PR_CLOSED_AT=$(echo "$PR_DATA" | jq -r '.closed_at')
+          
+          if [ "$PR_MERGED" = "true" ]; then
+            echo "  Branch was merged via PR #${PR_NUMBER}, deleting..."
+            gh api "repos/${{ github.repository }}/git/refs/heads/${BRANCH}" -X DELETE 2>/dev/null && \
+              echo "  ✅ Deleted ${BRANCH}" && \
+              DELETED=$((DELETED + 1)) || \
+              echo "  ⚠️ Failed to delete ${BRANCH}"
+          elif [[ "$PR_CLOSED_AT" < "$THIRTY_DAYS_AGO" ]]; then
+            echo "  PR #${PR_NUMBER} was closed without merge on ${PR_CLOSED_AT} (>30 days), deleting..."
+            gh api "repos/${{ github.repository }}/git/refs/heads/${BRANCH}" -X DELETE 2>/dev/null && \
+              echo "  ✅ Deleted ${BRANCH}" && \
+              DELETED=$((DELETED + 1)) || \
+              echo "  ⚠️ Failed to delete ${BRANCH}"
+          else
+            echo "  PR #${PR_NUMBER} was closed without merge on ${PR_CLOSED_AT} (<30 days), keeping branch"
+            KEPT=$((KEPT + 1))
+          fi
+        done
+        
+        echo ""
+        echo "📊 Summary: Deleted ${DELETED} branches, kept ${KEPT} branches"
