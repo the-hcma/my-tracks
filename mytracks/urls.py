@@ -1331,8 +1331,7 @@ def home(request):
             const hours = String(date.getHours()).padStart(2, '0');
             const minutes = String(date.getMinutes()).padStart(2, '0');
             const seconds = String(date.getSeconds()).padStart(2, '0');
-            const ms = String(date.getMilliseconds()).padStart(3, '0');
-            const timeStr = `${{hours}}:${{minutes}}:${{seconds}}.${{ms}}`;
+            const timeStr = `${{hours}}:${{minutes}}:${{seconds}}`;
 
             // Include date if requested or if not today
             if (includeDate || !isToday) {{
@@ -1384,11 +1383,11 @@ def home(request):
                 const batt = loc.battery_level || 'N/A';
                 const collapsedCount = loc._collapsedCount || 1;
 
-                // Show count if multiple waypoints were collapsed
+                // Show count badge at end of line if multiple waypoints were collapsed
                 const countBadge = collapsedCount > 1 ? 
-                    `<span style="background:#6c757d;color:white;padding:1px 5px;border-radius:10px;font-size:10px;margin-left:5px;">×${{collapsedCount}}</span>` : '';
+                    `<span style="background:#6c757d;color:white;padding:1px 5px;border-radius:10px;font-size:10px;margin-left:8px;">×${{collapsedCount}}</span>` : '';
 
-                entry.innerHTML = `<span class="log-time"><b>#${{waypointNumber}}</b>${{countBadge}} ${{time}}</span> | <span class="log-coords">${{lat}}, ${{lon}}</span> | <span class="log-meta">acc:${{acc}}m alt:${{alt}}m vel:${{vel}}km/h batt:${{batt}}%</span>`;
+                entry.innerHTML = `<span class="log-time"><b>#${{waypointNumber}}</b> ${{time}}</span> | <span class="log-coords">${{lat}}, ${{lon}}</span> | <span class="log-meta">acc:${{acc}}m alt:${{alt}}m vel:${{vel}}km/h batt:${{batt}}%</span>${{countBadge}}`;
 
                 container.appendChild(entry);
             }});
