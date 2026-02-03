@@ -53,6 +53,7 @@ This document defines the four specialized agents for the OwnTracks Django backe
 **Branch Cleanup**:
 - Periodically prune stale remote-tracking branches: `git fetch --prune`
 - Delete local branches whose upstream is gone: `git branch -vv | grep ': gone]' | awk '{print $1}' | xargs -r git branch -D`
+- `graphite-base/{pr}` branches are auto-deleted by GitHub Actions when PRs merge
 - Graphite auto-cleans merged branches during `gt submit` when it detects merged PRs
 - Run cleanup after merging PRs or when branch list becomes cluttered
 - Rationale: Keeps repository clean, avoids confusion from old branches
