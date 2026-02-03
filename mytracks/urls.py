@@ -187,9 +187,9 @@ def home(request: HttpRequest) -> HttpResponse:
             padding: 20px;
             overflow-y: hidden;
             border-left: 1px solid var(--border-color);
-            display: grid;
-            grid-template-rows: 1fr 1fr;
-            gap: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 0;
         }}
         h1 {{ color: var(--text-main); margin-top: 0; }}
         h2 {{ color: var(--text-secondary); margin-top: 30px; }}
@@ -354,6 +354,7 @@ def home(request: HttpRequest) -> HttpResponse:
             display: flex;
             flex-direction: column;
             overflow: hidden;
+            flex: 0 0 50%;
         }}
         .map-header {{
             display: flex;
@@ -412,12 +413,39 @@ def home(request: HttpRequest) -> HttpResponse:
             display: flex;
             flex-direction: column;
             overflow: hidden;
+            flex: 0 0 50%;
             transition: opacity 0.3s ease, filter 0.3s ease;
         }}
         .activity-section.inactive {{
             opacity: 0.4;
             filter: grayscale(50%);
             pointer-events: none;
+        }}
+        .resize-handle {{
+            height: 8px;
+            background: var(--border-color);
+            cursor: ns-resize;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+            margin: 4px 0;
+            transition: background 0.2s ease;
+        }}
+        .resize-handle:hover {{
+            background: #007bff;
+        }}
+        .resize-handle::after {{
+            content: '';
+            width: 40px;
+            height: 4px;
+            background: var(--text-secondary);
+            border-radius: 2px;
+            opacity: 0.5;
+        }}
+        .resize-handle:hover::after {{
+            background: white;
+            opacity: 0.8;
         }}
         .hidden {{
             display: none !important;
@@ -519,6 +547,7 @@ def home(request: HttpRequest) -> HttpResponse:
                 </div>
                 <div id="map"></div>
             </div>
+            <div class="resize-handle" id="resize-handle" title="Drag to resize"></div>
             <div class="activity-section">
                 <div class="log-header">
                     <h2 id="activity-title">📍 Live Activity</h2>
@@ -1788,6 +1817,87 @@ def home(request: HttpRequest) -> HttpResponse:
 
         // Start WebSocket connection for real-time updates
         connectWebSocket();
+
+        // Resize handle functionality
+        (function() {{
+            const resizeHandle = document.getElementById('resize-handle');
+            const mapSection = document.querySelector('.map-section');
+            const activitySection = document.querySelector('.activity-section');
+            const rightColumn = document.querySelector('.right-column');
+            
+            let isResizing = false;
+            let startY = 0;
+            let startMapHeight = 0;
+            let startActivityHeight = 0;
+            
+            // Restore saved panel sizes
+            const savedMapHeight = localStorage.getItem('mytracks-map-height');
+            if (savedMapHeight) {{
+                const mapPercent = parseFloat(savedMapHeight);
+                // Validate: must be between 10% and 90%
+                if (mapPercent >= 10 && mapPercent <= 90) {{
+                    mapSection.style.flex = `0 0 ${{mapPercent}}%`;
+                    activitySection.style.flex = `0 0 ${{100 - mapPercent}}%`;
+                }}
+                // Otherwise keep CSS defaults (50/50)
+            }}
+            
+            resizeHandle.addEventListener('mousedown', (e) => {{
+                isResizing = true;
+                startY = e.clientY;
+                startMapHeight = mapSection.offsetHeight;
+                startActivityHeight = activitySection.offsetHeight;
+                
+                document.body.style.cursor = 'ns-resize';
+                document.body.style.userSelect = 'none';
+                
+                e.preventDefault();
+            }});
+            
+            document.addEventListener('mousemove', (e) => {{
+                if (!isResizing) return;
+                
+                const deltaY = e.clientY - startY;
+                const totalHeight = startMapHeight + startActivityHeight;
+                
+                let newMapHeight = startMapHeight + deltaY;
+                let newActivityHeight = startActivityHeight - deltaY;
+                
+                // Minimum heights (100px each)
+                const minHeight = 100;
+                if (newMapHeight < minHeight) {{
+                    newMapHeight = minHeight;
+                    newActivityHeight = totalHeight - minHeight;
+                }}
+                if (newActivityHeight < minHeight) {{
+                    newActivityHeight = minHeight;
+                    newMapHeight = totalHeight - minHeight;
+                }}
+                
+                const mapPercent = (newMapHeight / totalHeight) * 100;
+                mapSection.style.flex = `0 0 ${{mapPercent}}%`;
+                activitySection.style.flex = `0 0 ${{100 - mapPercent}}%`;
+                
+                // Invalidate map size during resize
+                if (map) map.invalidateSize();
+            }});
+            
+            document.addEventListener('mouseup', () => {{
+                if (!isResizing) return;
+                isResizing = false;
+                
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+                
+                // Save panel sizes
+                const totalHeight = mapSection.offsetHeight + activitySection.offsetHeight;
+                const mapPercent = (mapSection.offsetHeight / totalHeight) * 100;
+                localStorage.setItem('mytracks-map-height', mapPercent.toString());
+                
+                // Final map size invalidation
+                if (map) map.invalidateSize();
+            }});
+        }})();
     </script>
 </body>
 </html>
