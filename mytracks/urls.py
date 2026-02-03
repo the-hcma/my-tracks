@@ -14,8 +14,43 @@ from django.urls.resolvers import URLPattern, URLResolver
 
 logger = logging.getLogger(__name__)
 
-# Track last known IP to detect changes
-_last_known_ip: str | None = None
+
+class NetworkState:
+    """Holds network-related state for change detection."""
+
+    last_known_ip: str | None = None
+
+    @classmethod
+    def get_current_ip(cls) -> str:
+        """Get the current local IP address."""
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            local_ip = s.getsockname()[0]
+            s.close()
+        except Exception:
+            local_ip = "Unable to detect"
+        return local_ip
+
+    @classmethod
+    def check_and_update_ip(cls) -> tuple[str, bool]:
+        """
+        Check current IP and detect if it changed.
+
+        Returns:
+            Tuple of (current_ip, has_changed)
+        """
+        current_ip = cls.get_current_ip()
+        has_changed = (
+            cls.last_known_ip is not None and
+            cls.last_known_ip != current_ip
+        )
+
+        if has_changed:
+            logger.info(f"Network IP changed: {cls.last_known_ip} -> {current_ip}")
+
+        cls.last_known_ip = current_ip
+        return current_ip, has_changed
 
 
 def health(request):
@@ -25,22 +60,8 @@ def health(request):
 
 def network_info(request):
     """Return current network information for dynamic UI updates."""
-    global _last_known_ip
-
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        local_ip = s.getsockname()[0]
-        s.close()
-    except Exception:
-        local_ip = "Unable to detect"
-
+    local_ip, _ = NetworkState.check_and_update_ip()
     hostname = socket.gethostname()
-
-    # Log if IP changed
-    if _last_known_ip is not None and _last_known_ip != local_ip:
-        logger.info(f"Network IP changed: {_last_known_ip} -> {local_ip}")
-    _last_known_ip = local_ip
 
     return JsonResponse({
         'hostname': hostname,
