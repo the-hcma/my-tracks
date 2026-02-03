@@ -4,7 +4,7 @@ Get up and running with My Tracks in 5 minutes.
 
 ## Prerequisites
 
-- Python 3.12 or higher
+- Python 3.14 or higher
 - Git
 - [uv](https://github.com/astral-sh/uv) (installed automatically by setup script)
 
@@ -46,7 +46,7 @@ uv pip install -e .
 cp .env.example .env
 
 # 6. Run migrations
-python manage.py migrate
+uv run python manage.py migrate
 ```
 
 ## First Run
@@ -54,24 +54,27 @@ python manage.py migrate
 ### 1. Start the Server
 
 ```bash
-python manage.py runserver
+./my-tracks-server
 ```
 
-The server will start at `http://localhost:8000/`
+The server will start at `http://localhost:8080/`
 
-**Note**: For easier server management, a `start_server` script is planned that will:
-- Check if the server is already running
-- Prompt for confirmation before restarting
-- Automatically start if not running
+Options:
+- `--port PORT` - Set server port (default: 8080)
+- `--log-level LEVEL` - Set log level (debug, info, warning, error)
+- `--console` - Output logs to console instead of file
 
-See [COMMANDS.md](COMMANDS.md#server-management-script-planned) for details.
+Example with options:
+```bash
+./my-tracks-server --log-level debug --console
+```
 
 ### 2. Test the API
 
 Submit a test location:
 
 ```bash
-curl -X POST http://localhost:8000/api/locations/ \
+curl -X POST http://localhost:8080/api/locations/ \
   -H "Content-Type: application/json" \
   -d '{
     "_type": "location",
@@ -95,7 +98,7 @@ Expected response:
 ### 3. View Location Data
 
 ```bash
-curl http://localhost:8000/api/locations/
+curl http://localhost:8080/api/locations/
 ```
 
 ## Configure OwnTracks App
@@ -111,9 +114,9 @@ curl http://localhost:8000/api/locations/
    - Tap on hamburger menu (≡)
    - Go to **Settings** → **Connection**
    - Set **Mode** to **HTTP**
-   - Set **URL** to: `http://YOUR_IP:8000/api/locations/`
+   - Set **URL** to: `http://YOUR_IP:8080/api/locations/`
      - Replace `YOUR_IP` with your computer's IP address
-     - Example: `http://192.168.1.100:8000/api/locations/`
+     - Example: `http://192.168.1.100:8080/api/locations/`
    - Leave **Authentication** empty for now
    - Tap **Save**
 
@@ -124,14 +127,14 @@ curl http://localhost:8000/api/locations/
 
 4. **Test Connection**
    - Tap the upload icon or wait for automatic update
-   - Check server logs or visit `http://localhost:8000/api/locations/` to see the data
+   - Check server logs or visit `http://localhost:8080/api/locations/` to see the data
 
 ## Access Admin Panel
 
 ### 1. Create Superuser
 
 ```bash
-python manage.py createsuperuser
+uv run python manage.py createsuperuser
 ```
 
 Follow the prompts to set:
@@ -141,7 +144,7 @@ Follow the prompts to set:
 
 ### 2. Login to Admin
 
-Visit `http://localhost:8000/admin/` and login with your credentials.
+Visit `http://localhost:8080/admin/` and login with your credentials.
 
 From here you can:
 - View all devices
@@ -153,9 +156,9 @@ From here you can:
 ### Development
 
 - **Read the API docs**: [API.md](API.md)
-- **Run tests**: `uv pip install -e ".[dev]" && pytest`
-- **Check code style**: `flake8 .`
-- **Format code**: `black .`
+- **Run tests**: `uv run pytest`
+- **Check types**: `uv run pyright`
+- **Sort imports**: `uv run isort tracker mytracks`
 
 ### Production
 
@@ -168,28 +171,31 @@ From here you can:
 
 ```bash
 # Start development server
-python manage.py runserver
+./my-tracks-server
+
+# Start with debug logging to console
+./my-tracks-server --log-level debug --console
 
 # Run migrations
-python manage.py migrate
+uv run python manage.py migrate
 
 # Create migrations after model changes
-python manage.py makemigrations
+uv run python manage.py makemigrations
 
 # Create superuser
-python manage.py createsuperuser
+uv run python manage.py createsuperuser
 
 # Run tests
-pytest
+uv run pytest
 
-# Check code style
-flake8 .
+# Run tests with coverage
+uv run pytest --cov=tracker --cov-fail-under=90
 
-# Format code
-black .
+# Check types
+uv run pyright
 
-# Run type checks
-mypy tracker/
+# Sort imports
+uv run isort tracker mytracks
 ```
 
 ## Troubleshooting
@@ -198,7 +204,7 @@ mypy tracker/
 
 ```bash
 # Use a different port
-python manage.py runserver 8080
+./my-tracks-server --port 18080
 ```
 
 ### Database Locked
@@ -207,7 +213,7 @@ If using SQLite and seeing "database is locked" errors:
 ```bash
 # Remove the database and start fresh
 rm db.sqlite3
-python manage.py migrate
+uv run python manage.py migrate
 ```
 
 ### Import Errors
@@ -220,9 +226,9 @@ source .venv/bin/activate  # On Unix/macOS
 
 ### OwnTracks Not Connecting
 
-1. **Check server is running**: Visit `http://localhost:8000/api/locations/` in a browser
+1. **Check server is running**: Visit `http://localhost:8080/api/locations/` in a browser
 2. **Check IP address**: Use actual IP, not `localhost`, when configuring the app
-3. **Check firewall**: Ensure port 8000 is accessible
+3. **Check firewall**: Ensure port 8080 is accessible
 4. **Check URL format**: Must end with `/api/locations/`
 5. **View server logs**: Watch terminal for incoming requests
 
@@ -232,30 +238,30 @@ source .venv/bin/activate  # On Unix/macOS
 
 ```bash
 # Get last 10 locations
-curl "http://localhost:8000/api/locations/?limit=10"
+curl "http://localhost:8080/api/locations/?limit=10"
 
 # Get locations for specific device
-curl "http://localhost:8000/api/locations/?device=AB"
+curl "http://localhost:8080/api/locations/?device=AB"
 
 # Get today's locations
-curl "http://localhost:8000/api/locations/?start_date=$(date -u +%Y-%m-%dT00:00:00Z)"
+curl "http://localhost:8080/api/locations/?start_date=$(date -u +%Y-%m-%dT00:00:00Z)"
 ```
 
 ### Monitor in Real-Time
 
 ```bash
 # Watch location updates in real-time
-watch -n 2 'curl -s http://localhost:8000/api/locations/?limit=1 | python -m json.tool'
+watch -n 2 'curl -s http://localhost:8080/api/locations/?limit=1 | python -m json.tool'
 ```
 
 ### Export Location Data
 
 ```bash
 # Export to JSON file
-curl "http://localhost:8000/api/locations/?device=AB" > my_locations.json
+curl "http://localhost:8080/api/locations/?device=AB" > my_locations.json
 
 # Export to CSV (requires jq)
-curl "http://localhost:8000/api/locations/" | \
+curl "http://localhost:8080/api/locations/" | \
   jq -r '.results[] | [.device, .latitude, .longitude, .timestamp] | @csv'
 ```
 
