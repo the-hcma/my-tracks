@@ -44,15 +44,16 @@ jobs:
           echo "Checking branch: ${BRANCH}..."
           
           # Search for closed PRs that used this branch as head
-          PR_DATA=$(gh api "repos/${{ github.repository }}/pulls?state=closed&head=${{ github.repository_owner }}:${BRANCH}" --jq '.[0] | {number, merged, closed_at}' 2>/dev/null || echo "")
+          PR_NUMBER=$(gh api "repos/${{ github.repository }}/pulls?state=closed&head=${{ github.repository_owner }}:${BRANCH}" --jq '.[0].number' 2>/dev/null || echo "")
           
-          if [ -z "$PR_DATA" ] || [ "$PR_DATA" = "null" ]; then
+          if [ -z "$PR_NUMBER" ] || [ "$PR_NUMBER" = "null" ]; then
             echo "  No closed PR found for this branch, keeping"
             KEPT=$((KEPT + 1))
             continue
           fi
           
-          PR_NUMBER=$(echo "$PR_DATA" | jq -r '.number')
+          # Fetch full PR details to get merged status
+          PR_DATA=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq '{merged, closed_at}' 2>/dev/null || echo "")
           PR_MERGED=$(echo "$PR_DATA" | jq -r '.merged')
           PR_CLOSED_AT=$(echo "$PR_DATA" | jq -r '.closed_at')
           
