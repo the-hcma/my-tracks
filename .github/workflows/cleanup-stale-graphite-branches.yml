@@ -30,6 +30,11 @@ jobs:
         echo "$BRANCHES"
         echo ""
         
+        # Calculate date 30 days ago (for closed PR cleanup)
+        THIRTY_DAYS_AGO=$(date -u -d '30 days ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-30d +%Y-%m-%dT%H:%M:%SZ)
+        echo "Cutoff date for closed PRs: ${THIRTY_DAYS_AGO}"
+        echo ""
+        
         DELETED=0
         KEPT=0
         
@@ -39,20 +44,37 @@ jobs:
           
           echo "Checking PR #${PR_NUMBER}..."
           
-          # Check if PR exists and is merged
-          PR_STATE=$(gh api repos/${{ github.repository }}/pulls/${PR_NUMBER} --jq '.state' 2>/dev/null || echo "not_found")
-          PR_MERGED=$(gh api repos/${{ github.repository }}/pulls/${PR_NUMBER} --jq '.merged' 2>/dev/null || echo "false")
+          # Get PR details
+          PR_DATA=$(gh api repos/${{ github.repository }}/pulls/${PR_NUMBER} 2>/dev/null || echo "not_found")
+          
+          if [ "$PR_DATA" = "not_found" ]; then
+            echo "  PR #${PR_NUMBER} not found, deleting orphan branch..."
+            gh api repos/${{ github.repository }}/git/${REF} -X DELETE
+            echo "  ✅ Deleted orphan graphite-base/${PR_NUMBER}"
+            DELETED=$((DELETED + 1))
+            continue
+          fi
+          
+          PR_STATE=$(echo "$PR_DATA" | jq -r '.state')
+          PR_MERGED=$(echo "$PR_DATA" | jq -r '.merged')
+          PR_CLOSED_AT=$(echo "$PR_DATA" | jq -r '.closed_at')
           
           if [ "$PR_STATE" = "closed" ] && [ "$PR_MERGED" = "true" ]; then
             echo "  PR #${PR_NUMBER} is merged, deleting branch..."
             gh api repos/${{ github.repository }}/git/${REF} -X DELETE
             echo "  ✅ Deleted graphite-base/${PR_NUMBER}"
             DELETED=$((DELETED + 1))
-          elif [ "$PR_STATE" = "not_found" ]; then
-            echo "  PR #${PR_NUMBER} not found, deleting orphan branch..."
-            gh api repos/${{ github.repository }}/git/${REF} -X DELETE
-            echo "  ✅ Deleted orphan graphite-base/${PR_NUMBER}"
-            DELETED=$((DELETED + 1))
+          elif [ "$PR_STATE" = "closed" ] && [ "$PR_MERGED" = "false" ]; then
+            # PR was closed without merge - check if older than 30 days
+            if [[ "$PR_CLOSED_AT" < "$THIRTY_DAYS_AGO" ]]; then
+              echo "  PR #${PR_NUMBER} was closed without merge on ${PR_CLOSED_AT} (>30 days), deleting branch..."
+              gh api repos/${{ github.repository }}/git/${REF} -X DELETE
+              echo "  ✅ Deleted graphite-base/${PR_NUMBER}"
+              DELETED=$((DELETED + 1))
+            else
+              echo "  PR #${PR_NUMBER} was closed without merge on ${PR_CLOSED_AT} (<30 days), keeping branch"
+              KEPT=$((KEPT + 1))
+            fi
           else
             echo "  PR #${PR_NUMBER} is still open, keeping branch"
             KEPT=$((KEPT + 1))

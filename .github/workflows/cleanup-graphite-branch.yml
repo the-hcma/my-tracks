@@ -1,29 +1,37 @@
-name: Cleanup Graphite Branch on PR Merge
+name: Cleanup Graphite Branch on PR Close
 
 on:
   pull_request:
     types: [closed]
 
 jobs:
-  cleanup-merged-pr:
-    if: github.event.pull_request.merged == true
+  cleanup-closed-pr:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Delete graphite-base branch for merged PR
+    - name: Delete graphite-base branch for closed PR
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         PR_NUMBER=${{ github.event.pull_request.number }}
+        PR_MERGED=${{ github.event.pull_request.merged }}
         BRANCH_NAME="graphite-base/${PR_NUMBER}"
         
         echo "Checking if branch ${BRANCH_NAME} exists..."
         
         # Check if the branch exists
-        if gh api repos/${{ github.repository }}/git/refs/heads/${BRANCH_NAME} --silent 2>/dev/null; then
-          echo "Deleting branch ${BRANCH_NAME}..."
+        if ! gh api repos/${{ github.repository }}/git/refs/heads/${BRANCH_NAME} --silent 2>/dev/null; then
+          echo "ℹ️ Branch ${BRANCH_NAME} does not exist, nothing to clean up"
+          exit 0
+        fi
+        
+        if [ "$PR_MERGED" = "true" ]; then
+          # PR was merged - delete immediately
+          echo "PR was merged, deleting branch ${BRANCH_NAME}..."
           gh api repos/${{ github.repository }}/git/refs/heads/${BRANCH_NAME} -X DELETE
           echo "✅ Deleted ${BRANCH_NAME}"
         else
-          echo "ℹ️ Branch ${BRANCH_NAME} does not exist, nothing to clean up"
+          # PR was closed without merge - leave for scheduled cleanup
+          # (scheduled job will delete if older than 30 days)
+          echo "ℹ️ PR was closed without merge, leaving for scheduled cleanup"
         fi
