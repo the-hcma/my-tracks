@@ -4,6 +4,7 @@ URL configuration for mytracks project.
 The `urlpatterns` list routes URLs to views. For more information please see:
     https://docs.djangoproject.com/en/5.0/topics/http/urls/
 """
+import logging
 import socket
 
 from django.contrib import admin
@@ -11,10 +12,41 @@ from django.http import HttpResponse, JsonResponse
 from django.urls import include, path
 from django.urls.resolvers import URLPattern, URLResolver
 
+logger = logging.getLogger(__name__)
+
+# Track last known IP to detect changes
+_last_known_ip: str | None = None
+
 
 def health(request):
     """Health check endpoint."""
     return JsonResponse({'status': 'ok'})
+
+
+def network_info(request):
+    """Return current network information for dynamic UI updates."""
+    global _last_known_ip
+
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+    except Exception:
+        local_ip = "Unable to detect"
+
+    hostname = socket.gethostname()
+
+    # Log if IP changed
+    if _last_known_ip is not None and _last_known_ip != local_ip:
+        logger.info(f"Network IP changed: {_last_known_ip} -> {local_ip}")
+    _last_known_ip = local_ip
+
+    return JsonResponse({
+        'hostname': hostname,
+        'local_ip': local_ip,
+        'port': 8080
+    })
 
 
 def home(request):
@@ -383,12 +415,12 @@ def home(request):
             <p>A backend server for the OwnTracks Android/iOS app.</p>
 
             <h2>🌐 Network Access</h2>
-    <div class="endpoint">
-        <p><strong>Hostname:</strong> <code>{hostname}</code></p>
-        <p><strong>Local IP:</strong> <code>{local_ip}</code></p>
+    <div class="endpoint" id="network-info">
+        <p><strong>Hostname:</strong> <code id="network-hostname">{hostname}</code></p>
+        <p><strong>Local IP:</strong> <code id="network-ip">{local_ip}</code></p>
         <p><strong>Port:</strong> <code>8080</code></p>
         <p style="margin-top: 10px;">Access from other devices on your LAN:</p>
-        <p><code>http://{local_ip}:8080/</code></p>
+        <p><code id="network-url">http://{local_ip}:8080/</code></p>
     </div>
 
     <h2>📍 API Endpoints</h2>
@@ -1303,6 +1335,36 @@ def home(request):
         checkServerHealth();
         setInterval(checkServerHealth, 5000);
 
+        // Track last known IP to detect changes
+        let lastKnownIP = '{local_ip}';
+
+        // Check for network info changes (IP address, hostname)
+        async function checkNetworkInfo() {{
+            try {{
+                const response = await fetch('/network-info/');
+                if (response.ok) {{
+                    const data = await response.json();
+                    const newIP = data.local_ip;
+
+                    // Update display elements
+                    document.getElementById('network-hostname').textContent = data.hostname;
+                    document.getElementById('network-ip').textContent = newIP;
+                    document.getElementById('network-url').textContent = `http://${{newIP}}:${{data.port}}/`;
+
+                    // If IP changed, show a notification
+                    if (newIP !== lastKnownIP && lastKnownIP !== 'Unable to detect') {{
+                        console.log(`Network IP changed: ${{lastKnownIP}} -> ${{newIP}}`);
+                        lastKnownIP = newIP;
+                    }}
+                }}
+            }} catch (e) {{
+                // Silently ignore network errors
+            }}
+        }}
+
+        // Check network info every 30 seconds
+        setInterval(checkNetworkInfo, 30000);
+
         // Listen for system theme changes
         window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {{
             if (!localStorage.getItem('theme')) {{
@@ -1719,6 +1781,7 @@ def home(request):
 urlpatterns: list[URLPattern | URLResolver] = [
     path('', home, name='home'),
     path('health/', health, name='health'),
+    path('network-info/', network_info, name='network_info'),
     path('admin/', admin.site.urls),
     path('api/', include('tracker.urls')),
 ]
