@@ -1054,20 +1054,28 @@ def home(request: HttpRequest) -> HttpResponse:
             // Clear existing trails first
             Object.values(deviceTrails).forEach(trail => {{
                 if (trail.polyline) trail.polyline.remove();
+                if (trail.markers) trail.markers.forEach(m => m.remove());
             }});
             deviceTrails = {{}};
 
             // Draw trail for each device
             Object.entries(locationsByDevice).forEach(([deviceName, locations]) => {{
-                if (locations.length < 2) return;  // Need at least 2 points for a trail
+                if (locations.length === 0) return;
 
                 const deviceColor = getDeviceColor(deviceName);
 
                 // Locations are newest-first, reverse for chronological trail
                 const chronological = [...locations].reverse();
-                const path = chronological
+
+                // Collapse consecutive waypoints at same location
+                const collapsedLocations = collapseLocations(chronological);
+
+                // Create path from collapsed location coordinates
+                const path = collapsedLocations
                     .filter(loc => loc.latitude && loc.longitude)
                     .map(loc => [parseFloat(loc.latitude), parseFloat(loc.longitude)]);
+
+                const trailElements = {{ polyline: null, markers: [] }};
 
                 if (path.length > 1) {{
                     const polyline = L.polyline(path, {{
@@ -1075,9 +1083,64 @@ def home(request: HttpRequest) -> HttpResponse:
                         weight: 3,
                         opacity: 0.7
                     }}).addTo(map);
-
-                    deviceTrails[deviceName] = {{ polyline: polyline, markers: [] }};
+                    trailElements.polyline = polyline;
                 }}
+
+                // Add numbered waypoint markers (using collapsed locations)
+                collapsedLocations.forEach((loc, index) => {{
+                    const waypointNumber = index + 1;
+                    const latLng = [parseFloat(loc.latitude), parseFloat(loc.longitude)];
+                    const collapsedCount = loc._collapsedCount || 1;
+
+                    // Create custom numbered icon with device-specific color
+                    const waypointIcon = L.divIcon({{
+                        className: 'waypoint-marker',
+                        html: `<div style="
+                            background-color: ${{deviceColor}};
+                            color: white;
+                            border: 2px solid white;
+                            border-radius: 50%;
+                            width: 24px;
+                            height: 24px;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            font-size: 12px;
+                            font-weight: bold;
+                            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+                        ">${{waypointNumber}}</div>`,
+                        iconSize: [24, 24],
+                        iconAnchor: [12, 12]
+                    }});
+
+                    // Format timestamp for display
+                    const timestamp = loc.timestamp_unix ?
+                        new Date(loc.timestamp_unix * 1000).toLocaleString() :
+                        'Unknown time';
+
+                    // Show count if multiple waypoints were collapsed at this location
+                    const countInfo = collapsedCount > 1 ?
+                        `<br><i>(${{collapsedCount}} waypoints)</i>` : '';
+
+                    const marker = L.marker(latLng, {{
+                        icon: waypointIcon
+                    }}).addTo(map);
+
+                    // Add tooltip with waypoint info (shown on hover)
+                    marker.bindTooltip(
+                        `<b>#${{waypointNumber}}</b> ${{deviceName}}<br>${{timestamp}}${{countInfo}}`,
+                        {{
+                            permanent: false,
+                            direction: 'top',
+                            offset: [0, -12],
+                            className: 'waypoint-tooltip'
+                        }}
+                    );
+
+                    trailElements.markers.push(marker);
+                }});
+
+                deviceTrails[deviceName] = trailElements;
             }});
 
             // Fit bounds to show all trails if this is initial load
