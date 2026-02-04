@@ -40,7 +40,7 @@ fi
 echo ""
 echo "📁 Creating project structure..."
 mkdir -p config
-mkdir -p tracker/migrations
+mkdir -p my_tracks/migrations
 
 echo "✓ Directories created"
 

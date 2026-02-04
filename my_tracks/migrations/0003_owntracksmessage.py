@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("tracker", "0002_location_ip_address"),
+        ("my_tracks", "0002_location_ip_address"),
     ]
 
     operations = [
@@ -59,7 +59,7 @@ class Migration(migrations.Migration):
                         null=True,
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="messages",
-                        to="tracker.device",
+                        to="my_tracks.device",
                     ),
                 ),
             ],
@@ -70,11 +70,11 @@ class Migration(migrations.Migration):
                 "indexes": [
                     models.Index(
                         fields=["device", "-received_at"],
-                        name="tracker_own_device__3540c2_idx",
+                        name="my_tracks_own_device__3540c2_idx",
                     ),
                     models.Index(
                         fields=["message_type", "-received_at"],
-                        name="tracker_own_message_a19512_idx",
+                        name="my_tracks_own_message_a19512_idx",
                     ),
                 ],
             },

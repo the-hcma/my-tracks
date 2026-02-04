@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("tracker", "0005_location_tracker_id"),
+        ("my_tracks", "0005_location_tracker_id"),
     ]
 
     operations = [

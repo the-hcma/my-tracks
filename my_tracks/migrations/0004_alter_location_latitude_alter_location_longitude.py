@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("tracker", "0003_owntracksmessage"),
+        ("my_tracks", "0003_owntracksmessage"),
     ]
 
     operations = [

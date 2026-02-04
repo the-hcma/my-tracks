@@ -1,5 +1,5 @@
 """
-URL configuration for mytracks project.
+URL configuration for my_tracks project.
 
 The `urlpatterns` list routes URLs to views. For more information please see:
     https://docs.djangoproject.com/en/5.0/topics/http/urls/
@@ -12,7 +12,7 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.urls import include, path
 from django.urls.resolvers import URLPattern, URLResolver
 
-from tracker.models import Location
+from my_tracks.models import Location
 
 logger = logging.getLogger(__name__)
 
@@ -2161,5 +2161,5 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path('health/', health, name='health'),
     path('network-info/', network_info, name='network_info'),
     path('admin/', admin.site.urls),
-    path('api/', include('tracker.urls')),
+    path('api/', include('my_tracks.urls')),
 ]

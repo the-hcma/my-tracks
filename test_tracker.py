@@ -17,7 +17,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.test import APIClient
 
-from tracker.models import Device, Location
+from my_tracks.models import Device, Location
 
 
 @pytest.fixture
@@ -253,7 +253,7 @@ class TestLocationAPI:
 
     def test_non_location_message(self, api_client: APIClient) -> None:
         """Test handling of non-location OwnTracks messages (status, waypoint, etc)."""
-        from tracker.models import OwnTracksMessage
+        from my_tracks.models import OwnTracksMessage
 
         payload = {
             "_type": "status",
@@ -306,7 +306,7 @@ class TestLocationAPI:
 
     def test_non_location_message_with_topic(self, api_client: APIClient) -> None:
         """Test that non-location messages extract device ID from topic."""
-        from tracker.models import OwnTracksMessage
+        from my_tracks.models import OwnTracksMessage
 
         payload = {
             "_type": "status",

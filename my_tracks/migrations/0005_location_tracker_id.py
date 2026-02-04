@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("tracker", "0004_alter_location_latitude_alter_location_longitude"),
+        ("my_tracks", "0004_alter_location_latitude_alter_location_longitude"),
     ]
 
     operations = [

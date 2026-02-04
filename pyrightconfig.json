@@ -1,7 +1,7 @@
 {
   "venvPath": ".",
   "venv": ".venv",
-  "include": ["tracker", "config"],
+  "include": ["my_tracks", "config"],
   "exclude": ["**/migrations/**", "**/__pycache__/**"],
   "reportMissingImports": true,
   "reportMissingTypeStubs": false,

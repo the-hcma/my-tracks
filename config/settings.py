@@ -42,7 +42,7 @@ INSTALLED_APPS: list[str] = [
     'django.contrib.staticfiles',
     'rest_framework',
     'channels',
-    'tracker.apps.TrackerConfig',
+    'my_tracks.apps.MyTracksConfig',
 ]
 
 MIDDLEWARE: list[str] = [
@@ -209,7 +209,7 @@ LOGGING = {
         'level': 'INFO',
     },
     'loggers': {
-        'tracker': {
+        'my_tracks': {
             'handlers': ['console'],
             'level': 'INFO',
             'propagate': False,

@@ -42,7 +42,7 @@ jobs:
       run: ./test-my-tracks-server
     
     - name: Check import sorting with isort
-      run: uv run isort --check-only --diff tracker config
+      run: uv run isort --check-only --diff my_tracks config
 
     - name: Check type annotations with Pyright
       run: |
@@ -57,8 +57,8 @@ jobs:
       run: uv run python manage.py migrate
     
     - name: Run tests
-      run: uv run pytest --verbose --cov=tracker --cov-report=term-missing
-    
+      run: uv run pytest --verbose --cov=my_tracks --cov-report=term-missing
+
     - name: Check coverage threshold
       run: |
-        uv run pytest --cov=tracker --cov-fail-under=90 --cov-report=term-missing
+        uv run pytest --cov=my_tracks --cov-fail-under=90 --cov-report=term-missing

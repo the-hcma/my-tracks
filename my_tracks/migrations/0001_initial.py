@@ -149,7 +149,7 @@ class Migration(migrations.Migration):
                         help_text="The device that reported this location",
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="locations",
-                        to="tracker.device",
+                        to="my_tracks.device",
                     ),
                 ),
             ],
@@ -160,10 +160,10 @@ class Migration(migrations.Migration):
                 "indexes": [
                     models.Index(
                         fields=["device", "-timestamp"],
-                        name="tracker_loc_device__911dfb_idx",
+                        name="my_tracks_loc_device__911dfb_idx",
                     ),
                     models.Index(
-                        fields=["-timestamp"], name="tracker_loc_timesta_58747d_idx"
+                        fields=["-timestamp"], name="my_tracks_loc_timesta_58747d_idx"
                     ),
                 ],
             },
