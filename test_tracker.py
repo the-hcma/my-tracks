@@ -639,8 +639,8 @@ class TestHomeView:
         # The response content should contain the precision configuration
         content = response.content.decode('utf-8')
 
-        # Verify the PRECISION constant is set to 5 (derived from DB schema)
-        assert_that(content, contains_string('const PRECISION = 5'))
+        # Verify the collapsePrecision is set to 5 via MY_TRACKS_CONFIG (derived from DB schema)
+        assert_that(content, contains_string('collapsePrecision: 5'))
 
-        # Verify the comment explaining the precision source
-        assert_that(content, contains_string('Precision from DB schema'))
+        # Verify the MY_TRACKS_CONFIG object is present
+        assert_that(content, contains_string('window.MY_TRACKS_CONFIG'))

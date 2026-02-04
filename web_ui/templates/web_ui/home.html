@@ -1,0 +1,128 @@
+{% load static %}
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>My Tracks - OwnTracks Backend</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🗺️</text></svg>">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <link rel="stylesheet" href="{% static 'web_ui/css/main.css' %}">
+</head>
+<body>
+    <div class="container" id="main-container">
+        <div class="left-column">
+            <h1>🗺️ My Tracks - OwnTracks Backend</h1>
+            <p>A backend server for the OwnTracks Android/iOS app.</p>
+
+            <h2>🌐 Network Access</h2>
+            <div class="endpoint" id="network-info">
+                <p><strong>Hostname:</strong> <code id="network-hostname">{{ hostname }}</code></p>
+                <p><strong>Local IP:</strong> <code id="network-ip">{{ local_ip }}</code></p>
+                <p><strong>Port:</strong> <code>8080</code></p>
+                <p style="margin-top: 10px;">Access from other devices on your LAN:</p>
+                <p><code id="network-url">http://{{ local_ip }}:8080/</code></p>
+            </div>
+
+            <h2>📍 API Endpoints</h2>
+
+            <div class="endpoint">
+                <span class="method get">GET</span>
+                <a href="/api/">/api/</a>
+                <p>API root - Browse all available endpoints</p>
+            </div>
+
+            <div class="endpoint">
+                <span class="method post">POST</span>
+                <span class="method get">GET</span>
+                <a href="/api/locations/">/api/locations/</a>
+                <p>Submit and query location data</p>
+            </div>
+
+            <div class="endpoint">
+                <span class="method get">GET</span>
+                <a href="/api/devices/">/api/devices/</a>
+                <p>View registered devices</p>
+            </div>
+
+            <div class="endpoint">
+                <span class="method get">GET</span>
+                <a href="/admin/">/admin/</a>
+                <p>Admin interface (requires superuser)</p>
+            </div>
+
+            <h2>🧪 Test the API</h2>
+            <p>Submit a test location:</p>
+            <pre><code>curl -X POST http://{{ local_ip }}:8080/api/locations/ \
+  -H "Content-Type: application/json" \
+  -d '{"lat": 37.7749, "lon": -122.4194, "tst": 1705329600, "tid": "AB"}'</code></pre>
+
+            <h2>📚 Documentation</h2>
+            <ul>
+                <li><a href="https://github.com/thehcma/my-tracks">GitHub Repository</a></li>
+                <li>See <code>API.md</code> for complete API reference</li>
+                <li>See <code>README.md</code> for setup instructions</li>
+            </ul>
+        </div>
+
+        <div class="right-column">
+            <div class="map-section">
+                <div class="map-header">
+                    <h2 id="map-title">🗺️ Live Map</h2>
+                    <div class="map-controls">
+                        <div class="mode-toggle">
+                            <button id="live-mode-btn" class="active">📡 Live</button>
+                            <button id="historic-mode-btn">📅 Historic</button>
+                        </div>
+                        <select class="time-range-selector hidden" id="time-range-selector">
+                            <option value="1">Last 1 hour</option>
+                            <option value="2" selected>Last 2 hours</option>
+                            <option value="6">Last 6 hours</option>
+                            <option value="12">Last 12 hours</option>
+                            <option value="24">Last 24 hours</option>
+                        </select>
+                        <select class="resolution-selector hidden" id="resolution-selector" title="Trail precision: Coarse ~10 pts/hr, Medium ~20 pts/hr, Precise all">
+                            <option value="360">🔍 Coarse</option>
+                            <option value="180">📍 Medium</option>
+                            <option value="0" selected>🎯 Precise</option>
+                        </select>
+                        <select class="device-selector" id="device-selector">
+                            <option value="">All Devices</option>
+                        </select>
+                        <div class="status-indicator" id="server-status-indicator" title="Server status">
+                            <span class="status-dot" id="status-dot"></span>
+                            <span id="status-text">Checking...</span>
+                        </div>
+                        <button class="header-toggle" id="sidebar-toggle" aria-label="Toggle sidebar">◀</button>
+                        <button class="header-toggle" id="theme-toggle" aria-label="Toggle theme">🌙</button>
+                    </div>
+                </div>
+                <div id="map"></div>
+            </div>
+            <div class="resize-handle" id="resize-handle" title="Drag to resize"></div>
+            <div class="activity-section">
+                <div class="log-header">
+                    <h2 id="activity-title">📍 Live Activity</h2>
+                    <div class="log-controls">
+                        <span class="log-count" id="log-count">0 events</span>
+                        <button class="reset-button" id="reset-button" title="Clear all events">🗑️ Reset</button>
+                    </div>
+                </div>
+                <div id="log-container">
+                    <p id="loading">Waiting for location updates...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Configuration passed from Django to TypeScript
+        window.MY_TRACKS_CONFIG = {
+            hostname: "{{ hostname }}",
+            localIp: "{{ local_ip }}",
+            collapsePrecision: {{ collapse_precision }}
+        };
+    </script>
+    <script src="{% static 'web_ui/js/main.js' %}"></script>
+</body>
+</html>
