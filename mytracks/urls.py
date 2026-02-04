@@ -1127,8 +1127,10 @@ def home(request: HttpRequest) -> HttpResponse:
                     }}).addTo(map);
 
                     // Add tooltip with waypoint info (shown on hover)
+                    // Show device name only when "All Devices" is selected
+                    const deviceInfo = selectedDevice ? '' : ` ${{deviceName}}`;
                     marker.bindTooltip(
-                        `<b>#${{waypointNumber}}</b> ${{deviceName}}<br>${{timestamp}}${{countInfo}}`,
+                        `<b>#${{waypointNumber}}</b>${{deviceInfo}}<br>${{timestamp}}${{countInfo}}`,
                         {{
                             permanent: false,
                             direction: 'top',
@@ -1310,6 +1312,7 @@ def home(request: HttpRequest) -> HttpResponse:
                         }}).addTo(map);
 
                         // Add tooltip with waypoint info (shown on hover)
+                        // When a specific device is selected, don't show device name (it's already known)
                         marker.bindTooltip(
                             `<b>#${{waypointNumber}}</b><br>${{timestamp}}${{countInfo}}`,
                             {{ 
