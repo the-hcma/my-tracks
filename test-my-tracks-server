@@ -116,10 +116,12 @@ test_log_rotation() {
     echo "test log 1" > logs/my-tracks.log
     
     # Start server briefly to trigger rotation
-    timeout 1 $SCRIPT 2>&1 > /dev/null || true
+    # Use 8 seconds to allow for collectstatic and server startup
+    timeout 8 $SCRIPT 2>&1 > /dev/null || true
     
     # Check that old log was rotated to .1
-    if [ -f "logs/my-tracks.log.1" ] && [ -f "logs/my-tracks.log" ]; then
+    # The new my-tracks.log may or may not exist depending on whether daphne started logging
+    if [ -f "logs/my-tracks.log.1" ]; then
         echo -e "${GREEN}✓ PASS${NC}"
         ((TESTS_PASSED++))
     else

@@ -47,3 +47,4 @@ logs/
 node_modules/
 web_ui/static/web_ui/js/
 staticfiles/
+coverage/

@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["vitest/globals"]
+  },
+  "include": [
+    "web_ui/static/web_ui/ts/**/*.ts",
+    "web_ui/static/web_ui/ts/**/*.test.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}

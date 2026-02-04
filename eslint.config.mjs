@@ -11,7 +11,9 @@ export default tseslint.config(
         ...globals.browser,
       },
       parserOptions: {
-        projectService: true,
+        projectService: {
+          allowDefaultProject: ["web_ui/static/web_ui/ts/*.test.ts"],
+        },
         tsconfigRootDir: import.meta.dirname,
       },
     },

@@ -53,6 +53,9 @@ jobs:
     - name: Build TypeScript
       run: npm run build
 
+    - name: Run TypeScript tests
+      run: npm run test
+
     - name: Install shellcheck
       run: sudo apt-get update && sudo apt-get install -y shellcheck
     
