@@ -545,7 +545,7 @@ def home(request: HttpRequest) -> HttpResponse:
                             <option value="180">📍 Medium</option>
                             <option value="0" selected>🎯 Precise</option>
                         </select>
-                        <select class="device-selector hidden" id="device-selector">
+                        <select class="device-selector" id="device-selector">
                             <option value="">All Devices</option>
                         </select>
                         <div class="status-indicator" id="server-status-indicator" title="Server status">
@@ -588,6 +588,31 @@ def home(request: HttpRequest) -> HttpResponse:
         let isLiveMode = true; // Track current mode
         let needsFitBounds = true; // Only fit bounds on initial trail load
         let isRestoringState = false; // Flag to prevent saving during restore
+
+        // Device color palette - visually distinct colors for different devices
+        const deviceColors = [
+            '#007bff', // Blue
+            '#dc3545', // Red
+            '#28a745', // Green
+            '#fd7e14', // Orange
+            '#6f42c1', // Purple
+            '#20c997', // Teal
+            '#e83e8c', // Pink
+            '#17a2b8', // Cyan
+            '#ffc107', // Yellow
+            '#6c757d'  // Gray
+        ];
+        let deviceColorMap = {{}};  // Maps device name to color
+        let nextColorIndex = 0;
+
+        // Get or assign a color to a device
+        function getDeviceColor(deviceName) {{
+            if (!deviceColorMap[deviceName]) {{
+                deviceColorMap[deviceName] = deviceColors[nextColorIndex % deviceColors.length];
+                nextColorIndex++;
+            }}
+            return deviceColorMap[deviceName];
+        }}
 
         // UI State persistence
         function saveUIState() {{
@@ -828,34 +853,47 @@ def home(request: HttpRequest) -> HttpResponse:
                 }}
             }}
 
-            // In live mode, show all devices; in historic mode, filter by selection
-            if (!isLiveMode && selectedDevice && selectedDevice !== deviceName) {{
+            // In live mode, filter by selection if set; in historic mode, also filter
+            if (selectedDevice && selectedDevice !== deviceName) {{
                 // Hide marker if it exists
                 if (deviceMarkers[deviceName]) {{
                     deviceMarkers[deviceName].remove();
                     delete deviceMarkers[deviceName];
                 }}
+                // Also hide trail if it exists
+                if (deviceTrails[deviceName]) {{
+                    if (deviceTrails[deviceName].polyline) deviceTrails[deviceName].polyline.remove();
+                    if (deviceTrails[deviceName].markers) deviceTrails[deviceName].markers.forEach(m => m.remove());
+                    delete deviceTrails[deviceName];
+                }}
                 return;
             }}
 
             const latLng = [lat, lon];
+            const deviceColor = getDeviceColor(deviceName);
 
             if (deviceMarkers[deviceName]) {{
                 // Update existing marker
                 deviceMarkers[deviceName].setLatLng(latLng);
                 deviceMarkers[deviceName].setPopupContent(getPopupContent(location));
             }} else {{
-                // Create new marker
-                const marker = L.marker(latLng).addTo(map);
+                // Create new colored marker using a circle marker for device-specific colors
+                const marker = L.circleMarker(latLng, {{
+                    radius: 10,
+                    fillColor: deviceColor,
+                    color: '#fff',
+                    weight: 2,
+                    opacity: 1,
+                    fillOpacity: 0.9
+                }}).addTo(map);
                 marker.bindPopup(getPopupContent(location));
                 deviceMarkers[deviceName] = marker;
             }}
 
-            // Center map on the marker in live mode only
-            if (isLiveMode) {{
+            // Center map on the marker in live mode only (when a single device is selected or first marker)
+            if (isLiveMode && (selectedDevice === deviceName || !selectedDevice)) {{
                 map.setView(latLng, map.getZoom());
             }}
-            // In historic mode, don't auto-refresh trail on every location update
         }}
 
         function getPopupContent(location) {{
@@ -994,6 +1032,57 @@ def home(request: HttpRequest) -> HttpResponse:
             return collapsed;
         }}
 
+        // Draw trails for live mode - shows last hour of movement per device
+        function drawLiveTrails(locationsByDevice) {{
+            // Clear existing trails first
+            Object.values(deviceTrails).forEach(trail => {{
+                if (trail.polyline) trail.polyline.remove();
+            }});
+            deviceTrails = {{}};
+
+            // Draw trail for each device
+            Object.entries(locationsByDevice).forEach(([deviceName, locations]) => {{
+                if (locations.length < 2) return;  // Need at least 2 points for a trail
+
+                const deviceColor = getDeviceColor(deviceName);
+
+                // Locations are newest-first, reverse for chronological trail
+                const chronological = [...locations].reverse();
+                const path = chronological
+                    .filter(loc => loc.latitude && loc.longitude)
+                    .map(loc => [parseFloat(loc.latitude), parseFloat(loc.longitude)]);
+
+                if (path.length > 1) {{
+                    const polyline = L.polyline(path, {{
+                        color: deviceColor,
+                        weight: 3,
+                        opacity: 0.7
+                    }}).addTo(map);
+
+                    deviceTrails[deviceName] = {{ polyline: polyline, markers: [] }};
+                }}
+            }});
+
+            // Fit bounds to show all trails if this is initial load
+            if (needsFitBounds) {{
+                const allPoints = [];
+                Object.values(deviceTrails).forEach(trail => {{
+                    if (trail.polyline) {{
+                        trail.polyline.getLatLngs().forEach(latlng => allPoints.push(latlng));
+                    }}
+                }});
+                if (allPoints.length > 0) {{
+                    const bounds = L.latLngBounds(allPoints);
+                    if (allPoints.length === 1) {{
+                        map.setView(allPoints[0], 17);
+                    }} else {{
+                        map.fitBounds(bounds, {{ padding: [50, 50], maxZoom: 17 }});
+                    }}
+                    needsFitBounds = false;
+                }}
+            }}
+        }}
+
         // Fetch and display location trail for selected device and time range
         async function fetchAndDisplayTrail() {{
             const now = Date.now() / 1000;
@@ -1097,6 +1186,7 @@ def home(request: HttpRequest) -> HttpResponse:
                 );
 
                 const trailElements = {{ polyline: null, markers: [] }};
+                const deviceColor = getDeviceColor(selectedDevice);
 
                 if (path.length > 0) {{
                     // Add numbered waypoint markers (using collapsed locations)
@@ -1105,11 +1195,11 @@ def home(request: HttpRequest) -> HttpResponse:
                         const latLng = [parseFloat(loc.latitude), parseFloat(loc.longitude)];
                         const collapsedCount = loc._collapsedCount || 1;
 
-                        // Create custom numbered icon
+                        // Create custom numbered icon with device-specific color
                         const waypointIcon = L.divIcon({{
                             className: 'waypoint-marker',
                             html: `<div style="
-                                background-color: #007bff;
+                                background-color: ${{deviceColor}};
                                 color: white;
                                 border: 2px solid white;
                                 border-radius: 50%;
@@ -1189,10 +1279,10 @@ def home(request: HttpRequest) -> HttpResponse:
                         trailElements.markers.push(marker);
                     }});
 
-                    // Draw polyline for trail (only if multiple points)
+                    // Draw polyline for trail (only if multiple points) with device-specific color
                     if (path.length > 1) {{
                         const polyline = L.polyline(path, {{
-                            color: '#007bff',
+                            color: deviceColor,
                             weight: 3,
                             opacity: 0.7
                         }}).addTo(map);
@@ -1244,8 +1334,14 @@ def home(request: HttpRequest) -> HttpResponse:
             // Fit bounds when changing device selection
             needsFitBounds = true;
 
-            // Fetch and display trail for selected device (only in historic mode)
-            if (!isLiveMode) {{
+            // Refresh data based on current mode
+            if (isLiveMode) {{
+                // Clear and reload live activity with filter
+                clearActivitySection('Loading last hour of activity...');
+                eventCount = 0;
+                lastTimestamp = null;
+                loadLiveActivityHistory();
+            }} else {{
                 fetchAndDisplayTrail();
             }}
 
@@ -1289,6 +1385,7 @@ def home(request: HttpRequest) -> HttpResponse:
         // Mode toggle handlers
         function switchToLiveMode() {{
             isLiveMode = true;
+            needsFitBounds = true;  // Fit bounds on mode switch
 
             // Update button states
             document.getElementById('live-mode-btn').classList.add('active');
@@ -1299,19 +1396,18 @@ def home(request: HttpRequest) -> HttpResponse:
             document.getElementById('activity-title').textContent = `📍 Live Activity - ${{todayText}}`;
             document.getElementById('map-title').textContent = '🗺️ Live Map';
 
-            // Hide historic controls
+            // Hide historic-only controls (time range, resolution) but keep device selector visible
             document.getElementById('time-range-selector').classList.add('hidden');
             document.getElementById('resolution-selector').classList.add('hidden');
-            document.getElementById('device-selector').classList.add('hidden');
+            // Device selector stays visible in live mode
 
             // Clear activity section for live updates
             clearActivitySection('Loading last hour of activity...');
             eventCount = 0;
             lastTimestamp = null;  // Reset to allow fresh load
 
-            // Clear selection and trails
-            selectedDevice = '';
-            document.getElementById('device-selector').value = '';
+            // Don't clear device selection - respect user's filter choice
+            // Clear trails (will be redrawn by loadLiveActivityHistory)
             Object.values(deviceTrails).forEach(trail => {{
                 if (trail.polyline) trail.polyline.remove();
                 if (trail.markers) trail.markers.forEach(m => m.remove());
@@ -1587,8 +1683,14 @@ def home(request: HttpRequest) -> HttpResponse:
             const now = Date.now() / 1000;
             const oneHourAgo = now - 3600;  // 1 hour in seconds
 
+            // Build URL with device filter if set
+            let url = `/api/locations/?start_time=${{Math.floor(oneHourAgo)}}&ordering=-timestamp&limit=500`;
+            if (selectedDevice) {{
+                url += `&device=${{selectedDevice}}`;
+            }}
+
             try {{
-                const response = await fetch(`/api/locations/?start_time=${{Math.floor(oneHourAgo)}}&ordering=-timestamp&limit=100`);
+                const response = await fetch(url);
                 if (!response.ok) return;
 
                 const data = await response.json();
@@ -1601,6 +1703,9 @@ def home(request: HttpRequest) -> HttpResponse:
                 const container = document.getElementById('log-container');
                 const loading = document.getElementById('loading');
                 if (loading) loading.remove();
+
+                // Group locations by device for trail drawing
+                const locationsByDevice = {{}};
 
                 // Display locations (already newest first from API)
                 locations.forEach((loc, index) => {{
@@ -1620,6 +1725,12 @@ def home(request: HttpRequest) -> HttpResponse:
                     const conn = loc.connection_type === 'w' ? 'WiFi' : loc.connection_type === 'm' ? 'Mobile' : 'N/A';
                     const ip = loc.ip_address || 'N/A';
 
+                    // Group locations by device for trail drawing
+                    if (!locationsByDevice[device]) {{
+                        locationsByDevice[device] = [];
+                    }}
+                    locationsByDevice[device].push(loc);
+
                     let deviceDisplay = device;
                     if (trackerId) {{
                         deviceDisplay = `${{device}} (${{trackerId}})`;
@@ -1627,7 +1738,9 @@ def home(request: HttpRequest) -> HttpResponse:
                         deviceDisplay = `${{device}} (${{deviceId}})`;
                     }}
 
-                    entry.innerHTML = `<span class="log-time">${{time}}</span> | <span class="log-device">${{deviceDisplay}}</span> | <span class="log-ip">${{ip}}</span> | <span class="log-coords">${{lat}}, ${{lon}}</span> | <span class="log-meta">acc:${{acc}}m alt:${{alt}}m vel:${{vel}}km/h batt:${{batt}}% ${{conn}}</span>`;
+                    // Add color indicator for device
+                    const deviceColor = getDeviceColor(device);
+                    entry.innerHTML = `<span class="log-time">${{time}}</span> | <span class="log-device" style="color:${{deviceColor}}">${{deviceDisplay}}</span> | <span class="log-ip">${{ip}}</span> | <span class="log-coords">${{lat}}, ${{lon}}</span> | <span class="log-meta">acc:${{acc}}m alt:${{alt}}m vel:${{vel}}km/h batt:${{batt}}% ${{conn}}</span>`;
 
                     container.appendChild(entry);
 
@@ -1636,6 +1749,9 @@ def home(request: HttpRequest) -> HttpResponse:
                         updateDeviceMarker(loc);
                     }}
                 }});
+
+                // Draw trails for each device
+                drawLiveTrails(locationsByDevice);
 
                 eventCount = locations.length;
                 document.getElementById('log-count').textContent = eventCount + ' event' + (eventCount !== 1 ? 's' : '') + ' (last hour)';
