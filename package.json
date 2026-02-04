@@ -1,0 +1,27 @@
+{
+  "name": "my-tracks-frontend",
+  "version": "1.0.0",
+  "description": "TypeScript frontend for My Tracks OwnTracks backend",
+  "private": true,
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "build:watch": "node esbuild.config.mjs --watch",
+    "lint": "eslint 'web_ui/static/web_ui/ts/**/*.ts'",
+    "lint:fix": "eslint 'web_ui/static/web_ui/ts/**/*.ts' --fix",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/leaflet": "^1.9.8",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "esbuild": "^0.24.0",
+    "eslint": "^9.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.0.0"
+  },
+  "dependencies": {
+    "leaflet": "^1.9.4"
+  }
+}
