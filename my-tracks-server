@@ -218,6 +218,10 @@ fi
 # Export Django logging configuration
 export DJANGO_LOG_LEVEL="$log_level"
 
+# Collect static files for whitenoise (required for ASGI static file serving)
+echo "📦 Collecting static files..."
+uv run python manage.py collectstatic --noinput --clear > /dev/null 2>&1
+
 # Get the local IP address
 local_ip=$(ipconfig getifaddr en0 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}' || echo "unknown")
 

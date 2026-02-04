@@ -12,6 +12,7 @@ dependencies = [
     "gunicorn>=21.2.0",
     "channels>=4.0.0",
     "daphne>=4.0.0",
+    "whitenoise>=6.11.0",
 ]
 
 [project.optional-dependencies]

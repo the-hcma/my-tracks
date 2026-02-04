@@ -67,7 +67,8 @@ test_valid_log_levels() {
     for level in trace debug info warning error critical; do
         # Test that the script accepts the log level without error
         # We use a timeout and kill it quickly since we don't actually want to start the server
-        if ! timeout 2 $SCRIPT --log-level "$level" 2>&1 | grep -q "Log level: $(echo "$level" | tr '[:lower:]' '[:upper:]')"; then
+        # 5 second timeout needed due to collectstatic step
+        if ! timeout 5 $SCRIPT --log-level "$level" 2>&1 | grep -q "Log level: $(echo "$level" | tr '[:lower:]' '[:upper:]')"; then
             all_valid=false
             break
         fi
@@ -84,7 +85,7 @@ test_valid_log_levels() {
 
 test_console_flag() {
     echo -n "Test: Console flag works... "
-    if timeout 2 $SCRIPT --console 2>&1 | grep -q "Logging to: console"; then
+    if timeout 5 $SCRIPT --console 2>&1 | grep -q "Logging to: console"; then
         echo -e "${GREEN}✓ PASS${NC}"
         ((TESTS_PASSED++))
     else
@@ -95,7 +96,7 @@ test_console_flag() {
 
 test_file_logging() {
     echo -n "Test: File logging uses fixed log name... "
-    if timeout 2 $SCRIPT 2>&1 | grep -q "Logging to: logs/my-tracks.log"; then
+    if timeout 5 $SCRIPT 2>&1 | grep -q "Logging to: logs/my-tracks.log"; then
         echo -e "${GREEN}✓ PASS${NC}"
         ((TESTS_PASSED++))
     else
@@ -132,7 +133,7 @@ test_log_rotation() {
 
 test_custom_port() {
     echo -n "Test: Custom port (18080) accepted... "
-    if timeout 2 $SCRIPT --port 18080 2>&1 | grep -q "Starting Django server on http://0.0.0.0:18080/"; then
+    if timeout 5 $SCRIPT --port 18080 2>&1 | grep -q "Starting Django server on http://0.0.0.0:18080/"; then
         echo -e "${GREEN}✓ PASS${NC}"
         ((TESTS_PASSED++))
     else

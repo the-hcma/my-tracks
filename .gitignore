@@ -46,3 +46,4 @@ logs/
 # Node.js / Frontend
 node_modules/
 web_ui/static/web_ui/js/
+staticfiles/

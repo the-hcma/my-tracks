@@ -4,8 +4,7 @@
  * Frontend for the OwnTracks backend server.
  */
 
-// Leaflet library (loaded from CDN)
-declare const L: any;
+import * as L from 'leaflet';
 
 // Configuration passed from Django template
 interface MyTracksConfig {
@@ -14,8 +13,14 @@ interface MyTracksConfig {
     collapsePrecision: number;
 }
 
-// Extend window with our config
-const config = (window as any).MY_TRACKS_CONFIG as MyTracksConfig;
+// Extend Window interface for our config
+declare global {
+    interface Window {
+        MY_TRACKS_CONFIG: MyTracksConfig;
+    }
+}
+
+const config = window.MY_TRACKS_CONFIG;
 
 // ============================================================================
 // Type Definitions
@@ -49,8 +54,8 @@ interface LocationsApiResponse {
 
 /** Trail elements displayed on the map */
 interface TrailElements {
-    polyline: any | null;
-    markers: any[];
+    polyline: L.Polyline | null;
+    markers: L.Marker[];
 }
 
 /** Saved UI state for persistence */
@@ -96,11 +101,10 @@ interface WebSocketMessage {
 
 let lastTimestamp: number | null = null;
 let eventCount = 0;
-let isServerConnected = false;
-let map: any = null;
-let deviceMarkers: Record<string, any> = {};
+let map: L.Map | null = null;
+let deviceMarkers: Record<string, L.CircleMarker> = {};
 let deviceTrails: Record<string, TrailElements> = {};
-let devices = new Set<string>();
+const devices = new Set<string>();
 let selectedDevice = '';
 let timeRangeHours = 2;
 let trailResolution = 0; // 0 = precise (all points), 360 = coarse (~10/hour)
@@ -122,7 +126,7 @@ const deviceColors: string[] = [
     '#b71c1c', // Deep Red - high visibility
     '#1565c0', // Royal Blue - stands out
 ];
-let deviceColorMap: Record<string, string> = {}; // Maps device name to color
+const deviceColorMap: Record<string, string> = {}; // Maps device name to color
 
 // Cache for reverse geocoding results
 const geocodeCache = new Map<string, string>();
@@ -261,7 +265,7 @@ function saveMapPosition(): void {
     const mapState: MapPosition = {
         lat: center.lat,
         lng: center.lng,
-        zoom: map.getZoom(),
+        zoom: map!.getZoom(),
     };
     localStorage.setItem('mytracks-map-position', JSON.stringify(mapState));
 }
@@ -428,7 +432,7 @@ function setSidebarState(collapsed: boolean): void {
     localStorage.setItem('sidebar-collapsed', String(collapsed));
     // Invalidate map size after transition
     setTimeout(() => {
-        if (map) map.invalidateSize();
+        if (map) map!.invalidateSize();
     }, 350);
 }
 
@@ -460,24 +464,24 @@ function initMap(): void {
     // Restore saved map position or use default
     const savedPosition = loadMapPosition();
     if (savedPosition) {
-        map.setView([savedPosition.lat, savedPosition.lng], savedPosition.zoom);
+        map!.setView([savedPosition.lat, savedPosition.lng], savedPosition.zoom);
         // Don't fit bounds on restore since we have a saved position
         needsFitBounds = false;
     } else {
-        map.setView([37.7749, -122.4194], 17);
+        map!.setView([37.7749, -122.4194], 17);
     }
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
         maxZoom: 19,
-    }).addTo(map);
+    }).addTo(map!);
 
     // Save map position on move/zoom
     map.on('moveend', saveMapPosition);
     map.on('zoomend', saveMapPosition);
 
     // Fix map rendering after initial load
-    setTimeout(() => map.invalidateSize(), 100);
+    setTimeout(() => map!.invalidateSize(), 100);
 }
 
 /**
@@ -542,7 +546,7 @@ function updateDeviceMarker(location: TrackLocation): void {
         // Also hide trail if it exists
         if (deviceTrails[deviceName]) {
             if (deviceTrails[deviceName].polyline) deviceTrails[deviceName].polyline.remove();
-            if (deviceTrails[deviceName].markers) deviceTrails[deviceName].markers.forEach((m: any) => m.remove());
+            if (deviceTrails[deviceName].markers) deviceTrails[deviceName].markers.forEach((m) => m.remove());
             delete deviceTrails[deviceName];
         }
         return;
@@ -564,7 +568,7 @@ function updateDeviceMarker(location: TrackLocation): void {
             weight: 2,
             opacity: 1,
             fillOpacity: 0.9,
-        }).addTo(map);
+        }).addTo(map!);
         marker.bindPopup(getPopupContent(location));
         // Add tooltip showing device name on hover
         marker.bindTooltip(deviceName, {
@@ -577,7 +581,7 @@ function updateDeviceMarker(location: TrackLocation): void {
 
     // Center map on the marker in live mode only (when a single device is selected or first marker)
     if (isLiveMode && (selectedDevice === deviceName || !selectedDevice)) {
-        map.setView(latLng, map.getZoom());
+        map!.setView(latLng, map!.getZoom());
     }
 }
 
@@ -740,7 +744,7 @@ function drawLiveTrails(locationsByDevice: Record<string, TrackLocation[]>): voi
     // Clear existing trails first
     Object.values(deviceTrails).forEach(trail => {
         if (trail.polyline) trail.polyline.remove();
-        if (trail.markers) trail.markers.forEach((m: any) => m.remove());
+        if (trail.markers) trail.markers.forEach((m) => m.remove());
     });
     deviceTrails = {};
 
@@ -768,7 +772,7 @@ function drawLiveTrails(locationsByDevice: Record<string, TrackLocation[]>): voi
                 color: deviceColor,
                 weight: 3,
                 opacity: 0.7,
-            }).addTo(map);
+            }).addTo(map!);
             trailElements.polyline = polyline;
         }
 
@@ -809,7 +813,7 @@ function drawLiveTrails(locationsByDevice: Record<string, TrackLocation[]>): voi
 
             const marker = L.marker(latLng, {
                 icon: waypointIcon,
-            }).addTo(map);
+            }).addTo(map!);
 
             // Add tooltip with waypoint info (shown on hover)
             // Show device name only when "All Devices" is selected
@@ -829,18 +833,18 @@ function drawLiveTrails(locationsByDevice: Record<string, TrackLocation[]>): voi
 
     // Fit bounds to show all trails if this is initial load
     if (needsFitBounds) {
-        const allPoints: any[] = [];
+        const allPoints: L.LatLng[] = [];
         Object.values(deviceTrails).forEach(trail => {
             if (trail.polyline) {
-                trail.polyline.getLatLngs().forEach((latlng: any) => allPoints.push(latlng));
+                trail.polyline.getLatLngs().forEach((latlng) => allPoints.push(latlng as L.LatLng));
             }
         });
         if (allPoints.length > 0) {
             const bounds = L.latLngBounds(allPoints);
             if (allPoints.length === 1) {
-                map.setView(allPoints[0], 17);
+                map!.setView(allPoints[0], 17);
             } else {
-                map.fitBounds(bounds, { padding: [50, 50], maxZoom: 17 });
+                map!.fitBounds(bounds, { padding: [50, 50], maxZoom: 17 });
             }
             needsFitBounds = false;
         }
@@ -857,7 +861,7 @@ async function fetchAndDisplayTrail(): Promise<void> {
     // Clear existing trails
     Object.values(deviceTrails).forEach(trail => {
         if (trail.polyline) trail.polyline.remove();
-        if (trail.markers) trail.markers.forEach((m: any) => m.remove());
+        if (trail.markers) trail.markers.forEach((m) => m.remove());
     });
     deviceTrails = {};
 
@@ -900,9 +904,9 @@ async function fetchAndDisplayTrail(): Promise<void> {
                     ]),
                 );
                 if (Object.keys(latestByDevice).length === 1) {
-                    map.setView(bounds.getCenter(), 17);
+                    map!.setView(bounds.getCenter(), 17);
                 } else {
-                    map.fitBounds(bounds, { padding: [50, 50], maxZoom: 17 });
+                    map!.fitBounds(bounds, { padding: [50, 50], maxZoom: 17 });
                 }
                 needsFitBounds = false;
             }
@@ -931,10 +935,10 @@ async function fetchAndDisplayTrail(): Promise<void> {
         // Clear old trail for this device
         if (deviceTrails[selectedDevice]) {
             if (deviceTrails[selectedDevice].polyline) {
-                deviceTrails[selectedDevice].polyline.remove();
+                deviceTrails[selectedDevice].polyline!.remove();
             }
             if (deviceTrails[selectedDevice].markers) {
-                deviceTrails[selectedDevice].markers.forEach((m: any) => m.remove());
+                deviceTrails[selectedDevice].markers.forEach((m) => m.remove());
             }
         }
 
@@ -992,7 +996,7 @@ async function fetchAndDisplayTrail(): Promise<void> {
 
                 const marker = L.marker(latLng, {
                     icon: waypointIcon,
-                }).addTo(map);
+                }).addTo(map!);
 
                 // Add tooltip with waypoint info (shown on hover)
                 // When a specific device is selected, don't show device name (it's already known)
@@ -1016,9 +1020,11 @@ async function fetchAndDisplayTrail(): Promise<void> {
                 marker.bindPopup(popupContent);
 
                 // Lazy load address on click
-                marker.on('click', async function (this: any) {
+                marker.on('click', async function (this: L.Marker): Promise<void> {
                     const popup = this.getPopup();
+                    if (!popup) return;
                     const content = popup.getContent();
+                    if (typeof content !== 'string') return;
 
                     // Only geocode if not already loaded
                     if (content.includes('loading-address')) {
@@ -1047,7 +1053,7 @@ async function fetchAndDisplayTrail(): Promise<void> {
                     color: deviceColor,
                     weight: 3,
                     opacity: 0.7,
-                }).addTo(map);
+                }).addTo(map!);
 
                 trailElements.polyline = polyline;
             }
@@ -1058,11 +1064,11 @@ async function fetchAndDisplayTrail(): Promise<void> {
             if (needsFitBounds) {
                 if (path.length === 1) {
                     // Single location - center and zoom to street level
-                    map.setView(path[0], 17);
+                    map!.setView(path[0], 17);
                 } else {
                     // Multiple locations - fit to show all with appropriate padding
                     const bounds = L.latLngBounds(path);
-                    map.fitBounds(bounds, {
+                    map!.fitBounds(bounds, {
                         padding: [50, 50],
                         maxZoom: 17, // Don't zoom in too much even for close points
                     });
@@ -1425,12 +1431,12 @@ function switchToLiveMode(): void {
     // Clear trails (will be redrawn by loadLiveActivityHistory)
     Object.values(deviceTrails).forEach(trail => {
         if (trail.polyline) trail.polyline.remove();
-        if (trail.markers) trail.markers.forEach((m: any) => m.remove());
+        if (trail.markers) trail.markers.forEach((m) => m.remove());
     });
     deviceTrails = {};
 
     // Clear device markers for fresh load
-    Object.values(deviceMarkers).forEach((marker: any) => marker.remove());
+    Object.values(deviceMarkers).forEach((marker) => marker.remove());
     deviceMarkers = {};
 
     // Load last hour of activity data
@@ -1471,7 +1477,7 @@ function switchToHistoricMode(): void {
     document.getElementById('device-selector')?.classList.remove('hidden');
 
     // Clear markers (will be restored by fetchAndDisplayTrail)
-    Object.values(deviceMarkers).forEach((marker: any) => marker.remove());
+    Object.values(deviceMarkers).forEach((marker) => marker.remove());
     deviceMarkers = {};
 
     // Fetch and display trail (works for both All Devices and specific device)
@@ -1492,15 +1498,12 @@ function checkServerHealth(): void {
     fetch('/health/')
         .then(response => {
             if (response.ok) {
-                isServerConnected = true;
                 updateServerStatus(true);
             } else {
-                isServerConnected = false;
                 updateServerStatus(false);
             }
         })
         .catch(() => {
-            isServerConnected = false;
             updateServerStatus(false);
         });
 }
@@ -1547,7 +1550,7 @@ async function checkNetworkInfo(): Promise<void> {
                 lastKnownIP = newIP;
             }
         }
-    } catch (e) {
+    } catch {
         // Silently ignore network errors
     }
 }
@@ -1568,12 +1571,12 @@ function connectWebSocket(): void {
     try {
         ws = new WebSocket(wsUrl);
 
-        ws.onopen = () => {
+        ws.onopen = (): void => {
             console.log('WebSocket connected');
             wsReconnectAttempts = 0;
         };
 
-        ws.onmessage = (event: MessageEvent) => {
+        ws.onmessage = (event: MessageEvent): void => {
             try {
                 const message: WebSocketMessage = JSON.parse(event.data);
                 console.log('WebSocket message received:', message);
@@ -1631,11 +1634,11 @@ function connectWebSocket(): void {
             }
         };
 
-        ws.onerror = (error: Event) => {
+        ws.onerror = (error: Event): void => {
             console.error('WebSocket error:', error);
         };
 
-        ws.onclose = () => {
+        ws.onclose = (): void => {
             console.log('WebSocket disconnected');
             ws = null;
 
@@ -1792,7 +1795,7 @@ function initResizeHandle(): void {
         activitySection.style.flex = `0 0 ${100 - mapPercent}%`;
 
         // Invalidate map size during resize
-        if (map) map.invalidateSize();
+        if (map) map!.invalidateSize();
     });
 
     document.addEventListener('mouseup', () => {
@@ -1808,7 +1811,7 @@ function initResizeHandle(): void {
         localStorage.setItem('mytracks-map-height', mapPercent.toString());
 
         // Final map size invalidation
-        if (map) map.invalidateSize();
+        if (map) map!.invalidateSize();
     });
 }
 
@@ -1845,11 +1848,11 @@ function initEventListeners(): void {
             selectedDevice = (e.target as HTMLSelectElement).value;
 
             // Clear all markers and trails
-            Object.values(deviceMarkers).forEach((marker: any) => marker.remove());
+            Object.values(deviceMarkers).forEach((marker) => marker.remove());
             deviceMarkers = {};
             Object.values(deviceTrails).forEach(trail => {
                 if (trail.polyline) trail.polyline.remove();
-                if (trail.markers) trail.markers.forEach((m: any) => m.remove());
+                if (trail.markers) trail.markers.forEach((m) => m.remove());
             });
             deviceTrails = {};
 
@@ -1909,7 +1912,7 @@ function initEventListeners(): void {
                 // Clear existing trails and reload
                 Object.values(deviceTrails).forEach(trail => {
                     if (trail.polyline) trail.polyline.remove();
-                    if (trail.markers) trail.markers.forEach((m: any) => m.remove());
+                    if (trail.markers) trail.markers.forEach((m) => m.remove());
                 });
                 deviceTrails = {};
                 loadLiveActivityHistory();
