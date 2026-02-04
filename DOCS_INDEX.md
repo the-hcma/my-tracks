@@ -35,15 +35,15 @@ Verification script to check if installation is complete and correct.
 Complete API reference with all endpoints, parameters, examples, and response formats.
 
 ### [COMMANDS.md](COMMANDS.md)
-Quick reference for all commonly used commands (Django, testing, deployment, etc.).
+Quick reference for all commonly used commands (server management, testing, deployment, etc.).
 
 ## 🚢 Deployment
 
 ### [DEPLOYMENT.md](DEPLOYMENT.md)
 Production deployment guide covering PostgreSQL, Nginx, SSL, systemd, and security.
 
-### [gunicorn_config.py](gunicorn_config.py) *(to be created)*
-Production Gunicorn configuration.
+### Server
+Uses Daphne ASGI server for WebSocket support. See [WEBSOCKET.md](WEBSOCKET.md).
 
 ## 🧪 Testing
 
@@ -52,8 +52,8 @@ Comprehensive pytest test suite for models, API, and OwnTracks compatibility.
 
 ### Running Tests
 ```bash
-pytest                    # Run all tests
-pytest --cov=tracker     # With coverage
+uv run pytest                      # Run all tests
+uv run pytest --cov=my_tracks      # With coverage
 ```
 
 ## 👥 Development Workflow
@@ -79,35 +79,36 @@ Development dependencies (testing, linting, formatting).
 Template for environment variables. Copy to `.env` and customize.
 
 ### [.gitignore](.gitignore)
-Git ignore patterns for Python, Django, and development files.
+Git ignore patterns for Python and development files.
 
 ## 🗂️ Source Code Structure
 
 ```
 my-tracks/
-├── manage.py                 # Django management script
-├── mytracks/                 # Django project package
+├── manage.py                 # Management script
+├── my-tracks-server          # Server startup script
+├── config/                   # Project configuration package
 │   ├── __init__.py
 │   ├── settings.py          # Project settings with type hints
 │   ├── urls.py              # Main URL routing
 │   ├── wsgi.py              # WSGI entry point
 │   └── asgi.py              # ASGI entry point
-└── tracker/                  # Location tracking Django app
-    ├── __init__.py
-    ├── models.py            # Device & Location models
-    ├── serializers.py       # DRF serializers for OwnTracks
-    ├── views.py             # API viewsets
-    ├── urls.py              # App URL routing
-    ├── admin.py             # Django admin configuration
-    ├── apps.py              # App configuration
-    └── migrations/          # Database migrations
-        └── __init__.py
+├── my_tracks/                # Location tracking app
+│   ├── models.py            # Device & Location models
+│   ├── serializers.py       # DRF serializers for OwnTracks
+│   ├── views.py             # API viewsets
+│   ├── urls.py              # App URL routing
+│   ├── admin.py             # Admin configuration
+│   └── migrations/          # Database migrations
+└── web_ui/                   # Web interface app
+    ├── static/web_ui/       # Static files (TS, JS, CSS)
+    └── templates/web_ui/    # HTML templates
 ```
 
 ## 📄 License & Contributing
 
 ### [LICENSE](LICENSE)
-MIT License - free to use, modify, and distribute.
+PolyForm Noncommercial 1.0.0 - Allows personal use, education, and research. Commercial use requires permission.
 
 ### Contributing
 See [AGENTS.md](AGENTS.md) for the development workflow and agent responsibilities.
@@ -158,7 +159,7 @@ See [AGENTS.md](AGENTS.md) for the development workflow and agent responsibiliti
 | PROJECT_SUMMARY.md | Project overview | Everyone |
 | AGENTS.md | Development workflow | Contributors |
 | pyproject.toml | Package config | Build tools |
-| manage.py | Django CLI | Developers |
+| manage.py | CLI | Developers |
 | setup | Auto setup | New users |
 | verify_setup.py | Setup verification | Everyone |
 | test_tracker.py | Test suite | Developers/QA |
@@ -191,7 +192,6 @@ When making changes:
 
 ---
 
-**Last Updated**: 2024
+**Last Updated**: 2026
 **Project Version**: 0.1.0
-**Django Version**: 5.0+
-**Python Version**: 3.12+
+**Python Version**: 3.14+

@@ -1,10 +1,10 @@
 # API Documentation
 
-Complete API reference for the OwnTracks Django Backend.
+Complete API reference for the OwnTracks Backend.
 
 ## Base URL
 
-Development: `http://localhost:8000/api/`
+Development: `http://localhost:8080/api/`
 Production: `https://yourdomain.com/api/`
 
 ## Authentication
@@ -78,7 +78,7 @@ Submit location data from an OwnTracks client.
 #### Example with cURL
 
 ```bash
-curl -X POST http://localhost:8000/api/locations/ \
+curl -X POST http://localhost:8080/api/locations/ \
   -H "Content-Type: application/json" \
   -d '{
     "_type": "location",
@@ -112,7 +112,7 @@ Retrieve location history with optional filtering.
 ```json
 {
   "count": 150,
-  "next": "http://localhost:8000/api/locations/?limit=100&offset=100",
+  "next": "http://localhost:8080/api/locations/?limit=100&offset=100",
   "previous": null,
   "results": [
     {
@@ -136,17 +136,17 @@ Retrieve location history with optional filtering.
 
 **Filter by device:**
 ```bash
-curl "http://localhost:8000/api/locations/?device=AB"
+curl "http://localhost:8080/api/locations/?device=AB"
 ```
 
 **Filter by date range:**
 ```bash
-curl "http://localhost:8000/api/locations/?start_date=2024-01-01T00:00:00Z&end_date=2024-01-31T23:59:59Z"
+curl "http://localhost:8080/api/locations/?start_date=2024-01-01T00:00:00Z&end_date=2024-01-31T23:59:59Z"
 ```
 
 **Combine filters:**
 ```bash
-curl "http://localhost:8000/api/locations/?device=AB&start_date=2024-01-01T00:00:00Z&limit=50"
+curl "http://localhost:8080/api/locations/?device=AB&start_date=2024-01-01T00:00:00Z&limit=50"
 ```
 
 ---
@@ -188,7 +188,7 @@ Retrieve list of all registered devices.
 #### Example
 
 ```bash
-curl "http://localhost:8000/api/devices/"
+curl "http://localhost:8080/api/devices/"
 ```
 
 ---
@@ -221,7 +221,7 @@ Retrieve details for a specific device.
 #### Example
 
 ```bash
-curl "http://localhost:8000/api/devices/AB/"
+curl "http://localhost:8080/api/devices/AB/"
 ```
 
 ---
@@ -247,7 +247,7 @@ Same format as `/api/locations/` but filtered to the specified device.
 #### Example
 
 ```bash
-curl "http://localhost:8000/api/devices/AB/locations/?limit=50"
+curl "http://localhost:8080/api/devices/AB/locations/?limit=50"
 ```
 
 ---
@@ -343,14 +343,14 @@ location_data = {
 }
 
 response = requests.post(
-    "http://localhost:8000/api/locations/",
+    "http://localhost:8080/api/locations/",
     json=location_data
 )
 print(response.json())
 
 # Get location history
 response = requests.get(
-    "http://localhost:8000/api/locations/",
+    "http://localhost:8080/api/locations/",
     params={"device": "PY", "limit": 10}
 )
 locations = response.json()["results"]
@@ -370,7 +370,7 @@ const locationData = {
   batt: 85
 };
 
-fetch("http://localhost:8000/api/locations/", {
+fetch("http://localhost:8080/api/locations/", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify(locationData)
@@ -379,7 +379,7 @@ fetch("http://localhost:8000/api/locations/", {
   .then(data => console.log(data));
 
 // Get location history
-fetch("http://localhost:8000/api/locations/?device=JS&limit=10")
+fetch("http://localhost:8080/api/locations/?device=JS&limit=10")
   .then(response => response.json())
   .then(data => console.log(data.results));
 ```
@@ -389,7 +389,7 @@ fetch("http://localhost:8000/api/locations/?device=JS&limit=10")
 1. Open OwnTracks app
 2. Go to Settings → Connection
 3. Set Mode to "HTTP"
-4. Set URL to: `http://your-server:8000/api/locations/`
+4. Set URL to: `http://your-server:8080/api/locations/`
 5. Leave authentication empty (or add if implemented)
 6. Save and test connection
 
@@ -409,6 +409,6 @@ Planned features for future versions:
 - [ ] Geofencing support
 - [ ] Location sharing between devices
 - [ ] Waypoints and regions
-- [ ] WebSocket support for real-time updates
+- [x] WebSocket support for real-time updates (implemented - see [WEBSOCKET.md](WEBSOCKET.md))
 - [ ] Data export (GPX, KML formats)
 - [ ] Location statistics and analytics

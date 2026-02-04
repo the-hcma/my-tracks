@@ -35,17 +35,15 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 # 2. Run the installation script
 python3 install.py
 
-# 3. Create virtual environment
+# 3. Create virtual environment and install dependencies
 uv venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
-# 4. Install dependencies
 uv pip install -e .
+# Note: With uv run, you don't need to manually activate the venv
 
-# 5. Create environment file
+# 4. Create environment file
 cp .env.example .env
 
-# 6. Run migrations
+# 5. Run migrations
 uv run python manage.py migrate
 ```
 
@@ -60,9 +58,9 @@ uv run python manage.py migrate
 The server will start at `http://localhost:8080/`
 
 Options:
-- `--port PORT` - Set server port (default: 8080)
+- `--port PORT` - Set server port (default: 8080, use 0 for OS-allocated)
 - `--log-level LEVEL` - Set log level (debug, info, warning, error)
-- `--console` - Output logs to console instead of file
+- `--console` - Output logs to both console AND file (dual mode)
 
 Example with options:
 ```bash
@@ -158,7 +156,9 @@ From here you can:
 - **Read the API docs**: [API.md](API.md)
 - **Run tests**: `uv run pytest`
 - **Check types**: `uv run pyright`
-- **Sort imports**: `uv run isort tracker mytracks`
+- **Sort imports**: `uv run isort my_tracks config web_ui`
+- **Run TypeScript tests**: `npm run test`
+- **Run ESLint**: `npm run lint`
 
 ### Production
 
@@ -173,7 +173,7 @@ From here you can:
 # Start development server
 ./my-tracks-server
 
-# Start with debug logging to console
+# Start with debug logging to console (dual mode)
 ./my-tracks-server --log-level debug --console
 
 # Run migrations
@@ -185,17 +185,26 @@ uv run python manage.py makemigrations
 # Create superuser
 uv run python manage.py createsuperuser
 
-# Run tests
+# Run Python tests
 uv run pytest
 
-# Run tests with coverage
-uv run pytest --cov=tracker --cov-fail-under=90
+# Run Python tests with coverage
+uv run pytest --cov=my_tracks --cov-fail-under=90
 
 # Check types
 uv run pyright
 
 # Sort imports
-uv run isort tracker mytracks
+uv run isort my_tracks config web_ui
+
+# Run TypeScript tests
+npm run test
+
+# Run ESLint
+npm run lint
+
+# Build TypeScript
+npm run build
 ```
 
 ## Troubleshooting
@@ -218,10 +227,10 @@ uv run python manage.py migrate
 
 ### Import Errors
 
-Make sure you're in the virtual environment:
+With `uv run`, you don't need to manually activate the virtual environment:
 ```bash
-source .venv/bin/activate  # On Unix/macOS
-.venv\Scripts\activate     # On Windows
+uv run python manage.py check
+uv run pytest
 ```
 
 ### OwnTracks Not Connecting
@@ -271,14 +280,13 @@ When `DEBUG=True` (development):
 - Detailed error pages
 - SQL query logging
 - Auto-reload on code changes
-- Django Debug Toolbar (if installed)
+- Debug Toolbar (if installed)
 
 ## Getting Help
 
 - **API Documentation**: [API.md](API.md)
 - **Deployment Guide**: [DEPLOYMENT.md](DEPLOYMENT.md)
 - **OwnTracks Documentation**: https://owntracks.org/booklet/
-- **Django Documentation**: https://docs.djangoproject.com/
 
 ## What's Next?
 

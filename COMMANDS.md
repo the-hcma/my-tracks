@@ -15,7 +15,6 @@ bash setup
 # Manual setup
 python3 install.py
 uv venv
-source .venv/bin/activate
 uv pip install -e .
 ```
 
@@ -26,29 +25,29 @@ uv pip install -e .
 python3 verify_setup.py
 
 # Check Python version
-python3 --version
+uv run python --version
 
 # Check Django installation
-python -c "import django; print(django.get_version())"
+uv run python -c "import django; print(django.get_version())"
 ```
 
 ## Virtual Environment
 
+**Note**: With `uv run`, you don't need to manually activate the virtual environment.
+The `uv run` prefix automatically uses the project's virtual environment.
+
 ```bash
-# Create virtual environment
+# Create virtual environment (uv venv creates .venv by default)
 uv venv
 
-# Activate (Unix/macOS)
-source .venv/bin/activate
+# Run any command in the virtual environment
+uv run <command>
 
-# Activate (Windows)
-.venv\Scripts\activate
+# Example: run Python
+uv run python
 
-# Deactivate
-deactivate
-
-# Check active environment
-which python
+# Example: run Django management command
+uv run python manage.py migrate
 ```
 
 ## Package Management (uv)
@@ -80,137 +79,114 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 uv --version
 ```
 
-## Django Management
+## Server Management
 
 ### Database
 
 ```bash
 # Run migrations
-python manage.py migrate
+uv run python manage.py migrate
 
 # Create new migrations after model changes
-python manage.py makemigrations
+uv run python manage.py makemigrations
 
 # Show migrations
-python manage.py showmigrations
+uv run python manage.py showmigrations
 
 # Check for migration issues
-python manage.py makemigrations --check --dry-run
+uv run python manage.py makemigrations --check --dry-run
 
 # Rollback migration
-python manage.py migrate tracker 0001  # Rollback to migration 0001
+uv run python manage.py migrate my_tracks 0001  # Rollback to migration 0001
 
 # Reset database (SQLite only)
 rm db.sqlite3
-python manage.py migrate
+uv run python manage.py migrate
 ```
 
 ### Server
 
 ```bash
-# Run development server
-python manage.py runserver
+# Start development server (default port 8080)
+./my-tracks-server
 
-# Run on different port
-python manage.py runserver 8080
+# Start on different port
+./my-tracks-server --port 18080
 
-# Run on all interfaces
-python manage.py runserver 0.0.0.0:8000
+# Start with console logging (dual mode: console + file)
+./my-tracks-server --console
 
-# Run with specific settings
-python manage.py runserver --settings=mytracks.settings_dev
+# Start with debug log level
+./my-tracks-server --log-level debug --console
+
+# Let OS allocate ephemeral port (useful for testing)
+./my-tracks-server --port 0
 ```
 
-### Server Management Script (Planned)
+### Server Script Options
 
-**TODO**: A `start_server` script needs to be created with the following features:
-
-1. **Check if server is already running**
-   - Search for existing Django development server process
-   - Display PID and port if found
-
-2. **Restart with confirmation**
-   - If server is running, prompt user: "Server is running on PID XXXX. Restart? (y/n)"
-   - On confirmation: kill existing process and start new server
-   - On decline: exit without changes
-
-3. **Start if not running**
-   - Start server normally if no existing process found
-
-**Example usage:**
-```bash
-# Start or restart server with intelligent checking
-bash start_server
-
-# Optional: specify port
-bash start_server 8080
-```
-
-**Implementation requirements:**
-- Check for both `runserver` and production server (gunicorn) processes
-- Graceful shutdown before restart (SIGTERM, then SIGKILL if needed)
-- Show server URL after successful start
-- Support for different ports via argument
-- **Use shebang**: `#!/usr/bin/env bash`
-- **Make executable**: `chmod +x start_server`
-- **No .sh extension**: Follow Unix convention for cleaner CLI
+| Option | Description |
+|--------|-------------|
+| `--port PORT` | Set server port (default: 8080, use 0 for OS-allocated) |
+| `--log-level LEVEL` | Set log level (debug, info, warning, error, critical) |
+| `--console` | Enable dual logging: logs go to both console AND file |
 
 ### Admin
 
 ```bash
 # Create superuser
-python manage.py createsuperuser
+uv run python manage.py createsuperuser
 
 # Change user password
-python manage.py changepassword username
+uv run python manage.py changepassword username
 
 # Create superuser non-interactively
-python manage.py createsuperuser --username admin --email admin@example.com --noinput
+uv run python manage.py createsuperuser --username admin --email admin@example.com --noinput
 ```
 
 ### Shell
 
 ```bash
-# Django shell
-python manage.py shell
+# Interactive shell
+uv run python manage.py shell
 
 # Shell with IPython
-python manage.py shell -i ipython
+uv run python manage.py shell -i ipython
 
-# Run Python file in Django context
-python manage.py shell < script.py
+# Run Python file in app context
+uv run python manage.py shell < script.py
 ```
 
 ### Static Files
 
 ```bash
 # Collect static files
-python manage.py collectstatic
+uv run python manage.py collectstatic
 
 # Collect without prompts
-python manage.py collectstatic --noinput
+uv run python manage.py collectstatic --noinput
 
 # Clear existing and collect
-python manage.py collectstatic --clear --noinput
+uv run python manage.py collectstatic --clear --noinput
 ```
 
-### Other Django Commands
+### Other Commands
 
 ```bash
 # Check for common issues
-python manage.py check
+uv run python manage.py check
 
 # Check deployment settings
-python manage.py check --deploy
+uv run python manage.py check --deploy
 
-# Show Django version
-python manage.py version
+# Show version
+uv run python manage.py version
 
 # Clear expired sessions
-python manage.py clearsessions
+uv run python manage.py clearsessions
 
 # Show SQL for migration
-python manage.py sqlmigrate tracker 0001
+uv run python manage.py sqlmigrate my_tracks 0001
 ```
 
 ## Testing
@@ -219,110 +195,119 @@ python manage.py sqlmigrate tracker 0001
 
 ```bash
 # Run all tests
-pytest
+uv run pytest
 
 # Run specific test file
-pytest test_tracker.py
+uv run pytest test_tracker.py
 
 # Run specific test class
-pytest test_tracker.py::TestLocationAPI
+uv run pytest test_tracker.py::TestLocationAPI
 
 # Run specific test
-pytest test_tracker.py::TestLocationAPI::test_create_location_owntracks_format
+uv run pytest test_tracker.py::TestLocationAPI::test_create_location_owntracks_format
 
 # Run with verbose output
-pytest -v
+uv run pytest -v
 
 # Run with output capture disabled
-pytest -s
+uv run pytest -s
 
 # Stop on first failure
-pytest -x
+uv run pytest -x
 
 # Run last failed tests
-pytest --lf
+uv run pytest --lf
 ```
 
 ### Coverage
 
 ```bash
 # Run tests with coverage
-pytest --cov=tracker
+uv run pytest --cov=my_tracks
 
 # Generate HTML coverage report
-pytest --cov=tracker --cov-report=html
+uv run pytest --cov=my_tracks --cov-report=html
 
 # Show coverage for specific module
-pytest --cov=tracker.models --cov-report=term-missing
+uv run pytest --cov=my_tracks.models --cov-report=term-missing
 
-# Coverage threshold (fail if below 80%)
-pytest --cov=tracker --cov-fail-under=80
+# Coverage threshold (fail if below 90%)
+uv run pytest --cov=my_tracks --cov-fail-under=90
 ```
 
-### Django Tests
+### Frontend Tests
 
 ```bash
-# Run Django tests
-python manage.py test
+# Run TypeScript tests
+npm run test
+
+# Run tests in watch mode
+npm run test:watch
+
+# Run ESLint
+npm run lint
+
+# Build TypeScript
+npm run build
+```
+
+### Backend Tests
+
+```bash
+# Run backend tests
+uv run python manage.py test
 
 # Run specific app tests
-python manage.py test tracker
+uv run python manage.py test my_tracks
 
 # Run with verbose output
-python manage.py test --verbosity=2
+uv run python manage.py test --verbosity=2
 
 # Keep test database
-python manage.py test --keepdb
+uv run python manage.py test --keepdb
 ```
 
 ## Code Quality
 
-### Formatting
+### Import Sorting (isort)
 
 ```bash
-# Format all Python files
-black .
+# Sort all imports
+uv run isort my_tracks config web_ui
 
-# Format specific file
-black tracker/models.py
+# Sort specific file
+uv run isort my_tracks/models.py
 
 # Check without modifying
-black --check .
+uv run isort --check-only my_tracks config web_ui
 
 # Show diff
-black --diff .
+uv run isort --diff my_tracks config web_ui
 ```
 
-### Linting
+### Combined Quality Checks
 
 ```bash
-# Run flake8
-flake8 .
-
-# Check specific directory
-flake8 tracker/
-
-# Show statistics
-flake8 --statistics .
-
-# Generate HTML report
-flake8 --format=html --htmldir=flake-report .
+# Run all quality checks
+uv run isort --check-only my_tracks config web_ui
+uv run pyright
+uv run pytest --cov=my_tracks --cov-fail-under=90
 ```
 
 ### Type Checking
 
 ```bash
-# Run mypy
-mypy tracker/
+# Run pyright
+uv run pyright
 
 # Check specific file
-mypy tracker/models.py
+uv run pyright my_tracks/models.py
 
-# Strict mode
-mypy --strict tracker/
+# Run isort to sort imports
+uv run isort my_tracks config web_ui
 
-# Generate HTML report
-mypy --html-report mypy-report tracker/
+# Check imports without modifying
+uv run isort --check-only my_tracks config web_ui
 ```
 
 ## API Testing
@@ -331,53 +316,124 @@ mypy --html-report mypy-report tracker/
 
 ```bash
 # Submit location
-curl -X POST http://localhost:8000/api/locations/ \
+curl -X POST http://localhost:8080/api/locations/ \
   -H "Content-Type: application/json" \
   -d '{"lat": 37.7749, "lon": -122.4194, "tst": 1705329600, "tid": "AB"}'
 
 # Get all locations
-curl http://localhost:8000/api/locations/
+curl http://localhost:8080/api/locations/
 
 # Get locations for device
-curl "http://localhost:8000/api/locations/?device=AB"
+curl "http://localhost:8080/api/locations/?device=AB"
 
 # Get locations with date filter
-curl "http://localhost:8000/api/locations/?start_date=2024-01-01T00:00:00Z"
+curl "http://localhost:8080/api/locations/?start_date=2024-01-01T00:00:00Z"
 
 # Get with pagination
-curl "http://localhost:8000/api/locations/?limit=10&offset=20"
+curl "http://localhost:8080/api/locations/?limit=10&offset=20"
 
 # Get all devices
-curl http://localhost:8000/api/devices/
+curl http://localhost:8080/api/devices/
 
 # Get device details
-curl http://localhost:8000/api/devices/AB/
+curl http://localhost:8080/api/devices/AB/
 
 # Get device locations
-curl http://localhost:8000/api/devices/AB/locations/
+curl http://localhost:8080/api/devices/AB/locations/
 ```
 
 ### HTTPie Examples (if installed)
 
 ```bash
 # Submit location
-http POST localhost:8000/api/locations/ \
+http POST localhost:8080/api/locations/ \
   lat=37.7749 lon=-122.4194 tst=1705329600 tid=AB
 
 # Get locations
-http GET localhost:8000/api/locations/ device==AB
+http GET localhost:8080/api/locations/ device==AB
 
 # Pretty JSON
-http --pretty=format GET localhost:8000/api/locations/
+http --pretty=format GET localhost:8080/api/locations/
 ```
 
-## Git Commands
+## Version Control (Graphite)
+
+This project uses [Graphite](https://graphite.dev) for all version control operations. The `gt` command is a **passthrough for git** - all git commands work through `gt`, so always use `gt` instead of `git`.
+
+### Why Graphite?
+
+- **Git Passthrough**: All git commands work via `gt` (e.g., `gt status`, `gt diff`, `gt log`)
+- **PR Stacking**: Create dependent PRs that automatically rebase
+- **Automatic Cleanup**: Merged branches are auto-deleted
+- **Better Workflow**: Single commands replace multi-step git operations
+- **Force Push Safety**: Built-in protection against overwriting remote changes
+
+### Common Commands
+
+```bash
+# Create a new branch with staged changes
+gt create --all --message "feat: add new feature"
+
+# Amend current branch commit
+gt modify --all --message "feat: updated implementation"
+
+# Submit PR(s) to GitHub
+GRAPHITE_PROFILE=thehcma gt submit --no-interactive
+
+# View current stack
+gt log short
+
+# Sync with remote (fetch + rebase)
+gt sync --force
+
+# Switch branches
+gt checkout <branch-name>
+
+# Move up/down the stack
+gt up
+gt down
+
+# Delete a branch
+gt delete <branch-name>
+```
+
+### Git Passthrough Commands
+
+Many git commands work through `gt`:
+
+```bash
+# Check status
+gt status
+
+# View changes
+gt diff
+
+# Fetch and prune
+gt fetch --prune
+
+# Other passthroughs
+gt add, gt reset, gt restore, gt rebase, gt cherry-pick
+```
+
+### Commands Requiring Native Git
+
+Some commands have different behavior in gt, so use native git:
+
+```bash
+# View commit history (gt log shows stack instead)
+git log --oneline -10
+
+# List all branches (gt branch is a subcommand)
+git branch -a
+```
+
+### Initial Repository Setup
+
+For new repositories only:
 
 ```bash
 # Initialize repository
-git init
-git add .
-git commit -m "Initial commit"
+gt init  # Select trunk branch (main)
 
 # Create .gitignore
 cat > .gitignore << 'EOF'
@@ -387,64 +443,53 @@ __pycache__/
 db.sqlite3
 .env
 .DS_Store
+node_modules/
+dist/
 EOF
 
-# Check status
-git status
-
-# View changes
-git diff
-
-# Commit changes
-git add .
-git commit -m "Add feature"
-
-# Push to remote
-git remote add origin <repo-url>
-git push -u origin main
+# Initial commit
+gt create --all --message "chore: initial commit"
+GRAPHITE_PROFILE=thehcma gt submit --no-interactive
 ```
 
 ## Production Commands
 
-### Gunicorn
+### Daphne ASGI Server
 
 ```bash
-# Start Gunicorn
-gunicorn mytracks.wsgi:application
+# Start Daphne (ASGI for WebSocket support)
+daphne -b 0.0.0.0 -p 8080 config.asgi:application
 
-# With specific bind address
-gunicorn mytracks.wsgi:application --bind 0.0.0.0:8000
+# Development mode with my-tracks-server
+./my-tracks-server
 
-# With workers
-gunicorn mytracks.wsgi:application --workers 4
+# With console logging
+./my-tracks-server --console
 
-# With config file
-gunicorn -c gunicorn_config.py mytracks.wsgi:application
-
-# Daemon mode
-gunicorn mytracks.wsgi:application --daemon
+# With debug level
+./my-tracks-server --log-level debug
 ```
 
 ### Systemd
 
 ```bash
 # Enable service
-sudo systemctl enable owntracks
+sudo systemctl enable my-tracks
 
 # Start service
-sudo systemctl start owntracks
+sudo systemctl start my-tracks
 
 # Stop service
-sudo systemctl stop owntracks
+sudo systemctl stop my-tracks
 
 # Restart service
-sudo systemctl restart owntracks
+sudo systemctl restart my-tracks
 
 # Check status
-sudo systemctl status owntracks
+sudo systemctl status my-tracks
 
 # View logs
-journalctl -u owntracks -f
+journalctl -u my-tracks -f
 ```
 
 ### Database Backup (PostgreSQL)
@@ -467,32 +512,32 @@ gunzip -c backup.sql.gz | psql owntracks
 
 ```bash
 # Watch location updates
-watch -n 2 'curl -s http://localhost:8000/api/locations/?limit=1'
+watch -n 2 'curl -s http://localhost:8080/api/locations/?limit=1'
 
 # Monitor logs
-tail -f /var/log/gunicorn/access.log
+tail -f logs/my-tracks.log
 
-# Monitor Django development server
-python manage.py runserver 2>&1 | tee server.log
+# Monitor with console logging
+./my-tracks-server --console
 
 # Check disk usage
 du -sh db.sqlite3
 
 # Count locations in database
-echo "SELECT COUNT(*) FROM tracker_location;" | python manage.py dbshell
+echo "SELECT COUNT(*) FROM my_tracks_location;" | uv run python manage.py dbshell
 ```
 
 ## Debugging
 
 ```bash
-# Django shell with models loaded
-python manage.py shell
->>> from tracker.models import Device, Location
+# Interactive shell with models loaded
+uv run python manage.py shell
+>>> from my_tracks.models import Device, Location
 >>> Device.objects.all()
 >>> Location.objects.count()
 
 # Run with Python debugger
-python -m pdb manage.py runserver
+uv run python -m pdb manage.py runserver
 
 # Enable SQL query logging (settings.py)
 LOGGING = {
@@ -509,7 +554,7 @@ LOGGING = {
 }
 
 # Test email (if configured)
-python manage.py sendtestemail admin@example.com
+uv run python manage.py sendtestemail admin@example.com
 ```
 
 ## Environment Variables
@@ -542,17 +587,17 @@ find . -type f -name "*.pyc" -delete
 uv pip install --force-reinstall -e .
 
 # Check for port conflicts
-lsof -i :8000  # Unix/macOS
-netstat -ano | findstr :8000  # Windows
+lsof -i :8080  # Unix/macOS
+netstat -ano | findstr :8080  # Windows
 
 # Kill process on port
-kill $(lsof -t -i:8000)  # Unix/macOS
+kill $(lsof -t -i:8080)  # Unix/macOS
 
 # Reset migrations (careful!)
 find . -path "*/migrations/*.py" -not -name "__init__.py" -delete
 find . -path "*/migrations/*.pyc" -delete
-python manage.py makemigrations
-python manage.py migrate
+uv run python manage.py makemigrations
+uv run python manage.py migrate
 ```
 
 ## Quick Workflows
@@ -561,49 +606,47 @@ python manage.py migrate
 
 ```bash
 rm -rf .venv db.sqlite3
-uv venv && source .venv/bin/activate
+uv venv
 uv pip install -e ".[dev]"
-python manage.py migrate
-python manage.py createsuperuser
-python manage.py runserver
+uv run python manage.py migrate
+uv run python manage.py createsuperuser
+./my-tracks-server
 ```
 
 ### Deploy Update
 
 ```bash
-git pull
-source .venv/bin/activate
+gt sync --force
 uv pip install -e .
-python manage.py migrate
-python manage.py collectstatic --noinput
-sudo systemctl restart owntracks
+uv run python manage.py migrate
+uv run python manage.py collectstatic --noinput
+sudo systemctl restart my-tracks
 ```
 
 ### Run Full Test Suite
 
 ```bash
-black --check .
-flake8 .
-mypy tracker/
-pytest --cov=tracker --cov-report=html
-python manage.py check --deploy
+uv run isort --check-only my_tracks config web_ui
+uv run pyright
+uv run pytest --cov=my_tracks --cov-report=html
+uv run python manage.py check --deploy
 ```
 
 ## Help
 
 ```bash
-# Django help
-python manage.py help
+# Management help
+uv run python manage.py help
 
 # Help for specific command
-python manage.py help migrate
+uv run python manage.py help migrate
 
 # List all commands
-python manage.py help --commands
+uv run python manage.py help --commands
 
 # uv help
 uv --help
 
 # pytest help
-pytest --help
+uv run pytest --help
 ```

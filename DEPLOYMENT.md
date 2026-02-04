@@ -6,9 +6,9 @@ This guide covers deploying My Tracks to production.
 
 ## Prerequisites
 
-- Python 3.12+
+- Python 3.14+
 - PostgreSQL 14+ (recommended for production)
-- Nginx or Apache (for reverse proxy)
+- Nginx (for reverse proxy)
 - SSL certificate (Let's Encrypt recommended)
 - Domain name
 
@@ -66,70 +66,51 @@ GRANT ALL PRIVILEGES ON DATABASE owntracks TO owntrackuser;
 # Create virtual environment
 uv venv
 
-# Activate
-source .venv/bin/activate
-
-# Install dependencies
+# Install dependencies (uv run handles activation automatically)
 uv pip install -e .
 
 # Install additional production dependencies
-uv pip install psycopg2-binary gunicorn
+uv pip install psycopg2-binary daphne channels
 ```
 
-### 5. Django Setup
+### 5. Application Setup
 
 ```bash
 # Collect static files
-python manage.py collectstatic --noinput
+uv run python manage.py collectstatic --noinput
 
 # Run migrations
-python manage.py migrate
+uv run python manage.py migrate
 
 # Create superuser
-python manage.py createsuperuser
+uv run python manage.py createsuperuser
 ```
 
-### 6. Gunicorn Configuration
+### 6. Daphne ASGI Server Configuration
 
-Create `gunicorn_config.py`:
+Daphne is used as the ASGI server to support WebSocket connections. The `./my-tracks-server` script handles this automatically for development.
 
-```python
-"""Gunicorn configuration for production."""
-import multiprocessing
-
-bind = "127.0.0.1:8000"
-workers = multiprocessing.cpu_count() * 2 + 1
-worker_class = "sync"
-worker_connections = 1000
-max_requests = 1000
-max_requests_jitter = 50
-timeout = 30
-keepalive = 2
-
-# Logging
-accesslog = "/var/log/gunicorn/access.log"
-errorlog = "/var/log/gunicorn/error.log"
-loglevel = "info"
-```
+For production, the systemd service (Step 7) runs Daphne directly.
 
 ### 7. Systemd Service
 
-Create `/etc/systemd/system/owntracks.service`:
+Create `/etc/systemd/system/my-tracks.service`:
 
 ```ini
 [Unit]
-Description=OwnTracks Django Backend
+Description=My Tracks OwnTracks Backend
 After=network.target
 
 [Service]
-Type=notify
+Type=simple
 User=www-data
 Group=www-data
 WorkingDirectory=/path/to/my-tracks
 Environment="PATH=/path/to/my-tracks/.venv/bin"
-ExecStart=/path/to/my-tracks/.venv/bin/gunicorn \
-    --config gunicorn_config.py \
-    mytracks.wsgi:application
+ExecStart=/path/to/my-tracks/.venv/bin/daphne \
+    -b 127.0.0.1 \
+    -p 8080 \
+    config.asgi:application
 
 [Install]
 WantedBy=multi-user.target
@@ -138,9 +119,9 @@ WantedBy=multi-user.target
 Enable and start:
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable owntracks
-sudo systemctl start owntracks
-sudo systemctl status owntracks
+sudo systemctl enable my-tracks
+sudo systemctl start my-tracks
+sudo systemctl status my-tracks
 ```
 
 ### 8. Nginx Configuration
@@ -149,7 +130,7 @@ Create `/etc/nginx/sites-available/owntracks`:
 
 ```nginx
 upstream owntracks_backend {
-    server 127.0.0.1:8000;
+    server 127.0.0.1:8080;
 }
 
 server {
@@ -215,9 +196,9 @@ sudo ufw enable
 
 ### Log Locations
 
-- Application logs: `/var/log/gunicorn/`
+- Application logs: `logs/my-tracks.log` (with rotation)
 - Nginx logs: `/var/log/nginx/`
-- System logs: `journalctl -u owntracks`
+- System logs: `journalctl -u my-tracks`
 
 ### Database Backups
 
@@ -253,23 +234,20 @@ Create a health check endpoint or use Django's built-in admin health check.
 ### Updating the Application
 
 ```bash
-# Pull latest code
-git pull
-
-# Activate virtualenv
-source .venv/bin/activate
+# Sync with remote (using Graphite)
+gt sync --force
 
 # Update dependencies
 uv pip install -e .
 
 # Run migrations
-python manage.py migrate
+uv run python manage.py migrate
 
 # Collect static files
-python manage.py collectstatic --noinput
+uv run python manage.py collectstatic --noinput
 
 # Restart service
-sudo systemctl restart owntracks
+sudo systemctl restart my-tracks
 ```
 
 ## Security Checklist
@@ -350,7 +328,7 @@ tail -f /var/log/nginx/error.log
 ```bash
 sudo -u postgres psql owntracks
 \dt  # List tables
-\d+ tracker_location  # Describe table
+\d+ my_tracks_location  # Describe table
 ```
 
 ### Permission Issues

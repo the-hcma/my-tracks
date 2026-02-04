@@ -8,8 +8,8 @@ The My Tracks backend now supports WebSocket connections for real-time location 
 
 ### Components
 
-1. **Django Channels**: ASGI support for WebSocket protocol
-2. **Daphne**: ASGI server (replaces Django's runserver)
+1. **Channels**: ASGI support for WebSocket protocol
+2. **Daphne**: ASGI server for production
 3. **LocationConsumer**: WebSocket consumer handling client connections
 4. **Channel Layer**: In-memory message bus for broadcasting updates
 
@@ -136,7 +136,7 @@ INSTALLED_APPS = [
 ]
 
 # ASGI application
-ASGI_APPLICATION = 'mytracks.asgi.application'
+ASGI_APPLICATION = 'config.asgi.application'
 
 # Channel layers (in-memory for development)
 CHANNEL_LAYERS = {

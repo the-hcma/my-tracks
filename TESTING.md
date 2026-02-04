@@ -2,9 +2,11 @@
 
 This document provides guidelines for testing the OwnTracks backend server.
 
-## Test Server Configuration
+## Test Port Configuration
 
-**IMPORTANT**: Always use port **18080** for testing to avoid conflicts with production servers.
+**For automated tests**: Use port **0** to let the OS allocate an ephemeral port. This prevents port conflicts when running multiple tests.
+
+**For manual testing**: Use port **18080** to avoid conflicts with production servers on port 8080.
 
 ### Starting the Test Server
 
@@ -12,7 +14,7 @@ This document provides guidelines for testing the OwnTracks backend server.
 # Start test server on port 18080
 ./my-tracks-server --port 18080
 
-# With console logging for debugging
+# With dual logging (console + file) for debugging
 ./my-tracks-server --port 18080 --console
 
 # With debug log level
@@ -31,13 +33,26 @@ When testing, use these URLs:
 
 ```bash
 # Run all tests with coverage
-uv run pytest --cov=tracker --cov-fail-under=90
+uv run pytest --cov=my_tracks --cov-fail-under=90
 
 # Run specific test file
 uv run pytest test_tracker.py -v
 
 # Run specific test
 uv run pytest test_tracker.py::TestLocationAPI::test_create_location -v
+```
+
+## Running Frontend Tests
+
+```bash
+# Run TypeScript tests
+npm run test
+
+# Run with watch mode
+npm run test:watch
+
+# Run ESLint
+npm run lint
 ```
 
 ## Manual Testing
@@ -97,14 +112,18 @@ done
 ## Coverage Requirements
 
 - **Minimum coverage**: 90%
-- Run coverage check: `uv run pytest --cov=tracker --cov-fail-under=90`
+- Run coverage check: `uv run pytest --cov=my_tracks --cov-fail-under=90`
 
 ## Pre-PR Checklist
 
 Before creating a pull request:
 
-- [ ] All tests pass: `uv run pytest`
-- [ ] Coverage ≥ 90%: `uv run pytest --cov=tracker --cov-fail-under=90`
+- [ ] All Python tests pass: `uv run pytest`
+- [ ] Coverage ≥ 90%: `uv run pytest --cov=my_tracks --cov-fail-under=90`
+- [ ] Type checking passes: `uv run pyright`
+- [ ] Imports sorted: `uv run isort --check-only my_tracks config web_ui`
+- [ ] All TypeScript tests pass: `npm run test`
+- [ ] ESLint passes: `npm run lint`
 - [ ] No pytest warnings
 - [ ] VS Code Problems panel is clear
 - [ ] Shell scripts pass shellcheck

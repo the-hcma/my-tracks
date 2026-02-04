@@ -33,8 +33,8 @@ Following Unix/Linux conventions, executable scripts should not have file extens
 ### Implementation Agent Directive
 
 All future shell scripts MUST be created without the `.sh` extension:
-- ✅ `setup`, `start_server`, `backup_owntracks`
-- ❌ `setup.sh`, `start_server.sh`, `backup_owntracks.sh`
+- ✅ `setup`, `my-tracks-server`, `backup-owntracks`
+- ❌ `setup.sh`, `my-tracks-server.sh`, `backup-owntracks.sh`
 
 Requirements:
 - Use `#!/usr/bin/env bash` shebang for portability

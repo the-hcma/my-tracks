@@ -1,6 +1,6 @@
 # My Tracks
 
-A Django-based backend server for the OwnTracks Android app, designed to receive and persist geolocation data from OwnTracks clients using Python 3.12+ with full type hints and modern features.
+A backend server for the OwnTracks Android app, designed to receive and persist geolocation data from OwnTracks clients using Python 3.14+ with full type hints and modern features.
 
 ## 🚀 Quick Start
 
@@ -9,10 +9,10 @@ A Django-based backend server for the OwnTracks Android app, designed to receive
 bash setup
 
 # Start server
-python manage.py runserver
+./my-tracks-server
 
 # Test API
-curl -X POST http://localhost:8000/api/locations/ \
+curl -X POST http://localhost:8080/api/locations/ \
   -H "Content-Type: application/json" \
   -d '{"lat": 37.7749, "lon": -122.4194, "tst": 1705329600, "tid": "AB"}'
 ```
@@ -37,13 +37,13 @@ curl -X POST http://localhost:8000/api/locations/ \
 - **Device Management**: Support for multiple devices with unique identification
 - **Type Safety**: Full type hints using Python 3.12+ features
 - **Modern Python**: Uses dataclasses and modern Python idioms
-- **Admin Interface**: Django admin for data management
+- **Admin Interface**: Web-based admin for data management
 - **Comprehensive Testing**: Full pytest test suite included
-- **Production Ready**: Includes deployment guide and Gunicorn configuration
+- **Production Ready**: Includes deployment guide with Daphne ASGI server for WebSocket support
 
 ## Requirements
 
-- Python 3.12 or higher
+- Python 3.14 or higher
 - [uv](https://github.com/astral-sh/uv) package manager (fast, reliable Python package installer)
 - PostgreSQL (recommended for production) or SQLite (development)
 
@@ -90,9 +90,10 @@ This will:
 4. **Create virtual environment and install dependencies**:
    ```bash
    uv venv
-   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
    uv pip install -e .
    ```
+
+   **Note**: With `uv run`, you don't need to manually activate the virtual environment.
 
 5. **For development dependencies**:
    ```bash
@@ -110,27 +111,30 @@ This will:
 
 6. **Run migrations**:
    ```bash
-   python manage.py migrate
+   uv run python manage.py migrate
    ```
 
 7. **Create a superuser** (optional, for admin access):
    ```bash
-   python manage.py createsuperuser
+   uv run python manage.py createsuperuser
    ```
 
 8. **Run the development server**:
    ```bash
-   python manage.py runserver
+   ./my-tracks-server
    ```
 
-   **Planned**: A `start_server` script for easier server management (check running status, restart with confirmation). See [COMMANDS.md](COMMANDS.md#server-management-script-planned).
+   Or with console logging (outputs to both console and file):
+   ```bash
+   ./my-tracks-server --console
+   ```
 
 ## OwnTracks Configuration
 
 Configure your OwnTracks app with the following settings:
 
 - **Mode**: HTTP
-- **URL**: `http://your-server:8000/api/locations/`
+- **URL**: `http://your-server:8080/api/locations/`
 - **Authentication**: Use device ID in the payload
 
 ## API Endpoints
@@ -175,22 +179,31 @@ List all registered devices.
 
 ```
 my-tracks/
-├── manage.py                 # Django management script
-├── requirements.txt          # Python dependencies
-├── mytracks/                 # Django project directory
+├── manage.py                 # Management script
+├── pyproject.toml            # Python dependencies (uv)
+├── package.json              # Frontend dependencies (npm)
+├── my-tracks-server          # Server startup script
+├── config/                   # Project configuration directory
 │   ├── __init__.py
 │   ├── settings.py          # Project settings
 │   ├── urls.py              # URL routing
+│   ├── asgi.py              # ASGI configuration
 │   └── wsgi.py              # WSGI configuration
-└── tracker/                  # Location tracking app
-    ├── __init__.py
-    ├── admin.py             # Django admin configuration
-    ├── apps.py              # App configuration
-    ├── models.py            # Database models
-    ├── serializers.py       # DRF serializers
-    ├── views.py             # API views
-    ├── urls.py              # App URL routing
-    └── migrations/          # Database migrations
+├── my_tracks/                # Location tracking app
+│   ├── __init__.py
+│   ├── admin.py             # Admin configuration
+│   ├── apps.py              # App configuration
+│   ├── models.py            # Database models
+│   ├── serializers.py       # DRF serializers
+│   ├── views.py             # API views
+│   ├── urls.py              # App URL routing
+│   └── migrations/          # Database migrations
+└── web_ui/                   # Web interface app
+    ├── static/web_ui/
+    │   ├── ts/              # TypeScript source
+    │   ├── js/              # Compiled JavaScript
+    │   └── css/             # Stylesheets
+    └── templates/web_ui/    # HTML templates
 ```
 
 ## Development
@@ -198,16 +211,32 @@ my-tracks/
 ### Running Tests
 
 ```bash
-python manage.py test
+# Python tests
+uv run pytest
+
+# With coverage (90% minimum required)
+uv run pytest --cov=my_tracks --cov-fail-under=90
+
+# TypeScript tests
+npm run test
+
+# TypeScript linting
+npm run lint
 ```
 
 ### Code Style
 
-This project follows PEP 8 guidelines. To check code style:
+This project follows PEP 8 guidelines with additional tooling:
 
 ```bash
-pip install flake8
-flake8 .
+# Type checking
+uv run pyright
+
+# Import sorting
+uv run isort my_tracks config web_ui
+
+# Shell script linting
+shellcheck my-tracks-server
 ```
 
 ## Production Deployment
@@ -218,18 +247,30 @@ For production deployment:
 2. Configure a proper database (PostgreSQL recommended)
 3. Set strong `SECRET_KEY`
 4. Configure `ALLOWED_HOSTS` with your domain
-5. Use a production WSGI server (gunicorn is included)
+5. Use the production server script
 6. Set up SSL/TLS certificates
 
-Example with gunicorn:
+Start production server:
 ```bash
-gunicorn mytracks.wsgi:application --bind 0.0.0.0:8000
+./my-tracks-server --log-level warning
 ```
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for complete production setup guide.
 
 ## License
 
-MIT License
+PolyForm Noncommercial License 1.0.0 - See [LICENSE](LICENSE) for details.
 
 ## Contributing
 
-Contributions are welcome! Please open an issue or submit a pull request.
+Contributions are welcome! This project uses [Graphite](https://graphite.dev) for PR management:
+
+```bash
+# Create a feature branch
+gt create --all --message "feat: your feature"
+
+# Submit PR
+GRAPHITE_PROFILE=thehcma gt submit --no-interactive
+```
+
+See [COMMANDS.md](COMMANDS.md#version-control-graphite) for the complete Graphite workflow.

@@ -2,9 +2,11 @@
 
 ## 🎉 Project Status: COMPLETE
 
-My Tracks Django backend server has been fully implemented and is ready for use.
+My Tracks OwnTracks backend server has been fully implemented and is ready for use.
 
 **Package Management**: Uses [uv](https://github.com/astral-sh/uv) exclusively for fast, deterministic dependency management.
+
+**License**: PolyForm Noncommercial 1.0.0
 
 ## ✅ What's Been Created
 
@@ -42,7 +44,7 @@ My Tracks Django backend server has been fully implemented and is ready for use.
    - `verify_setup.py` - Setup verification script
    - `.env.example` - Environment template
    - `.gitignore` - Git exclusions
-   - `LICENSE` - MIT License
+   - `LICENSE` - PolyForm Noncommercial License 1.0.0
 
 6. **Documentation** (8 comprehensive guides)
    - `README.md` - Main documentation
@@ -120,8 +122,9 @@ My Tracks Django backend server has been fully implemented and is ready for use.
 
 ### ✅ Production Ready
 - [x] PostgreSQL support
-- [x] Gunicorn compatibility
-- [x] Static file handling
+- [x] Daphne ASGI server
+- [x] WebSocket real-time updates
+- [x] Static file handling (WhiteNoise)
 - [x] Security settings guide
 - [x] Deployment documentation
 - [x] Systemd service example
@@ -147,17 +150,17 @@ My Tracks Django backend server has been fully implemented and is ready for use.
 bash setup
 
 # 2. Start server
-python manage.py runserver
+./my-tracks-server
 
 # 3. Configure OwnTracks app
 # Mode: HTTP
-# URL: http://your-ip:8000/api/locations/
+# URL: http://your-ip:8080/api/locations/
 ```
 
 ### Test the API
 
 ```bash
-curl -X POST http://localhost:8000/api/locations/ \
+curl -X POST http://localhost:8080/api/locations/ \
   -H "Content-Type: application/json" \
   -d '{
     "lat": 37.7749,
@@ -194,9 +197,9 @@ my-tracks/
 │   ├── install.py
 │   ├── verify_setup.py
 │   └── PROJECT_FILES.txt
-├── Django Project (1 file + 5 in mytracks/)
+├── Django Project (1 file + 5 in config/)
 │   ├── manage.py
-│   └── mytracks/
+│   └── config/
 │       ├── __init__.py
 │       ├── settings.py
 │       ├── urls.py
@@ -246,10 +249,9 @@ my-tracks/
 
 ## 📈 Next Steps for Users
 
-### Deve./setup`
-
-1. Run `bash setup.sh`
-2. Start server: `python manage.py runserver`
+### Development
+1. Run `./setup`
+2. Start server: `./my-tracks-server`
 3. Configure OwnTracks app
 4. Test the integration
 
@@ -257,7 +259,7 @@ my-tracks/
 1. Follow [DEPLOYMENT.md](DEPLOYMENT.md)
 2. Set up PostgreSQL
 3. Configure Nginx/SSL
-4. Deploy with Gunicorn
+4. Deploy with Daphne ASGI server
 5. Set up monitoring
 
 ### Contributing
@@ -322,7 +324,7 @@ Built following:
 
 **Implementation Status**: ✅ COMPLETE
 **Ready for**: Development, Testing, and Production
-**Date**: 2024
+**Date**: 2026
 **Version**: 0.1.0
 
-The Django backend for OwnTracks is now fully functional and ready to receive location data from OwnTracks clients!
+The OwnTracks backend is now fully functional and ready to receive location data from OwnTracks clients!
