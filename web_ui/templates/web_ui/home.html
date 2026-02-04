@@ -16,11 +16,11 @@
                 <div class="map-header">
                     <h2 id="map-title">🗺️ Live Map</h2>
                     <div class="map-controls">
-                        <div class="mode-toggle">
+                        <div class="mode-toggle" title="Switch between live updates and historic trail view">
                             <button id="live-mode-btn" class="active">📡 Live</button>
                             <button id="historic-mode-btn">📅 Historic</button>
                         </div>
-                        <select class="time-range-selector hidden" id="time-range-selector">
+                        <select class="time-range-selector hidden" id="time-range-selector" title="Select time range for historic trail">
                             <option value="1">Last 1 hour</option>
                             <option value="2" selected>Last 2 hours</option>
                             <option value="6">Last 6 hours</option>
@@ -33,15 +33,15 @@
                             <span class="precision-label">🎯</span>
                             <span class="precision-value" id="precision-value">100%</span>
                         </div>
-                        <select class="device-selector" id="device-selector">
+                        <select class="device-selector" id="device-selector" title="Filter by device">
                             <option value="">All Devices</option>
                         </select>
-                        <div class="status-indicator" id="server-status-indicator" title="Server status">
+                        <div class="status-indicator" id="server-status-indicator" title="WebSocket connection status">
                             <span class="status-dot" id="status-dot"></span>
                             <span id="status-text">Checking...</span>
                         </div>
-                        <button class="header-toggle" id="sidebar-toggle" aria-label="Toggle sidebar">◀</button>
-                        <button class="header-toggle" id="theme-toggle" aria-label="Toggle theme">🌙</button>
+                        <button class="header-toggle" id="sidebar-toggle" title="Toggle documentation sidebar" aria-label="Toggle sidebar">◀</button>
+                        <button class="header-toggle" id="theme-toggle" title="Toggle light/dark theme" aria-label="Toggle theme">🌙</button>
                     </div>
                 </div>
                 <div id="map"></div>
