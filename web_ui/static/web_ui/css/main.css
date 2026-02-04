@@ -1,0 +1,438 @@
+/**
+ * My Tracks - Web UI Styles
+ * Main stylesheet for the OwnTracks backend UI
+ */
+
+:root {
+    --bg-main: #ffffff;
+    --bg-left: #1e1e1e;
+    --text-main: #2c3e50;
+    --text-secondary: #34495e;
+    --text-left: #d4d4d4;
+    --border-color: #333;
+    --endpoint-bg: #f8f9fa;
+    --endpoint-border: #007bff;
+    --code-bg: #e9ecef;
+    --log-entry-bg: #2d2d2d;
+    --log-entry-border: #4CAF50;
+    --log-time-color: #858585;
+    --link-color: #007bff;
+    --status-color: #28a745;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg-main: #1e1e1e;
+        --text-main: #e0e0e0;
+        --text-secondary: #b0b0b0;
+        --endpoint-bg: #2d2d2d;
+        --code-bg: #3d3d3d;
+        --link-color: #4a9eff;
+    }
+}
+
+[data-theme="light"] {
+    --bg-main: #ffffff;
+    --bg-left: #f5f5f5;
+    --text-main: #2c3e50;
+    --text-secondary: #34495e;
+    --text-left: #2c3e50;
+    --border-color: #ddd;
+    --endpoint-bg: #f8f9fa;
+    --endpoint-border: #007bff;
+    --code-bg: #e9ecef;
+    --log-entry-bg: #ffffff;
+    --log-entry-border: #28a745;
+    --log-time-color: #666666;
+    --link-color: #007bff;
+    --status-color: #28a745;
+    --log-device-color: #0c7c59;
+    --log-coords-color: #b8530d;
+    --right-header-color: #2c3e50;
+}
+
+[data-theme="dark"] {
+    --bg-main: #1e1e1e;
+    --bg-left: #0d0d0d;
+    --text-main: #e0e0e0;
+    --text-secondary: #b0b0b0;
+    --text-left: #d4d4d4;
+    --border-color: #3a3a3a;
+    --endpoint-bg: #2d2d2d;
+    --endpoint-border: #4a9eff;
+    --code-bg: #3d3d3d;
+    --log-entry-bg: #2d2d2d;
+    --log-entry-border: #4CAF50;
+    --log-time-color: #858585;
+    --link-color: #4a9eff;
+    --status-color: #4CAF50;
+    --log-device-color: #4ec9b0;
+    --log-coords-color: #ce9178;
+    --right-header-color: #ffffff;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    margin: 0;
+    padding: 0;
+    line-height: 1.6;
+    background: var(--bg-main);
+    color: var(--text-main);
+    transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.container {
+    display: grid;
+    grid-template-columns: 1fr 3fr;
+    height: 100vh;
+    gap: 0;
+}
+
+.left-column {
+    padding: 20px 40px;
+    overflow-y: auto;
+    background: var(--bg-main);
+    color: var(--text-main);
+    transition: padding 0.3s ease, opacity 0.3s ease;
+}
+
+.right-column {
+    background: var(--bg-left);
+    color: var(--text-left);
+    padding: 20px;
+    overflow-y: hidden;
+    border-left: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+h1 {
+    color: var(--text-main);
+    margin-top: 0;
+}
+
+h2 {
+    color: var(--text-secondary);
+    margin-top: 30px;
+}
+
+.right-column h2 {
+    color: var(--right-header-color);
+    margin-top: 0;
+}
+
+.endpoint {
+    background: var(--endpoint-bg);
+    border-left: 4px solid var(--endpoint-border);
+    padding: 15px;
+    margin: 15px 0;
+    transition: background-color 0.3s ease;
+}
+
+.method {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-weight: bold;
+    font-size: 12px;
+    margin-right: 10px;
+}
+
+.get {
+    background: #28a745;
+    color: white;
+}
+
+.post {
+    background: #007bff;
+    color: white;
+}
+
+code {
+    background: var(--code-bg);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-family: 'Monaco', 'Courier New', monospace;
+    color: var(--text-main);
+    transition: background-color 0.3s ease;
+}
+
+a {
+    color: var(--link-color);
+    text-decoration: none;
+    transition: color 0.3s ease;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+.log-entry {
+    background: var(--log-entry-bg);
+    border-left: 3px solid var(--log-entry-border);
+    padding: 8px 12px;
+    margin: 5px 0;
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: 'Monaco', 'Courier New', monospace;
+    white-space: nowrap;
+    overflow-x: auto;
+}
+
+.log-time {
+    color: var(--log-time-color);
+    display: inline;
+}
+
+.log-device {
+    color: var(--log-device-color);
+    font-weight: bold;
+    display: inline;
+    margin: 0 8px;
+}
+
+.log-ip {
+    color: #7c7cff;
+    display: inline;
+    margin-right: 8px;
+    font-family: 'Monaco', 'Courier New', monospace;
+}
+
+.log-coords {
+    color: var(--log-coords-color);
+    display: inline;
+    margin-right: 8px;
+}
+
+.log-meta {
+    color: var(--text-secondary);
+    display: inline;
+    font-size: 11px;
+}
+
+.log-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.log-controls {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.log-count {
+    background: #007bff;
+    color: white;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 12px;
+}
+
+.reset-button {
+    background: #dc3545;
+    color: white;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.reset-button:hover {
+    background: #c82333;
+    transform: scale(1.05);
+}
+
+#log-container {
+    background: var(--code-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 15px;
+    height: calc(100vh - 150px);
+    overflow-y: auto;
+    scroll-behavior: smooth;
+}
+
+#loading {
+    color: var(--log-time-color);
+    font-style: italic;
+}
+
+.header-toggle {
+    background: var(--endpoint-bg);
+    border: 2px solid var(--border-color);
+    border-radius: 50px;
+    padding: 6px 14px;
+    cursor: pointer;
+    font-size: 16px;
+    transition: all 0.3s ease;
+}
+
+.header-toggle:hover {
+    transform: scale(1.1);
+}
+
+.status-indicator {
+    background: var(--endpoint-bg);
+    border: 2px solid var(--border-color);
+    border-radius: 50px;
+    padding: 6px 14px;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #ffc107;
+    transition: background 0.3s ease;
+}
+
+.status-dot.connected {
+    background: #28a745;
+}
+
+.status-dot.disconnected {
+    background: #dc3545;
+}
+
+.container.sidebar-collapsed {
+    grid-template-columns: 0fr 1fr;
+}
+
+.container.sidebar-collapsed .left-column {
+    padding: 0;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.map-section {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    flex: 0 0 50%;
+}
+
+.map-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    gap: 10px;
+}
+
+.map-controls {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.device-selector,
+.time-range-selector,
+.resolution-selector {
+    background: var(--endpoint-bg);
+    color: var(--text-main);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.mode-toggle {
+    display: flex;
+    background: var(--endpoint-bg);
+    border: 2px solid var(--border-color);
+    border-radius: 20px;
+    overflow: hidden;
+}
+
+.mode-toggle button {
+    background: transparent;
+    border: none;
+    padding: 6px 16px;
+    font-size: 12px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    color: var(--text-main);
+}
+
+.mode-toggle button.active {
+    background: #007bff;
+    color: white;
+}
+
+.mode-toggle button:hover:not(.active) {
+    background: var(--code-bg);
+}
+
+#map {
+    flex: 1;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    min-height: 0;
+}
+
+.activity-section {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    flex: 0 0 50%;
+    transition: opacity 0.3s ease, filter 0.3s ease;
+}
+
+.activity-section.inactive {
+    opacity: 0.4;
+    filter: grayscale(50%);
+    pointer-events: none;
+}
+
+.resize-handle {
+    height: 8px;
+    background: var(--border-color);
+    cursor: ns-resize;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    margin: 4px 0;
+    transition: background 0.2s ease;
+}
+
+.resize-handle:hover {
+    background: #007bff;
+}
+
+.resize-handle::after {
+    content: '';
+    width: 40px;
+    height: 4px;
+    background: var(--text-secondary);
+    border-radius: 2px;
+    opacity: 0.5;
+}
+
+.resize-handle:hover::after {
+    background: white;
+    opacity: 0.8;
+}
+
+.hidden {
+    display: none !important;
+}
+
+/* Leaflet tooltip styling for waypoints - prevent wrapping */
+.waypoint-tooltip.leaflet-tooltip {
+    max-width: none !important;
+    white-space: nowrap !important;
+}
