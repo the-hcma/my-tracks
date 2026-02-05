@@ -67,13 +67,7 @@ Model assignments for different agent roles.
 ## 📦 Configuration Files
 
 ### [pyproject.toml](pyproject.toml)
-Modern Python project configuration with dependencies (preferred, for `uv`).
-
-### [requirements.txt](requirements.txt)
-Traditional pip requirements file (for pip compatibility).
-
-### [requirements-dev.txt](requirements-dev.txt)
-Development dependencies (testing, linting, formatting).
+Modern Python project configuration with dependencies (use `uv sync` to install).
 
 ### [.env.example](.env.example)
 Template for environment variables. Copy to `.env` and customize.

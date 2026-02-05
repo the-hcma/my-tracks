@@ -14,9 +14,7 @@ My Tracks OwnTracks backend server has been fully implemented and is ready for u
 
 1. **Django Project Configuration**
    - `manage.py` - Django management script
-   - `pyproject.toml` - Modern Python package configuration
-   - `requirements.txt` - Pip-compatible dependencies
-   - `requirements-dev.txt` - Development dependencies
+   - `pyproject.toml` - Modern Python package configuration (dependencies managed with `uv`)
 
 2. **Django Project Package** (`mytracks/`)
    - `__init__.py` - Package initialization
@@ -184,10 +182,8 @@ my-tracks/
 │   ├── PROJECT_SUMMARY.md
 │   ├── DOCS_INDEX.md
 │   └── AGENTS.md
-├── Setup & Configuration (6 files)
+├── Setup & Configuration (4 files)
 │   ├── pyproject.toml
-│   ├── requirements.txt
-│   ├── requirements-dev.txt
 │   ├── .env.example
 │   ├── .gitignore
 │   └── LICENSE
