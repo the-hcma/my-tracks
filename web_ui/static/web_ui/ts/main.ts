@@ -112,21 +112,22 @@ let isLiveMode = true; // Track current mode
 let needsFitBounds = true; // Only fit bounds on initial trail load
 let isRestoringState = false; // Flag to prevent saving during restore
 
-// Device color palette - high contrast colors visible against map backgrounds
-// Avoids light yellows, grays, and greens that blend with roads, parks, terrain
+// Device color palette - ordered for MAXIMUM visual difference between adjacent colors
+// First colors should be most distinct from each other (used when few devices)
 const deviceColors: string[] = [
-    '#0056b3', // Dark Blue - visible against all terrain
-    '#c82333', // Dark Red - high contrast
-    '#6f42c1', // Purple - stands out on any map
-    '#d63384', // Magenta - visible against greens
-    '#e65100', // Dark Orange - visible against blue water
-    '#0d6efd', // Bright Blue - good contrast
-    '#9c27b0', // Deep Purple - unique, visible
-    '#00695c', // Dark Teal - visible against light areas
-    '#b71c1c', // Deep Red - high visibility
-    '#1565c0', // Royal Blue - stands out
+    '#c82333', // Red - most distinct primary
+    '#0056b3', // Blue - opposite of red on color wheel
+    '#28a745', // Green - distinct from red and blue
+    '#e65100', // Orange - warm, distinct from blue/green
+    '#6f42c1', // Purple - distinct from orange/green
+    '#00bcd4', // Cyan - distinct from purple/orange
+    '#d63384', // Magenta/Pink - distinct from cyan/green
+    '#795548', // Brown - distinct from all bright colors
+    '#00695c', // Teal - distinct from brown/magenta
+    '#ff9800', // Amber - distinct from teal/brown
 ];
-const deviceColorMap: Record<string, string> = {}; // Maps device name to color
+let deviceColorMap: Record<string, string> = {}; // Maps device name to color
+let deviceColorIndex = 0; // Sequential index for color assignment
 
 // Cache for reverse geocoding results
 const geocodeCache = new Map<string, string>();
@@ -157,29 +158,71 @@ let pollingInterval: ReturnType<typeof setInterval> | null = null;
 // ============================================================================
 
 /**
- * Hash function for consistent color assignment based on device identifier.
- * @param str - String to hash
- * @returns Positive integer hash value
+ * Reset device color assignments.
+ * Call this when switching views to ensure optimal color distribution.
  */
-function hashString(str: string): number {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-        const char = str.charCodeAt(i);
-        hash = ((hash << 5) - hash) + char;
-        hash = hash & hash; // Convert to 32bit integer
-    }
-    return Math.abs(hash);
+function resetDeviceColors(): void {
+    deviceColorMap = {};
+    deviceColorIndex = 0;
 }
 
 /**
- * Get consistent color for a device based on hash of device name.
+ * Show device color legend when viewing multiple devices (up to 5).
+ * @param deviceNames - Array of device names to show in legend
+ */
+function showDeviceLegend(deviceNames: string[]): void {
+    const legend = document.getElementById('device-legend');
+    if (!legend) return;
+
+    // Filter out empty/undefined names
+    const validNames = deviceNames.filter(name => name && name.trim() !== '');
+
+    // Only show legend for 2-5 devices
+    if (validNames.length < 2 || validNames.length > 5) {
+        legend.classList.add('hidden');
+        return;
+    }
+
+    // Build legend HTML
+    let html = '<div class="device-legend-title">Devices</div>';
+    console.log('Building legend with names:', validNames);
+    validNames.forEach(name => {
+        const color = getDeviceColor(name);
+        console.log('Adding legend item:', name, 'with color:', color);
+        html += `
+            <div class="device-legend-item">
+                <div class="device-legend-color" style="background-color: ${color};"></div>
+                <span class="device-legend-name">${name}</span>
+            </div>
+        `;
+    });
+    console.log('Legend HTML:', html);
+
+    legend.innerHTML = html;
+    legend.classList.remove('hidden');
+}
+
+/**
+ * Hide the device color legend.
+ */
+function hideDeviceLegend(): void {
+    const legend = document.getElementById('device-legend');
+    if (legend) {
+        legend.classList.add('hidden');
+    }
+}
+
+/**
+ * Get color for a device - assigns colors sequentially for maximum visual difference.
+ * Colors are assigned in order of first appearance, using a palette ordered for maximum contrast.
  * @param deviceName - Name of the device
  * @returns Hex color string
  */
 function getDeviceColor(deviceName: string): string {
     if (!deviceColorMap[deviceName]) {
-        const hash = hashString(deviceName);
-        deviceColorMap[deviceName] = deviceColors[hash % deviceColors.length];
+        // Assign next color in sequence (palette is ordered for max difference)
+        deviceColorMap[deviceName] = deviceColors[deviceColorIndex % deviceColors.length];
+        deviceColorIndex++;
     }
     return deviceColorMap[deviceName];
 }
@@ -873,7 +916,9 @@ async function fetchAndDisplayTrail(): Promise<void> {
     deviceTrails = {};
 
     if (!selectedDevice) {
-        // "All Devices" selected - show all device markers
+        // "All Devices" selected - show trails and numbered waypoints for each device
+        // Reset color assignments so colors are distributed optimally for visible devices
+        resetDeviceColors();
         try {
             let url = `/api/locations/?start_time=${Math.floor(startTime)}&ordering=-timestamp&limit=1000`;
             if (trailResolution > 0) {
@@ -885,37 +930,173 @@ async function fetchAndDisplayTrail(): Promise<void> {
             const data: LocationsApiResponse = await response.json();
             const locations = data.results || [];
 
-            // Show summary in activity section
-            displayHistoricWaypoints(locations);
+            // Show summary in activity section (with device names)
+            displayHistoricWaypoints(locations, true); // true = show device names
 
-            // Group locations by device and show latest marker for each
-            const latestByDevice: Record<string, TrackLocation> = {};
+            // Group locations by device
+            const locationsByDevice: Record<string, TrackLocation[]> = {};
             locations.forEach(loc => {
                 const device = loc.device_name || 'Unknown';
-                if (!latestByDevice[device]) {
-                    latestByDevice[device] = loc;
+                if (!locationsByDevice[device]) {
+                    locationsByDevice[device] = [];
                 }
+                locationsByDevice[device].push(loc);
             });
 
-            // Create markers for each device's latest position
-            Object.values(latestByDevice).forEach(loc => {
-                updateDeviceMarker(loc);
+            // Show legend if 2-5 devices (after colors are assigned below)
+            const deviceNames = Object.keys(locationsByDevice);
+
+            // Create trails and numbered waypoints for each device
+            Object.entries(locationsByDevice).forEach(([deviceName, deviceLocations]) => {
+                if (deviceLocations.length === 0) return;
+
+                // Get locations in chronological order (oldest first)
+                const chronologicalLocations = deviceLocations
+                    .filter(loc => loc.latitude && loc.longitude)
+                    .reverse();
+
+                if (chronologicalLocations.length === 0) return;
+
+                // Collapse consecutive waypoints at same location
+                const collapsedLocations = collapseLocations(chronologicalLocations);
+
+                // Create path from collapsed location coordinates
+                const path: [number, number][] = collapsedLocations.map(loc => [
+                    parseFloat(String(loc.latitude)),
+                    parseFloat(String(loc.longitude)),
+                ]);
+
+                const trailElements: TrailElements = { polyline: null, markers: [] };
+                const deviceColor = getDeviceColor(deviceName);
+
+                if (path.length > 0) {
+                    // Add numbered waypoint markers (using collapsed locations)
+                    collapsedLocations.forEach((loc, index) => {
+                        const waypointNumber = index + 1;
+                        const latLng: [number, number] = [parseFloat(String(loc.latitude)), parseFloat(String(loc.longitude))];
+                        const collapsedCount = loc._collapsedCount || 1;
+
+                        // Create custom numbered icon with device-specific color
+                        const waypointIcon = L.divIcon({
+                            className: 'waypoint-marker',
+                            html: `<div style="
+                                background-color: ${deviceColor};
+                                color: white;
+                                border: 2px solid white;
+                                border-radius: 50%;
+                                width: 24px;
+                                height: 24px;
+                                display: flex;
+                                align-items: center;
+                                justify-content: center;
+                                font-size: 12px;
+                                font-weight: bold;
+                                box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+                            ">${waypointNumber}</div>`,
+                            iconSize: [24, 24],
+                            iconAnchor: [12, 12],
+                        });
+
+                        // Format timestamp for display
+                        const timestamp = loc.timestamp_unix
+                            ? new Date(loc.timestamp_unix * 1000).toLocaleString()
+                            : 'Unknown time';
+
+                        // Show count if multiple waypoints were collapsed at this location
+                        const countInfo = collapsedCount > 1 ? `<br><i>(${collapsedCount} waypoints)</i>` : '';
+
+                        const marker = L.marker(latLng, {
+                            icon: waypointIcon,
+                        }).addTo(map!);
+
+                        // Add tooltip with waypoint info (shown on hover)
+                        // Show device name since multiple devices are displayed
+                        marker.bindTooltip(`<b>${deviceName} #${waypointNumber}</b><br>${timestamp}${countInfo}`, {
+                            permanent: false,
+                            direction: 'top',
+                            offset: [0, -12],
+                            className: 'waypoint-tooltip',
+                        });
+
+                        // Create popup content
+                        const collapsedInfo = collapsedCount > 1 ? `<i>(${collapsedCount} waypoints at this location)</i><br>` : '';
+                        const popupContent = `
+                            <div class="waypoint-popup">
+                                <b>${deviceName} - Waypoint #${waypointNumber}</b><br>
+                                ${timestamp}<br>
+                                ${collapsedInfo}
+                                <span class="loading-address">📍 Click to load address...</span>
+                            </div>
+                        `;
+                        marker.bindPopup(popupContent);
+
+                        // Lazy load address on click
+                        marker.on('click', async function (this: L.Marker): Promise<void> {
+                            const popup = this.getPopup();
+                            if (!popup) return;
+                            const content = popup.getContent();
+                            if (typeof content !== 'string') return;
+
+                            // Only geocode if not already loaded
+                            if (content.includes('loading-address')) {
+                                try {
+                                    const address = await reverseGeocode(latLng[0], latLng[1]);
+                                    const newContent = `
+                                        <div class="waypoint-popup">
+                                            <b>${deviceName} - Waypoint #${waypointNumber}</b><br>
+                                            ${timestamp}<br>
+                                            📍 ${address}
+                                        </div>
+                                    `;
+                                    popup.setContent(newContent);
+                                } catch (e) {
+                                    console.error('Geocoding error:', e);
+                                }
+                            }
+                        });
+
+                        trailElements.markers.push(marker);
+                    });
+
+                    // Draw polyline for trail (only if multiple points) with device-specific color
+                    if (path.length > 1) {
+                        const polyline = L.polyline(path, {
+                            color: deviceColor,
+                            weight: 3,
+                            opacity: 0.7,
+                        }).addTo(map!);
+
+                        trailElements.polyline = polyline;
+                    }
+
+                    deviceTrails[deviceName] = trailElements;
+                }
+
+                // Update main marker to most recent location for this device
+                updateDeviceMarker(deviceLocations[0]);
             });
+
+            // Show legend for 2-5 devices (colors have now been assigned)
+            showDeviceLegend(deviceNames);
 
             // Fit bounds to show all devices
-            if (needsFitBounds && Object.keys(latestByDevice).length > 0) {
-                const bounds = L.latLngBounds(
-                    Object.values(latestByDevice).map(loc => [
+            if (needsFitBounds && locations.length > 0) {
+                const allPoints: [number, number][] = locations
+                    .filter(loc => loc.latitude && loc.longitude)
+                    .map(loc => [
                         parseFloat(String(loc.latitude)),
                         parseFloat(String(loc.longitude)),
-                    ]),
-                );
-                if (Object.keys(latestByDevice).length === 1) {
-                    map!.setView(bounds.getCenter(), 17);
-                } else {
-                    map!.fitBounds(bounds, { padding: [50, 50], maxZoom: 17 });
+                    ]);
+
+                if (allPoints.length > 0) {
+                    const bounds = L.latLngBounds(allPoints);
+                    if (allPoints.length === 1) {
+                        map!.setView(allPoints[0], 17);
+                    } else {
+                        map!.fitBounds(bounds, { padding: [50, 50], maxZoom: 17 });
+                    }
+                    needsFitBounds = false;
                 }
-                needsFitBounds = false;
             }
         } catch (error) {
             console.error('Error fetching all devices:', error);
@@ -933,6 +1114,9 @@ async function fetchAndDisplayTrail(): Promise<void> {
 
         const data: LocationsApiResponse = await response.json();
         const locations = data.results || [];
+
+        // Hide legend when viewing single device
+        hideDeviceLegend();
 
         // Update activity section with waypoints
         displayHistoricWaypoints(locations);
@@ -1116,8 +1300,9 @@ function clearActivitySection(message: string): void {
  * Display historic waypoints in activity section.
  * Shows collapsed waypoints (same location = single entry) with counts.
  * @param locations - Locations to display
+ * @param showDeviceNames - Whether to show device names (for "All Devices" view)
  */
-function displayHistoricWaypoints(locations: TrackLocation[]): void {
+function displayHistoricWaypoints(locations: TrackLocation[], showDeviceNames = false): void {
     const container = document.getElementById('log-container');
     if (!container) return;
 
@@ -1132,49 +1317,127 @@ function displayHistoricWaypoints(locations: TrackLocation[]): void {
         return;
     }
 
-    // Collapse consecutive waypoints at same location
-    // API returns newest first, so we reverse to get chronological order for collapsing
-    const chronological = [...locations].reverse();
-    const collapsedLocations = collapseLocations(chronological);
-    // Reverse back to show newest first in the list
-    const displayLocations = [...collapsedLocations].reverse();
+    if (showDeviceNames) {
+        // For "All Devices" view: group by device, collapse per device, show with device names
+        const locationsByDevice: Record<string, TrackLocation[]> = {};
+        locations.forEach(loc => {
+            const device = loc.device_name || 'Unknown';
+            if (!locationsByDevice[device]) {
+                locationsByDevice[device] = [];
+            }
+            locationsByDevice[device].push(loc);
+        });
 
-    // Display collapsed waypoints (newest first at top)
-    displayLocations.forEach((loc, index) => {
-        const waypointNumber = collapsedLocations.length - index; // Oldest = #1, newest = #N
-        const entry = document.createElement('div');
-        entry.className = 'log-entry';
+        // Build display entries with device info and per-device waypoint numbers
+        interface DisplayEntry {
+            loc: TrackLocation;
+            deviceName: string;
+            waypointNumber: number;
+            deviceColor: string;
+        }
 
-        const time = formatTime(loc.timestamp_unix || 0, true); // Always show date in historic view
-        const lat = parseFloat(String(loc.latitude)).toFixed(6);
-        const lon = parseFloat(String(loc.longitude)).toFixed(6);
-        const acc = loc.accuracy || 'N/A';
-        const alt = loc.altitude || 0;
-        const vel = loc.velocity || 0;
-        const batt = loc.battery_level || 'N/A';
-        const collapsedCount = loc._collapsedCount || 1;
+        const displayEntries: DisplayEntry[] = [];
 
-        // Show count badge at end of line if multiple waypoints were collapsed
-        const countBadge =
-            collapsedCount > 1
-                ? `<span style="background:#6c757d;color:white;padding:1px 5px;border-radius:10px;font-size:10px;margin-left:8px;">×${collapsedCount}</span>`
-                : '';
+        Object.entries(locationsByDevice).forEach(([deviceName, deviceLocations]) => {
+            // Collapse per device (API returns newest first, reverse for chronological)
+            const chronological = [...deviceLocations].reverse();
+            const collapsedLocations = collapseLocations(chronological);
 
-        entry.innerHTML = `<span class="log-time"><b>#${waypointNumber}</b> ${time}</span> | <span class="log-coords">${lat}, ${lon}</span> | <span class="log-meta">acc:${acc}m alt:${alt}m vel:${vel}km/h batt:${batt}%</span>${countBadge}`;
+            // Create entries with waypoint numbers (oldest = #1)
+            collapsedLocations.forEach((loc, index) => {
+                displayEntries.push({
+                    loc,
+                    deviceName,
+                    waypointNumber: index + 1,
+                    deviceColor: getDeviceColor(deviceName),
+                });
+            });
+        });
 
-        container.appendChild(entry);
-    });
+        // Sort all entries by timestamp (newest first for display)
+        displayEntries.sort((a, b) => (b.loc.timestamp_unix || 0) - (a.loc.timestamp_unix || 0));
 
-    // Show both collapsed count and original count
-    const collapsedCount = collapsedLocations.length;
-    const originalCount = locations.length;
-    const countText =
-        collapsedCount < originalCount
-            ? `${collapsedCount} location${collapsedCount !== 1 ? 's' : ''} (${originalCount} waypoints)`
-            : `${originalCount} waypoint${originalCount !== 1 ? 's' : ''}`;
-    const logCount = document.getElementById('log-count');
-    if (logCount) {
-        logCount.textContent = countText;
+        // Display entries
+        displayEntries.forEach(({ loc, deviceName, waypointNumber, deviceColor }) => {
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+
+            const time = formatTime(loc.timestamp_unix || 0, true);
+            const lat = parseFloat(String(loc.latitude)).toFixed(6);
+            const lon = parseFloat(String(loc.longitude)).toFixed(6);
+            const acc = loc.accuracy || 'N/A';
+            const alt = loc.altitude || 0;
+            const vel = loc.velocity || 0;
+            const batt = loc.battery_level || 'N/A';
+            const collapsedCount = loc._collapsedCount || 1;
+
+            const countBadge =
+                collapsedCount > 1
+                    ? `<span style="background:#6c757d;color:white;padding:1px 5px;border-radius:10px;font-size:10px;margin-left:8px;">×${collapsedCount}</span>`
+                    : '';
+
+            // Show device name with color indicator (at end of line)
+            const deviceBadge = `<span style="background:${deviceColor};color:white;padding:1px 6px;border-radius:10px;font-size:11px;margin-left:8px;">${deviceName}</span>`;
+
+            entry.innerHTML = `<span class="log-time"><b>#${waypointNumber}</b> ${time}</span> | <span class="log-coords">${lat}, ${lon}</span> | <span class="log-meta">acc:${acc}m alt:${alt}m vel:${vel}km/h batt:${batt}%</span>${countBadge}${deviceBadge}`;
+
+            container.appendChild(entry);
+        });
+
+        // Show count summary
+        const totalCollapsed = displayEntries.length;
+        const deviceCount = Object.keys(locationsByDevice).length;
+        const countText = `${totalCollapsed} location${totalCollapsed !== 1 ? 's' : ''} across ${deviceCount} device${deviceCount !== 1 ? 's' : ''} (${locations.length} waypoints)`;
+        const logCount = document.getElementById('log-count');
+        if (logCount) {
+            logCount.textContent = countText;
+        }
+    } else {
+        // Single device view: original behavior
+        // Collapse consecutive waypoints at same location
+        // API returns newest first, so we reverse to get chronological order for collapsing
+        const chronological = [...locations].reverse();
+        const collapsedLocations = collapseLocations(chronological);
+        // Reverse back to show newest first in the list
+        const displayLocations = [...collapsedLocations].reverse();
+
+        // Display collapsed waypoints (newest first at top)
+        displayLocations.forEach((loc, index) => {
+            const waypointNumber = collapsedLocations.length - index; // Oldest = #1, newest = #N
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+
+            const time = formatTime(loc.timestamp_unix || 0, true); // Always show date in historic view
+            const lat = parseFloat(String(loc.latitude)).toFixed(6);
+            const lon = parseFloat(String(loc.longitude)).toFixed(6);
+            const acc = loc.accuracy || 'N/A';
+            const alt = loc.altitude || 0;
+            const vel = loc.velocity || 0;
+            const batt = loc.battery_level || 'N/A';
+            const collapsedCount = loc._collapsedCount || 1;
+
+            // Show count badge at end of line if multiple waypoints were collapsed
+            const countBadge =
+                collapsedCount > 1
+                    ? `<span style="background:#6c757d;color:white;padding:1px 5px;border-radius:10px;font-size:10px;margin-left:8px;">×${collapsedCount}</span>`
+                    : '';
+
+            entry.innerHTML = `<span class="log-time"><b>#${waypointNumber}</b> ${time}</span> | <span class="log-coords">${lat}, ${lon}</span> | <span class="log-meta">acc:${acc}m alt:${alt}m vel:${vel}km/h batt:${batt}%</span>${countBadge}`;
+
+            container.appendChild(entry);
+        });
+
+        // Show both collapsed count and original count
+        const collapsedCount = collapsedLocations.length;
+        const originalCount = locations.length;
+        const countText =
+            collapsedCount < originalCount
+                ? `${collapsedCount} location${collapsedCount !== 1 ? 's' : ''} (${originalCount} waypoints)`
+                : `${originalCount} waypoint${originalCount !== 1 ? 's' : ''}`;
+        const logCount = document.getElementById('log-count');
+        if (logCount) {
+            logCount.textContent = countText;
+        }
     }
 }
 
@@ -1423,6 +1686,9 @@ function switchToLiveMode(): void {
     // Update button states
     document.getElementById('live-mode-btn')?.classList.add('active');
     document.getElementById('historic-mode-btn')?.classList.remove('active');
+
+    // Hide device legend in live mode
+    hideDeviceLegend();
 
     // Update title with today's date
     const todayText = formatDateForTitle(new Date());
