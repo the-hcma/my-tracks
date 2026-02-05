@@ -111,6 +111,7 @@ let trailResolution = 0; // 0 = precise (all points), 360 = coarse (~10/hour)
 let isLiveMode = true; // Track current mode
 let needsFitBounds = true; // Only fit bounds on initial trail load
 let isRestoringState = false; // Flag to prevent saving during restore
+let skipHistoryFetch = false; // Flag to skip history fetch after reset (only show new incoming data)
 
 // Device color palette - ordered for MAXIMUM visual difference between adjacent colors
 // First colors should be most distinct from each other (used when few devices)
@@ -780,6 +781,123 @@ function collapseLocations(locations: TrackLocation[]): TrackLocation[] {
     }
 
     return collapsed;
+}
+
+// Track locations for incremental trail building (used after reset)
+let incrementalLocations: Record<string, TrackLocation[]> = {};
+
+/**
+ * Add a single location incrementally to the map trail.
+ * Used after reset when skipHistoryFetch is true.
+ * @param location - The new location to add
+ */
+function addLocationToTrail(location: TrackLocation): void {
+    const deviceName = location.device_name || 'Unknown';
+    const deviceColor = getDeviceColor(deviceName);
+
+    // Check if we should display this location based on device filter
+    if (selectedDevice && deviceName !== selectedDevice) {
+        return;
+    }
+
+    // Add to incremental locations for this device
+    if (!incrementalLocations[deviceName]) {
+        incrementalLocations[deviceName] = [];
+    }
+    incrementalLocations[deviceName].push(location);
+
+    // Clear existing trail for this device
+    if (deviceTrails[deviceName]) {
+        if (deviceTrails[deviceName].polyline) {
+            deviceTrails[deviceName].polyline!.remove();
+        }
+        if (deviceTrails[deviceName].markers) {
+            deviceTrails[deviceName].markers.forEach((m) => m.remove());
+        }
+    }
+
+    // Rebuild trail from all incremental locations for this device
+    const locations = incrementalLocations[deviceName];
+    const collapsedLocations = collapseLocations(locations);
+
+    // Create path from collapsed location coordinates
+    const path: [number, number][] = collapsedLocations
+        .filter(loc => loc.latitude && loc.longitude)
+        .map(loc => [parseFloat(String(loc.latitude)), parseFloat(String(loc.longitude))]);
+
+    const trailElements: TrailElements = { polyline: null, markers: [] };
+
+    if (path.length > 1) {
+        const polyline = L.polyline(path, {
+            color: deviceColor,
+            weight: 3,
+            opacity: 0.7,
+        }).addTo(map!);
+        trailElements.polyline = polyline;
+    }
+
+    // Add numbered waypoint markers (using collapsed locations)
+    collapsedLocations.forEach((loc, index) => {
+        const waypointNumber = index + 1;
+        const latLng: [number, number] = [parseFloat(String(loc.latitude)), parseFloat(String(loc.longitude))];
+        const collapsedCount = loc._collapsedCount || 1;
+
+        // Create custom numbered icon with device-specific color
+        const waypointIcon = L.divIcon({
+            className: 'waypoint-marker',
+            html: `<div style="
+                background-color: ${deviceColor};
+                color: white;
+                border: 2px solid white;
+                border-radius: 50%;
+                width: 24px;
+                height: 24px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 12px;
+                font-weight: bold;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            ">${waypointNumber}</div>`,
+            iconSize: [24, 24],
+            iconAnchor: [12, 12],
+        });
+
+        // Format timestamp for display
+        const timestamp = loc.timestamp_unix
+            ? new Date(loc.timestamp_unix * 1000).toLocaleString()
+            : 'Unknown time';
+
+        // Show count if multiple waypoints were collapsed at this location
+        const countInfo = collapsedCount > 1 ? `<br><i>(${collapsedCount} waypoints)</i>` : '';
+
+        const marker = L.marker(latLng, {
+            icon: waypointIcon,
+        }).addTo(map!);
+
+        // Add tooltip with waypoint info (shown on hover)
+        const deviceInfo = selectedDevice ? '' : ` ${deviceName}`;
+        marker.bindTooltip(`<b>#${waypointNumber}</b>${deviceInfo}<br>${timestamp}${countInfo}`, {
+            permanent: false,
+            direction: 'top',
+            offset: [0, -12],
+            className: 'waypoint-tooltip',
+        });
+
+        trailElements.markers.push(marker);
+    });
+
+    deviceTrails[deviceName] = trailElements;
+
+    // Update device marker
+    updateDeviceMarker(location);
+
+    // Fit bounds to show trail if this is initial load after reset
+    if (needsFitBounds && path.length > 0) {
+        const latLng = L.latLng(path[path.length - 1][0], path[path.length - 1][1]);
+        map!.setView(latLng, 17);
+        needsFitBounds = false;
+    }
 }
 
 // ============================================================================
@@ -1509,9 +1627,17 @@ function addLogEntry(location: TrackLocation, skipScroll = false): void {
 }
 
 /**
- * Reset events in the activity section.
+ * Reset events in the activity section and clear the map.
+ * Clears all markers, trails, and activity log to start fresh from this point forward.
  */
 function resetEvents(): void {
+    // Clear any pending debounce timer to prevent history fetch
+    if (liveUpdateDebounceTimer) {
+        clearTimeout(liveUpdateDebounceTimer);
+        liveUpdateDebounceTimer = null;
+    }
+
+    // Clear the activity log
     const container = document.getElementById('log-container');
     if (container) {
         container.innerHTML = '<p id="loading">Waiting for location updates...</p>';
@@ -1521,6 +1647,29 @@ function resetEvents(): void {
     if (logCount) {
         logCount.textContent = '0 events';
     }
+
+    // Clear device markers from the map
+    Object.values(deviceMarkers).forEach((marker) => marker.remove());
+    deviceMarkers = {};
+
+    // Clear trails from the map
+    Object.values(deviceTrails).forEach((trail) => {
+        if (trail.polyline) trail.polyline.remove();
+        if (trail.markers) trail.markers.forEach((m) => m.remove());
+    });
+    deviceTrails = {};
+
+    // Clear incremental locations used for building trails after reset
+    incrementalLocations = {};
+
+    // Reset timestamp so new updates start fresh (don't fetch history)
+    lastTimestamp = Date.now() / 1000;
+
+    // Skip history fetch - only show new incoming data after reset
+    skipHistoryFetch = true;
+
+    // Reset fit bounds flag so next location will center the map
+    needsFitBounds = true;
 }
 
 // ============================================================================
@@ -1531,6 +1680,13 @@ function resetEvents(): void {
  * Load last hour of live activity data.
  */
 async function loadLiveActivityHistory(): Promise<void> {
+    // If skipHistoryFetch is set (after reset), don't fetch history
+    // Just return and let WebSocket events add new locations incrementally
+    if (skipHistoryFetch) {
+        console.log('📍 loadLiveActivityHistory() skipped - skipHistoryFetch is true');
+        return;
+    }
+
     const now = Date.now() / 1000;
     const oneHourAgo = now - 3600; // 1 hour in seconds
 
@@ -1639,6 +1795,12 @@ async function loadLiveActivityHistory(): Promise<void> {
  * Refresh live activity with updates since last known timestamp (for reconnect).
  */
 async function refreshLiveActivitySinceLastUpdate(): Promise<void> {
+    // If skipHistoryFetch is true (after reset), don't fetch any history
+    if (skipHistoryFetch) {
+        console.log('📍 refreshLiveActivitySinceLastUpdate() skipped - skipHistoryFetch is true');
+        return;
+    }
+
     if (!lastTimestamp) {
         // No previous data, do a full load
         loadLiveActivityHistory();
@@ -1906,6 +2068,15 @@ function connectWebSocket(): void {
                     // Check if we should display this location based on device filter
                     if (selectedDevice && deviceName !== selectedDevice) {
                         console.log(`Ignoring location from ${deviceName} (filter: ${selectedDevice})`);
+                        return;
+                    }
+
+                    // If skipHistoryFetch is true (after reset), add locations incrementally
+                    // instead of fetching history
+                    if (skipHistoryFetch) {
+                        console.log('📍 Adding location incrementally (skipHistoryFetch mode)');
+                        addLogEntry(location);
+                        addLocationToTrail(location);
                         return;
                     }
 
