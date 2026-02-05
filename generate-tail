@@ -1,0 +1,282 @@
+#!/usr/bin/env -S uv run python
+"""
+Tail device generator for OwnTracks backend server.
+
+Fetches the last hour of data from a source device and creates a "tail" device
+that follows with similar movements but shifted 2-5 km in a specified direction.
+
+Usage:
+    ./generate-tail [OPTIONS] [DEVICE]
+
+Examples:
+    ./generate-tail                              # Uses defaults (hcma -> hcma-tail, east)
+    ./generate-tail mydevice                     # Mirror 'mydevice' to 'mydevice-tail'
+    ./generate-tail --direction west             # Shift west instead of east
+    ./generate-tail --direction north -o 5       # 5 km north
+    ./generate-tail --offset-km 3.5 --dry-run    # Preview with 3.5 km offset
+"""
+
+import json
+import math
+import random
+import time
+import urllib.error
+import urllib.request
+from datetime import datetime, timezone
+from enum import Enum
+from typing import Annotated, Any, Optional
+
+import typer
+
+app = typer.Typer(
+    help="Generate a tail device that mirrors another device's movements",
+    add_completion=False,
+)
+
+
+def get_locations_from_api(server_url: str, device: str, hours: float = 1.0) -> list[dict[str, Any]]:
+    """Fetch recent locations for a device from the API."""
+    now = int(time.time())
+    start_time = now - int(hours * 3600)
+
+    url = f"{server_url}/api/locations/?device={device}&start_time={start_time}&ordering=timestamp&limit=500"
+    typer.echo(f"📡 Fetching locations from: {url}")
+
+    try:
+        req = urllib.request.Request(url, headers={"Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=10) as response:
+            data = json.loads(response.read().decode("utf-8"))
+            locations = data.get("results", [])
+            typer.echo(f"📍 Found {len(locations)} location(s) from device '{device}'")
+            return locations
+    except urllib.error.URLError as e:
+        typer.echo(f"❌ Failed to fetch locations: {e}", err=True)
+        return []
+
+
+class Direction(str, Enum):
+    """Cardinal directions for position offset."""
+
+    north = "north"
+    south = "south"
+    east = "east"
+    west = "west"
+
+
+def shift_position(
+    lat: float, lon: float, km: float, direction: Direction
+) -> tuple[float, float]:
+    """
+    Shift position by a given number of kilometers in the specified direction.
+
+    The distance per degree of longitude varies with latitude:
+    1 degree longitude ≈ 111.32 km * cos(latitude)
+    1 degree latitude ≈ 111.32 km (constant)
+
+    Returns:
+        Tuple of (new_lat, new_lon)
+    """
+    km_per_degree_lat = 111.32
+    lat_rad = math.radians(lat)
+    km_per_degree_lon = 111.32 * math.cos(lat_rad)
+
+    if direction == Direction.north:
+        return (lat + km / km_per_degree_lat, lon)
+    elif direction == Direction.south:
+        return (lat - km / km_per_degree_lat, lon)
+    elif direction == Direction.east:
+        return (lat, lon + km / km_per_degree_lon)
+    else:  # west
+        return (lat, lon - km / km_per_degree_lon)
+
+
+def create_tail_location(
+    original: dict[str, Any],
+    tail_device: str,
+    offset_km: float,
+    direction: Direction,
+    randomize: bool = True,
+) -> dict[str, Any]:
+    """
+    Create a tail location from an original location.
+
+    Args:
+        original: Original location data from API
+        tail_device: Device ID for the tail device
+        offset_km: Base offset in kilometers
+        direction: Cardinal direction to shift (north, south, east, west)
+        randomize: Add small random variation to offset
+
+    Returns:
+        OwnTracks-formatted location payload
+    """
+    lat = float(original.get("latitude", 0))
+    lon = float(original.get("longitude", 0))
+
+    # Add small random variation if enabled (±10% of offset)
+    actual_offset = offset_km
+    if randomize:
+        actual_offset = offset_km * random.uniform(0.9, 1.1)
+
+    new_lat, new_lon = shift_position(lat, lon, actual_offset, direction)
+
+    # Use original timestamp or current time
+    timestamp = original.get("timestamp_unix") or int(time.time())
+
+    return {
+        "_type": "location",
+        "lat": round(new_lat, 7),
+        "lon": round(new_lon, 7),
+        "tst": timestamp,
+        "tid": tail_device[-2:] if len(tail_device) >= 2 else tail_device,
+        "acc": original.get("accuracy", 10),
+        "alt": original.get("altitude", 0),
+        "vel": original.get("velocity", 0),
+        "batt": original.get("battery_level", 50),
+        "conn": original.get("connection_type", "w"),
+        "topic": f"owntracks/user/{tail_device}",
+    }
+
+
+def send_location(server_url: str, location: dict[str, Any]) -> bool:
+    """Send a location to the server via OwnTracks API."""
+    url = f"{server_url}/api/locations/"
+
+    try:
+        data = json.dumps(location).encode("utf-8")
+        req = urllib.request.Request(
+            url, data=data, headers={"Content-Type": "application/json"}
+        )
+
+        with urllib.request.urlopen(req, timeout=5) as response:
+            return response.status in (200, 201)
+    except urllib.error.URLError as e:
+        typer.echo(f"❌ Failed to send location: {e}", err=True)
+        return False
+
+
+def format_time_full(timestamp: int) -> str:
+    """Format Unix timestamp showing both UTC and local time."""
+    utc_dt = datetime.fromtimestamp(timestamp, timezone.utc)
+    local_dt = datetime.fromtimestamp(timestamp)
+    local_tz = local_dt.astimezone().tzinfo
+    return (
+        f"UTC: {utc_dt.strftime('%Y-%m-%d %H:%M:%S')} | "
+        f"Local ({local_tz}): {local_dt.strftime('%Y-%m-%d %H:%M:%S')}"
+    )
+
+
+@app.command()
+def main(
+    device: Annotated[
+        Optional[str],
+        typer.Argument(help="Source device to mirror (default: hcma)"),
+    ] = None,
+    source: Annotated[
+        str,
+        typer.Option("--source", "-s", help="Source device to mirror"),
+    ] = "hcma",
+    tail: Annotated[
+        Optional[str],
+        typer.Option("--tail", "-t", help="Tail device ID (default: <source>-tail)"),
+    ] = None,
+    offset_km: Annotated[
+        float,
+        typer.Option("--offset-km", "-o", help="Offset in km (2-5 recommended)"),
+    ] = 3.5,
+    direction: Annotated[
+        Direction,
+        typer.Option("--direction", "-D", help="Direction to shift: north, south, east, west"),
+    ] = Direction.east,
+    server: Annotated[
+        str,
+        typer.Option("--server", help="Server URL"),
+    ] = "http://localhost:8080",
+    hours: Annotated[
+        float,
+        typer.Option("--hours", "-H", help="Hours of history to fetch"),
+    ] = 1.0,
+    delay: Annotated[
+        float,
+        typer.Option("--delay", "-d", help="Delay between sends in seconds"),
+    ] = 0.1,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Show what would be sent without actually sending"),
+    ] = False,
+) -> None:
+    """
+    Generate a tail device that mirrors another device's movements.
+
+    The tail device follows the same path but shifted 2-5 km in the specified
+    direction (default: east), useful for testing multi-device scenarios.
+    """
+    # Handle positional device argument (overrides --source if provided)
+    if device:
+        source = device
+
+    # Default tail name is source-tail
+    if tail is None:
+        tail = f"{source}-tail"
+
+    typer.echo("🚀 Tail Device Generator")
+    typer.echo(f"   Source device: {source}")
+    typer.echo(f"   Tail device:   {tail}")
+    typer.echo(f"   Offset:        {offset_km} km {direction.value}")
+    typer.echo(f"   Server:        {server}")
+    typer.echo(f"   History:       {hours} hour(s)")
+    typer.echo()
+
+    # Fetch source locations
+    locations = get_locations_from_api(server, source, hours)
+
+    if not locations:
+        typer.echo(f"❌ No locations found for source device '{source}'", err=True)
+        raise typer.Exit(code=1)
+
+    typer.echo()
+    mode_prefix = "[DRY RUN] Would send" if dry_run else "Sending"
+    typer.echo(f"📤 {mode_prefix} {len(locations)} tail locations...")
+    typer.echo()
+
+    sent = 0
+    failed = 0
+
+    for i, loc in enumerate(locations, 1):
+        tail_loc = create_tail_location(loc, tail, offset_km, direction)
+        orig_lat = float(loc.get("latitude", 0))
+        orig_lon = float(loc.get("longitude", 0))
+
+        # Common output for both modes
+        typer.echo(f"  [{i}/{len(locations)}] tst={tail_loc['tst']}")
+        typer.echo(f"      Timestamp:    {format_time_full(tail_loc['tst'])}")
+        typer.echo(f"      Original ({source}): ({orig_lat:.6f}, {orig_lon:.6f})")
+        typer.echo(f"      Shifted ({tail}):  ({tail_loc['lat']:.6f}, {tail_loc['lon']:.6f})")
+
+        if dry_run:
+            typer.echo(f"      Payload: {json.dumps(tail_loc)}")
+            typer.echo("      Status:  [DRY RUN - not sent]")
+        else:
+            if send_location(server, tail_loc):
+                sent += 1
+                typer.echo("      Status:  ✓ Sent successfully")
+            else:
+                failed += 1
+                typer.echo("      Status:  ✗ Failed to send")
+
+            if delay > 0 and i < len(locations):
+                time.sleep(delay)
+        typer.echo()
+
+    typer.echo()
+    if dry_run:
+        typer.echo(f"✅ Dry run complete. Would have sent {len(locations)} locations.")
+    else:
+        typer.echo(f"✅ Complete. Sent: {sent}, Failed: {failed}")
+
+    if failed > 0:
+        raise typer.Exit(code=1)
+
+
+if __name__ == "__main__":
+    app()

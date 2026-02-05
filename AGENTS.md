@@ -206,6 +206,33 @@ This document defines the four specialized agents for the OwnTracks Django backe
 - Run tests before committing: `./test-script-name`
 - Rationale: Catches common shell scripting errors, ensures reliability, consistent tooling across environments
 
+**Python CLI Tools**:
+- **MUST use Typer** for command-line argument parsing instead of argparse
+- Use `Annotated` types with `typer.Option()` and `typer.Argument()` for clean, type-safe CLIs
+- Shebang: `#!/usr/bin/env -S uv run python` to use the project's virtual environment
+- Use `typer.echo()` for output instead of `print()` for consistent behavior
+- Use `raise typer.Exit(code=1)` for error exits instead of `sys.exit()`
+- Example structure:
+  ```python
+  from typing import Annotated, Optional
+  import typer
+
+  app = typer.Typer(help="Tool description", add_completion=False)
+
+  @app.command()
+  def main(
+      name: Annotated[str, typer.Argument(help="Description")],
+      verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Verbose output")] = False,
+  ) -> None:
+      """Command docstring becomes the help text."""
+      typer.echo(f"Hello {name}")
+
+  if __name__ == "__main__":
+      app()
+  ```
+- Benefits: Auto-generated help with colors, type validation, shell completion, cleaner code
+- Rationale: Modern Python CLI standard, leverages type hints, better developer experience
+
 **Error Message Guidelines**:
 - Error messages must provide context, not just indicate failure
 - Include both what was received and what was expected
