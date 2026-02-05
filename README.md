@@ -270,7 +270,7 @@ Contributions are welcome! This project uses [Graphite](https://graphite.dev) fo
 gt create --all --message "feat: your feature"
 
 # Submit PR
-GRAPHITE_PROFILE=thehcma gt submit --no-interactive
+GRAPHITE_PROFILE=thehcma gt submit --no-interactive --publish
 ```
 
 See [COMMANDS.md](COMMANDS.md#version-control-graphite) for the complete Graphite workflow.

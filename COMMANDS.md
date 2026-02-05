@@ -378,7 +378,7 @@ gt create --all --message "feat: add new feature"
 gt modify --all --message "feat: updated implementation"
 
 # Submit PR(s) to GitHub
-GRAPHITE_PROFILE=thehcma gt submit --no-interactive
+GRAPHITE_PROFILE=thehcma gt submit --no-interactive --publish
 
 # View current stack
 gt log short
@@ -449,7 +449,7 @@ EOF
 
 # Initial commit
 gt create --all --message "chore: initial commit"
-GRAPHITE_PROFILE=thehcma gt submit --no-interactive
+GRAPHITE_PROFILE=thehcma gt submit --no-interactive --publish
 ```
 
 ## Production Commands
