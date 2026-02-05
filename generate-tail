@@ -1,4 +1,4 @@
-#!/usr/bin/env -S uv run python
+#!/usr/bin/env python3
 """
 Tail device generator for OwnTracks backend server.
 
@@ -16,6 +16,22 @@ Examples:
     ./generate-tail --offset-km 3.5 --dry-run    # Preview with 3.5 km offset
 """
 
+# === Auto-activate virtual environment ===
+import os
+import sys
+from pathlib import Path
+
+
+def _activate_venv() -> None:
+    """Find and activate the project's virtual environment."""
+    script_dir = Path(__file__).resolve().parent
+    venv_python = script_dir / ".venv" / "bin" / "python"
+    if venv_python.exists() and sys.executable != str(venv_python):
+        os.execv(str(venv_python), [str(venv_python)] + sys.argv)
+
+_activate_venv()
+# === End auto-activate ===
+
 import json
 import math
 import random
@@ -32,6 +48,34 @@ app = typer.Typer(
     help="Generate a tail device that mirrors another device's movements",
     add_completion=False,
 )
+
+
+def get_available_devices(server_url: str) -> list[str]:
+    """Fetch list of available devices from the API."""
+    url = f"{server_url}/api/locations/?limit=1000"
+
+    try:
+        req = urllib.request.Request(url, headers={"Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=10) as response:
+            data = json.loads(response.read().decode("utf-8"))
+            locations = data.get("results", [])
+            # Extract unique device names
+            devices = sorted(set(loc.get("device", "") for loc in locations if loc.get("device")))
+            return devices
+    except urllib.error.URLError:
+        return []
+
+
+def check_server_connectivity(server_url: str) -> bool:
+    """Check if the server is reachable."""
+    url = f"{server_url}/api/locations/?limit=1"
+
+    try:
+        req = urllib.request.Request(url, headers={"Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=5) as response:
+            return response.status == 200
+    except urllib.error.URLError:
+        return False
 
 
 def get_locations_from_api(server_url: str, device: str, hours: float = 1.0) -> list[dict[str, Any]]:
@@ -227,11 +271,31 @@ def main(
     typer.echo(f"   History:       {hours} hour(s)")
     typer.echo()
 
+    # Check server connectivity first
+    if not check_server_connectivity(server):
+        typer.echo(f"❌ Cannot connect to server at {server}", err=True)
+        typer.echo("   Make sure the server is running: ./my-tracks-server", err=True)
+        raise typer.Exit(code=1)
+
     # Fetch source locations
     locations = get_locations_from_api(server, source, hours)
 
     if not locations:
         typer.echo(f"❌ No locations found for source device '{source}'", err=True)
+        typer.echo()
+
+        # Try to help the user by listing available devices
+        available = get_available_devices(server)
+        if available:
+            typer.echo("💡 Available devices:", err=True)
+            for dev in available[:10]:  # Show up to 10
+                typer.echo(f"   • {dev}", err=True)
+            if len(available) > 10:
+                typer.echo(f"   ... and {len(available) - 10} more", err=True)
+        else:
+            typer.echo("💡 No devices found in database. Is the server running?", err=True)
+            typer.echo(f"   Server URL: {server}", err=True)
+
         raise typer.Exit(code=1)
 
     typer.echo()

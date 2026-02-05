@@ -1,0 +1,277 @@
+#!/usr/bin/env python3
+"""
+Verification script for OwnTracks Django Backend setup.
+
+This script verifies that the installation is complete and correct,
+checking all necessary files, dependencies, and configurations.
+"""
+
+# === Auto-activate virtual environment ===
+import os
+import sys
+from pathlib import Path
+
+
+def _activate_venv() -> None:
+    """Find and activate the project's virtual environment."""
+    script_dir = Path(__file__).resolve().parent
+    venv_python = script_dir / ".venv" / "bin" / "python"
+    if venv_python.exists() and sys.executable != str(venv_python):
+        os.execv(str(venv_python), [str(venv_python)] + sys.argv)
+
+_activate_venv()
+# === End auto-activate ===
+
+import sys
+from pathlib import Path
+from typing import Annotated
+
+import typer
+
+app = typer.Typer(
+    help="Verify OwnTracks Django Backend setup",
+    add_completion=False,
+)
+
+
+class SetupVerifier:
+    """Verify Django project setup."""
+
+    def __init__(self, verbose: bool = False) -> None:
+        """Initialize verifier."""
+        self.verbose = verbose
+        self.errors: list[str] = []
+        self.warnings: list[str] = []
+        self.success: list[str] = []
+
+    def check_file_exists(self, filepath: str, required: bool = True) -> bool:
+        """Check if a file exists."""
+        path = Path(filepath)
+        if path.exists():
+            self.success.append(f"✓ Found {filepath}")
+            return True
+        else:
+            if required:
+                self.errors.append(f"✗ Missing required file: {filepath}")
+            else:
+                self.warnings.append(f"⚠ Missing optional file: {filepath}")
+            return False
+
+    def check_directory_exists(self, dirpath: str) -> bool:
+        """Check if a directory exists."""
+        path = Path(dirpath)
+        if path.exists() and path.is_dir():
+            self.success.append(f"✓ Found directory {dirpath}")
+            return True
+        else:
+            self.errors.append(f"✗ Missing directory: {dirpath}")
+            return False
+
+    def verify_project_structure(self) -> None:
+        """Verify project directory structure."""
+        typer.echo("Checking project structure...")
+
+        # Root files
+        self.check_file_exists("manage.py")
+        self.check_file_exists("pyproject.toml")
+        self.check_file_exists("README.md")
+        self.check_file_exists(".env.example", required=False)
+        self.check_file_exists(".gitignore")
+
+        # Documentation
+        self.check_file_exists("QUICKSTART.md")
+        self.check_file_exists("API.md")
+        self.check_file_exists("DEPLOYMENT.md", required=False)
+        self.check_file_exists("PROJECT_SUMMARY.md", required=False)
+
+        # Django config directory
+        self.check_directory_exists("config")
+        self.check_file_exists("config/__init__.py")
+        self.check_file_exists("config/settings.py")
+        self.check_file_exists("config/urls.py")
+        self.check_file_exists("config/wsgi.py")
+        self.check_file_exists("config/asgi.py")
+
+        # my_tracks app directory
+        self.check_directory_exists("my_tracks")
+        self.check_file_exists("my_tracks/__init__.py")
+        self.check_file_exists("my_tracks/models.py")
+        self.check_file_exists("my_tracks/serializers.py")
+        self.check_file_exists("my_tracks/views.py")
+        self.check_file_exists("my_tracks/urls.py")
+        self.check_file_exists("my_tracks/admin.py")
+        self.check_file_exists("my_tracks/apps.py")
+
+        # Migrations
+        self.check_directory_exists("my_tracks/migrations")
+        self.check_file_exists("my_tracks/migrations/__init__.py")
+
+        # Optional files
+        self.check_file_exists(".env", required=False)
+        self.check_file_exists("db.sqlite3", required=False)
+
+    def verify_python_version(self) -> None:
+        """Verify Python version is 3.12+."""
+        typer.echo("\nChecking Python version...")
+        version = sys.version_info
+
+        if version.major == 3 and version.minor >= 12:
+            self.success.append(f"✓ Python {version.major}.{version.minor}.{version.micro}")
+        else:
+            self.errors.append(
+                f"✗ Python 3.12+ required, found {version.major}.{version.minor}.{version.micro}"
+            )
+
+    def verify_dependencies(self) -> None:
+        """Verify key dependencies can be imported."""
+        typer.echo("\nChecking dependencies...")
+
+        dependencies = [
+            ("django", "Django"),
+            ("rest_framework", "Django REST Framework"),
+            ("decouple", "python-decouple"),
+            ("channels", "Django Channels"),
+            ("typer", "Typer"),
+        ]
+
+        for module_name, display_name in dependencies:
+            try:
+                __import__(module_name)
+                self.success.append(f"✓ {display_name} installed")
+            except ImportError:
+                self.warnings.append(
+                    f"⚠ {display_name} not installed (run: uv pip install -e .)"
+                )
+
+    def verify_django_setup(self) -> None:
+        """Verify Django can be initialized."""
+        typer.echo("\nChecking Django setup...")
+
+        try:
+            import os
+
+            import django
+
+            # Try to setup Django
+            os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
+            django.setup()
+
+            self.success.append("✓ Django configured correctly")
+
+            # Check if migrations are needed
+            from io import StringIO
+
+            from django.core.management import call_command
+
+            out = StringIO()
+            call_command("showmigrations", "--plan", stdout=out, no_color=True)
+            output = out.getvalue()
+
+            if "[ ]" in output:
+                self.warnings.append("⚠ Pending migrations (run: python manage.py migrate)")
+            else:
+                self.success.append("✓ All migrations applied")
+
+        except Exception as e:
+            self.errors.append(f"✗ Django setup failed: {e}")
+
+    def print_report(self) -> bool:
+        """Print verification report and return success status."""
+        typer.echo("\n" + "=" * 60)
+        typer.echo("SETUP VERIFICATION REPORT")
+        typer.echo("=" * 60)
+
+        if self.success:
+            typer.echo(f"\n✅ SUCCESS ({len(self.success)} checks passed)")
+            if self.verbose:
+                for msg in self.success:
+                    typer.echo(f"  {msg}")
+            else:
+                for msg in self.success[:5]:  # Show first 5
+                    typer.echo(f"  {msg}")
+                if len(self.success) > 5:
+                    typer.echo(f"  ... and {len(self.success) - 5} more (use --verbose to see all)")
+
+        if self.warnings:
+            typer.echo(f"\n⚠️  WARNINGS ({len(self.warnings)})")
+            for msg in self.warnings:
+                typer.echo(f"  {msg}")
+
+        if self.errors:
+            typer.echo(f"\n❌ ERRORS ({len(self.errors)})")
+            for msg in self.errors:
+                typer.echo(f"  {msg}")
+
+        typer.echo("\n" + "=" * 60)
+
+        if self.errors:
+            typer.echo("\n❌ Setup verification FAILED")
+            typer.echo("Please fix the errors above and run again.")
+            return False
+        elif self.warnings:
+            typer.echo("\n⚠️  Setup verification completed with warnings")
+            typer.echo("The project should work, but check warnings above.")
+            return True
+        else:
+            typer.echo("\n✅ Setup verification PASSED")
+            typer.echo("Your OwnTracks Django Backend is ready to use!")
+            typer.echo("\nNext steps:")
+            typer.echo("1. Copy .env.example to .env and configure")
+            typer.echo("2. Run: python manage.py migrate")
+            typer.echo("3. Run: python manage.py createsuperuser")
+            typer.echo("4. Run: python manage.py runserver")
+            return True
+
+    def run(self) -> bool:
+        """Run all verification checks."""
+        typer.echo("OwnTracks Django Backend - Setup Verification")
+        typer.echo("=" * 60)
+
+        self.verify_python_version()
+        self.verify_project_structure()
+        self.verify_dependencies()
+
+        # Only check Django if basic structure is in place
+        if not self.errors:
+            self.verify_django_setup()
+
+        return self.print_report()
+
+
+@app.command()
+def main(
+    verbose: Annotated[
+        bool,
+        typer.Option("--verbose", "-v", help="Show all checks, not just summary"),
+    ] = False,
+    skip_django: Annotated[
+        bool,
+        typer.Option("--skip-django", help="Skip Django initialization check"),
+    ] = False,
+) -> None:
+    """
+    Verify OwnTracks Django Backend setup.
+
+    Checks project structure, dependencies, and Django configuration.
+    """
+    verifier = SetupVerifier(verbose=verbose)
+
+    typer.echo("OwnTracks Django Backend - Setup Verification")
+    typer.echo("=" * 60)
+
+    verifier.verify_python_version()
+    verifier.verify_project_structure()
+    verifier.verify_dependencies()
+
+    # Only check Django if basic structure is in place and not skipped
+    if not verifier.errors and not skip_django:
+        verifier.verify_django_setup()
+
+    success = verifier.print_report()
+
+    if not success:
+        raise typer.Exit(code=1)
+
+
+if __name__ == "__main__":
+    app()
