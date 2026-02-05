@@ -64,10 +64,9 @@ bash setup
 
 This will:
 1. Install `uv` if needed
-2. Create project structure from PROJECT_FILES.txt
-3. Set up virtual environment
-4. Install all dependencies
-5. Run database migrations
+2. Set up virtual environment
+3. Install all dependencies
+4. Run database migrations
 
 ### Manual Setup
 
@@ -89,15 +88,14 @@ This will:
 
 4. **Create virtual environment and install dependencies**:
    ```bash
-   uv venv
-   uv pip install -e .
+   uv sync
    ```
 
    **Note**: With `uv run`, you don't need to manually activate the virtual environment.
 
 5. **For development dependencies**:
    ```bash
-   uv pip install -e ".[dev]"
+   uv sync --all-extras
    ```
 
 6. **Configure environment variables**:

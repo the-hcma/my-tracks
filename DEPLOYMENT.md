@@ -63,14 +63,8 @@ GRANT ALL PRIVILEGES ON DATABASE owntracks TO owntrackuser;
 ### 4. Install Dependencies
 
 ```bash
-# Create virtual environment
-uv venv
-
-# Install dependencies (uv run handles activation automatically)
-uv pip install -e .
-
-# Install additional production dependencies
-uv pip install psycopg2-binary daphne channels
+# Install all dependencies (uv run handles venv automatically)
+uv sync --all-extras
 ```
 
 ### 5. Application Setup
@@ -126,10 +120,10 @@ sudo systemctl status my-tracks
 
 ### 8. Nginx Configuration
 
-Create `/etc/nginx/sites-available/owntracks`:
+Create `/etc/nginx/sites-available/my-tracks`:
 
 ```nginx
-upstream owntracks_backend {
+upstream my_tracks_backend {
     server 127.0.0.1:8080;
 }
 
@@ -165,14 +159,14 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header Host $http_host;
         proxy_redirect off;
-        proxy_pass http://owntracks_backend;
+        proxy_pass http://my_tracks_backend;
     }
 }
 ```
 
 Enable site:
 ```bash
-sudo ln -s /etc/nginx/sites-available/owntracks /etc/nginx/sites-enabled/
+sudo ln -s /etc/nginx/sites-available/my-tracks /etc/nginx/sites-enabled/
 sudo nginx -t
 sudo systemctl reload nginx
 ```
@@ -238,7 +232,7 @@ Create a health check endpoint or use Django's built-in admin health check.
 gt sync --force
 
 # Update dependencies
-uv pip install -e .
+uv sync
 
 # Run migrations
 uv run python manage.py migrate
@@ -273,11 +267,7 @@ Already implemented in models:
 
 ### Caching
 
-Add Redis caching for improved performance:
-
-```bash
-uv pip install django-redis
-```
+Add Redis caching for improved performance (add `django-redis` to pyproject.toml dependencies, then run `uv sync`):
 
 Update settings.py:
 ```python

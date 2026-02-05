@@ -53,7 +53,6 @@ My Tracks OwnTracks backend server has been fully implemented and is ready for u
    - `PROJECT_SUMMARY.md` - Project overview
    - `DOCS_INDEX.md` - Documentation index
    - `AGENTS.md` - Updated with OwnTracks info
-   - `PROJECT_FILES.txt` - All source code in single file
 
 ## 🎯 Features Implemented
 
@@ -187,11 +186,9 @@ my-tracks/
 │   ├── .env.example
 │   ├── .gitignore
 │   └── LICENSE
-├── Scripts (4 files)
+├── Scripts (2 files)
 │   ├── setup
-│   ├── install
-│   ├── verify-setup
-│   └── PROJECT_FILES.txt
+│   └── verify-setup
 ├── Django Project (1 file + 5 in config/)
 │   ├── manage.py
 │   └── config/
