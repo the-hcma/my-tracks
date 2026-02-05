@@ -36,8 +36,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 ./install
 
 # 3. Create virtual environment and install dependencies
-uv venv
-uv pip install -e .
+uv sync
 # Note: With uv run, you don't need to manually activate the venv
 
 # 4. Create environment file

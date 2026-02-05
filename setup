@@ -54,8 +54,7 @@ uv venv
 
 echo ""
 echo "📥 Installing dependencies..."
-source .venv/bin/activate
-uv pip install -e .
+uv sync
 
 echo ""
 echo "📝 Setting up environment..."

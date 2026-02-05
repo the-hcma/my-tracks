@@ -14,8 +14,7 @@ bash setup
 
 # Manual setup
 ./install
-uv venv
-uv pip install -e .
+uv sync
 ```
 
 ### Verification
@@ -54,13 +53,13 @@ uv run python manage.py migrate
 
 ```bash
 # Install production dependencies
-uv pip install -e .
+uv sync
 
 # Install with dev dependencies
-uv pip install -e ".[dev]"
+uv sync --all-extras
 
-# Update all packages
-uv pip install --upgrade -e .
+# Update all packages (after editing pyproject.toml)
+uv sync
 
 # List installed packages
 uv pip list
@@ -584,7 +583,7 @@ find . -type d -name __pycache__ -exec rm -rf {} +
 find . -type f -name "*.pyc" -delete
 
 # Reinstall dependencies
-uv pip install --force-reinstall -e .
+uv sync --reinstall
 
 # Check for port conflicts
 lsof -i :8080  # Unix/macOS
@@ -606,8 +605,7 @@ uv run python manage.py migrate
 
 ```bash
 rm -rf .venv db.sqlite3
-uv venv
-uv pip install -e ".[dev]"
+uv sync --all-extras
 uv run python manage.py migrate
 uv run python manage.py createsuperuser
 ./my-tracks-server
@@ -617,7 +615,7 @@ uv run python manage.py createsuperuser
 
 ```bash
 gt sync --force
-uv pip install -e .
+uv sync
 uv run python manage.py migrate
 uv run python manage.py collectstatic --noinput
 sudo systemctl restart my-tracks

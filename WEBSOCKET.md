@@ -161,7 +161,7 @@ CHANNEL_LAYERS = {
 }
 ```
 
-Install: `uv pip install channels-redis`
+To add Redis support, add `channels-redis` to pyproject.toml dependencies and run `uv sync`.
 
 ## Benefits
 

@@ -23,9 +23,6 @@ Quick 5-minute setup guide with automated and manual options.
 ### [setup](setup)
 Automated setup script - run `bash setup` to set up everything.
 
-### [install](install)
-Python script to extract all project files from PROJECT_FILES.txt.
-
 ### [verify-setup](verify-setup)
 Verification script to check if installation is complete and correct.
 

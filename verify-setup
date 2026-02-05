@@ -139,7 +139,7 @@ class SetupVerifier:
                 self.success.append(f"✓ {display_name} installed")
             except ImportError:
                 self.warnings.append(
-                    f"⚠ {display_name} not installed (run: uv pip install -e .)"
+                    f"⚠ {display_name} not installed (run: uv sync)"
                 )
 
     def verify_django_setup(self) -> None:

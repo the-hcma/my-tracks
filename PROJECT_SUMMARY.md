@@ -199,9 +199,8 @@ See [QUICKSTART.md](QUICKSTART.md) for detailed instructions.
 # 1. Install uv
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# 2. Setup environment
-uv venv
-uv pip install -e ".[dev]"
+# 2. Setup environment and install dependencies
+uv sync --all-extras
 
 # 3. Install frontend dependencies
 npm install
@@ -258,7 +257,7 @@ See [API.md](API.md) for complete API documentation.
 
 ```bash
 # Install dev dependencies
-uv pip install -e ".[dev]"
+uv sync --all-extras
 
 # Run all tests
 uv run pytest
@@ -319,7 +318,7 @@ cp .env.example .env
 # Edit .env with production settings
 
 # 3. Install dependencies
-uv pip install -e .
+uv sync
 
 # 4. Run migrations
 uv run python manage.py migrate
