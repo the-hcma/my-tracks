@@ -11,8 +11,8 @@ from typing import Any
 import pytest
 from django.utils import timezone
 from hamcrest import (all_of, assert_that, contains_string, equal_to,
-                      greater_than_or_equal_to, has_key, has_length, is_not,
-                      none)
+                      greater_than, greater_than_or_equal_to, has_key,
+                      has_length, is_not, less_than, none)
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.test import APIClient
@@ -599,7 +599,7 @@ class TestResolutionThinning:
     def test_resolution_zero_returns_all_points(
         self, api_client: APIClient, sample_device: Device
     ) -> None:
-        """Test that resolution=0 does not thin waypoints."""
+        """Test that resolution=0 returns all points without thinning, bypassing pagination."""
         base_time = timezone.now() - timedelta(hours=1)
 
         # Create 5 locations
@@ -614,16 +614,59 @@ class TestResolutionThinning:
 
         start_time = int((base_time - timedelta(minutes=1)).timestamp())
 
-        # Request with resolution=0 should return all points via normal pagination
+        # Request with resolution=0 should return all points (bypasses pagination)
         response = api_client.get(
             f'/api/locations/?device={sample_device.device_id}'
             f'&start_time={start_time}&resolution=0'
         )
 
         assert_that(response.status_code, equal_to(status.HTTP_200_OK))
-        # resolution=0 should not apply thinning (uses normal response)
+        # resolution=0 should return all points without thinning
         results = response.data['results']
         assert_that(len(results), equal_to(5))
+        # Verify resolution_applied is in response (proves we went through resolution path)
+        assert_that(response.data.get('resolution_applied'), equal_to(0))
+
+    def test_resolution_zero_returns_more_points_than_coarse(
+        self, api_client: APIClient, sample_device: Device
+    ) -> None:
+        """Test that resolution=0 (100% precision) returns more points than resolution=360 (0%)."""
+        base_time = timezone.now() - timedelta(hours=1)
+
+        # Create 60 locations, one every minute (simulating 1 hour of data)
+        for i in range(60):
+            Location.objects.create(
+                device=sample_device,
+                latitude=Decimal('37.7749') + Decimal(str(i * 0.0001)),
+                longitude=Decimal('-122.4194'),
+                timestamp=base_time + timedelta(minutes=i),
+                accuracy=10
+            )
+
+        start_time = int((base_time - timedelta(minutes=1)).timestamp())
+
+        # Request with resolution=0 (100% precision slider)
+        response_full = api_client.get(
+            f'/api/locations/?device={sample_device.device_id}'
+            f'&start_time={start_time}&resolution=0'
+        )
+        assert_that(response_full.status_code, equal_to(status.HTTP_200_OK))
+        full_results = response_full.data['results']
+
+        # Request with resolution=360 (0% precision slider)
+        response_coarse = api_client.get(
+            f'/api/locations/?device={sample_device.device_id}'
+            f'&start_time={start_time}&resolution=360'
+        )
+        assert_that(response_coarse.status_code, equal_to(status.HTTP_200_OK))
+        coarse_results = response_coarse.data['results']
+
+        # resolution=0 should return all 60 points
+        assert_that(len(full_results), equal_to(60))
+        # resolution=360 should return ~10-12 points (60min / 6min = 10)
+        assert_that(len(coarse_results), less_than(20))
+        # Full precision should always return more (or equal) points
+        assert_that(len(full_results), greater_than(len(coarse_results)))
 
 
 @pytest.mark.django_db

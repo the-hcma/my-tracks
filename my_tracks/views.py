@@ -252,14 +252,15 @@ class LocationViewSet(viewsets.ModelViewSet):
 
         # Apply resolution-based thinning (for coarse mode)
         # resolution parameter specifies minimum seconds between waypoints
+        # resolution=0 means return all points (no thinning) but bypass pagination
         resolution = request.query_params.get('resolution')
-        if resolution:
+        if resolution is not None:
             try:
                 resolution_seconds = int(resolution)
-                if resolution_seconds > 0:
-                    # Get all matching locations ordered by timestamp (ascending for thinning)
-                    all_locations = list(queryset.order_by('timestamp'))
-                    if all_locations:
+                # Get all matching locations ordered by timestamp (ascending for thinning)
+                all_locations = list(queryset.order_by('timestamp'))
+                if all_locations:
+                    if resolution_seconds > 0:
                         # Thin out to roughly one point per resolution_seconds
                         thinned = [all_locations[0]]
                         last_timestamp = all_locations[0].timestamp
@@ -271,15 +272,19 @@ class LocationViewSet(viewsets.ModelViewSet):
                         # Always include the last point
                         if thinned[-1] != all_locations[-1]:
                             thinned.append(all_locations[-1])
-                        # Reverse to return newest first (matching -timestamp ordering)
-                        thinned.reverse()
-                        # Return thinned results directly (bypass pagination)
-                        serializer = self.get_serializer(thinned, many=True)
-                        return Response({
-                            'results': serializer.data,
-                            'count': len(thinned),
-                            'resolution_applied': resolution_seconds
-                        })
+                        result_locations = thinned
+                    else:
+                        # resolution=0 means return all points (no thinning)
+                        result_locations = all_locations
+                    # Reverse to return newest first (matching -timestamp ordering)
+                    result_locations.reverse()
+                    # Return results directly (bypass pagination)
+                    serializer = self.get_serializer(result_locations, many=True)
+                    return Response({
+                        'results': serializer.data,
+                        'count': len(result_locations),
+                        'resolution_applied': resolution_seconds
+                    })
             except ValueError:
                 return Response(
                     {

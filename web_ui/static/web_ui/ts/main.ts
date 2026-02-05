@@ -1038,10 +1038,8 @@ async function fetchAndDisplayTrail(): Promise<void> {
         // Reset color assignments so colors are distributed optimally for visible devices
         resetDeviceColors();
         try {
-            let url = `/api/locations/?start_time=${Math.floor(startTime)}&ordering=-timestamp&limit=1000`;
-            if (trailResolution > 0) {
-                url += `&resolution=${trailResolution}`;
-            }
+            // Always include resolution to bypass pagination limit
+            const url = `/api/locations/?start_time=${Math.floor(startTime)}&ordering=-timestamp&resolution=${trailResolution}`;
             const response = await fetch(url);
             if (!response.ok) return;
 
@@ -1224,10 +1222,8 @@ async function fetchAndDisplayTrail(): Promise<void> {
     }
 
     try {
-        let url = `/api/locations/?device=${selectedDevice}&start_time=${Math.floor(startTime)}&ordering=-timestamp&limit=1000`;
-        if (trailResolution > 0) {
-            url += `&resolution=${trailResolution}`;
-        }
+        // Always include resolution to bypass pagination limit
+        const url = `/api/locations/?device=${selectedDevice}&start_time=${Math.floor(startTime)}&ordering=-timestamp&resolution=${trailResolution}`;
         const response = await fetch(url);
         if (!response.ok) return;
 
@@ -1710,12 +1706,10 @@ async function loadLast30Minutes(): Promise<void> {
     const now = Date.now() / 1000;
     const thirtyMinutesAgo = now - 1800; // 30 minutes in seconds
 
-    let url = `/api/locations/?start_time=${Math.floor(thirtyMinutesAgo)}&ordering=-timestamp&limit=500`;
+    // Always include resolution to bypass pagination limit
+    let url = `/api/locations/?start_time=${Math.floor(thirtyMinutesAgo)}&ordering=-timestamp&resolution=${trailResolution}`;
     if (selectedDevice) {
         url += `&device=${selectedDevice}`;
-    }
-    if (trailResolution > 0) {
-        url += `&resolution=${trailResolution}`;
     }
 
     console.log(`📍 loadLast30Minutes() fetching: ${url}`);
@@ -1840,13 +1834,10 @@ async function loadLiveActivityHistory(): Promise<void> {
     const oneHourAgo = now - 3600; // 1 hour in seconds
 
     // Build URL with device filter if set
-    let url = `/api/locations/?start_time=${Math.floor(oneHourAgo)}&ordering=-timestamp&limit=500`;
+    // Always include resolution to bypass pagination limit
+    let url = `/api/locations/?start_time=${Math.floor(oneHourAgo)}&ordering=-timestamp&resolution=${trailResolution}`;
     if (selectedDevice) {
         url += `&device=${selectedDevice}`;
-    }
-    // Apply resolution filtering (same as historic mode)
-    if (trailResolution > 0) {
-        url += `&resolution=${trailResolution}`;
     }
 
     console.log(`📍 loadLiveActivityHistory() fetching: ${url}`);
