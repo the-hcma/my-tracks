@@ -338,3 +338,200 @@ class DeviceViewSet(viewsets.ReadOnlyModelViewSet):
 
         serializer = LocationSerializer(locations, many=True)
         return Response(serializer.data)
+
+
+class CommandViewSet(viewsets.ViewSet):
+    """
+    ViewSet for sending MQTT commands to OwnTracks devices.
+
+    Provides endpoints for:
+    - POST /commands/report-location/: Request device to report its location
+    - POST /commands/set-waypoints/: Set waypoints on a device
+    - POST /commands/clear-waypoints/: Clear waypoints from a device
+
+    All endpoints require a device_id parameter in the request body.
+    """
+
+    permission_classes = [AllowAny]  # TODO: Add proper authentication
+
+    def _get_publisher(self) -> Any:
+        """Get the command publisher from the global broker instance."""
+        # Import here to avoid circular imports
+        from my_tracks.mqtt.commands import CommandPublisher
+
+        # For now, return a publisher without a client
+        # In production, this would be connected to the running broker
+        return CommandPublisher()
+
+    @action(detail=False, methods=['post'], url_path='report-location')
+    def report_location(self, request: Request) -> Response:
+        """
+        Request a device to report its current location.
+
+        Request body:
+            {
+                "device_id": "user/device"
+            }
+
+        Returns:
+            200: Command sent successfully
+            400: Missing device_id or invalid format
+            503: MQTT broker not available
+        """
+        device_id = request.data.get('device_id')
+        if not device_id:
+            return Response(
+                {"error": "device_id is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        publisher = self._get_publisher()
+
+        # Import async utilities
+        from asgiref.sync import async_to_sync as a2s
+
+        from my_tracks.mqtt.commands import Command
+
+        try:
+            success = a2s(publisher.send_command)(
+                device_id,
+                Command.report_location(),
+            )
+        except RuntimeError as e:
+            logger.warning("MQTT broker not available: %s", e)
+            return Response(
+                {"error": "MQTT broker not available", "detail": str(e)},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        if success:
+            return Response(
+                {"status": "command_sent", "device_id": device_id, "command": "reportLocation"},
+                status=status.HTTP_200_OK,
+            )
+        return Response(
+            {"error": "Failed to send command", "device_id": device_id},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    @action(detail=False, methods=['post'], url_path='set-waypoints')
+    def set_waypoints(self, request: Request) -> Response:
+        """
+        Set waypoints/regions on a device.
+
+        Request body:
+            {
+                "device_id": "user/device",
+                "waypoints": [
+                    {
+                        "desc": "Home",
+                        "lat": 51.5074,
+                        "lon": -0.1278,
+                        "rad": 100
+                    }
+                ]
+            }
+
+        Returns:
+            200: Command sent successfully
+            400: Missing required fields or invalid format
+            503: MQTT broker not available
+        """
+        device_id = request.data.get('device_id')
+        waypoints = request.data.get('waypoints')
+
+        if not device_id:
+            return Response(
+                {"error": "device_id is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not waypoints or not isinstance(waypoints, list):
+            return Response(
+                {"error": "waypoints must be a non-empty list"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        publisher = self._get_publisher()
+
+        from asgiref.sync import async_to_sync as a2s
+
+        from my_tracks.mqtt.commands import Command
+
+        try:
+            success = a2s(publisher.send_command)(
+                device_id,
+                Command.set_waypoints(waypoints),
+            )
+        except RuntimeError as e:
+            logger.warning("MQTT broker not available: %s", e)
+            return Response(
+                {"error": "MQTT broker not available", "detail": str(e)},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        if success:
+            return Response(
+                {
+                    "status": "command_sent",
+                    "device_id": device_id,
+                    "command": "setWaypoints",
+                    "waypoint_count": len(waypoints),
+                },
+                status=status.HTTP_200_OK,
+            )
+        return Response(
+            {"error": "Failed to send command", "device_id": device_id},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    @action(detail=False, methods=['post'], url_path='clear-waypoints')
+    def clear_waypoints(self, request: Request) -> Response:
+        """
+        Clear all waypoints from a device.
+
+        Request body:
+            {
+                "device_id": "user/device"
+            }
+
+        Returns:
+            200: Command sent successfully
+            400: Missing device_id or invalid format
+            503: MQTT broker not available
+        """
+        device_id = request.data.get('device_id')
+        if not device_id:
+            return Response(
+                {"error": "device_id is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        publisher = self._get_publisher()
+
+        from asgiref.sync import async_to_sync as a2s
+
+        from my_tracks.mqtt.commands import Command
+
+        try:
+            success = a2s(publisher.send_command)(
+                device_id,
+                Command.clear_waypoints(),
+            )
+        except RuntimeError as e:
+            logger.warning("MQTT broker not available: %s", e)
+            return Response(
+                {"error": "MQTT broker not available", "detail": str(e)},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        if success:
+            return Response(
+                {"status": "command_sent", "device_id": device_id, "command": "clearWaypoints"},
+                status=status.HTTP_200_OK,
+            )
+        return Response(
+            {"error": "Failed to send command", "device_id": device_id},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
