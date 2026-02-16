@@ -23,6 +23,7 @@ def get_default_config(
     mqtt_port: int = 1883,
     mqtt_ws_port: int = 8083,
     allow_anonymous: bool = True,
+    use_django_auth: bool = False,
 ) -> dict[str, Any]:
     """
     Get the default MQTT broker configuration.
@@ -31,10 +32,25 @@ def get_default_config(
         mqtt_port: TCP port for MQTT connections (default: 1883)
         mqtt_ws_port: WebSocket port for MQTT over WS (default: 8083)
         allow_anonymous: Allow anonymous connections (default: True for initial setup)
+        use_django_auth: Use Django authentication plugin (default: False)
 
     Returns:
         Configuration dictionary for amqtt Broker
     """
+    plugins = [
+        "amqtt.plugins.sys.broker.BrokerSysPlugin",
+    ]
+
+    auth_config: dict[str, Any] = {
+        "allow-anonymous": allow_anonymous,
+    }
+
+    if use_django_auth:
+        plugins.append("my_tracks.mqtt.auth:DjangoAuthPlugin")
+        # When using Django auth, anonymous should typically be disabled
+        if not allow_anonymous:
+            auth_config["plugins"] = ["my_tracks.mqtt.auth:DjangoAuthPlugin"]
+
     return {
         "listeners": {
             "default": {
@@ -49,12 +65,8 @@ def get_default_config(
             },
         },
         "sys_interval": 30,  # $SYS topic update interval in seconds
-        "auth": {
-            "allow-anonymous": allow_anonymous,
-        },
-        "plugins": [
-            "amqtt.plugins.sys.broker.BrokerSysPlugin",
-        ],
+        "auth": auth_config,
+        "plugins": plugins,
     }
 
 
@@ -77,6 +89,7 @@ class MQTTBroker:
         mqtt_port: int = 1883,
         mqtt_ws_port: int = 8083,
         allow_anonymous: bool = True,
+        use_django_auth: bool = False,
         config: dict[str, Any] | None = None,
     ) -> None:
         """
@@ -86,11 +99,13 @@ class MQTTBroker:
             mqtt_port: TCP port for MQTT connections
             mqtt_ws_port: WebSocket port for MQTT over WS
             allow_anonymous: Allow anonymous connections
+            use_django_auth: Use Django authentication plugin for user auth
             config: Custom configuration (overrides defaults if provided)
         """
         self.mqtt_port = mqtt_port
         self.mqtt_ws_port = mqtt_ws_port
         self.allow_anonymous = allow_anonymous
+        self.use_django_auth = use_django_auth
 
         if config is not None:
             self._config = config
@@ -99,6 +114,7 @@ class MQTTBroker:
                 mqtt_port=mqtt_port,
                 mqtt_ws_port=mqtt_ws_port,
                 allow_anonymous=allow_anonymous,
+                use_django_auth=use_django_auth,
             )
 
         self._broker: Broker | None = None

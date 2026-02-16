@@ -1,5 +1,7 @@
 """MQTT broker module for OwnTracks support."""
 
+from my_tracks.mqtt.auth import (DjangoAuthPlugin, authenticate_user,
+                                 check_topic_access, get_auth_config)
 from my_tracks.mqtt.broker import MQTTBroker
 from my_tracks.mqtt.handlers import (OwnTracksMessageHandler,
                                      extract_location_data, extract_lwt_data,
@@ -15,4 +17,8 @@ __all__ = [
     "extract_location_data",
     "extract_lwt_data",
     "extract_transition_data",
+    "DjangoAuthPlugin",
+    "authenticate_user",
+    "check_topic_access",
+    "get_auth_config",
 ]
