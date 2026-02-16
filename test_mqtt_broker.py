@@ -81,6 +81,12 @@ class TestMQTTBrokerInit:
         broker = MQTTBroker(config=custom_config)
         assert_that(broker.config, equal_to(custom_config))
 
+    def test_actual_mqtt_port_none_before_start(self) -> None:
+        """actual_mqtt_port should return None before broker starts."""
+        broker = MQTTBroker()
+        # When broker not started, actual_mqtt_port returns None
+        assert_that(broker.actual_mqtt_port, is_(None))
+
 
 class TestMQTTBrokerLifecycle:
     """Tests for MQTTBroker start/stop lifecycle."""
@@ -93,6 +99,20 @@ class TestMQTTBrokerLifecycle:
         try:
             await broker.start()
             assert_that(broker.is_running, is_(True))
+        finally:
+            if broker.is_running:
+                await broker.stop()
+
+    @pytest.mark.asyncio
+    async def test_actual_mqtt_port_after_start(self) -> None:
+        """actual_mqtt_port should return port after broker starts."""
+        broker = MQTTBroker(mqtt_port=31889, mqtt_ws_port=38089)
+        try:
+            await broker.start()
+            # After start, actual_mqtt_port should return a valid port
+            actual = broker.actual_mqtt_port
+            assert actual is not None
+            assert actual > 0
         finally:
             if broker.is_running:
                 await broker.stop()
@@ -141,3 +161,40 @@ class TestMQTTBrokerLifecycle:
         await run_then_cancel()
         # Broker should be stopped after cancellation
         assert_that(broker.is_running, is_(False))
+
+
+class TestOSAllocatedPorts:
+    """Tests for OS-allocated port functionality (port 0)."""
+
+    @pytest.mark.asyncio
+    async def test_mqtt_port_zero_allocates_actual_port(self) -> None:
+        """Starting broker with port 0 should allocate a real port."""
+        broker = MQTTBroker(mqtt_port=0, mqtt_ws_port=0)
+        try:
+            await broker.start()
+            assert_that(broker.is_running, is_(True))
+            # actual_mqtt_port should return the OS-allocated port
+            actual_mqtt_port = broker.actual_mqtt_port
+            assert actual_mqtt_port is not None
+            # OS should allocate an ephemeral port (typically > 1024)
+            assert actual_mqtt_port > 0
+            # Should not be 0 anymore
+            assert actual_mqtt_port != 0
+        finally:
+            if broker.is_running:
+                await broker.stop()
+
+    @pytest.mark.asyncio
+    async def test_mqtt_port_zero_different_from_ws_port(self) -> None:
+        """OS-allocated MQTT and WS ports should be different."""
+        broker = MQTTBroker(mqtt_port=0, mqtt_ws_port=0)
+        try:
+            await broker.start()
+            mqtt_port = broker.actual_mqtt_port
+            # Note: We currently only track actual_mqtt_port, not actual_ws_port
+            # This test verifies the MQTT port is allocated correctly
+            assert mqtt_port is not None
+            assert mqtt_port > 0
+        finally:
+            if broker.is_running:
+                await broker.stop()

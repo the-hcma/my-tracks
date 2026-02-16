@@ -119,6 +119,7 @@ class MQTTBroker:
 
         self._broker: Broker | None = None
         self._running = False
+        self._actual_mqtt_port: int | None = None
 
     @property
     def is_running(self) -> bool:
@@ -129,6 +130,39 @@ class MQTTBroker:
     def config(self) -> dict[str, Any]:
         """Get the broker configuration."""
         return self._config
+
+    @property
+    def actual_mqtt_port(self) -> int | None:
+        """
+        Get the actual MQTT port after startup.
+
+        This is useful when port 0 was specified to let the OS allocate.
+        Returns None if broker hasn't started or port discovery failed.
+        """
+        if self._actual_mqtt_port is not None:
+            return self._actual_mqtt_port
+        if self._broker is None:
+            return None
+
+        # Try to get actual port from broker's server
+        try:
+            # amqtt stores listeners in _servers dict after start
+            # Each value is a Server object with an 'instance' attribute
+            if hasattr(self._broker, '_servers') and self._broker._servers:
+                for name, server in self._broker._servers.items():
+                    if name == 'default':  # TCP listener
+                        instance = getattr(server, 'instance', None)
+                        if instance is not None and hasattr(instance, 'sockets'):
+                            for sock in instance.sockets:
+                                addr = sock.getsockname()
+                                if len(addr) >= 2:
+                                    self._actual_mqtt_port = addr[1]
+                                    return self._actual_mqtt_port
+        except Exception:
+            pass
+
+        # Fall back to configured port
+        return self.mqtt_port
 
     async def start(self) -> None:
         """

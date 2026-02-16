@@ -73,7 +73,7 @@ test_valid_log_levels() {
         # We use a timeout and kill it quickly since we don't actually want to start the server
         # 5 second timeout needed due to collectstatic step
         # Use port 0 to let OS allocate ephemeral port
-        if ! timeout 5 $SCRIPT --port $TEST_PORT --log-level "$level" 2>&1 | grep -q "Log level: $(echo "$level" | tr '[:lower:]' '[:upper:]')"; then
+        if ! timeout 5 $SCRIPT --http-port $TEST_PORT --log-level "$level" 2>&1 | grep -q "Log level: $(echo "$level" | tr '[:lower:]' '[:upper:]')"; then
             all_valid=false
             break
         fi
@@ -91,7 +91,7 @@ test_valid_log_levels() {
 test_console_flag() {
     echo -n "Test: Console flag works... "
     # Use port 0 to let OS allocate ephemeral port
-    if timeout 5 $SCRIPT --port $TEST_PORT --console 2>&1 | grep -q "Logging to: console + logs/my-tracks.log"; then
+    if timeout 5 $SCRIPT --http-port $TEST_PORT --console 2>&1 | grep -q "Logging to: console + logs/my-tracks.log"; then
         echo -e "${GREEN}✓ PASS${NC}"
         ((TESTS_PASSED++))
     else
@@ -103,7 +103,7 @@ test_console_flag() {
 test_file_logging() {
     echo -n "Test: File logging uses fixed log name... "
     # Use port 0 to let OS allocate ephemeral port
-    if timeout 5 $SCRIPT --port $TEST_PORT 2>&1 | grep -q "Logging to: logs/my-tracks.log"; then
+    if timeout 5 $SCRIPT --http-port $TEST_PORT 2>&1 | grep -q "Logging to: logs/my-tracks.log"; then
         echo -e "${GREEN}✓ PASS${NC}"
         ((TESTS_PASSED++))
     else
@@ -125,7 +125,7 @@ test_log_rotation() {
     # Start server briefly to trigger rotation
     # Use 8 seconds to allow for collectstatic and server startup
     # Use port 0 to let OS allocate ephemeral port
-    timeout 8 $SCRIPT --port $TEST_PORT 2>&1 > /dev/null || true
+    timeout 8 $SCRIPT --http-port $TEST_PORT > /dev/null 2>&1 || true
     
     # Check that old log was rotated to .1
     # The new my-tracks.log may or may not exist depending on whether daphne started logging
@@ -145,7 +145,7 @@ test_custom_port() {
     echo -n "Test: Port 0 (OS-allocated) accepted... "
     # Use port 0 to let OS allocate ephemeral port
     # Need --console to see daphne's output which shows the actual bound port
-    if timeout 5 $SCRIPT --port $TEST_PORT --console 2>&1 | grep -q "Listening on TCP address"; then
+    if timeout 5 $SCRIPT --http-port $TEST_PORT --console 2>&1 | grep -q "Listening on TCP address"; then
         echo -e "${GREEN}✓ PASS${NC}"
         ((TESTS_PASSED++))
     else
@@ -156,26 +156,26 @@ test_custom_port() {
 
 test_invalid_port() {
     echo -n "Test: Invalid port rejected... "
-    if $SCRIPT --port 999999 2>&1 | grep -qi "Invalid port"; then
+    if $SCRIPT --http-port 999999 2>&1 | grep -qi "Invalid port"; then
         echo -e "${GREEN}✓ PASS${NC}"
         ((TESTS_PASSED++))
     else
         echo -e "${RED}✗ FAIL${NC}"
         echo "  Expected: 'Invalid port' message"
-        echo "  Got: $($SCRIPT --port 999999 2>&1)"
+        echo "  Got: $($SCRIPT --http-port 999999 2>&1)"
         ((TESTS_FAILED++))
     fi
 }
 
 test_non_numeric_port() {
     echo -n "Test: Non-numeric port rejected... "
-    if $SCRIPT --port abc 2>&1 | grep -qi "Invalid port"; then
+    if $SCRIPT --http-port abc 2>&1 | grep -qi "Invalid port"; then
         echo -e "${GREEN}✓ PASS${NC}"
         ((TESTS_PASSED++))
     else
         echo -e "${RED}✗ FAIL${NC}"
         echo "  Expected: 'Invalid port' message"
-        echo "  Got: $($SCRIPT --port abc 2>&1)"
+        echo "  Got: $($SCRIPT --http-port abc 2>&1)"
         ((TESTS_FAILED++))
     fi
 }
