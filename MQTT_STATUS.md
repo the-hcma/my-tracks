@@ -52,12 +52,12 @@ Implementing embedded MQTT broker for OwnTracks bidirectional communication.
 ### Tasks:
 1. ~~**Server integration**~~ ✅ (PR #104)
 
-2. **Admin UI MQTT endpoint display** ← NEXT
-   - Show MQTT connection details in admin web UI
+2. ~~**Admin UI MQTT endpoint display**~~ ✅ (PR #105)
+   - Show HTTP/MQTT status in web UI with consistent format
    - Display MQTT host and port for OwnTracks app configuration
-   - Help users configure OwnTracks app with correct endpoint
+   - Updated OwnTracks setup instructions for both MQTT and HTTP modes
 
-3. **Traffic generator MQTT support**
+3. **Traffic generator MQTT support** ← NEXT
    - Add `--mqtt` flag to traffic generator script
    - Send location data via MQTT in addition to existing HTTP mode
    - Use same OwnTracks message format as real devices

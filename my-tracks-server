@@ -56,14 +56,27 @@ cleanup() {
             sleep 0.5
         fi
     fi
-    # Also check for any orphaned processes on the port
-    remaining=$(lsof -ti tcp:"$http_port" 2>/dev/null || true)
-    if [ -n "$remaining" ]; then
-        echo "   Cleaning up orphaned processes on port $http_port..."
-        for pid in $remaining; do
-            kill -9 "$pid" 2>/dev/null || true
-        done
-        sleep 0.5
+    # Also check for any orphaned processes on the HTTP port
+    if [ "$http_port" -ge 0 ]; then
+        remaining=$(lsof -ti tcp:"$http_port" 2>/dev/null || true)
+        if [ -n "$remaining" ]; then
+            echo "   Cleaning up orphaned HTTP processes on port $http_port..."
+            for pid in $remaining; do
+                kill -9 "$pid" 2>/dev/null || true
+            done
+            sleep 0.5
+        fi
+    fi
+    # Also check for any orphaned processes on the MQTT port
+    if [ "$mqtt_port" -ge 0 ]; then
+        remaining=$(lsof -ti tcp:"$mqtt_port" 2>/dev/null || true)
+        if [ -n "$remaining" ]; then
+            echo "   Cleaning up orphaned MQTT processes on port $mqtt_port..."
+            for pid in $remaining; do
+                kill -9 "$pid" 2>/dev/null || true
+            done
+            sleep 0.5
+        fi
     fi
     # Clean up runtime config file
     rm -f "config/.runtime-config.json"
@@ -294,8 +307,9 @@ if [ "$log_to_console" = true ]; then
         echo ""
     fi
     
-    # Start daphne with dual logging via tee
-    daphne -b 0.0.0.0 -p "$http_port" --verbosity 0 config.asgi:application 2>&1 | tee -a "$log_file" &
+    # Start daphne with dual logging via process substitution
+    # Note: Using >(tee) instead of | tee so that $! returns daphne's PID, not tee's
+    daphne -b 0.0.0.0 -p "$http_port" --verbosity 0 config.asgi:application > >(tee -a "$log_file") 2>&1 &
     server_pid=$!
     
     # Wait for daphne to start and report the port
