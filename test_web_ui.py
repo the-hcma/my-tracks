@@ -109,3 +109,78 @@ class TestNetworkState:
         ip, changed = NetworkState.check_and_update_ip()
         assert_that(changed, equal_to(False))
         assert_that(ip, equal_to(current_ip))
+
+
+@pytest.mark.django_db
+class TestMQTTEndpointDisplay:
+    """Test MQTT endpoint display in web UI."""
+
+    def test_home_view_shows_http_enabled(self) -> None:
+        """Test that home view shows HTTP server as enabled."""
+        client = Client()
+        response = client.get('/')
+
+        content = response.content.decode('utf-8')
+        assert_that(content, contains_string('HTTP Server'))
+        # HTTP is always enabled (you're viewing the page)
+        assert_that(content, contains_string('● Enabled'))
+
+    def test_home_view_shows_mqtt_disabled_by_default(self) -> None:
+        """Test that home view shows MQTT disabled when port < 0."""
+        from unittest.mock import patch
+
+        client = Client()
+        with patch('web_ui.views.get_mqtt_port', return_value=-1):
+            response = client.get('/')
+
+        content = response.content.decode('utf-8')
+        assert_that(content, contains_string('○ Disabled'))
+        assert_that(content, contains_string('--mqtt-port 1883'))
+
+    def test_home_view_shows_mqtt_enabled(self) -> None:
+        """Test that home view shows MQTT info when enabled."""
+        from unittest.mock import patch
+
+        client = Client()
+        with (
+            patch('web_ui.views.get_mqtt_port', return_value=1883),
+            patch('web_ui.views.get_actual_mqtt_port', return_value=None),
+        ):
+            response = client.get('/')
+
+        content = response.content.decode('utf-8')
+        assert_that(content, contains_string('● Enabled'))
+        assert_that(content, contains_string('1883'))
+        assert_that(content, contains_string('MQTT Broker'))
+
+    def test_home_view_shows_actual_mqtt_port(self) -> None:
+        """Test that home view shows actual port when OS-allocated."""
+        from unittest.mock import patch
+
+        client = Client()
+        with (
+            patch('web_ui.views.get_mqtt_port', return_value=0),
+            patch('web_ui.views.get_actual_mqtt_port', return_value=54321),
+        ):
+            response = client.get('/')
+
+        content = response.content.decode('utf-8')
+        assert_that(content, contains_string('54321'))
+
+    def test_home_view_shows_mqtt_config_instructions(self) -> None:
+        """Test that home view shows MQTT configuration instructions when enabled."""
+        from unittest.mock import patch
+
+        client = Client()
+        with (
+            patch('web_ui.views.get_mqtt_port', return_value=1883),
+            patch('web_ui.views.get_actual_mqtt_port', return_value=None),
+        ):
+            response = client.get('/')
+
+        content = response.content.decode('utf-8')
+        # Should show MQTT mode option
+        assert_that(content, contains_string('MQTT (Recommended)'))
+        assert_that(content, contains_string('For MQTT Mode'))
+        # Should also show HTTP mode option
+        assert_that(content, contains_string('For HTTP Mode'))
