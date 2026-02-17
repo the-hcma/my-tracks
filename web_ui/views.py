@@ -6,6 +6,7 @@ import socket
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import render
 
+from config.runtime import get_actual_mqtt_port, get_mqtt_port
 from my_tracks.models import Location
 
 logger = logging.getLogger(__name__)
@@ -91,11 +92,19 @@ def home(request: HttpRequest) -> HttpResponse:
     # This avoids over-aggregation while still grouping GPS jitter
     collapse_precision = min(db_decimal_places, 5)
 
+    # Get MQTT port (actual port if OS-allocated, else configured port)
+    mqtt_configured_port = get_mqtt_port()
+    mqtt_actual_port = get_actual_mqtt_port()
+    mqtt_port = mqtt_actual_port if mqtt_actual_port is not None else mqtt_configured_port
+    mqtt_enabled = mqtt_configured_port >= 0
+
     context = {
         'hostname': hostname,
         'local_ip': local_ip,
         'server_port': server_port,
         'collapse_precision': collapse_precision,
+        'mqtt_port': mqtt_port,
+        'mqtt_enabled': mqtt_enabled,
     }
 
     response = render(request, 'web_ui/home.html', context)

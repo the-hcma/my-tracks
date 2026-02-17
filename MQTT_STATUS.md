@@ -1,6 +1,6 @@
 # MQTT Implementation Status
 
-**Last Updated**: February 16, 2026
+**Last Updated**: February 17, 2026
 
 ## Overview
 
@@ -39,17 +39,20 @@ Implementing embedded MQTT broker for OwnTracks bidirectional communication.
   - `POST /api/commands/set-waypoints/`
   - `POST /api/commands/clear-waypoints/`
 
-## Phase 5: Integration (TODO)
+### Phase 5.1: Server Integration ✅
+- **PR #104** - MQTT broker startup (MERGED)
+- `--mqtt-port` flag (default: 1883, 0 = OS allocates, -1 = disabled)
+- `--http-port` flag (renamed from `--port`)
+- Runtime config via JSON file (`config/.runtime-config.json`)
+- OS-allocated port discovery via `actual_mqtt_port` property
+- ASGI lifespan handler starts/stops broker
 
-**Not started** - Ready to begin.
+## Phase 5: Integration (IN PROGRESS)
 
 ### Tasks:
-1. **Server integration**
-   - Modify `my-tracks-server` to start MQTT broker
-   - Run broker in same asyncio event loop as Daphne
-   - Add `--mqtt-port` flag (default: 1883)
+1. ~~**Server integration**~~ ✅ (PR #104)
 
-2. **Admin UI MQTT endpoint display**
+2. **Admin UI MQTT endpoint display** ← NEXT
    - Show MQTT connection details in admin web UI
    - Display MQTT host and port for OwnTracks app configuration
    - Help users configure OwnTracks app with correct endpoint
