@@ -28,6 +28,36 @@ set -e
 server_pid=""
 cleanup_done=false
 
+# Graceful process termination: SIGTERM first, wait, then SIGKILL
+# Usage: graceful_kill PID [WAIT_SECONDS]
+graceful_kill() {
+    local pid=$1
+    local wait_seconds=${2:-3}
+    
+    if ! kill -0 "$pid" 2>/dev/null; then
+        return 0  # Process already dead
+    fi
+    
+    # Send SIGTERM first
+    kill -TERM "$pid" 2>/dev/null || true
+    
+    # Wait for process to terminate
+    local elapsed=0
+    while [ $elapsed -lt $((wait_seconds * 2)) ]; do
+        if ! kill -0 "$pid" 2>/dev/null; then
+            return 0  # Process terminated gracefully
+        fi
+        sleep 0.5
+        elapsed=$((elapsed + 1))
+    done
+    
+    # Force kill if still running
+    if kill -0 "$pid" 2>/dev/null; then
+        kill -KILL "$pid" 2>/dev/null || true
+        sleep 0.5
+    fi
+}
+
 # Cleanup function to stop the server
 cleanup() {
     # Prevent duplicate cleanup
@@ -38,22 +68,10 @@ cleanup() {
     
     echo -e "\n\n👋 Stopping server..."
     if [ -n "$server_pid" ] && kill -0 "$server_pid" 2>/dev/null; then
-        # Send SIGTERM first for graceful shutdown
-        kill -TERM "$server_pid" 2>/dev/null || true
-        echo "   Waiting for server to terminate (PID: $server_pid)..."
-        # Wait for process to terminate (max 5 seconds)
-        for i in {1..10}; do
-            if ! kill -0 "$server_pid" 2>/dev/null; then
-                echo "   Server terminated gracefully"
-                break
-            fi
-            sleep 0.5
-        done
-        # Force kill if still running
-        if kill -0 "$server_pid" 2>/dev/null; then
-            echo "   Server still running, forcing termination..."
-            kill -9 "$server_pid" 2>/dev/null || true
-            sleep 0.5
+        echo "   Stopping server (PID: $server_pid)..."
+        graceful_kill "$server_pid" 5
+        if ! kill -0 "$server_pid" 2>/dev/null; then
+            echo "   Server stopped"
         fi
     fi
     # Also check for any orphaned processes on the HTTP port
@@ -62,9 +80,8 @@ cleanup() {
         if [ -n "$remaining" ]; then
             echo "   Cleaning up orphaned HTTP processes on port $http_port..."
             for pid in $remaining; do
-                kill -9 "$pid" 2>/dev/null || true
+                graceful_kill "$pid" 2
             done
-            sleep 0.5
         fi
     fi
     # Also check for any orphaned processes on the MQTT port
@@ -73,9 +90,8 @@ cleanup() {
         if [ -n "$remaining" ]; then
             echo "   Cleaning up orphaned MQTT processes on port $mqtt_port..."
             for pid in $remaining; do
-                kill -9 "$pid" 2>/dev/null || true
+                graceful_kill "$pid" 2
             done
-            sleep 0.5
         fi
     fi
     # Clean up runtime config file
@@ -194,7 +210,7 @@ if [ -n "$existing_pids" ]; then
             if [ -n "$still_running" ]; then
                 echo "Some processes still running, forcing termination..."
                 for pid in $still_running; do
-                    kill -9 "$pid" 2>/dev/null || true
+                    kill -KILL "$pid" 2>/dev/null || true
                 done
                 sleep 1
             fi

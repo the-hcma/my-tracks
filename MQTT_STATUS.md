@@ -63,20 +63,25 @@ Implementing embedded MQTT broker for OwnTracks bidirectional communication.
    - Broadcast to WebSocket clients via channel layer
    - Created `OwnTracksPlugin` with `on_broker_message_received` hook
 
-4. **Traffic generator MQTT support** ← NEXT
+4. **Graceful process termination** ← NEXT
+   - Use SIGTERM first, wait a few seconds, then SIGKILL as fallback
+   - Use signal names (TERM, KILL) instead of numbers (-9)
+   - Apply to `my-tracks-server` script process cleanup
+
+5. **Traffic generator MQTT support**
    - Add `--mqtt` flag to traffic generator script
    - Send location data via MQTT in addition to existing HTTP mode
    - Use same OwnTracks message format as real devices
 
-5. **LWT handling**
+6. **LWT handling**
    - Detect device offline via Last Will messages
    - Update device status in database
 
-6. **Transition events**
+7. **Transition events**
    - Handle region enter/exit events
    - Store transition history
 
-7. **Waypoints sync**
+8. **Waypoints sync**
    - Connect waypoint storage to command API
    - Allow UI to send waypoints to devices
 
