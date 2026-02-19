@@ -44,7 +44,7 @@ class NetworkState:
         )
 
         if has_changed:
-            logger.info(f"Network IP changed: {cls.last_known_ip} -> {current_ip}")
+            logger.info("Network IP changed: %s -> %s", cls.last_known_ip, current_ip)
 
         cls.last_known_ip = current_ip
         return current_ip, has_changed

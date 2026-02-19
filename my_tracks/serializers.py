@@ -167,7 +167,7 @@ class LocationSerializer(serializers.ModelSerializer):
             parts = topic.split('/')
             if len(parts) >= 3:
                 device_id = parts[-1]  # Get last part of topic path
-                logger.info(f"Extracted device_id '{device_id}' from topic '{topic}'")
+                logger.info("Extracted device_id '%s' from topic '%s'", device_id, topic)
 
         # Fallback to tid if no topic available
         if not device_id:
@@ -229,7 +229,7 @@ class LocationSerializer(serializers.ModelSerializer):
 
         # Validate latitude range
         if not -90 <= transformed['latitude'] <= 90:
-            logger.error(f"Invalid latitude: {transformed['latitude']}")
+            logger.error("Invalid latitude: %s", transformed['latitude'])
             raise serializers.ValidationError(
                 f"Expected latitude between -90 and +90 degrees, got {transformed['latitude']}"
             )
