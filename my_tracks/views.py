@@ -124,7 +124,7 @@ class LocationViewSet(viewsets.ModelViewSet):
             parts = topic.split('/')
             if len(parts) >= 3:
                 field_name_to_value['device_id'] = parts[-1]  # Get last part of topic path
-                logger.info(f"Extracted device_id '{parts[-1]}' from topic '{topic}'")
+                logger.info("Extracted device_id '%s' from topic '%s'", parts[-1], topic)
 
         serializer = self.get_serializer(data=field_name_to_value, context={'client_ip': client_ip})
         serializer.is_valid(raise_exception=True)
