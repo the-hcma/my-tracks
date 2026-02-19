@@ -15,10 +15,11 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from .auth import CommandApiKeyAuthentication, get_command_api_key
 from .models import Device, Location, OwnTracksMessage
 from .serializers import DeviceSerializer, LocationSerializer
 from .utils import extract_device_id
@@ -325,7 +326,9 @@ class CommandViewSet(viewsets.ViewSet):
     All endpoints require a device_id parameter in the request body.
     """
 
-    permission_classes = [AllowAny]  # TODO: Add proper authentication
+    authentication_classes = [CommandApiKeyAuthentication]
+    # Require authentication only when COMMAND_API_KEY is configured
+    permission_classes = [IsAuthenticated if get_command_api_key() else AllowAny]
 
     def _get_publisher(self) -> Any:
         """Get the command publisher from the global broker instance."""
