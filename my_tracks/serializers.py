@@ -5,10 +5,9 @@ This module provides DRF serializers for converting between
 OwnTracks JSON payloads and Django model instances.
 """
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
-from django.utils import timezone
 from rest_framework import serializers
 
 from .models import Device, Location
@@ -207,7 +206,7 @@ class LocationSerializer(serializers.ModelSerializer):
             'device': device,
             'latitude': attrs.get('lat'),
             'longitude': lon_value,  # Support both 'lon' and 'long'
-            'timestamp': timezone.make_aware(datetime.fromtimestamp(float(tst_value))),
+            'timestamp': datetime.fromtimestamp(float(tst_value), tz=UTC),
             'accuracy': attrs.get('acc'),
             'altitude': attrs.get('alt'),
             'velocity': attrs.get('vel'),

@@ -5,7 +5,7 @@ This module provides REST API endpoints for receiving location data
 from OwnTracks clients and querying stored location history.
 """
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from asgiref.sync import async_to_sync
@@ -199,7 +199,7 @@ class LocationViewSet(viewsets.ModelViewSet):
         if start_time:
             try:
                 start_timestamp = int(start_time)
-                start_dt = timezone.make_aware(datetime.fromtimestamp(start_timestamp))
+                start_dt = datetime.fromtimestamp(start_timestamp, tz=UTC)
                 queryset = queryset.filter(timestamp__gte=start_dt)
             except (ValueError, OSError) as e:
                 return Response(
