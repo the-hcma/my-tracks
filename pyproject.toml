@@ -44,6 +44,9 @@ python_files = ["test_*.py", "*_test.py"]
 addopts = "-v --cov=my_tracks --cov-report=term-missing"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+filterwarnings = [
+    "ignore::ResourceWarning:django.core.handlers.wsgi",
+]
 
 [tool.black]
 line-length = 88
