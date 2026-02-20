@@ -5,7 +5,10 @@
  */
 
 import * as L from 'leaflet';
+import noUiSlider, { type API as NoUiSliderAPI } from 'nouislider';
+import 'nouislider/dist/nouislider.css';
 import { getPreferredTheme, setTheme, toggleTheme } from './theme';
+import { dateAndMinutesToTimestamps, formatMinutesAsTime, getTodayDateString } from './utils';
 
 // Configuration passed from Django template
 interface MyTracksConfig {
@@ -65,6 +68,9 @@ interface UIState {
     selectedDevice: string;
     timeRangeHours: number;
     trailResolution: number;
+    historicDate?: string;
+    historicStartMinutes?: number;
+    historicEndMinutes?: number;
 }
 
 /** Saved map position for persistence */
@@ -113,6 +119,12 @@ let isLiveMode = true; // Track current mode
 let needsFitBounds = true; // Only fit bounds on initial trail load
 let isRestoringState = false; // Flag to prevent saving during restore
 let skipHistoryFetch = false; // Flag to skip history fetch after reset (only show new incoming data)
+
+// Historic date+time range state
+let historicDate = ''; // YYYY-MM-DD, defaults to today
+let historicStartMinutes = 0; // Minutes from midnight (0 = 00:00)
+let historicEndMinutes = 1439; // Minutes from midnight (1439 = 23:59)
+let timeSliderApi: NoUiSliderAPI | null = null;
 
 // Device color palette - ordered for MAXIMUM visual difference between adjacent colors
 // First colors should be most distinct from each other (used when few devices)
@@ -281,6 +293,44 @@ function getDateRangeText(hours: number): string {
     return `${formatDateForTitle(startDate)} - ${formatDateForTitle(now)}`;
 }
 
+/**
+ * Get the display text for historic date + time range.
+ * @returns Formatted string like "Thu, Feb 20 · 08:00 – 17:30"
+ */
+function getHistoricRangeText(): string {
+    const dateStr = historicDate || getTodayDateString();
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const date = new Date(year, month - 1, day);
+    const dateText = formatDateForTitle(date);
+    const startTime = formatMinutesAsTime(historicStartMinutes);
+    const endTime = formatMinutesAsTime(historicEndMinutes);
+    return `${dateText} · ${startTime} – ${endTime}`;
+}
+
+/**
+ * Compute start and end Unix timestamps from historic date + time range.
+ * @returns [startTimestamp, endTimestamp] in seconds
+ */
+function getHistoricTimestamps(): [number, number] {
+    return dateAndMinutesToTimestamps(
+        historicDate || getTodayDateString(),
+        historicStartMinutes,
+        historicEndMinutes,
+    );
+}
+
+/**
+ * Update the time slider label text.
+ */
+function updateTimeSliderLabel(): void {
+    const label = document.getElementById('time-slider-label');
+    if (label) {
+        const startTime = formatMinutesAsTime(historicStartMinutes);
+        const endTime = formatMinutesAsTime(historicEndMinutes);
+        label.textContent = `${startTime} – ${endTime}`;
+    }
+}
+
 // ============================================================================
 // UI State Persistence
 // ============================================================================
@@ -297,6 +347,9 @@ function saveUIState(): void {
         selectedDevice: selectedDevice,
         timeRangeHours: timeRangeHours,
         trailResolution: trailResolution,
+        historicDate: historicDate,
+        historicStartMinutes: historicStartMinutes,
+        historicEndMinutes: historicEndMinutes,
     };
     localStorage.setItem('mytracks-ui-state', JSON.stringify(state));
 }
@@ -356,13 +409,24 @@ function restoreUIState(): void {
 
     isRestoringState = true;
 
-    // Restore time range
+    // Restore time range (legacy, kept for backward compat)
     if (state.timeRangeHours) {
         timeRangeHours = state.timeRangeHours;
         const timeRangeSelector = document.getElementById('time-range-selector') as HTMLSelectElement;
         if (timeRangeSelector) {
             timeRangeSelector.value = String(timeRangeHours);
         }
+    }
+
+    // Restore historic date + time range
+    if (state.historicDate) {
+        historicDate = state.historicDate;
+    }
+    if (state.historicStartMinutes !== undefined) {
+        historicStartMinutes = state.historicStartMinutes;
+    }
+    if (state.historicEndMinutes !== undefined) {
+        historicEndMinutes = state.historicEndMinutes;
     }
 
     // Restore resolution (slider value 0-100)
@@ -986,8 +1050,7 @@ function drawLiveTrails(locationsByDevice: Record<string, TrackLocation[]>): voi
  * Fetch and display location trail for selected device and time range.
  */
 async function fetchAndDisplayTrail(): Promise<void> {
-    const now = Date.now() / 1000;
-    const startTime = now - timeRangeHours * 3600;
+    const [startTime, endTime] = getHistoricTimestamps();
 
     // Clear existing trails
     Object.values(deviceTrails).forEach(trail => {
@@ -1002,7 +1065,7 @@ async function fetchAndDisplayTrail(): Promise<void> {
         resetDeviceColors();
         try {
             // Always include resolution to bypass pagination limit
-            const url = `/api/locations/?start_time=${Math.floor(startTime)}&ordering=-timestamp&resolution=${trailResolution}`;
+            const url = `/api/locations/?start_time=${Math.floor(startTime)}&end_time=${Math.floor(endTime)}&ordering=-timestamp&resolution=${trailResolution}`;
             const response = await fetch(url);
             if (!response.ok) return;
 
@@ -1186,7 +1249,7 @@ async function fetchAndDisplayTrail(): Promise<void> {
 
     try {
         // Always include resolution to bypass pagination limit
-        const url = `/api/locations/?device=${selectedDevice}&start_time=${Math.floor(startTime)}&ordering=-timestamp&resolution=${trailResolution}`;
+        const url = `/api/locations/?device=${selectedDevice}&start_time=${Math.floor(startTime)}&end_time=${Math.floor(endTime)}&ordering=-timestamp&resolution=${trailResolution}`;
         const response = await fetch(url);
         if (!response.ok) return;
 
@@ -1971,8 +2034,9 @@ function switchToLiveMode(): void {
         mapTitle.textContent = '🗺️ Live Map';
     }
 
-    // Hide time range selector but keep precision slider and device selector visible
+    // Hide time range selector and historic controls but keep precision slider and device selector visible
     document.getElementById('time-range-selector')?.classList.add('hidden');
+    document.getElementById('historic-controls')?.classList.add('hidden');
     document.getElementById('precision-slider-container')?.classList.remove('hidden');
     // Precision slider and device selectors stay visible in live mode
 
@@ -2018,19 +2082,32 @@ function switchToHistoricMode(): void {
     document.getElementById('load-history-button')?.classList.add('hidden');
     document.getElementById('reset-button')?.classList.add('hidden');
 
-    // Update title with date range
-    const dateRangeText = getDateRangeText(timeRangeHours);
+    // Set date picker to current historic date (or today)
+    if (!historicDate) {
+        historicDate = getTodayDateString();
+    }
+    const dateInput = document.getElementById('historic-date') as HTMLInputElement;
+    if (dateInput) {
+        dateInput.value = historicDate;
+        dateInput.max = getTodayDateString();
+    }
+
+    // Initialize or update time slider
+    initTimeSlider();
+
+    // Update title with date + time range
+    const rangeText = getHistoricRangeText();
     const mapTitle = document.getElementById('map-title');
     if (mapTitle) {
         mapTitle.textContent = '🗺️ Historic Map';
     }
     const activityTitle = document.getElementById('activity-title');
     if (activityTitle) {
-        activityTitle.textContent = `📅 Historic Trail - ${dateRangeText}`;
+        activityTitle.textContent = `📅 Historic Trail - ${rangeText}`;
     }
 
     // Show historic controls
-    document.getElementById('time-range-selector')?.classList.remove('hidden');
+    document.getElementById('historic-controls')?.classList.remove('hidden');
     document.getElementById('precision-slider-container')?.classList.remove('hidden');
     document.getElementById('device-selector')?.classList.remove('hidden');
 
@@ -2398,6 +2475,57 @@ function initResizeHandle(): void {
 // ============================================================================
 
 /**
+ * Initialize the noUiSlider time range slider.
+ * Creates the slider on first call, updates values on subsequent calls.
+ */
+function initTimeSlider(): void {
+    const sliderEl = document.getElementById('time-slider');
+    if (!sliderEl) return;
+
+    if (timeSliderApi) {
+        // Slider already exists, just update values
+        timeSliderApi.set([historicStartMinutes, historicEndMinutes]);
+        updateTimeSliderLabel();
+        return;
+    }
+
+    // Create the slider
+    timeSliderApi = noUiSlider.create(sliderEl, {
+        start: [historicStartMinutes, historicEndMinutes],
+        connect: true,
+        range: {
+            min: 0,
+            max: 1439,
+        },
+        step: 15, // 15-minute increments
+        behaviour: 'drag-tap',
+    });
+
+    // Update label on slide
+    timeSliderApi.on('update', (values: (string | number)[]) => {
+        historicStartMinutes = Math.round(Number(values[0]));
+        historicEndMinutes = Math.round(Number(values[1]));
+        updateTimeSliderLabel();
+    });
+
+    // Fetch trail on release
+    timeSliderApi.on('change', () => {
+        needsFitBounds = true;
+
+        // Update activity title
+        const activityTitle = document.getElementById('activity-title');
+        if (activityTitle) {
+            activityTitle.textContent = `📅 Historic Trail - ${getHistoricRangeText()}`;
+        }
+
+        if (!isLiveMode) {
+            fetchAndDisplayTrail();
+        }
+        saveUIState();
+    });
+}
+
+/**
  * Initialize all event listeners.
  */
 function initEventListeners(): void {
@@ -2459,7 +2587,7 @@ function initEventListeners(): void {
         });
     }
 
-    // Time range selector
+    // Time range selector (legacy, kept for backward compat)
     const timeRangeSelector = document.getElementById('time-range-selector') as HTMLSelectElement | null;
     if (timeRangeSelector) {
         timeRangeSelector.addEventListener('change', (e: Event) => {
@@ -2481,6 +2609,26 @@ function initEventListeners(): void {
             }
 
             // Save UI state
+            saveUIState();
+        });
+    }
+
+    // Historic date picker
+    const historicDateInput = document.getElementById('historic-date') as HTMLInputElement | null;
+    if (historicDateInput) {
+        historicDateInput.addEventListener('change', (e: Event) => {
+            historicDate = (e.target as HTMLInputElement).value;
+            needsFitBounds = true;
+
+            // Update activity title
+            const activityTitle = document.getElementById('activity-title');
+            if (activityTitle) {
+                activityTitle.textContent = `📅 Historic Trail - ${getHistoricRangeText()}`;
+            }
+
+            if (!isLiveMode) {
+                fetchAndDisplayTrail();
+            }
             saveUIState();
         });
     }

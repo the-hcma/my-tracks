@@ -75,15 +75,25 @@ Implementing embedded MQTT broker for OwnTracks bidirectional communication.
    - `--mqtt-host`, `--mqtt-port`, `--mqtt-user`, `--mqtt-password` options
    - 38 new tests in `test_generate_tail.py`
 
-6. **LWT handling** ← NEXT
-   - Detect device offline via Last Will messages
-   - Update device status in database
+6. ~~**LWT handling**~~ ✅ (PR #128)
+   - Added `is_online` field to Device model
+   - `save_lwt_to_db()` marks device offline, stores LWT payload
+   - `save_location_to_db()` marks device online when location received
+   - Real-time WebSocket broadcast of device status changes
+   - Admin UI shows online/offline status with filtering
 
-7. **Transition events**
+7. **Historic view date & time picker** ← NEXT
+   - Replace time range `<select>` with date picker + dual-handle time slider
+   - Date picker (`<input type="date">`) to select any past day (default: today)
+   - noUiSlider dual-handle range (0:00–24:00) to select time window within day
+   - Live time labels update as handles are dragged
+   - API already supports `start_date` + `end_date` (no backend changes needed)
+
+8. **Transition events**
    - Handle region enter/exit events
    - Store transition history
 
-8. **Waypoints sync**
+9. **Waypoints sync**
    - Connect waypoint storage to command API
    - Allow UI to send waypoints to devices
 
@@ -101,8 +111,8 @@ my_tracks/mqtt/
 
 ## Test Coverage
 
-- 299 tests passing
-- 90.66% code coverage
+- 310 tests passing
+- 90.67% code coverage
 - All pyright checks pass
 
 ## Technical Notes

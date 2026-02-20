@@ -157,9 +157,12 @@ class LocationViewSet(viewsets.ModelViewSet):
 
         Query parameters:
         - device: Filter by device ID
+        - start_time: Unix timestamp (takes precedence over start_date)
         - start_date: ISO 8601 datetime (e.g., 2024-01-01T00:00:00Z)
+        - end_time: Unix timestamp (takes precedence over end_date)
         - end_date: ISO 8601 datetime
         - limit: Maximum number of results
+        - resolution: Minimum seconds between waypoints (0 = all points)
 
         Args:
             request: HTTP request with query parameters
@@ -212,7 +215,21 @@ class LocationViewSet(viewsets.ModelViewSet):
                 )
 
         end_date = request.query_params.get('end_date')
-        if end_date:
+        end_time = request.query_params.get('end_time')  # Unix timestamp
+
+        if end_time:
+            try:
+                end_timestamp = int(end_time)
+                end_dt = datetime.fromtimestamp(end_timestamp, tz=UTC)
+                queryset = queryset.filter(timestamp__lte=end_dt)
+            except (ValueError, OSError) as e:
+                return Response(
+                    {
+                        'error': f"Expected Unix timestamp for end_time, got invalid value: {e}"
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        elif end_date:
             try:
                 end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
                 queryset = queryset.filter(timestamp__lte=end_dt)

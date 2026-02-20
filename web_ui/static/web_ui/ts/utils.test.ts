@@ -10,6 +10,9 @@ import {
     haversineDistance,
     debounce,
     parseNumeric,
+    formatMinutesAsTime,
+    getTodayDateString,
+    dateAndMinutesToTimestamps,
     LocationData,
 } from './utils';
 
@@ -305,5 +308,77 @@ describe('parseNumeric', () => {
     it('returns NaN for non-numeric strings', () => {
         expect(parseNumeric('not a number')).toBeNaN();
         expect(parseNumeric('')).toBeNaN();
+    });
+});
+
+describe('formatMinutesAsTime', () => {
+    it('formats midnight as 00:00', () => {
+        expect(formatMinutesAsTime(0)).toBe('00:00');
+    });
+
+    it('formats end of day as 23:59', () => {
+        expect(formatMinutesAsTime(1439)).toBe('23:59');
+    });
+
+    it('formats morning time', () => {
+        expect(formatMinutesAsTime(510)).toBe('08:30');
+    });
+
+    it('formats afternoon time', () => {
+        expect(formatMinutesAsTime(1050)).toBe('17:30');
+    });
+
+    it('pads single-digit hours and minutes', () => {
+        expect(formatMinutesAsTime(65)).toBe('01:05');
+    });
+
+    it('handles 15-minute increments', () => {
+        expect(formatMinutesAsTime(15)).toBe('00:15');
+        expect(formatMinutesAsTime(45)).toBe('00:45');
+        expect(formatMinutesAsTime(720)).toBe('12:00');
+    });
+});
+
+describe('getTodayDateString', () => {
+    it('returns a YYYY-MM-DD formatted string', () => {
+        const result = getTodayDateString();
+        expect(result).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    });
+
+    it('matches today\'s date', () => {
+        const now = new Date();
+        const expected = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+        expect(getTodayDateString()).toBe(expected);
+    });
+});
+
+describe('dateAndMinutesToTimestamps', () => {
+    it('returns start and end timestamps for a full day', () => {
+        const [start, end] = dateAndMinutesToTimestamps('2026-02-20', 0, 1439);
+        // End should be 23:59:59 = 86399 seconds after start
+        expect(end - start).toBe(86399);
+    });
+
+    it('returns correct timestamps for a time window', () => {
+        const [start, end] = dateAndMinutesToTimestamps('2026-02-20', 480, 1020);
+        // 480 min = 8:00, 1020 min = 17:00:59 -> 9 hours + 59 seconds = 32459 seconds
+        expect(end - start).toBe(32459);
+    });
+
+    it('handles midnight to end of day', () => {
+        const [start, end] = dateAndMinutesToTimestamps('2026-01-15', 0, 1439);
+        const startDate = new Date(start * 1000);
+        expect(startDate.getFullYear()).toBe(2026);
+        expect(startDate.getMonth()).toBe(0); // January
+        expect(startDate.getDate()).toBe(15);
+        expect(startDate.getHours()).toBe(0);
+        expect(startDate.getMinutes()).toBe(0);
+        expect(end - start).toBe(86399);
+    });
+
+    it('returns same start with 59s offset when start equals end', () => {
+        const [start, end] = dateAndMinutesToTimestamps('2026-02-20', 720, 720);
+        // Both at minute 720 but end gets +59 seconds
+        expect(end - start).toBe(59);
     });
 });

@@ -446,6 +446,103 @@ class TestLocationAPI:
         results = response.data['results']
         assert_that(results, has_length(2))  # Should get last 2 locations within 2 hours
 
+    def test_filter_locations_by_end_time(
+        self,
+        api_client: APIClient,
+        sample_device: Device
+    ) -> None:
+        """Test filtering locations by end_time Unix timestamp."""
+        now = timezone.now()
+
+        # Create locations at different times
+        Location.objects.create(
+            device=sample_device,
+            latitude=Decimal('1.0'),
+            longitude=Decimal('1.0'),
+            timestamp=now - timedelta(hours=3)
+        )
+        Location.objects.create(
+            device=sample_device,
+            latitude=Decimal('2.0'),
+            longitude=Decimal('2.0'),
+            timestamp=now - timedelta(hours=1)
+        )
+        Location.objects.create(
+            device=sample_device,
+            latitude=Decimal('3.0'),
+            longitude=Decimal('3.0'),
+            timestamp=now
+        )
+
+        # Filter with end_time = 2 hours ago (should only get the oldest location)
+        end_time = int((now - timedelta(hours=2)).timestamp())
+        response = api_client.get(
+            '/api/locations/',
+            {'end_time': end_time, 'device': sample_device.device_id}
+        )
+
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        results = response.data['results']
+        assert_that(results, has_length(1))
+
+    def test_filter_locations_by_start_and_end_time(
+        self,
+        api_client: APIClient,
+        sample_device: Device
+    ) -> None:
+        """Test filtering locations by both start_time and end_time."""
+        now = timezone.now()
+
+        # Create locations at different times
+        Location.objects.create(
+            device=sample_device,
+            latitude=Decimal('1.0'),
+            longitude=Decimal('1.0'),
+            timestamp=now - timedelta(hours=4)
+        )
+        Location.objects.create(
+            device=sample_device,
+            latitude=Decimal('2.0'),
+            longitude=Decimal('2.0'),
+            timestamp=now - timedelta(hours=2)
+        )
+        Location.objects.create(
+            device=sample_device,
+            latitude=Decimal('3.0'),
+            longitude=Decimal('3.0'),
+            timestamp=now
+        )
+
+        # Filter window: 3 hours ago to 1 hour ago (should get middle location only)
+        start_time = int((now - timedelta(hours=3)).timestamp())
+        end_time = int((now - timedelta(hours=1)).timestamp())
+        response = api_client.get(
+            '/api/locations/',
+            {
+                'start_time': start_time,
+                'end_time': end_time,
+                'device': sample_device.device_id,
+            }
+        )
+
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        results = response.data['results']
+        assert_that(results, has_length(1))
+
+    def test_filter_locations_by_invalid_end_time(
+        self,
+        api_client: APIClient,
+        sample_device: Device
+    ) -> None:
+        """Test end_time with invalid value returns 400."""
+        response = api_client.get(
+            '/api/locations/',
+            {'end_time': 'not-a-number', 'device': sample_device.device_id}
+        )
+
+        assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
+        assert_that(response.data['error'], contains_string('end_time'))
+
 
 @pytest.mark.django_db
 class TestDeviceAPI:

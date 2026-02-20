@@ -176,3 +176,46 @@ export function debounce<T extends (...args: Parameters<T>) => void>(
 export function parseNumeric(value: string | number): number {
     return typeof value === 'number' ? value : parseFloat(value);
 }
+
+/**
+ * Format minutes since midnight as HH:MM.
+ * @param minutes - Minutes since midnight (0-1439)
+ * @returns Formatted time string like "08:30"
+ */
+export function formatMinutesAsTime(minutes: number): string {
+    const h = Math.floor(minutes / 60);
+    const m = Math.round(minutes % 60);
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+/**
+ * Get today's date as YYYY-MM-DD string.
+ * @returns Date string
+ */
+export function getTodayDateString(): string {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+/**
+ * Compute start and end Unix timestamps from a date string and minute offsets.
+ * @param dateStr - Date string in YYYY-MM-DD format
+ * @param startMinutes - Start time as minutes from midnight (0-1439)
+ * @param endMinutes - End time as minutes from midnight (0-1439)
+ * @returns [startTimestamp, endTimestamp] in seconds
+ */
+export function dateAndMinutesToTimestamps(
+    dateStr: string,
+    startMinutes: number,
+    endMinutes: number,
+): [number, number] {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const dayStart = new Date(year, month - 1, day);
+    const startTimestamp = dayStart.getTime() / 1000 + startMinutes * 60;
+    // Add 59 seconds to include the full last minute (e.g., 23:59 → 23:59:59)
+    const endTimestamp = dayStart.getTime() / 1000 + endMinutes * 60 + 59;
+    return [startTimestamp, endTimestamp];
+}

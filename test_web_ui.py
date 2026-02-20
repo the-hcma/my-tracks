@@ -31,6 +31,17 @@ class TestWebUIViews:
         assert_that(content, contains_string('<title>My Tracks - OwnTracks Backend</title>'))
         assert_that(content, contains_string('leaflet'))  # Map library
 
+    def test_home_view_contains_historic_controls(self) -> None:
+        """Test that the home view contains date picker and time slider controls."""
+        client = Client()
+        response = client.get('/')
+
+        content = response.content.decode('utf-8')
+        assert_that(content, contains_string('id="historic-controls"'))
+        assert_that(content, contains_string('id="historic-date"'))
+        assert_that(content, contains_string('id="time-slider"'))
+        assert_that(content, contains_string('id="time-slider-label"'))
+
     def test_home_view_no_cache_headers(self) -> None:
         """Test that the home view sets no-cache headers."""
         client = Client()
