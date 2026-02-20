@@ -27,7 +27,11 @@ SECRET_KEY: str = str(config('SECRET_KEY', default='django-insecure-change-me-in
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG: bool = config('DEBUG', default=True, cast=bool)
 
-ALLOWED_HOSTS: list[str] = ['*']
+ALLOWED_HOSTS: list[str] = [
+    host.strip()
+    for host in str(config('ALLOWED_HOSTS', default='localhost,127.0.0.1')).split(',')
+    if host.strip()
+]
 
 
 # Application definition
