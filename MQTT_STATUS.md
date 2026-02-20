@@ -1,6 +1,6 @@
 # MQTT Implementation Status
 
-**Last Updated**: February 19, 2026
+**Last Updated**: February 20, 2026
 
 ## Overview
 
@@ -68,12 +68,14 @@ Implementing embedded MQTT broker for OwnTracks bidirectional communication.
    - Uses signal names (TERM, KILL) instead of numbers
    - Applied to server PID, orphaned HTTP, and orphaned MQTT processes
 
-5. **Traffic generator MQTT support** ← NEXT
-   - Add `--mqtt` flag to traffic generator script
-   - Send location data via MQTT in addition to existing HTTP mode
-   - Use same OwnTracks message format as real devices
+5. ~~**Traffic generator MQTT support**~~ ✅ (PR #126)
+   - Added `--mqtt` flag to `generate-tail` traffic generator
+   - `MQTTTransport` class wrapping `amqtt.client.MQTTClient`
+   - Auto-detects MQTT port from server's runtime config
+   - `--mqtt-host`, `--mqtt-port`, `--mqtt-user`, `--mqtt-password` options
+   - 38 new tests in `test_generate_tail.py`
 
-6. **LWT handling**
+6. **LWT handling** ← NEXT
    - Detect device offline via Last Will messages
    - Update device status in database
 
@@ -99,8 +101,8 @@ my_tracks/mqtt/
 
 ## Test Coverage
 
-- 233 tests passing
-- 91% code coverage
+- 299 tests passing
+- 90.66% code coverage
 - All pyright checks pass
 
 ## Technical Notes

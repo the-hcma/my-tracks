@@ -72,3 +72,38 @@ class TestLocationConsumer:
 
         await communicator.disconnect()
         # If we get here without exceptions, disconnect worked
+
+    async def test_device_status_broadcast(self):
+        """Test that device status changes are broadcast to connected clients."""
+        communicator = WebsocketCommunicator(application, "/ws/locations/")
+        await communicator.connect()
+
+        # Consume welcome message first
+        welcome = await communicator.receive_json_from()
+        assert_that(welcome['type'], equal_to('welcome'))
+
+        # Simulate a device status change being broadcast
+        channel_layer = get_channel_layer()
+        assert_that(channel_layer, is_not(none()))
+        test_status = {
+            'device_id': 'user/phone',
+            'is_online': False,
+            'event': 'device_offline',
+            'disconnected_at': '2024-01-01T12:00:00+00:00',
+        }
+
+        await channel_layer.group_send(
+            "locations",
+            {
+                "type": "device_status",
+                "data": test_status
+            }
+        )
+
+        # Receive the message from WebSocket
+        response = await communicator.receive_json_from()
+
+        assert_that(response['type'], equal_to('device_status'))
+        assert_that(response['data'], equal_to(test_status))
+
+        await communicator.disconnect()

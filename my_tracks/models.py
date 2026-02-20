@@ -35,6 +35,10 @@ class Device(models.Model):
         auto_now=True,
         help_text="Last time location data was received from this device"
     )
+    is_online = models.BooleanField(
+        default=False,  # type: ignore[reportArgumentType]  # django-stubs issue
+        help_text="Whether the device is currently connected via MQTT"
+    )
 
     class Meta:
         ordering = ['-last_seen']

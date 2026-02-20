@@ -36,7 +36,8 @@ def save_location_to_db(location_data: dict[str, Any]) -> dict[str, Any] | None:
     Save location data to the database.
 
     This function creates a Location model instance from the parsed
-    OwnTracks message data.
+    OwnTracks message data. It also marks the device as online since
+    receiving a location implies the device is connected.
 
     Args:
         location_data: Parsed location data from OwnTracksMessageHandler
@@ -55,6 +56,10 @@ def save_location_to_db(location_data: dict[str, Any]) -> dict[str, Any] | None:
             device_id=device_id,
             defaults={"name": f"Device {device_id}"},
         )
+
+        # Mark device as online (receiving location = device is connected)
+        if not device.is_online:
+            Device.objects.filter(pk=device.pk).update(is_online=True)
 
         # Create location from parsed data
         location = Location.objects.create(
@@ -77,6 +82,59 @@ def save_location_to_db(location_data: dict[str, Any]) -> dict[str, Any] | None:
 
     except Exception:
         logger.exception("Failed to save location from MQTT message")
+        return None
+
+
+def save_lwt_to_db(lwt_data: dict[str, Any]) -> dict[str, Any] | None:
+    """
+    Process LWT data: mark device as offline and store the LWT message.
+
+    Args:
+        lwt_data: Parsed LWT data from OwnTracksMessageHandler
+
+    Returns:
+        Dictionary with device status info for WebSocket broadcast,
+        or None on failure
+    """
+    from my_tracks.models import Device, OwnTracksMessage
+
+    try:
+        device_id = lwt_data["device"]
+
+        # Find the device
+        try:
+            device = Device.objects.get(device_id=device_id)
+        except Device.DoesNotExist:
+            logger.warning("LWT received for unknown device: %s", device_id)
+            return None
+
+        # Mark device as offline
+        Device.objects.filter(pk=device.pk).update(is_online=False)
+
+        # Store the LWT message for audit
+        OwnTracksMessage.objects.create(
+            device=device,
+            message_type="lwt",
+            payload={
+                "event": lwt_data["event"],
+                "connected_at": (
+                    lwt_data["connected_at"].isoformat()
+                    if lwt_data.get("connected_at")
+                    else None
+                ),
+                "disconnected_at": lwt_data["disconnected_at"].isoformat(),
+            },
+        )
+
+        return {
+            "device_id": device_id,
+            "is_online": False,
+            "event": "device_offline",
+            "disconnected_at": lwt_data["disconnected_at"].isoformat(),
+        }
+
+    except Exception:
+        logger.exception("Failed to process LWT for device")
         return None
 
 
@@ -133,13 +191,26 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
         """
         Handle a parsed LWT (Last Will and Testament) message.
 
-        LWT messages indicate a device has gone offline.
+        LWT messages indicate a device has gone offline. This marks the
+        device as offline in the database and broadcasts the status change.
         """
         logger.info(
             "Device offline via MQTT LWT: device=%s",
             lwt_data.get("device"),
         )
-        # TODO: Update device status in database when device model supports it
+
+        # Save LWT to database and mark device offline
+        status_data = await sync_to_async(save_lwt_to_db)(lwt_data)
+        if status_data is None:
+            return
+
+        logger.info(
+            "Device marked offline: device=%s",
+            status_data.get("device_id"),
+        )
+
+        # Broadcast device status change via WebSocket
+        await self._broadcast_device_status(status_data)
 
     async def _handle_transition(self, transition_data: dict[str, Any]) -> None:
         """
@@ -181,6 +252,34 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
             )
         except Exception:
             logger.exception("WebSocket broadcast failed for MQTT location")
+
+    async def _broadcast_device_status(self, status_data: dict[str, Any]) -> None:
+        """
+        Broadcast a device status change to WebSocket clients.
+
+        Args:
+            status_data: Device status data including device_id and is_online
+        """
+        channel_layer = get_channel_layer_lazy()
+        if channel_layer is None:
+            logger.warning("WebSocket broadcast skipped: no channel layer configured")
+            return
+
+        try:
+            await channel_layer.group_send(
+                "locations",
+                {
+                    "type": "device_status",
+                    "data": status_data,
+                },
+            )
+            logger.debug(
+                "WebSocket broadcast sent for device status: device=%s, online=%s",
+                status_data.get("device_id"),
+                status_data.get("is_online"),
+            )
+        except Exception:
+            logger.exception("WebSocket broadcast failed for device status")
 
     async def on_broker_message_received(
         self,
