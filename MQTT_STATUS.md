@@ -1,6 +1,6 @@
 # MQTT Implementation Status
 
-**Last Updated**: February 17, 2026
+**Last Updated**: February 19, 2026
 
 ## Overview
 
@@ -63,12 +63,12 @@ Implementing embedded MQTT broker for OwnTracks bidirectional communication.
    - Broadcast to WebSocket clients via channel layer
    - Created `OwnTracksPlugin` with `on_broker_message_received` hook
 
-4. **Graceful process termination** ← NEXT
-   - Use SIGTERM first, wait a few seconds, then SIGKILL as fallback
-   - Use signal names (TERM, KILL) instead of numbers (-9)
-   - Apply to `my-tracks-server` script process cleanup
+4. ~~**Graceful process termination**~~ ✅
+   - `graceful_kill()` function: SIGTERM first, configurable wait, SIGKILL fallback
+   - Uses signal names (TERM, KILL) instead of numbers
+   - Applied to server PID, orphaned HTTP, and orphaned MQTT processes
 
-5. **Traffic generator MQTT support**
+5. **Traffic generator MQTT support** ← NEXT
    - Add `--mqtt` flag to traffic generator script
    - Send location data via MQTT in addition to existing HTTP mode
    - Use same OwnTracks message format as real devices
