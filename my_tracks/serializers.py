@@ -23,8 +23,8 @@ class DeviceSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Device
-        fields = ['id', 'device_id', 'name', 'created_at', 'last_seen', 'location_count']
-        read_only_fields = ['id', 'created_at', 'last_seen']
+        fields = ['id', 'device_id', 'name', 'created_at', 'last_seen', 'is_online', 'location_count']
+        read_only_fields = ['id', 'created_at', 'last_seen', 'is_online']
 
     def get_location_count(self, obj: Device) -> int:
         """Get the total number of locations for this device."""

@@ -11,8 +11,9 @@ from django.test import TestCase
 from hamcrest import (assert_that, equal_to, has_entries, has_length, is_,
                       is_not, none)
 
-from my_tracks.models import Location
-from my_tracks.mqtt.plugin import OwnTracksPlugin, save_location_to_db
+from my_tracks.models import Device, Location, OwnTracksMessage
+from my_tracks.mqtt.plugin import (OwnTracksPlugin, save_location_to_db,
+                                   save_lwt_to_db)
 
 # Allow sync DB access in async tests for testing purposes
 os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
@@ -79,6 +80,163 @@ class TestSaveLocationToDb(TestCase):
 
         result = save_location_to_db(location_data)
         assert_that(result, is_(none()))
+
+    def test_save_location_marks_device_online(self) -> None:
+        """Should mark device as online when a location is saved."""
+        # Create device that's offline
+        device = Device.objects.create(
+            device_id="user/offlinedev",
+            name="Offline Device",
+            is_online=False,
+        )
+
+        location_data = {
+            "device": "user/offlinedev",
+            "latitude": 40.7128,
+            "longitude": -74.006,
+            "timestamp": datetime(2024, 6, 15, 9, 30, 0, tzinfo=UTC),
+        }
+
+        result = save_location_to_db(location_data)
+        assert_that(result, is_not(none()))
+
+        # Device should now be online
+        device.refresh_from_db()
+        assert_that(device.is_online, equal_to(True))
+
+    def test_save_location_device_already_online(self) -> None:
+        """Should not error if device is already online."""
+        Device.objects.create(
+            device_id="user/onlinedev",
+            name="Online Device",
+            is_online=True,
+        )
+
+        location_data = {
+            "device": "user/onlinedev",
+            "latitude": 40.7128,
+            "longitude": -74.006,
+            "timestamp": datetime(2024, 6, 15, 9, 30, 0, tzinfo=UTC),
+        }
+
+        result = save_location_to_db(location_data)
+        assert_that(result, is_not(none()))
+
+        device = Device.objects.get(device_id="user/onlinedev")
+        assert_that(device.is_online, equal_to(True))
+
+
+class TestSaveLwtToDb(TestCase):
+    """Tests for save_lwt_to_db function."""
+
+    def test_save_lwt_marks_device_offline(self) -> None:
+        """Should mark device as offline on LWT."""
+        device = Device.objects.create(
+            device_id="user/phone",
+            name="Phone",
+            is_online=True,
+        )
+
+        lwt_data = {
+            "device": "user/phone",
+            "event": "offline",
+            "connected_at": datetime(2024, 1, 1, 10, 0, 0, tzinfo=UTC),
+            "disconnected_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+        }
+
+        result = save_lwt_to_db(lwt_data)
+
+        assert_that(result, is_not(none()))
+        assert result is not None
+        assert_that(result, has_entries({
+            "device_id": "user/phone",
+            "is_online": False,
+            "event": "device_offline",
+        }))
+
+        # Verify device is offline
+        device.refresh_from_db()
+        assert_that(device.is_online, equal_to(False))
+
+    def test_save_lwt_creates_message_record(self) -> None:
+        """Should store the LWT as an OwnTracksMessage."""
+        Device.objects.create(
+            device_id="user/tablet",
+            name="Tablet",
+            is_online=True,
+        )
+
+        lwt_data = {
+            "device": "user/tablet",
+            "event": "offline",
+            "connected_at": datetime(2024, 1, 1, 10, 0, 0, tzinfo=UTC),
+            "disconnected_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+        }
+
+        save_lwt_to_db(lwt_data)
+
+        # Verify OwnTracksMessage was created
+        msg = OwnTracksMessage.objects.get(
+            device__device_id="user/tablet",
+            message_type="lwt",
+        )
+        assert_that(msg.payload["event"], equal_to("offline"))
+        assert_that(msg.payload["connected_at"], equal_to("2024-01-01T10:00:00+00:00"))
+        assert_that(msg.payload["disconnected_at"], equal_to("2024-01-01T12:00:00+00:00"))
+
+    def test_save_lwt_without_connected_at(self) -> None:
+        """Should handle LWT without connected_at timestamp."""
+        Device.objects.create(
+            device_id="user/dev2",
+            name="Dev 2",
+            is_online=True,
+        )
+
+        lwt_data = {
+            "device": "user/dev2",
+            "event": "offline",
+            "connected_at": None,
+            "disconnected_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+        }
+
+        result = save_lwt_to_db(lwt_data)
+
+        assert_that(result, is_not(none()))
+        msg = OwnTracksMessage.objects.get(device__device_id="user/dev2")
+        assert_that(msg.payload["connected_at"], is_(none()))
+
+    def test_save_lwt_unknown_device(self) -> None:
+        """Should return None for unknown device."""
+        lwt_data = {
+            "device": "unknown/device",
+            "event": "offline",
+            "connected_at": None,
+            "disconnected_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+        }
+
+        result = save_lwt_to_db(lwt_data)
+        assert_that(result, is_(none()))
+
+    def test_save_lwt_already_offline_device(self) -> None:
+        """Should still process LWT even if device already offline."""
+        Device.objects.create(
+            device_id="user/alreadyoff",
+            name="Already Off",
+            is_online=False,
+        )
+
+        lwt_data = {
+            "device": "user/alreadyoff",
+            "event": "offline",
+            "connected_at": None,
+            "disconnected_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+        }
+
+        result = save_lwt_to_db(lwt_data)
+        assert_that(result, is_not(none()))
+
+        device = Device.objects.get(device_id="user/alreadyoff")
+        assert_that(device.is_online, equal_to(False))
 
 
 @pytest.fixture
@@ -198,7 +356,15 @@ class TestOwnTracksPluginMessageHandling:
         self,
         plugin: OwnTracksPlugin,
     ) -> None:
-        """Should handle LWT (offline) messages."""
+        """Should handle LWT messages and mark device offline."""
+        # Create an online device first
+        from asgiref.sync import sync_to_async
+        device = await sync_to_async(Device.objects.create)(
+            device_id="user/device",
+            name="Test Device",
+            is_online=True,
+        )
+
         message = MagicMock()
         message.topic = "owntracks/user/device"
         message.data = json.dumps({
@@ -206,11 +372,32 @@ class TestOwnTracksPluginMessageHandling:
             "tst": 1704067200,
         }).encode()
 
-        # Should not raise - LWT handling is logged but doesn't save to DB yet
-        await plugin.on_broker_message_received(
-            client_id="test-client",
-            message=message,
-        )
+        with patch.object(plugin, "_broadcast_device_status", new_callable=AsyncMock) as broadcast_mock:
+            await plugin.on_broker_message_received(
+                client_id="test-client",
+                message=message,
+            )
+
+        # Device should be marked offline
+        await sync_to_async(device.refresh_from_db)()
+        assert_that(device.is_online, equal_to(False))
+
+        # Should have broadcast device status
+        broadcast_mock.assert_called_once()
+        call_args = broadcast_mock.call_args[0][0]
+        assert_that(call_args, has_entries(
+            device_id="user/device",
+            is_online=False,
+            event="device_offline",
+        ))
+
+        # OwnTracksMessage should be created
+        msg_count = await sync_to_async(
+            OwnTracksMessage.objects.filter(
+                device=device, message_type="lwt"
+            ).count
+        )()
+        assert_that(msg_count, equal_to(1))
 
     @pytest.mark.asyncio
     async def test_handles_transition_message(
@@ -345,3 +532,67 @@ class TestBroadcastLocation:
         with patch("my_tracks.mqtt.plugin.get_channel_layer_lazy", return_value=mock_layer):
             # Should not raise
             await plugin._broadcast_location(location_data)
+
+
+@pytest.mark.django_db
+class TestBroadcastDeviceStatus:
+    """Tests for device status WebSocket broadcast functionality."""
+
+    @pytest.fixture
+    def plugin(self, mock_broker_context: MagicMock) -> OwnTracksPlugin:
+        """Create plugin instance for testing."""
+        return OwnTracksPlugin(mock_broker_context)
+
+    @pytest.mark.asyncio
+    async def test_broadcast_device_offline(
+        self,
+        plugin: OwnTracksPlugin,
+    ) -> None:
+        """Should broadcast device offline status to channel layer."""
+        mock_layer = AsyncMock()
+        mock_layer.group_send = AsyncMock()
+
+        status_data = {
+            "device_id": "user/phone",
+            "is_online": False,
+            "event": "device_offline",
+            "disconnected_at": "2024-01-01T12:00:00+00:00",
+        }
+
+        with patch("my_tracks.mqtt.plugin.get_channel_layer_lazy", return_value=mock_layer):
+            await plugin._broadcast_device_status(status_data)
+
+        mock_layer.group_send.assert_called_once()
+        call_args = mock_layer.group_send.call_args
+        assert_that(call_args[0][0], equal_to("locations"))
+        assert_that(call_args[0][1], has_entries(
+            type="device_status",
+            data=status_data,
+        ))
+
+    @pytest.mark.asyncio
+    async def test_broadcast_device_status_no_channel_layer(
+        self,
+        plugin: OwnTracksPlugin,
+    ) -> None:
+        """Should handle missing channel layer gracefully."""
+        status_data = {"device_id": "user/phone", "is_online": False}
+
+        with patch("my_tracks.mqtt.plugin.get_channel_layer_lazy", return_value=None):
+            # Should not raise
+            await plugin._broadcast_device_status(status_data)
+
+    @pytest.mark.asyncio
+    async def test_broadcast_device_status_exception(
+        self,
+        plugin: OwnTracksPlugin,
+    ) -> None:
+        """Should handle broadcast exceptions gracefully."""
+        mock_layer = AsyncMock()
+        mock_layer.group_send = AsyncMock(side_effect=Exception("Connection broken"))
+
+        status_data = {"device_id": "user/phone", "is_online": False}
+
+        with patch("my_tracks.mqtt.plugin.get_channel_layer_lazy", return_value=mock_layer):
+            # Should not raise
+            await plugin._broadcast_device_status(status_data)

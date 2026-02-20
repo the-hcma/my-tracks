@@ -99,3 +99,24 @@ class LocationConsumer(AsyncWebsocketConsumer):
             'type': 'location',
             'data': event['data']
         }))
+
+    async def device_status(self, event: dict[str, Any]) -> None:
+        """
+        Receive device status change from channel layer and send to WebSocket.
+
+        Args:
+            event: Dictionary containing device status data (online/offline)
+        """
+        device_id = event.get('data', {}).get('device_id')
+        is_online = event.get('data', {}).get('is_online')
+        client_addr = self.get_client_address()
+        logger.debug(
+            "Sending device status to WebSocket client at %s: device=%s, online=%s",
+            client_addr,
+            device_id,
+            is_online,
+        )
+        await self.send(text_data=json.dumps({
+            'type': 'device_status',
+            'data': event['data']
+        }))

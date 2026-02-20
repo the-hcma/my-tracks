@@ -9,8 +9,8 @@ from .models import Device, Location, OwnTracksMessage
 class DeviceAdmin(admin.ModelAdmin):
     """Admin interface for Device model."""
 
-    list_display: tuple[str, ...] = ('device_id', 'name', 'last_seen', 'created_at')
-    list_filter: tuple[str, ...] = ('created_at', 'last_seen')
+    list_display: tuple[str, ...] = ('device_id', 'name', 'is_online', 'last_seen', 'created_at')
+    list_filter: tuple[str, ...] = ('is_online', 'created_at', 'last_seen')
     search_fields: tuple[str, ...] = ('device_id', 'name')
     readonly_fields: tuple[str, ...] = ('created_at', 'last_seen')
 
