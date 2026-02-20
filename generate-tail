@@ -5,6 +5,8 @@ Tail device generator for OwnTracks backend server.
 Fetches the last hour of data from a source device and creates a "tail" device
 that follows with similar movements but shifted 2-5 km in a specified direction.
 
+Supports both HTTP and MQTT transport modes.
+
 Usage:
     ./generate-tail [OPTIONS] [DEVICE]
 
@@ -14,6 +16,8 @@ Examples:
     ./generate-tail --direction west             # Shift west instead of east
     ./generate-tail --direction north -o 5       # 5 km north
     ./generate-tail --offset-km 3.5 --dry-run    # Preview with 3.5 km offset
+    ./generate-tail --mqtt                        # Send via MQTT instead of HTTP
+    ./generate-tail --mqtt --mqtt-port 1883       # MQTT with explicit port
 """
 
 # === Auto-activate virtual environment ===
@@ -31,6 +35,7 @@ def _activate_venv() -> None:
 _activate_venv()
 # === End auto-activate ===
 
+import asyncio
 import json
 import math
 import random
@@ -39,14 +44,75 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from enum import Enum
+from pathlib import Path
 from typing import Annotated, Any, Optional
 
 import typer
+from amqtt.client import MQTTClient
+from amqtt.mqtt.constants import QOS_1
 
 app = typer.Typer(
     help="Generate a tail device that mirrors another device's movements",
     add_completion=False,
 )
+
+# Runtime config file path (written by my-tracks-server)
+RUNTIME_CONFIG = Path(__file__).resolve().parent / "config" / ".runtime-config.json"
+
+
+def read_mqtt_port_from_config() -> int | None:
+    """Read the actual MQTT port from runtime config written by my-tracks-server."""
+    if not RUNTIME_CONFIG.exists():
+        return None
+    try:
+        with RUNTIME_CONFIG.open() as f:
+            config = json.load(f)
+        # Prefer actual_mqtt_port (set after OS allocation), fall back to mqtt_port
+        port = config.get("actual_mqtt_port", config.get("mqtt_port"))
+        if port is not None and int(port) >= 0:
+            return int(port)
+        return None
+    except (json.JSONDecodeError, OSError, ValueError):
+        return None
+
+
+class MQTTTransport:
+    """MQTT client wrapper for publishing OwnTracks messages."""
+
+    def __init__(self, host: str, port: int) -> None:
+        self.host = host
+        self.port = port
+        self.client = MQTTClient(client_id="generate-tail")
+        self._connected = False
+
+    async def connect(self, username: str | None = None, password: str | None = None) -> None:
+        """Connect to the MQTT broker."""
+        # Build connection URI
+        if username and password:
+            uri = f"mqtt://{username}:{password}@{self.host}:{self.port}/"
+        else:
+            uri = f"mqtt://{self.host}:{self.port}/"
+
+        await self.client.connect(uri)
+        self._connected = True
+
+    async def publish(self, topic: str, payload: dict[str, Any]) -> bool:
+        """Publish an OwnTracks message to a topic."""
+        if not self._connected:
+            return False
+        try:
+            data = json.dumps(payload).encode("utf-8")
+            await self.client.publish(topic, data, qos=QOS_1)
+            return True
+        except Exception as e:
+            typer.echo(f"❌ MQTT publish failed: {e}", err=True)
+            return False
+
+    async def disconnect(self) -> None:
+        """Disconnect from the MQTT broker."""
+        if self._connected:
+            await self.client.disconnect()
+            self._connected = False
 
 
 def get_available_devices(server_url: str) -> list[str]:
@@ -181,8 +247,8 @@ def create_tail_location(
     }
 
 
-def send_location(server_url: str, location: dict[str, Any]) -> bool:
-    """Send a location to the server via OwnTracks API."""
+def send_location_http(server_url: str, location: dict[str, Any]) -> bool:
+    """Send a location to the server via HTTP OwnTracks API."""
     url = f"{server_url}/api/locations/"
 
     try:
@@ -247,12 +313,35 @@ def main(
         bool,
         typer.Option("--dry-run", help="Show what would be sent without actually sending"),
     ] = False,
+    mqtt: Annotated[
+        bool,
+        typer.Option("--mqtt", help="Send via MQTT instead of HTTP"),
+    ] = False,
+    mqtt_host: Annotated[
+        str,
+        typer.Option("--mqtt-host", help="MQTT broker host (default: localhost)"),
+    ] = "localhost",
+    mqtt_port: Annotated[
+        Optional[int],
+        typer.Option("--mqtt-port", help="MQTT broker port (auto-detected from server config if not set)"),
+    ] = None,
+    mqtt_user: Annotated[
+        Optional[str],
+        typer.Option("--mqtt-user", help="MQTT username for authentication"),
+    ] = None,
+    mqtt_password: Annotated[
+        Optional[str],
+        typer.Option("--mqtt-password", help="MQTT password for authentication"),
+    ] = None,
 ) -> None:
     """
     Generate a tail device that mirrors another device's movements.
 
     The tail device follows the same path but shifted 2-5 km in the specified
     direction (default: east), useful for testing multi-device scenarios.
+
+    Use --mqtt to send locations via MQTT instead of HTTP. The MQTT port is
+    auto-detected from the running server's config, or can be set explicitly.
     """
     # Handle positional device argument (overrides --source if provided)
     if device:
@@ -262,15 +351,32 @@ def main(
     if tail is None:
         tail = f"{source}-tail"
 
+    # Resolve MQTT port if in MQTT mode
+    transport_label = "HTTP"
+    if mqtt:
+        transport_label = "MQTT"
+        if mqtt_port is None:
+            detected_port = read_mqtt_port_from_config()
+            if detected_port is not None:
+                mqtt_port = detected_port
+                typer.echo(f"🔍 Auto-detected MQTT port: {mqtt_port}")
+            else:
+                mqtt_port = 1883
+                typer.echo(f"ℹ️  No runtime config found, using default MQTT port: {mqtt_port}")
+
     typer.echo("🚀 Tail Device Generator")
     typer.echo(f"   Source device: {source}")
     typer.echo(f"   Tail device:   {tail}")
     typer.echo(f"   Offset:        {offset_km} km {direction.value}")
-    typer.echo(f"   Server:        {server}")
+    typer.echo(f"   Transport:     {transport_label}")
+    if mqtt:
+        typer.echo(f"   MQTT broker:   {mqtt_host}:{mqtt_port}")
+    else:
+        typer.echo(f"   Server:        {server}")
     typer.echo(f"   History:       {hours} hour(s)")
     typer.echo()
 
-    # Check server connectivity first
+    # Check server connectivity first (needed for fetching source locations)
     if not check_server_connectivity(server):
         typer.echo(f"❌ Cannot connect to server at {server}", err=True)
         typer.echo("   Make sure the server is running: ./my-tracks-server", err=True)
@@ -299,30 +405,47 @@ def main(
 
     typer.echo()
     mode_prefix = "[DRY RUN] Would send" if dry_run else "Sending"
-    typer.echo(f"📤 {mode_prefix} {len(locations)} tail locations...")
+    typer.echo(f"📤 {mode_prefix} {len(locations)} tail locations via {transport_label}...")
     typer.echo()
 
+    if mqtt and not dry_run:
+        assert mqtt_port is not None
+        asyncio.run(_send_via_mqtt(
+            locations, tail, offset_km, direction, source,
+            mqtt_host, mqtt_port, mqtt_user, mqtt_password, delay,
+        ))
+    else:
+        _send_via_http(
+            locations, tail, offset_km, direction, source,
+            server, delay, dry_run,
+        )
+
+
+def _send_via_http(
+    locations: list[dict[str, Any]],
+    tail: str,
+    offset_km: float,
+    direction: Direction,
+    source: str,
+    server_url: str,
+    delay: float,
+    dry_run: bool,
+) -> None:
+    """Send tail locations via HTTP."""
     sent = 0
     failed = 0
 
     for i, loc in enumerate(locations, 1):
         tail_loc = create_tail_location(loc, tail, offset_km, direction)
-        orig_lat = float(loc.get("latitude", 0))
-        orig_lon = float(loc.get("longitude", 0))
-
-        # Common output for both modes
-        typer.echo(f"  [{i}/{len(locations)}] tst={tail_loc['tst']}")
-        typer.echo(f"      Timestamp:    {format_time_full(tail_loc['tst'])}")
-        typer.echo(f"      Original ({source}): ({orig_lat:.6f}, {orig_lon:.6f})")
-        typer.echo(f"      Shifted ({tail}):  ({tail_loc['lat']:.6f}, {tail_loc['lon']:.6f})")
+        _print_location_info(i, len(locations), loc, tail_loc, source, tail)
 
         if dry_run:
             typer.echo(f"      Payload: {json.dumps(tail_loc)}")
             typer.echo("      Status:  [DRY RUN - not sent]")
         else:
-            if send_location(server, tail_loc):
+            if send_location_http(server_url, tail_loc):
                 sent += 1
-                typer.echo("      Status:  ✓ Sent successfully")
+                typer.echo("      Status:  ✓ Sent via HTTP")
             else:
                 failed += 1
                 typer.echo("      Status:  ✗ Failed to send")
@@ -331,9 +454,84 @@ def main(
                 time.sleep(delay)
         typer.echo()
 
+    _print_summary(len(locations), sent, failed, dry_run)
+
+
+async def _send_via_mqtt(
+    locations: list[dict[str, Any]],
+    tail: str,
+    offset_km: float,
+    direction: Direction,
+    source: str,
+    mqtt_host: str,
+    mqtt_port: int,
+    mqtt_user: str | None,
+    mqtt_password: str | None,
+    delay: float,
+) -> None:
+    """Send tail locations via MQTT."""
+    transport = MQTTTransport(mqtt_host, mqtt_port)
+
+    try:
+        typer.echo(f"🔌 Connecting to MQTT broker at {mqtt_host}:{mqtt_port}...")
+        await transport.connect(mqtt_user, mqtt_password)
+        typer.echo("✅ Connected to MQTT broker")
+        typer.echo()
+    except Exception as e:
+        typer.echo(f"❌ Failed to connect to MQTT broker: {e}", err=True)
+        typer.echo("   Make sure the server is running with MQTT enabled: ./my-tracks-server", err=True)
+        raise typer.Exit(code=1)
+
+    sent = 0
+    failed = 0
+
+    try:
+        for i, loc in enumerate(locations, 1):
+            tail_loc = create_tail_location(loc, tail, offset_km, direction)
+            topic = tail_loc.pop("topic", f"owntracks/user/{tail}")
+            _print_location_info(i, len(locations), loc, tail_loc, source, tail)
+            typer.echo(f"      Topic:    {topic}")
+
+            if await transport.publish(topic, tail_loc):
+                sent += 1
+                typer.echo("      Status:  ✓ Published via MQTT")
+            else:
+                failed += 1
+                typer.echo("      Status:  ✗ Failed to publish")
+
+            if delay > 0 and i < len(locations):
+                await asyncio.sleep(delay)
+            typer.echo()
+    finally:
+        await transport.disconnect()
+        typer.echo("🔌 Disconnected from MQTT broker")
+
+    _print_summary(len(locations), sent, failed, dry_run=False)
+
+
+def _print_location_info(
+    index: int,
+    total: int,
+    original: dict[str, Any],
+    tail_loc: dict[str, Any],
+    source: str,
+    tail: str,
+) -> None:
+    """Print location details for a single point."""
+    orig_lat = float(original.get("latitude", 0))
+    orig_lon = float(original.get("longitude", 0))
+
+    typer.echo(f"  [{index}/{total}] tst={tail_loc['tst']}")
+    typer.echo(f"      Timestamp:    {format_time_full(tail_loc['tst'])}")
+    typer.echo(f"      Original ({source}): ({orig_lat:.6f}, {orig_lon:.6f})")
+    typer.echo(f"      Shifted ({tail}):  ({tail_loc['lat']:.6f}, {tail_loc['lon']:.6f})")
+
+
+def _print_summary(total: int, sent: int, failed: int, dry_run: bool) -> None:
+    """Print final summary."""
     typer.echo()
     if dry_run:
-        typer.echo(f"✅ Dry run complete. Would have sent {len(locations)} locations.")
+        typer.echo(f"✅ Dry run complete. Would have sent {total} locations.")
     else:
         typer.echo(f"✅ Complete. Sent: {sent}, Failed: {failed}")
 
