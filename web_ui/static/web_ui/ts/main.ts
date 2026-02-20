@@ -5,6 +5,7 @@
  */
 
 import * as L from 'leaflet';
+import { getPreferredTheme, setTheme, toggleTheme } from './theme';
 
 // Configuration passed from Django template
 interface MyTracksConfig {
@@ -409,44 +410,6 @@ function completeStateRestore(): void {
     }
 
     pendingRestoreState = null;
-}
-
-// ============================================================================
-// Theme Management
-// ============================================================================
-
-/**
- * Get the user's preferred theme.
- * @returns 'dark' or 'light'
- */
-function getPreferredTheme(): string {
-    const savedTheme = localStorage.getItem('theme');
-    if (savedTheme) {
-        return savedTheme;
-    }
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-}
-
-/**
- * Set the application theme.
- * @param theme - 'dark' or 'light'
- */
-function setTheme(theme: string): void {
-    document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('theme', theme);
-    const toggle = document.getElementById('theme-toggle');
-    if (toggle) {
-        toggle.textContent = theme === 'dark' ? '☀️' : '🌙';
-    }
-}
-
-/**
- * Toggle between dark and light themes.
- */
-function toggleTheme(): void {
-    const currentTheme = document.documentElement.getAttribute('data-theme');
-    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-    setTheme(newTheme);
 }
 
 // ============================================================================
