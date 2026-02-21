@@ -13,8 +13,8 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Config file location (relative to project root)
-CONFIG_FILE = Path(__file__).parent.parent / ".runtime-config.json"
+# Config file location (in the config/ directory, written by my-tracks-server)
+CONFIG_FILE = Path(__file__).parent / ".runtime-config.json"
 
 
 def get_runtime_config() -> dict[str, Any]:

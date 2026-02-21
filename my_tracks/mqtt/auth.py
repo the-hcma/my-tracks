@@ -147,7 +147,7 @@ class DjangoAuthPlugin(BaseAuthPlugin):
         {
             "auth": {
                 "allow-anonymous": False,
-                "plugins": ["my_tracks.mqtt.auth:DjangoAuthPlugin"],
+                "plugins": ["my_tracks.mqtt.auth.DjangoAuthPlugin"],
             }
         }
     """
@@ -251,5 +251,5 @@ def get_auth_config(allow_anonymous: bool = False) -> dict[str, Any]:
     """
     return {
         "allow-anonymous": allow_anonymous,
-        "plugins": ["my_tracks.mqtt.auth:DjangoAuthPlugin"],
+        "plugins": ["my_tracks.mqtt.auth.DjangoAuthPlugin"],
     }

@@ -2,14 +2,15 @@
 Tests for ASGI configuration, runtime config, MQTT broker integration,
 and client disconnect handling.
 
-These tests verify that the ASGI lifespan events properly start
-and stop the MQTT broker, that runtime configuration works correctly,
-and that client disconnections are handled gracefully.
+These tests verify that runtime configuration works correctly,
+that the MQTT broker starts via AppConfig.ready(), and that client
+disconnections are handled gracefully by the ASGI middleware.
 """
 
 import asyncio
 import json
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -192,146 +193,273 @@ class TestActualPortFunctions:
             assert_that(get_actual_http_port(), is_(equal_to(49876)))
 
 
-class TestLifespanHandler:
-    """Tests for ASGI lifespan handler."""
+class TestMqttBrokerStartup:
+    """Tests for MQTT broker startup via AppConfig.ready()."""
 
-    @pytest.mark.asyncio
-    async def test_startup_with_mqtt_enabled(self) -> None:
-        """MQTT broker starts when port >= 0."""
-        from config.asgi import lifespan_handler
+    def test_starts_broker_when_config_exists(self, tmp_path: Path) -> None:
+        """Broker thread starts when runtime config file exists with port >= 0."""
+        import my_tracks.apps as apps_module
 
-        mock_broker = MagicMock()
-        mock_broker.start = AsyncMock()
-        mock_broker.actual_mqtt_port = 1883
-        mock_broker.is_running = False
+        config_file = tmp_path / ".runtime-config.json"
+        config_file.write_text(json.dumps({"mqtt_port": 1883}))
 
-        receive = AsyncMock(
-            side_effect=[
-                {"type": "lifespan.startup"},
-                {"type": "lifespan.shutdown"},
-            ]
-        )
-        send = AsyncMock()
+        mock_thread_class = MagicMock()
+        mock_thread_instance = MagicMock()
+        mock_thread_class.return_value = mock_thread_instance
 
         with (
-            patch("config.asgi.get_mqtt_port", return_value=1883),
-            patch("config.asgi.MQTTBroker", return_value=mock_broker),
-            patch("config.asgi._mqtt_broker", None),
+            patch("config.runtime.CONFIG_FILE", config_file),
+            patch.object(apps_module, "_mqtt_thread", None),
+            patch("threading.Thread", mock_thread_class),
+            patch("atexit.register") as mock_atexit,
         ):
-            await lifespan_handler({}, receive, send)
+            from my_tracks.apps import MyTracksConfig
 
-        mock_broker.start.assert_called_once()
-        send.assert_any_call({"type": "lifespan.startup.complete"})
-        send.assert_any_call({"type": "lifespan.shutdown.complete"})
+            app_config = MyTracksConfig("my_tracks", apps_module)
+            app_config.ready()
 
-    @pytest.mark.asyncio
-    async def test_startup_with_mqtt_disabled(self) -> None:
-        """MQTT broker does not start when port < 0."""
-        from config.asgi import lifespan_handler
+        mock_thread_class.assert_called_once()
+        call_kwargs = mock_thread_class.call_args[1]
+        assert_that(call_kwargs["daemon"], is_(True))
+        assert_that(call_kwargs["name"], is_(equal_to("mqtt-broker")))
+        assert_that(call_kwargs["args"], is_(equal_to((1883,))))
+        mock_thread_instance.start.assert_called_once()
+        mock_atexit.assert_called_once()
 
-        receive = AsyncMock(
-            side_effect=[
-                {"type": "lifespan.startup"},
-                {"type": "lifespan.shutdown"},
-            ]
-        )
-        send = AsyncMock()
+    def test_skips_broker_when_no_config_file(self, tmp_path: Path) -> None:
+        """Broker does not start when runtime config file is missing."""
+        import my_tracks.apps as apps_module
+
+        missing_file = tmp_path / "nonexistent.json"
 
         with (
-            patch("config.asgi.get_mqtt_port", return_value=-1),
-            patch("config.asgi.MQTTBroker") as mock_broker_class,
+            patch("config.runtime.CONFIG_FILE", missing_file),
+            patch("threading.Thread") as mock_thread_class,
         ):
-            await lifespan_handler({}, receive, send)
+            from my_tracks.apps import MyTracksConfig
 
-        mock_broker_class.assert_not_called()
-        send.assert_any_call({"type": "lifespan.startup.complete"})
+            app_config = MyTracksConfig("my_tracks", apps_module)
+            app_config.ready()
 
-    @pytest.mark.asyncio
-    async def test_startup_with_os_allocated_port(self) -> None:
-        """MQTT broker starts when port = 0 (OS allocates)."""
-        from config.asgi import lifespan_handler
+        mock_thread_class.assert_not_called()
 
-        mock_broker = MagicMock()
-        mock_broker.start = AsyncMock()
-        mock_broker.actual_mqtt_port = 54321  # OS-allocated port
-        mock_broker.is_running = False
+    def test_skips_broker_when_mqtt_disabled(self, tmp_path: Path) -> None:
+        """Broker does not start when mqtt_port is negative."""
+        import my_tracks.apps as apps_module
 
-        receive = AsyncMock(
-            side_effect=[
-                {"type": "lifespan.startup"},
-                {"type": "lifespan.shutdown"},
-            ]
-        )
-        send = AsyncMock()
+        config_file = tmp_path / ".runtime-config.json"
+        config_file.write_text(json.dumps({"mqtt_port": -1}))
 
         with (
-            patch("config.asgi.get_mqtt_port", return_value=0),
-            patch("config.asgi.MQTTBroker", return_value=mock_broker),
-            patch("config.asgi.update_runtime_config") as mock_update,
-            patch("config.asgi._mqtt_broker", None),
+            patch("config.runtime.CONFIG_FILE", config_file),
+            patch("threading.Thread") as mock_thread_class,
         ):
-            await lifespan_handler({}, receive, send)
+            from my_tracks.apps import MyTracksConfig
 
-        mock_broker.start.assert_called_once()
-        # Should update config with actual port
-        mock_update.assert_called_with("actual_mqtt_port", 54321)
-        send.assert_any_call({"type": "lifespan.startup.complete"})
+            app_config = MyTracksConfig("my_tracks", apps_module)
+            app_config.ready()
 
-    @pytest.mark.asyncio
-    async def test_shutdown_stops_running_broker(self) -> None:
-        """Running MQTT broker is stopped on shutdown."""
-        from config.asgi import lifespan_handler
+        mock_thread_class.assert_not_called()
+
+    def test_starts_broker_with_os_allocated_port(self, tmp_path: Path) -> None:
+        """Broker thread starts with port 0 for OS allocation."""
+        import my_tracks.apps as apps_module
+
+        config_file = tmp_path / ".runtime-config.json"
+        config_file.write_text(json.dumps({"mqtt_port": 0}))
+
+        mock_thread_class = MagicMock()
+        mock_thread_instance = MagicMock()
+        mock_thread_class.return_value = mock_thread_instance
+
+        with (
+            patch("config.runtime.CONFIG_FILE", config_file),
+            patch.object(apps_module, "_mqtt_thread", None),
+            patch("threading.Thread", mock_thread_class),
+            patch("atexit.register"),
+        ):
+            from my_tracks.apps import MyTracksConfig
+
+            app_config = MyTracksConfig("my_tracks", apps_module)
+            app_config.ready()
+
+        call_kwargs = mock_thread_class.call_args[1]
+        assert_that(call_kwargs["args"], is_(equal_to((0,))))
+        mock_thread_instance.start.assert_called_once()
+
+
+class TestStopMqttBroker:
+    """Tests for _stop_mqtt_broker atexit handler."""
+
+    def test_stops_running_broker(self) -> None:
+        """Stops a running broker and joins the thread."""
+        import my_tracks.apps as apps_module
 
         mock_broker = MagicMock()
-        mock_broker.start = AsyncMock()
-        mock_broker.stop = AsyncMock()
-        mock_broker.actual_mqtt_port = 1883
+        mock_broker.is_running = True
+        # Use MagicMock (not AsyncMock) for stop — the coroutine is fed to
+        # the mocked run_coroutine_threadsafe, so we don't need a real coroutine.
+
+        mock_loop = MagicMock()
+        mock_future = MagicMock()
+        mock_loop.is_closed.return_value = False
+        mock_loop.call_soon_threadsafe = MagicMock()
+
+        mock_thread = MagicMock()
+
+        with (
+            patch("asyncio.run_coroutine_threadsafe", return_value=mock_future) as mock_rct,
+            patch.object(apps_module, "_mqtt_broker", mock_broker),
+            patch.object(apps_module, "_mqtt_loop", mock_loop),
+            patch.object(apps_module, "_mqtt_thread", mock_thread),
+        ):
+            from my_tracks.apps import _stop_mqtt_broker
+
+            _stop_mqtt_broker()
+
+        mock_rct.assert_called_once()
+        mock_future.result.assert_called_once_with(timeout=5)
+        mock_loop.call_soon_threadsafe.assert_called_once_with(mock_loop.stop)
+        mock_thread.join.assert_called_once_with(timeout=5)
+
+    def test_handles_stop_timeout(self) -> None:
+        """Logs warning when broker stop times out."""
+        import my_tracks.apps as apps_module
+
+        mock_broker = MagicMock()
         mock_broker.is_running = True
 
-        receive = AsyncMock(
-            side_effect=[
-                {"type": "lifespan.startup"},
-                {"type": "lifespan.shutdown"},
-            ]
-        )
-        send = AsyncMock()
+        mock_loop = MagicMock()
+        mock_future = MagicMock()
+        mock_future.result.side_effect = TimeoutError("stop timed out")
+        mock_loop.is_closed.return_value = False
+        mock_loop.call_soon_threadsafe = MagicMock()
+
+        mock_thread = MagicMock()
 
         with (
-            patch("config.asgi.get_mqtt_port", return_value=1883),
-            patch("config.asgi.MQTTBroker", return_value=mock_broker),
+            patch("asyncio.run_coroutine_threadsafe", return_value=mock_future),
+            patch.object(apps_module, "_mqtt_broker", mock_broker),
+            patch.object(apps_module, "_mqtt_loop", mock_loop),
+            patch.object(apps_module, "_mqtt_thread", mock_thread),
+            patch("my_tracks.apps.logger") as mock_logger,
         ):
-            await lifespan_handler({}, receive, send)
+            from my_tracks.apps import _stop_mqtt_broker
 
-        mock_broker.stop.assert_called_once()
-        send.assert_any_call({"type": "lifespan.shutdown.complete"})
+            _stop_mqtt_broker()
 
-    @pytest.mark.asyncio
-    async def test_startup_failure_sends_failed_message(self) -> None:
-        """Startup failure sends lifespan.startup.failed message."""
-        from config.asgi import lifespan_handler
+        mock_logger.warning.assert_called_once_with("Timeout stopping MQTT broker")
+        # Should still stop the loop and join the thread
+        mock_loop.call_soon_threadsafe.assert_called_once_with(mock_loop.stop)
+        mock_thread.join.assert_called_once_with(timeout=5)
+
+    def test_noop_when_no_broker(self) -> None:
+        """Does nothing when broker is None."""
+        import my_tracks.apps as apps_module
+
+        with (
+            patch.object(apps_module, "_mqtt_broker", None),
+            patch.object(apps_module, "_mqtt_loop", None),
+            patch.object(apps_module, "_mqtt_thread", None),
+        ):
+            from my_tracks.apps import _stop_mqtt_broker
+
+            # Should not raise
+            _stop_mqtt_broker()
+
+
+class TestRunMqttBroker:
+    """Tests for _run_mqtt_broker thread function."""
+
+    def test_creates_broker_and_starts(self) -> None:
+        """Creates broker, starts it, and runs until is_running becomes False."""
+        import my_tracks.apps as apps_module
 
         mock_broker = MagicMock()
-        mock_broker.start = AsyncMock(side_effect=Exception("Broker failed"))
+        mock_broker.actual_mqtt_port = 1883
+        call_order: list[str] = []
 
-        receive = AsyncMock(
-            side_effect=[
-                {"type": "lifespan.startup"},
-                {"type": "lifespan.shutdown"},
-            ]
-        )
-        send = AsyncMock()
+        # Track is_running: True until start completes, then False after one sleep
+        sleep_count = 0
+
+        async def mock_start() -> None:
+            call_order.append("start")
+
+        async def mock_sleep(seconds: float) -> None:
+            nonlocal sleep_count
+            sleep_count += 1
+            call_order.append("sleep")
+            # After first sleep, mark broker as stopped
+            mock_broker.is_running = False
+
+        mock_broker.start = mock_start
+        mock_broker.is_running = True
 
         with (
-            patch("config.asgi.get_mqtt_port", return_value=1883),
-            patch("config.asgi.MQTTBroker", return_value=mock_broker),
+            patch("my_tracks.mqtt.broker.MQTTBroker", return_value=mock_broker),
+            patch("asyncio.sleep", side_effect=mock_sleep),
+            patch.object(apps_module, "_mqtt_broker", None),
+            patch.object(apps_module, "_mqtt_loop", None),
         ):
-            await lifespan_handler({}, receive, send)
+            from my_tracks.apps import _run_mqtt_broker
 
-        # Check that startup.failed was sent
-        calls = [call[0][0] for call in send.call_args_list]
-        assert any(
-            c.get("type") == "lifespan.startup.failed" for c in calls
-        ), f"Expected lifespan.startup.failed in {calls}"
+            _run_mqtt_broker(1883)
+
+        assert_that(call_order, is_(equal_to(["start", "sleep"])))
+        assert_that(sleep_count, is_(equal_to(1)))
+
+    def test_updates_runtime_config_for_os_allocated_port(self) -> None:
+        """Updates runtime config when OS allocates a different port."""
+        import my_tracks.apps as apps_module
+
+        mock_broker = MagicMock()
+        mock_broker.actual_mqtt_port = 54321  # OS-allocated
+
+        async def mock_start() -> None:
+            pass
+
+        async def mock_sleep(seconds: float) -> None:
+            mock_broker.is_running = False
+
+        mock_broker.start = mock_start
+        mock_broker.is_running = True
+
+        with (
+            patch("my_tracks.mqtt.broker.MQTTBroker", return_value=mock_broker),
+            patch("asyncio.sleep", side_effect=mock_sleep),
+            patch("config.runtime.update_runtime_config") as mock_update,
+            patch.object(apps_module, "_mqtt_broker", None),
+            patch.object(apps_module, "_mqtt_loop", None),
+        ):
+            from my_tracks.apps import _run_mqtt_broker
+
+            _run_mqtt_broker(0)
+
+        mock_update.assert_called_once_with("actual_mqtt_port", 54321)
+
+    def test_handles_broker_exception(self) -> None:
+        """Logs exception if broker startup fails."""
+        import my_tracks.apps as apps_module
+
+        mock_broker = MagicMock()
+
+        async def mock_start() -> None:
+            raise ConnectionError("Port in use")
+
+        mock_broker.start = mock_start
+        mock_broker.is_running = True
+
+        with (
+            patch("my_tracks.mqtt.broker.MQTTBroker", return_value=mock_broker),
+            patch("my_tracks.apps.logger") as mock_logger,
+            patch.object(apps_module, "_mqtt_broker", None),
+            patch.object(apps_module, "_mqtt_loop", None),
+        ):
+            from my_tracks.apps import _run_mqtt_broker
+
+            _run_mqtt_broker(1883)
+
+        mock_logger.exception.assert_called_once_with("MQTT broker error")
 
 
 class TestClientDisconnectMiddleware:
