@@ -147,7 +147,7 @@ class TestGetAuthConfig:
     def test_has_plugin_reference(self) -> None:
         """Should include the Django auth plugin."""
         config = get_auth_config()
-        assert_that(config["plugins"], equal_to(["my_tracks.mqtt.auth:DjangoAuthPlugin"]))
+        assert_that(config["plugins"], equal_to(["my_tracks.mqtt.auth.DjangoAuthPlugin"]))
 
 
 class TestGetDefaultConfigWithAuth:
@@ -156,12 +156,12 @@ class TestGetDefaultConfigWithAuth:
     def test_default_no_django_auth(self) -> None:
         """Should not include Django auth by default."""
         config = get_default_config()
-        assert_that("my_tracks.mqtt.auth:DjangoAuthPlugin" in config["plugins"], is_(False))
+        assert_that("my_tracks.mqtt.auth.DjangoAuthPlugin" in config["plugins"], is_(False))
 
     def test_with_django_auth(self) -> None:
         """Should include Django auth plugin when enabled."""
         config = get_default_config(use_django_auth=True)
-        assert_that("my_tracks.mqtt.auth:DjangoAuthPlugin" in config["plugins"], is_(True))
+        assert_that("my_tracks.mqtt.auth.DjangoAuthPlugin" in config["plugins"], is_(True))
 
     def test_django_auth_with_anonymous_disabled(self) -> None:
         """Should configure auth plugins when anonymous disabled with Django auth."""

@@ -45,17 +45,17 @@ def get_default_config(
 
     # Add OwnTracks handler plugin if requested (requires Django)
     if use_owntracks_handler:
-        plugins.append("my_tracks.mqtt.plugin:OwnTracksPlugin")
+        plugins.append("my_tracks.mqtt.plugin.OwnTracksPlugin")
 
     auth_config: dict[str, Any] = {
         "allow-anonymous": allow_anonymous,
     }
 
     if use_django_auth:
-        plugins.append("my_tracks.mqtt.auth:DjangoAuthPlugin")
+        plugins.append("my_tracks.mqtt.auth.DjangoAuthPlugin")
         # When using Django auth, anonymous should typically be disabled
         if not allow_anonymous:
-            auth_config["plugins"] = ["my_tracks.mqtt.auth:DjangoAuthPlugin"]
+            auth_config["plugins"] = ["my_tracks.mqtt.auth.DjangoAuthPlugin"]
 
     return {
         "listeners": {
