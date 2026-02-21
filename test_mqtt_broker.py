@@ -110,8 +110,7 @@ class TestMQTTBrokerLifecycle:
     @pytest.mark.asyncio
     async def test_start_sets_running_flag(self) -> None:
         """Starting the broker should set is_running to True."""
-        # Use high ports to avoid conflicts, disable OwnTracks handler (requires Django)
-        broker = MQTTBroker(mqtt_port=31883, mqtt_ws_port=38083, use_owntracks_handler=False)
+        broker = MQTTBroker(mqtt_port=0, mqtt_ws_port=0, use_owntracks_handler=False)
         try:
             await broker.start()
             assert_that(broker.is_running, is_(True))
@@ -122,7 +121,7 @@ class TestMQTTBrokerLifecycle:
     @pytest.mark.asyncio
     async def test_actual_mqtt_port_after_start(self) -> None:
         """actual_mqtt_port should return port after broker starts."""
-        broker = MQTTBroker(mqtt_port=31889, mqtt_ws_port=38089, use_owntracks_handler=False)
+        broker = MQTTBroker(mqtt_port=0, mqtt_ws_port=0, use_owntracks_handler=False)
         try:
             await broker.start()
             # After start, actual_mqtt_port should return a valid port
@@ -136,7 +135,7 @@ class TestMQTTBrokerLifecycle:
     @pytest.mark.asyncio
     async def test_stop_clears_running_flag(self) -> None:
         """Stopping the broker should set is_running to False."""
-        broker = MQTTBroker(mqtt_port=31884, mqtt_ws_port=38084, use_owntracks_handler=False)
+        broker = MQTTBroker(mqtt_port=0, mqtt_ws_port=0, use_owntracks_handler=False)
         await broker.start()
         await broker.stop()
         assert_that(broker.is_running, is_(False))
@@ -144,7 +143,7 @@ class TestMQTTBrokerLifecycle:
     @pytest.mark.asyncio
     async def test_start_twice_raises_error(self) -> None:
         """Starting an already running broker should raise RuntimeError."""
-        broker = MQTTBroker(mqtt_port=31885, mqtt_ws_port=38085, use_owntracks_handler=False)
+        broker = MQTTBroker(mqtt_port=0, mqtt_ws_port=0, use_owntracks_handler=False)
         try:
             await broker.start()
             with pytest.raises(RuntimeError, match="already running"):
@@ -156,14 +155,14 @@ class TestMQTTBrokerLifecycle:
     @pytest.mark.asyncio
     async def test_stop_not_running_raises_error(self) -> None:
         """Stopping a non-running broker should raise RuntimeError."""
-        broker = MQTTBroker(mqtt_port=31886, mqtt_ws_port=38086, use_owntracks_handler=False)
+        broker = MQTTBroker(mqtt_port=0, mqtt_ws_port=0, use_owntracks_handler=False)
         with pytest.raises(RuntimeError, match="not running"):
             await broker.stop()
 
     @pytest.mark.asyncio
     async def test_run_forever_can_be_cancelled(self) -> None:
         """run_forever should handle cancellation gracefully."""
-        broker = MQTTBroker(mqtt_port=31887, mqtt_ws_port=38087, use_owntracks_handler=False)
+        broker = MQTTBroker(mqtt_port=0, mqtt_ws_port=0, use_owntracks_handler=False)
 
         async def run_then_cancel() -> None:
             task = asyncio.create_task(broker.run_forever())
