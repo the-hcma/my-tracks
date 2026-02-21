@@ -14,11 +14,14 @@ logger = logging.getLogger(__name__)
 _mqtt_broker: Any = None
 _mqtt_loop: asyncio.AbstractEventLoop | None = None
 _mqtt_thread: threading.Thread | None = None
+_shutting_down = threading.Event()
 
 
 def _stop_mqtt_broker() -> None:
     """Stop the MQTT broker on process exit."""
     global _mqtt_broker, _mqtt_loop, _mqtt_thread
+
+    _shutting_down.set()
 
     if _mqtt_broker is not None and _mqtt_loop is not None:
         if _mqtt_broker.is_running:
@@ -87,6 +90,15 @@ def _run_mqtt_broker(mqtt_port: int) -> None:
 
     try:
         _mqtt_loop.run_until_complete(_start_and_run())
+    except RuntimeError as exc:
+        # _stop_mqtt_broker() sets _shutting_down before stopping the
+        # loop, which causes run_until_complete() to raise:
+        #   RuntimeError: Event loop stopped before Future completed.
+        # Only treat it as expected when we know shutdown was requested.
+        if _shutting_down.is_set():
+            logger.debug("MQTT broker event loop stopped (normal shutdown)")
+        else:
+            logger.exception("MQTT broker runtime error")
     except Exception:
         logger.exception("MQTT broker error")
     finally:

@@ -9,6 +9,7 @@ disconnections are handled gracefully by the ASGI middleware.
 
 import asyncio
 import json
+import threading
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -460,6 +461,68 @@ class TestRunMqttBroker:
             _run_mqtt_broker(1883)
 
         mock_logger.exception.assert_called_once_with("MQTT broker error")
+
+    def test_event_loop_stopped_during_shutdown_logs_debug(self) -> None:
+        """RuntimeError during shutdown should be logged at DEBUG, not ERROR."""
+        import my_tracks.apps as apps_module
+
+        mock_broker = MagicMock()
+
+        async def mock_start() -> None:
+            raise RuntimeError("Event loop stopped before Future completed.")
+
+        mock_broker.start = mock_start
+        mock_broker.is_running = True
+
+        # Simulate _stop_mqtt_broker having set the flag
+        shutdown_event = threading.Event()
+        shutdown_event.set()
+
+        with (
+            patch("my_tracks.mqtt.broker.MQTTBroker", return_value=mock_broker),
+            patch("my_tracks.apps.logger") as mock_logger,
+            patch.object(apps_module, "_mqtt_broker", None),
+            patch.object(apps_module, "_mqtt_loop", None),
+            patch.object(apps_module, "_shutting_down", shutdown_event),
+        ):
+            from my_tracks.apps import _run_mqtt_broker
+
+            _run_mqtt_broker(1883)
+
+        mock_logger.debug.assert_any_call(
+            "MQTT broker event loop stopped (normal shutdown)"
+        )
+        mock_logger.exception.assert_not_called()
+
+    def test_runtime_error_without_shutdown_logs_exception(self) -> None:
+        """RuntimeError when NOT shutting down should log at ERROR."""
+        import my_tracks.apps as apps_module
+
+        mock_broker = MagicMock()
+
+        async def mock_start() -> None:
+            raise RuntimeError("Event loop stopped before Future completed.")
+
+        mock_broker.start = mock_start
+        mock_broker.is_running = True
+
+        # _shutting_down is NOT set — this is unexpected
+        shutdown_event = threading.Event()
+
+        with (
+            patch("my_tracks.mqtt.broker.MQTTBroker", return_value=mock_broker),
+            patch("my_tracks.apps.logger") as mock_logger,
+            patch.object(apps_module, "_mqtt_broker", None),
+            patch.object(apps_module, "_mqtt_loop", None),
+            patch.object(apps_module, "_shutting_down", shutdown_event),
+        ):
+            from my_tracks.apps import _run_mqtt_broker
+
+            _run_mqtt_broker(1883)
+
+        mock_logger.exception.assert_called_once_with(
+            "MQTT broker runtime error"
+        )
 
 
 class TestClientDisconnectMiddleware:
