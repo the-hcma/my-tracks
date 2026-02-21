@@ -209,7 +209,8 @@ class TestMqttBrokerStartup:
         mock_thread_class.return_value = mock_thread_instance
 
         with (
-            patch("config.runtime.CONFIG_FILE", config_file),
+            patch.object(apps_module, "CONFIG_FILE", config_file),
+            patch.object(apps_module, "get_mqtt_port", return_value=1883),
             patch.object(apps_module._state, "thread", None),
             patch("threading.Thread", mock_thread_class),
             patch("atexit.register") as mock_atexit,
@@ -234,7 +235,7 @@ class TestMqttBrokerStartup:
         missing_file = tmp_path / "nonexistent.json"
 
         with (
-            patch("config.runtime.CONFIG_FILE", missing_file),
+            patch.object(apps_module, "CONFIG_FILE", missing_file),
             patch("threading.Thread") as mock_thread_class,
         ):
             from my_tracks.apps import MyTracksConfig
@@ -252,7 +253,8 @@ class TestMqttBrokerStartup:
         config_file.write_text(json.dumps({"mqtt_port": -1}))
 
         with (
-            patch("config.runtime.CONFIG_FILE", config_file),
+            patch.object(apps_module, "CONFIG_FILE", config_file),
+            patch.object(apps_module, "get_mqtt_port", return_value=-1),
             patch("threading.Thread") as mock_thread_class,
         ):
             from my_tracks.apps import MyTracksConfig
@@ -274,7 +276,8 @@ class TestMqttBrokerStartup:
         mock_thread_class.return_value = mock_thread_instance
 
         with (
-            patch("config.runtime.CONFIG_FILE", config_file),
+            patch.object(apps_module, "CONFIG_FILE", config_file),
+            patch.object(apps_module, "get_mqtt_port", return_value=0),
             patch.object(apps_module._state, "thread", None),
             patch("threading.Thread", mock_thread_class),
             patch("atexit.register"),
@@ -397,7 +400,7 @@ class TestRunMqttBroker:
         mock_broker.is_running = True
 
         with (
-            patch("my_tracks.mqtt.broker.MQTTBroker", return_value=mock_broker),
+            patch.object(apps_module, "MQTTBroker", return_value=mock_broker),
             patch("asyncio.sleep", side_effect=mock_sleep),
             patch.object(apps_module._state, "broker", None),
             patch.object(apps_module._state, "loop", None),
@@ -426,9 +429,9 @@ class TestRunMqttBroker:
         mock_broker.is_running = True
 
         with (
-            patch("my_tracks.mqtt.broker.MQTTBroker", return_value=mock_broker),
+            patch.object(apps_module, "MQTTBroker", return_value=mock_broker),
             patch("asyncio.sleep", side_effect=mock_sleep),
-            patch("config.runtime.update_runtime_config") as mock_update,
+            patch.object(apps_module, "update_runtime_config") as mock_update,
             patch.object(apps_module._state, "broker", None),
             patch.object(apps_module._state, "loop", None),
         ):
@@ -451,7 +454,7 @@ class TestRunMqttBroker:
         mock_broker.is_running = True
 
         with (
-            patch("my_tracks.mqtt.broker.MQTTBroker", return_value=mock_broker),
+            patch.object(apps_module, "MQTTBroker", return_value=mock_broker),
             patch("my_tracks.apps.logger") as mock_logger,
             patch.object(apps_module._state, "broker", None),
             patch.object(apps_module._state, "loop", None),
@@ -479,7 +482,7 @@ class TestRunMqttBroker:
         shutdown_event.set()
 
         with (
-            patch("my_tracks.mqtt.broker.MQTTBroker", return_value=mock_broker),
+            patch.object(apps_module, "MQTTBroker", return_value=mock_broker),
             patch("my_tracks.apps.logger") as mock_logger,
             patch.object(apps_module._state, "broker", None),
             patch.object(apps_module._state, "loop", None),
@@ -510,7 +513,7 @@ class TestRunMqttBroker:
         shutdown_event = threading.Event()
 
         with (
-            patch("my_tracks.mqtt.broker.MQTTBroker", return_value=mock_broker),
+            patch.object(apps_module, "MQTTBroker", return_value=mock_broker),
             patch("my_tracks.apps.logger") as mock_logger,
             patch.object(apps_module._state, "broker", None),
             patch.object(apps_module._state, "loop", None),

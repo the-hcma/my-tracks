@@ -16,6 +16,7 @@ from typing import Any
 
 from amqtt.plugins.authentication import BaseAuthPlugin
 from asgiref.sync import sync_to_async
+from django.contrib.auth import get_user_model
 
 logger = logging.getLogger(__name__)
 
@@ -36,9 +37,6 @@ def get_django_user(username: str) -> Any:
     Returns:
         Django User object or None if not found
     """
-    # Lazy import to avoid Django setup issues during module load
-    from django.contrib.auth import get_user_model
-
     User = get_user_model()
     try:
         return User.objects.get(username=username)

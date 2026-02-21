@@ -8,6 +8,9 @@ from typing import Any
 
 from django.apps import AppConfig
 
+from config.runtime import CONFIG_FILE, get_mqtt_port, update_runtime_config
+from my_tracks.mqtt.broker import MQTTBroker
+
 logger = logging.getLogger(__name__)
 
 
@@ -57,9 +60,6 @@ def _run_mqtt_broker(mqtt_port: int) -> None:
     Args:
         mqtt_port: TCP port for MQTT connections (0 = OS allocates)
     """
-    from config.runtime import update_runtime_config
-    from my_tracks.mqtt.broker import MQTTBroker
-
     _state.loop = asyncio.new_event_loop()
     asyncio.set_event_loop(_state.loop)
 
@@ -126,8 +126,6 @@ class MyTracksConfig(AppConfig):
         by the ``my-tracks-server`` script). This prevents the broker from
         starting during tests or management commands.
         """
-        from config.runtime import CONFIG_FILE, get_mqtt_port
-
         if not CONFIG_FILE.exists():
             logger.debug("No runtime config — skipping MQTT broker startup")
             return

@@ -8,6 +8,7 @@ management is unnecessary.
 import logging
 
 from decouple import config
+from django.contrib.auth.models import AnonymousUser
 from rest_framework import authentication, exceptions
 from rest_framework.request import Request
 
@@ -73,5 +74,4 @@ class CommandApiKeyAuthentication(authentication.BaseAuthentication):
             )
 
         # Return a simple anonymous user representation with the token
-        from django.contrib.auth.models import AnonymousUser
         return (AnonymousUser(), token)

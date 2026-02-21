@@ -21,6 +21,7 @@ from rest_framework.response import Response
 
 from .auth import CommandApiKeyAuthentication, get_command_api_key
 from .models import Device, Location, OwnTracksMessage
+from .mqtt.commands import Command, CommandPublisher
 from .serializers import DeviceSerializer, LocationSerializer
 from .utils import extract_device_id
 
@@ -349,9 +350,6 @@ class CommandViewSet(viewsets.ViewSet):
 
     def _get_publisher(self) -> Any:
         """Get the command publisher from the global broker instance."""
-        # Import here to avoid circular imports
-        from my_tracks.mqtt.commands import CommandPublisher
-
         # For now, return a publisher without a client
         # In production, this would be connected to the running broker
         return CommandPublisher()
@@ -380,13 +378,8 @@ class CommandViewSet(viewsets.ViewSet):
 
         publisher = self._get_publisher()
 
-        # Import async utilities
-        from asgiref.sync import async_to_sync as a2s
-
-        from my_tracks.mqtt.commands import Command
-
         try:
-            success = a2s(publisher.send_command)(
+            success = async_to_sync(publisher.send_command)(
                 device_id,
                 Command.report_location(),
             )
@@ -447,12 +440,8 @@ class CommandViewSet(viewsets.ViewSet):
 
         publisher = self._get_publisher()
 
-        from asgiref.sync import async_to_sync as a2s
-
-        from my_tracks.mqtt.commands import Command
-
         try:
-            success = a2s(publisher.send_command)(
+            success = async_to_sync(publisher.send_command)(
                 device_id,
                 Command.set_waypoints(waypoints),
             )
@@ -502,12 +491,8 @@ class CommandViewSet(viewsets.ViewSet):
 
         publisher = self._get_publisher()
 
-        from asgiref.sync import async_to_sync as a2s
-
-        from my_tracks.mqtt.commands import Command
-
         try:
-            success = a2s(publisher.send_command)(
+            success = async_to_sync(publisher.send_command)(
                 device_id,
                 Command.clear_waypoints(),
             )

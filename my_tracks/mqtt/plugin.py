@@ -10,11 +10,15 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from amqtt.broker import BrokerContext
+from amqtt.mqtt.connect import ConnectPacket
 from amqtt.plugins.base import BasePlugin
 from amqtt.session import ApplicationMessage
 from asgiref.sync import sync_to_async
+from channels.layers import get_channel_layer
 
+from my_tracks.models import Device, Location, OwnTracksMessage
 from my_tracks.mqtt.handlers import OwnTracksMessageHandler
+from my_tracks.serializers import LocationSerializer
 
 if TYPE_CHECKING:
     from channels.layers import BaseChannelLayer
@@ -23,9 +27,8 @@ logger = logging.getLogger(__name__)
 
 
 def get_channel_layer_lazy() -> "BaseChannelLayer | None":
-    """Get channel layer with lazy import to avoid Django setup issues."""
+    """Get channel layer, returning None if unavailable."""
     try:
-        from channels.layers import get_channel_layer
         return get_channel_layer()
     except Exception:
         return None
@@ -45,10 +48,6 @@ def save_location_to_db(location_data: dict[str, Any]) -> dict[str, Any] | None:
     Returns:
         Serialized location data for WebSocket broadcast, or None on failure
     """
-    # Lazy import to avoid Django setup issues during module load
-    from my_tracks.models import Device, Location
-    from my_tracks.serializers import LocationSerializer
-
     try:
         # Get or create the device
         device_id = location_data["device"]
@@ -96,8 +95,6 @@ def save_lwt_to_db(lwt_data: dict[str, Any]) -> dict[str, Any] | None:
         Dictionary with device status info for WebSocket broadcast,
         or None on failure
     """
-    from my_tracks.models import Device, OwnTracksMessage
-
     try:
         device_id = lwt_data["device"]
 
@@ -298,8 +295,6 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
         it.
         """
         # Only inspect CONNECT packets
-        from amqtt.mqtt.connect import ConnectPacket
-
         if not isinstance(packet, ConnectPacket):
             return
 

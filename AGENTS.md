@@ -271,6 +271,12 @@ This document defines the four specialized agents for the OwnTracks Django backe
 - **Empty lines MUST NOT contain any whitespace** (no trailing spaces or tabs)
 - **Imports MUST be sorted** using isort (PEP 8 import ordering)
 - Import order: standard library, third-party, local application
+- **All imports MUST be at module level** — no local/lazy imports inside functions or methods
+  - ✅ `from my_tracks.models import Device` at top of file
+  - ❌ `from my_tracks.models import Device` inside a function body
+  - `TYPE_CHECKING` guard imports are acceptable (they are module-level by nature)
+  - When moving imports to module level, update test patches to target the importing module (e.g., `patch.object(apps_module, "MQTTBroker", ...)` instead of `patch("my_tracks.mqtt.broker.MQTTBroker", ...)`)
+  - Rationale: Local imports hide dependencies, complicate patching in tests, and violate PEP 8
 - Run `isort .` to automatically sort imports before committing
 - Run `find . -name "*.py" -type f -exec sed -i '' 's/^[[:space:]]*$//' {} +` to remove trailing whitespace
 - Rationale: Consistent code style, reduces git diff noise, improves readability
@@ -325,6 +331,7 @@ This document defines the four specialized agents for the OwnTracks Django backe
 - [ ] **No module-level mutable state** (use holder classes, no `global` keyword)
 - [ ] **Empty lines have no whitespace** (run `find . -name "*.py" -type f -exec sed -i '' 's/^[[:space:]]*$//' {} +`)
 - [ ] **Imports are sorted** (run `isort .` to fix)
+- [ ] **No local imports** (all imports at module level — no lazy imports inside functions/methods)
 - [ ] **Timezone handling correct** (database stores UTC, displays show local time)
 - [ ] **VS Code Problems panel is clear** (no import errors, type errors, or linting issues)
 - [ ] **Tests run without warnings** (pytest should produce no warnings)
@@ -357,6 +364,7 @@ This document defines the four specialized agents for the OwnTracks Django backe
 - Error message quality: ensure exceptions provide context with expected vs actual values
 - **Verify empty lines have no whitespace** (check for trailing spaces)
 - **Verify imports are sorted** (should follow PEP 8 ordering)
+- **Verify no local imports** (all imports at module level — no lazy imports inside functions/methods)
 - **Verify timezone handling correct** (database stores UTC, displays show local time)
 - **Verify VS Code Problems panel is clear** (use `get_errors()` tool)
 - **Verify tests run without warnings** (check pytest output for PytestWarnings)
