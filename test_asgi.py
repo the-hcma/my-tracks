@@ -1,10 +1,13 @@
 """
-Tests for ASGI configuration, runtime config, and MQTT broker integration.
+Tests for ASGI configuration, runtime config, MQTT broker integration,
+and client disconnect handling.
 
 These tests verify that the ASGI lifespan events properly start
-and stop the MQTT broker, and that runtime configuration works correctly.
+and stop the MQTT broker, that runtime configuration works correctly,
+and that client disconnections are handled gracefully.
 """
 
+import asyncio
 import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -329,3 +332,72 @@ class TestLifespanHandler:
         assert any(
             c.get("type") == "lifespan.startup.failed" for c in calls
         ), f"Expected lifespan.startup.failed in {calls}"
+
+
+class TestClientDisconnectMiddleware:
+    """Tests for the ClientDisconnectMiddleware ASGI middleware."""
+
+    @pytest.mark.asyncio
+    async def test_passes_normal_requests_through(self) -> None:
+        """Normal requests are forwarded to the wrapped app unchanged."""
+        from config.asgi import ClientDisconnectMiddleware
+
+        inner_app = AsyncMock()
+        middleware = ClientDisconnectMiddleware(inner_app)
+
+        scope = {"type": "http", "method": "GET", "path": "/test/"}
+        receive = AsyncMock()
+        send = AsyncMock()
+
+        await middleware(scope, receive, send)
+
+        inner_app.assert_called_once_with(scope, receive, send)
+
+    @pytest.mark.asyncio
+    async def test_catches_cancelled_error_on_client_disconnect(self) -> None:
+        """CancelledError from client disconnect is caught, not propagated."""
+        from config.asgi import ClientDisconnectMiddleware
+
+        inner_app = AsyncMock(side_effect=asyncio.CancelledError)
+        middleware = ClientDisconnectMiddleware(inner_app)
+
+        scope = {"type": "http", "method": "GET", "path": "/api/data/"}
+        receive = AsyncMock()
+        send = AsyncMock()
+
+        # Should NOT raise — the middleware catches it
+        await middleware(scope, receive, send)
+
+    @pytest.mark.asyncio
+    async def test_logs_disconnect_at_debug_level(self) -> None:
+        """Client disconnect is logged at DEBUG with method and path."""
+        from config.asgi import ClientDisconnectMiddleware
+
+        inner_app = AsyncMock(side_effect=asyncio.CancelledError)
+        middleware = ClientDisconnectMiddleware(inner_app)
+
+        scope = {"type": "http", "method": "POST", "path": "/api/location/"}
+        receive = AsyncMock()
+        send = AsyncMock()
+
+        with patch("config.asgi.logger") as mock_logger:
+            await middleware(scope, receive, send)
+
+        mock_logger.debug.assert_called_once_with(
+            "Client disconnected during %s %s", "POST", "/api/location/"
+        )
+
+    @pytest.mark.asyncio
+    async def test_propagates_other_exceptions(self) -> None:
+        """Non-CancelledError exceptions are not caught."""
+        from config.asgi import ClientDisconnectMiddleware
+
+        inner_app = AsyncMock(side_effect=ValueError("something broke"))
+        middleware = ClientDisconnectMiddleware(inner_app)
+
+        scope = {"type": "http", "method": "GET", "path": "/test/"}
+        receive = AsyncMock()
+        send = AsyncMock()
+
+        with pytest.raises(ValueError, match="something broke"):
+            await middleware(scope, receive, send)

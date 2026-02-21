@@ -7,9 +7,10 @@ For more information on this file, see
 https://docs.djangoproject.com/en/5.0/howto/deployment/asgi/
 """
 
+import asyncio
 import logging
 import os
-from typing import Any, cast
+from typing import Any, Callable, cast
 
 from channels.auth import AuthMiddlewareStack
 from channels.routing import ProtocolTypeRouter, URLRouter
@@ -78,8 +79,37 @@ async def lifespan_handler(scope: dict[str, Any], receive: Any, send: Any) -> No
             return
 
 
+class ClientDisconnectMiddleware:
+    """ASGI middleware that handles client disconnections gracefully.
+
+    When a client disconnects mid-request (e.g., browser tab closed, network
+    drop), the ASGI server cancels the async task. This propagates through
+    asgiref's sync_to_async as a CancelledError on a shielded future, which
+    asyncio's default exception handler logs at ERROR with a full traceback.
+
+    This middleware catches the CancelledError at the application boundary
+    so it never reaches the event loop's exception handler.
+    """
+
+    def __init__(self, app: Callable[..., Any]) -> None:
+        self.app = app
+
+    async def __call__(
+        self,
+        scope: dict[str, Any],
+        receive: Callable[..., Any],
+        send: Callable[..., Any],
+    ) -> None:
+        try:
+            await self.app(scope, receive, send)
+        except asyncio.CancelledError:
+            method = scope.get('method', '')
+            path = scope.get('path', '')
+            logger.debug("Client disconnected during %s %s", method, path)
+
+
 application = ProtocolTypeRouter({
-    "http": django_asgi_app,
+    "http": ClientDisconnectMiddleware(django_asgi_app),
     "websocket": AuthMiddlewareStack(
         URLRouter(
             cast(list, websocket_urlpatterns)  # type: ignore[arg-type]
