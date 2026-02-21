@@ -35,12 +35,44 @@ class ClientDisconnectMiddleware:
     asgiref's sync_to_async as a CancelledError on a shielded future, which
     asyncio's default exception handler logs at ERROR with a full traceback.
 
-    This middleware catches the CancelledError at the application boundary
-    so it never reaches the event loop's exception handler.
+    This middleware:
+    1. Catches the CancelledError at the application boundary.
+    2. Installs a custom event-loop exception handler that silences
+       CancelledError from orphaned shielded futures (created by asgiref's
+       sync_to_async). Without this, the event loop's default handler still
+       logs the error even though our try/except already handled it.
     """
 
     def __init__(self, app: Callable[..., Any]) -> None:
         self.app = app
+        self._handler_installed = False
+
+    def _install_exception_handler(self) -> None:
+        """Install a custom event-loop exception handler (once per process)."""
+        if self._handler_installed:
+            return
+        self._handler_installed = True
+
+        loop = asyncio.get_running_loop()
+        existing_handler = loop.get_exception_handler()
+
+        def _handle_exception(lp: asyncio.AbstractEventLoop, ctx: dict[str, Any]) -> None:
+            exception = ctx.get('exception')
+            if isinstance(exception, asyncio.CancelledError):
+                # Shielded-future CancelledError from a client disconnect —
+                # already handled by the try/except below, so drop silently.
+                logger.debug(
+                    "Suppressed orphaned CancelledError from shielded future: %s",
+                    ctx.get('message', ''),
+                )
+                return
+            # Everything else goes through the original handler
+            if existing_handler is not None:
+                existing_handler(lp, ctx)
+            else:
+                lp.default_exception_handler(ctx)
+
+        loop.set_exception_handler(_handle_exception)
 
     async def __call__(
         self,
@@ -48,6 +80,7 @@ class ClientDisconnectMiddleware:
         receive: Callable[..., Any],
         send: Callable[..., Any],
     ) -> None:
+        self._install_exception_handler()
         try:
             await self.app(scope, receive, send)
         except asyncio.CancelledError:

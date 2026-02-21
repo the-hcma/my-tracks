@@ -211,6 +211,7 @@ class DaphnePortZeroFilter(logging.Filter):
             record.msg = 'Requesting OS-allocated ephemeral port (port=0)...'
         return True
 
+
 # Custom formatter that uses local time instead of UTC
 class LocalTimeFormatter(logging.Formatter):
     def formatTime(self, record: logging.LogRecord, datefmt: str | None = None) -> str:

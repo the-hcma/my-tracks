@@ -592,3 +592,156 @@ class TestClientDisconnectMiddleware:
 
         with pytest.raises(ValueError, match="something broke"):
             await middleware(scope, receive, send)
+
+    @pytest.mark.asyncio
+    async def test_installs_event_loop_exception_handler(self) -> None:
+        """First call installs a custom exception handler on the event loop."""
+        from config.asgi import ClientDisconnectMiddleware
+
+        inner_app = AsyncMock()
+        middleware = ClientDisconnectMiddleware(inner_app)
+
+        scope = {"type": "http", "method": "GET", "path": "/test/"}
+        receive = AsyncMock()
+        send = AsyncMock()
+
+        loop = asyncio.get_running_loop()
+        original_handler = loop.get_exception_handler()
+        try:
+            await middleware(scope, receive, send)
+            handler = loop.get_exception_handler()
+            assert_that(handler is not None, is_(True))
+        finally:
+            loop.set_exception_handler(original_handler)
+
+    @pytest.mark.asyncio
+    async def test_exception_handler_suppresses_cancelled_error(self) -> None:
+        """Custom exception handler silently drops CancelledError."""
+        from config.asgi import ClientDisconnectMiddleware
+
+        inner_app = AsyncMock()
+        middleware = ClientDisconnectMiddleware(inner_app)
+
+        scope = {"type": "http", "method": "GET", "path": "/test/"}
+        receive = AsyncMock()
+        send = AsyncMock()
+
+        loop = asyncio.get_running_loop()
+        original_handler = loop.get_exception_handler()
+        try:
+            await middleware(scope, receive, send)
+            handler = loop.get_exception_handler()
+
+            # Simulate the event loop calling our handler with a CancelledError
+            ctx: dict[str, Any] = {
+                "message": "CancelledError exception in shielded future",
+                "exception": asyncio.CancelledError(),
+                "future": asyncio.Future(),
+            }
+            # Should not raise or call default handler
+            with patch("config.asgi.logger") as mock_logger:
+                assert handler is not None
+                handler(loop, ctx)
+                mock_logger.debug.assert_called_once()
+        finally:
+            loop.set_exception_handler(original_handler)
+
+    @pytest.mark.asyncio
+    async def test_exception_handler_passes_through_other_errors(self) -> None:
+        """Custom exception handler forwards non-CancelledError to default."""
+        from config.asgi import ClientDisconnectMiddleware
+
+        inner_app = AsyncMock()
+        middleware = ClientDisconnectMiddleware(inner_app)
+
+        scope = {"type": "http", "method": "GET", "path": "/test/"}
+        receive = AsyncMock()
+        send = AsyncMock()
+
+        loop = asyncio.get_running_loop()
+        original_handler = loop.get_exception_handler()
+
+        # Install a mock as the "previous" handler BEFORE the middleware
+        # captures it, so we can verify it's called for non-CancelledError
+        mock_fallback = MagicMock()
+        loop.set_exception_handler(mock_fallback)
+        # Reset so middleware installs its handler fresh
+        middleware._handler_installed = False
+
+        try:
+            await middleware(scope, receive, send)
+            handler = loop.get_exception_handler()
+
+            # Simulate the event loop calling our handler with a RuntimeError
+            ctx: dict[str, Any] = {
+                "message": "Something went wrong",
+                "exception": RuntimeError("real error"),
+            }
+            assert handler is not None
+            handler(loop, ctx)
+            mock_fallback.assert_called_once_with(loop, ctx)
+        finally:
+            loop.set_exception_handler(original_handler)
+
+    @pytest.mark.asyncio
+    async def test_exception_handler_uses_default_when_no_existing(self) -> None:
+        """When no prior handler exists, falls back to loop.default_exception_handler."""
+        from config.asgi import ClientDisconnectMiddleware
+
+        inner_app = AsyncMock()
+        middleware = ClientDisconnectMiddleware(inner_app)
+
+        scope = {"type": "http", "method": "GET", "path": "/test/"}
+        receive = AsyncMock()
+        send = AsyncMock()
+
+        loop = asyncio.get_running_loop()
+        original_handler = loop.get_exception_handler()
+
+        # Ensure no custom handler is set
+        loop.set_exception_handler(None)  # type: ignore[arg-type]
+        middleware._handler_installed = False
+
+        try:
+            await middleware(scope, receive, send)
+            handler = loop.get_exception_handler()
+
+            ctx: dict[str, Any] = {
+                "message": "Something went wrong",
+                "exception": RuntimeError("real error"),
+            }
+            assert handler is not None
+            # This should call loop.default_exception_handler which logs to stderr
+            # We just verify it doesn't raise
+            with patch.object(loop, "default_exception_handler") as mock_default:
+                handler(loop, ctx)
+                mock_default.assert_called_once_with(ctx)
+        finally:
+            loop.set_exception_handler(original_handler)
+
+    @pytest.mark.asyncio
+    async def test_exception_handler_installed_only_once(self) -> None:
+        """Exception handler is installed on first call only, not on subsequent calls."""
+        from config.asgi import ClientDisconnectMiddleware
+
+        inner_app = AsyncMock()
+        middleware = ClientDisconnectMiddleware(inner_app)
+
+        scope = {"type": "http", "method": "GET", "path": "/test/"}
+        receive = AsyncMock()
+        send = AsyncMock()
+
+        loop = asyncio.get_running_loop()
+        original_handler = loop.get_exception_handler()
+        try:
+            # First call installs handler
+            await middleware(scope, receive, send)
+            handler_after_first = loop.get_exception_handler()
+
+            # Second call should NOT reinstall
+            await middleware(scope, receive, send)
+            handler_after_second = loop.get_exception_handler()
+
+            assert_that(handler_after_first is handler_after_second, is_(True))
+        finally:
+            loop.set_exception_handler(original_handler)
