@@ -28,11 +28,12 @@ def extract_device_id(data: dict[str, object]) -> str | None:
         return str(device_id)
 
     # Extract from topic (format: owntracks/user/deviceid)
+    # Use user/device to match the MQTT handler's device ID format
     topic = data.get('topic')
     if topic:
         parts = str(topic).split('/')
         if len(parts) >= 3:
-            return parts[-1]
+            return f"{parts[1]}/{parts[2]}"
 
     # Fallback to tid
     tid = data.get('tid')

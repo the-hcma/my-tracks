@@ -139,6 +139,70 @@ class TestLocationModel:
         assert_that(collapse_precision, equal_to(5))
 
 
+class TestExtractDeviceId:
+    """Tests for the extract_device_id utility function."""
+
+    def test_explicit_device_id_takes_priority(self) -> None:
+        """Test that explicit device_id field is prioritized."""
+        from my_tracks.utils import extract_device_id
+
+        data: dict[str, object] = {
+            "device_id": "my-device",
+            "topic": "owntracks/user/phone",
+            "tid": "AB",
+        }
+        assert_that(extract_device_id(data), equal_to("my-device"))
+
+    def test_topic_extracts_user_slash_device(self) -> None:
+        """Test that topic returns user/device format matching MQTT handler."""
+        from my_tracks.utils import extract_device_id
+
+        data: dict[str, object] = {"topic": "owntracks/alice/phone"}
+        assert_that(extract_device_id(data), equal_to("alice/phone"))
+
+    def test_topic_with_subtopic_extracts_user_slash_device(self) -> None:
+        """Test that topic with extra path segments still returns user/device."""
+        from my_tracks.utils import extract_device_id
+
+        data: dict[str, object] = {"topic": "owntracks/bob/tablet/event"}
+        assert_that(extract_device_id(data), equal_to("bob/tablet"))
+
+    def test_topic_preferred_over_tid(self) -> None:
+        """Test that topic takes priority over tid."""
+        from my_tracks.utils import extract_device_id
+
+        data: dict[str, object] = {"topic": "owntracks/user/phone", "tid": "XY"}
+        assert_that(extract_device_id(data), equal_to("user/phone"))
+
+    def test_tid_fallback_when_no_topic(self) -> None:
+        """Test that tid is used when no device_id or topic is present."""
+        from my_tracks.utils import extract_device_id
+
+        data: dict[str, object] = {"tid": "AB"}
+        assert_that(extract_device_id(data), equal_to("AB"))
+
+    def test_returns_none_when_no_identifier(self) -> None:
+        """Test that None is returned when no identifier fields are present."""
+        from my_tracks.utils import extract_device_id
+
+        data: dict[str, object] = {"lat": 1.0, "lon": 2.0}
+        assert_that(extract_device_id(data), none())
+
+    def test_short_topic_ignored(self) -> None:
+        """Test that topic with fewer than 3 segments falls through to tid."""
+        from my_tracks.utils import extract_device_id
+
+        data: dict[str, object] = {"topic": "owntracks/user", "tid": "ZZ"}
+        assert_that(extract_device_id(data), equal_to("ZZ"))
+
+    def test_empty_data_returns_none(self) -> None:
+        """Test that empty dict returns None."""
+        from my_tracks.utils import extract_device_id
+
+        data: dict[str, object] = {}
+        assert_that(extract_device_id(data), none())
+
+
 @pytest.mark.django_db
 class TestOptionalTrailingSlash:
     """Verify all API endpoints accept URLs both with and without trailing slash."""
@@ -346,13 +410,13 @@ class TestLocationAPI:
         # OwnTracks expects 200, not 201
         assert_that(response.status_code, equal_to(status.HTTP_200_OK))
 
-        # Verify device was created with ID from topic, not tid
-        device = Device.objects.get(device_id='hcma')
-        assert_that(device.device_id, equal_to('hcma'))
+        # Verify device was created with user/device ID from topic, not tid
+        device = Device.objects.get(device_id='user/hcma')
+        assert_that(device.device_id, equal_to('user/hcma'))
 
         # Verify location was created for correct device
         location = Location.objects.latest('id')
-        assert_that(location.device.device_id, equal_to('hcma'))
+        assert_that(location.device.device_id, equal_to('user/hcma'))
 
     def test_non_location_message_with_topic(self, api_client: APIClient) -> None:
         """Test that non-location messages extract device ID from topic."""
@@ -373,11 +437,11 @@ class TestLocationAPI:
         assert_that(response.status_code, equal_to(status.HTTP_200_OK))
         assert_that(response.data, equal_to([]))
 
-        # Verify message was stored with device from topic
+        # Verify message was stored with device from topic (user/device format)
         message = OwnTracksMessage.objects.get(message_type='status')
         assert_that(message.device, is_not(none()))
         if message.device:  # Type guard for Pylance
-            assert_that(message.device.device_id, equal_to('testdevice'))
+            assert_that(message.device.device_id, equal_to('user/testdevice'))
 
     def test_list_locations(self, api_client: APIClient, sample_location: Location) -> None:
         """Test listing locations."""
