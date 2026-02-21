@@ -276,8 +276,30 @@ EOF
 echo "📦 Collecting static files..."
 uv run python manage.py collectstatic --noinput --clear > /dev/null 2>&1
 
-# Get the local IP address
-local_ip=$(ipconfig getifaddr en0 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}' || echo "unknown")
+# Get all local IP addresses (non-loopback)
+get_local_ips() {
+    if command -v python3 &>/dev/null; then
+        python3 -c "
+import netifaces
+ips = []
+for iface in netifaces.interfaces():
+    addrs = netifaces.ifaddresses(iface)
+    for a in addrs.get(netifaces.AF_INET, []):
+        ip = a.get('addr', '')
+        has_broadcast = bool(a.get('broadcast'))
+        if ip and not ip.startswith('127.') and has_broadcast:
+            ips.append(ip)
+for ip in sorted(set(ips)):
+    print(ip)
+" 2>/dev/null
+    else
+        # Fallback: try platform-specific commands
+        ipconfig getifaddr en0 2>/dev/null || hostname -I 2>/dev/null | tr ' ' '\n' | grep -v '^$' || echo "unknown"
+    fi
+}
+
+# Read IPs into an array
+mapfile -t local_ips < <(get_local_ips)
 
 # For port 0, we'll detect the actual port after daphne starts
 display_http_port="$http_port"
@@ -301,8 +323,10 @@ display_server_info() {
     echo ""
     echo "📡 Network Access:"
     echo "   Local:   http://localhost:$actual_http_port/"
-    if [ "$local_ip" != "unknown" ]; then
-        echo "   Network: http://$local_ip:$actual_http_port/"
+    if [ ${#local_ips[@]} -gt 0 ] && [ "${local_ips[0]}" != "unknown" ]; then
+        for ip in "${local_ips[@]}"; do
+            echo "   Network: http://$ip:$actual_http_port/"
+        done
     else
         echo "   Network: Unable to determine IP address"
     fi
@@ -312,8 +336,10 @@ display_server_info() {
         actual_mqtt=$(get_actual_mqtt_port)
         echo "📶 MQTT Broker:"
         echo "   Port:    $actual_mqtt"
-        if [ "$local_ip" != "unknown" ]; then
-            echo "   Address: $local_ip:$actual_mqtt"
+        if [ ${#local_ips[@]} -gt 0 ] && [ "${local_ips[0]}" != "unknown" ]; then
+            for ip in "${local_ips[@]}"; do
+                echo "   Address: $ip:$actual_mqtt"
+            done
         fi
         echo ""
     fi

@@ -81,17 +81,37 @@
             <div class="endpoint" id="network-info">
                 <p><strong>Status:</strong> <span style="color: var(--success-color, #4CAF50);">● Enabled</span></p>
                 <p><strong>Hostname:</strong> <code id="network-hostname">{{ hostname }}</code></p>
-                <p><strong>Local IP:</strong> <code id="network-ip">{{ local_ip }}</code></p>
+                <p><strong>Network IPs:</strong></p>
+                <div id="network-ips">
+                {% for ip in local_ips %}
+                    <p><code>{{ ip }}</code></p>
+                {% empty %}
+                    <p><code>Unable to detect</code></p>
+                {% endfor %}
+                </div>
                 <p><strong>Port:</strong> <code>{{ server_port }}</code></p>
                 <p style="margin-top: 10px;">Access from other devices on your LAN:</p>
-                <p><code id="network-url">http://{{ local_ip }}:{{ server_port }}/</code></p>
+                <div id="network-urls">
+                {% for ip in local_ips %}
+                    <p><code>http://{{ ip }}:{{ server_port }}/</code></p>
+                {% empty %}
+                    <p><code>http://{{ local_ip }}:{{ server_port }}/</code></p>
+                {% endfor %}
+                </div>
             </div>
 
             <h2>📶 MQTT Broker</h2>
             {% if mqtt_enabled %}
             <div class="endpoint" id="mqtt-info">
                 <p><strong>Status:</strong> <span style="color: var(--success-color, #4CAF50);">● Enabled</span></p>
-                <p><strong>Host:</strong> <code id="mqtt-host">{{ local_ip }}</code></p>
+                <p><strong>Host:</strong></p>
+                <div id="mqtt-hosts">
+                {% for ip in local_ips %}
+                    <p><code>{{ ip }}</code></p>
+                {% empty %}
+                    <p><code>{{ local_ip }}</code></p>
+                {% endfor %}
+                </div>
                 <p><strong>Port:</strong> <code id="mqtt-port">{{ mqtt_port }}</code></p>
                 <p style="margin-top: 10px;">MQTT is recommended for better battery life and real-time updates.</p>
                 <p style="font-size: 11px; color: var(--text-muted);">Use these settings in OwnTracks app (Mode: MQTT)</p>
@@ -132,7 +152,7 @@
 
             <h2>🧪 Test the API</h2>
             <p>Submit a test location:</p>
-            <pre><code>curl -X POST http://{{ local_ip }}:8080/api/locations/ \
+            <pre><code>curl -X POST http://{{ local_ip }}:{{ server_port }}/api/locations/ \
   -H "Content-Type: application/json" \
   -d '{"lat": 37.7749, "lon": -122.4194, "tst": 1705329600, "tid": "AB"}'</code></pre>
 
@@ -155,7 +175,7 @@
             <div class="endpoint">
                 <p><strong>4a. For MQTT Mode:</strong></p>
                 <p>Mode: <code>MQTT</code></p>
-                <p>Host: <code id="owntracks-mqtt-host">{{ local_ip }}</code></p>
+                <p>Host: <code id="owntracks-mqtt-host">{{ local_ip }}</code> (use any IP shown above)</p>
                 <p>Port: <code id="owntracks-mqtt-port">{{ mqtt_port }}</code></p>
                 <p>TLS: <code>OFF</code></p>
                 <p>Authentication: <code>ON</code> (use your Django username/password)</p>
@@ -163,7 +183,7 @@
             <div class="endpoint">
                 <p><strong>4b. For HTTP Mode:</strong></p>
                 <p>Mode: <code>HTTP</code></p>
-                <p>URL: <code id="owntracks-url">http://{{ local_ip }}:{{ server_port }}/api/locations/</code></p>
+                <p>URL: <code id="owntracks-url">http://{{ local_ip }}:{{ server_port }}/api/locations/</code> (use any IP shown above)</p>
             </div>
             {% else %}
             <div class="endpoint">
@@ -172,7 +192,7 @@
             </div>
             <div class="endpoint">
                 <p><strong>4. Configure URL</strong></p>
-                <p>Host: <code id="owntracks-url">http://{{ local_ip }}:{{ server_port }}/api/locations/</code></p>
+                <p>Host: <code id="owntracks-url">http://{{ local_ip }}:{{ server_port }}/api/locations/</code> (use any IP shown above)</p>
                 <p style="font-size: 11px; color: var(--text-muted);">Make sure your phone is on the same WiFi network</p>
             </div>
             {% endif %}

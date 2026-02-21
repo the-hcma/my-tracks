@@ -2,7 +2,9 @@
 
 import re
 from pathlib import Path
+from unittest.mock import patch
 
+import netifaces
 import pytest
 from django.test import Client
 from hamcrest import assert_that, contains_string, equal_to, has_key
@@ -70,8 +72,82 @@ class TestWebUIViews:
         data = response.json()
         assert_that(data, has_key('hostname'))
         assert_that(data, has_key('local_ip'))
+        assert_that(data, has_key('local_ips'))
         assert_that(data, has_key('port'))
         assert_that(data['port'], equal_to(8080))
+        assert isinstance(data['local_ips'], list)
+
+
+@pytest.mark.django_db
+class TestNetworkDiscovery:
+    """Test network IP discovery functions."""
+
+    def test_get_all_local_ips_returns_list(self) -> None:
+        """Test that get_all_local_ips returns a list of non-loopback IPs."""
+        from web_ui.views import get_all_local_ips
+
+        ips = get_all_local_ips()
+        assert isinstance(ips, list)
+        # Should not contain loopback addresses
+        for ip in ips:
+            assert not ip.startswith('127.')
+
+    def test_get_all_local_ips_returns_sorted(self) -> None:
+        """Test that get_all_local_ips returns sorted, deduplicated IPs."""
+        from web_ui.views import get_all_local_ips
+
+        ips = get_all_local_ips()
+        assert ips == sorted(set(ips))
+
+    def test_get_all_local_ips_excludes_tunnel_interfaces(self) -> None:
+        """IPs without a broadcast address (VPN/tunnels) are excluded."""
+        from web_ui.views import get_all_local_ips
+
+        mock_interfaces = {
+            'en0': {netifaces.AF_INET: [{'addr': '192.168.1.10', 'broadcast': '192.168.1.255'}]},
+            'utun0': {netifaces.AF_INET: [{'addr': '100.99.77.90'}]},
+            'tun0': {netifaces.AF_INET: [{'addr': '10.8.0.1'}]},
+        }
+
+        with (
+            patch('web_ui.views.netifaces.interfaces', return_value=list(mock_interfaces.keys())),
+            patch('web_ui.views.netifaces.ifaddresses', side_effect=lambda iface: mock_interfaces[iface]),
+        ):
+            ips = get_all_local_ips()
+            assert_that(ips, equal_to(['192.168.1.10']))
+
+    def test_update_allowed_hosts_adds_new_ips(self) -> None:
+        """Test that update_allowed_hosts adds IPs not already in ALLOWED_HOSTS."""
+        from django.conf import settings
+
+        from web_ui.views import update_allowed_hosts
+
+        original = settings.ALLOWED_HOSTS.copy()
+        try:
+            test_ip = '10.99.99.99'
+            if test_ip in settings.ALLOWED_HOSTS:
+                settings.ALLOWED_HOSTS.remove(test_ip)
+            update_allowed_hosts([test_ip])
+            assert test_ip in settings.ALLOWED_HOSTS
+        finally:
+            settings.ALLOWED_HOSTS[:] = original
+
+    def test_update_allowed_hosts_no_duplicates(self) -> None:
+        """Test that update_allowed_hosts does not add duplicate IPs."""
+        from django.conf import settings
+
+        from web_ui.views import update_allowed_hosts
+
+        original = settings.ALLOWED_HOSTS.copy()
+        try:
+            test_ip = '10.99.99.99'
+            settings.ALLOWED_HOSTS.append(test_ip)
+            count_before = settings.ALLOWED_HOSTS.count(test_ip)
+            update_allowed_hosts([test_ip])
+            count_after = settings.ALLOWED_HOSTS.count(test_ip)
+            assert_that(count_after, equal_to(count_before))
+        finally:
+            settings.ALLOWED_HOSTS[:] = original
 
 
 @pytest.mark.django_db
@@ -86,12 +162,22 @@ class TestNetworkState:
         assert isinstance(ip, str)
         assert len(ip) > 0
 
+    def test_get_current_ips_returns_list(self) -> None:
+        """Test that get_current_ips returns a list of IP strings."""
+        from web_ui.views import NetworkState
+
+        ips = NetworkState.get_current_ips()
+        assert isinstance(ips, list)
+        for ip in ips:
+            assert isinstance(ip, str)
+            assert not ip.startswith('127.')
+
     def test_check_and_update_ip_returns_tuple(self) -> None:
         """Test that check_and_update_ip returns (ip, changed) tuple."""
         from web_ui.views import NetworkState
 
         # Reset state for clean test
-        NetworkState.last_known_ip = None
+        NetworkState.last_known_ips = None
 
         ip, changed = NetworkState.check_and_update_ip()
         assert isinstance(ip, str)
@@ -99,30 +185,30 @@ class TestNetworkState:
         # First call should not show change
         assert_that(changed, equal_to(False))
 
-    def test_check_and_update_ip_detects_change(self) -> None:
-        """Test that check_and_update_ip detects IP changes."""
+    def test_check_and_update_ips_detects_change(self) -> None:
+        """Test that check_and_update_ips detects IP changes."""
         from web_ui.views import NetworkState
 
-        # Set a fake previous IP
-        NetworkState.last_known_ip = "192.168.0.1"
+        # Set a fake previous IP list
+        NetworkState.last_known_ips = ["192.168.0.1"]
 
-        # Current IP should be different (unless by coincidence)
-        current_ip = NetworkState.get_current_ip()
-        if current_ip != "192.168.0.1":
-            ip, changed = NetworkState.check_and_update_ip()
+        # Current IPs should be different (unless by coincidence)
+        current_ips = NetworkState.get_current_ips()
+        if set(current_ips) != {"192.168.0.1"}:
+            ips, changed = NetworkState.check_and_update_ips()
             assert_that(changed, equal_to(True))
 
-    def test_check_and_update_ip_no_change_when_same(self) -> None:
-        """Test that check_and_update_ip shows no change when IP is same."""
+    def test_check_and_update_ips_no_change_when_same(self) -> None:
+        """Test that check_and_update_ips shows no change when IPs are same."""
         from web_ui.views import NetworkState
 
-        # Set current IP as last known
-        current_ip = NetworkState.get_current_ip()
-        NetworkState.last_known_ip = current_ip
+        # Set current IPs as last known
+        current_ips = NetworkState.get_current_ips()
+        NetworkState.last_known_ips = current_ips
 
-        ip, changed = NetworkState.check_and_update_ip()
+        ips, changed = NetworkState.check_and_update_ips()
         assert_that(changed, equal_to(False))
-        assert_that(ip, equal_to(current_ip))
+        assert_that(ips, equal_to(current_ips))
 
 
 @pytest.mark.django_db

@@ -3,6 +3,8 @@
 import logging
 import socket
 
+import netifaces
+from django.conf import settings
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import render
 
@@ -12,40 +14,95 @@ from my_tracks.models import Location
 logger = logging.getLogger(__name__)
 
 
+def get_all_local_ips() -> list[str]:
+    """
+    Get all non-loopback IPv4 addresses from broadcast-capable interfaces.
+
+    Only includes addresses that have a broadcast address, which filters out
+    VPN/tunnel interfaces (utun, tun, wg, ipsec) that use point-to-point links.
+
+    Returns:
+        Sorted list of IPv4 address strings (e.g., ['10.0.1.5', '192.168.1.10'])
+    """
+    ips: list[str] = []
+    for iface in netifaces.interfaces():
+        addrs = netifaces.ifaddresses(iface)
+        for addr_info in addrs.get(netifaces.AF_INET, []):
+            ip = addr_info.get('addr', '')
+            has_broadcast = bool(addr_info.get('broadcast'))
+            if ip and not ip.startswith('127.') and has_broadcast:
+                ips.append(ip)
+    return sorted(set(ips))
+
+
+def update_allowed_hosts(ips: list[str]) -> None:
+    """
+    Dynamically add discovered local IPs to Django's ALLOWED_HOSTS.
+
+    Only adds IPs that aren't already in the list. This ensures the server
+    accepts requests on all its network interfaces without manual configuration.
+
+    Args:
+        ips: List of local IP addresses to allow
+    """
+    for ip in ips:
+        if ip not in settings.ALLOWED_HOSTS:
+            settings.ALLOWED_HOSTS.append(ip)
+            logger.info("Added %s to ALLOWED_HOSTS", ip)
+
+
 class NetworkState:
     """Holds network-related state for change detection."""
 
-    last_known_ip: str | None = None
+    last_known_ips: list[str] | None = None
+
+    @classmethod
+    def get_current_ips(cls) -> list[str]:
+        """Get all current non-loopback IPv4 addresses."""
+        return get_all_local_ips()
 
     @classmethod
     def get_current_ip(cls) -> str:
-        """Get the current local IP address."""
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-                s.connect(("8.8.8.8", 80))
-                return s.getsockname()[0]
-        except Exception:
-            return "Unable to detect"
+        """Get the primary local IP address (first detected)."""
+        ips = cls.get_current_ips()
+        return ips[0] if ips else "Unable to detect"
+
+    @classmethod
+    def check_and_update_ips(cls) -> tuple[list[str], bool]:
+        """
+        Check current IPs and detect if they changed.
+
+        Also dynamically updates ALLOWED_HOSTS with any new IPs.
+
+        Returns:
+            Tuple of (current_ips, has_changed)
+        """
+        current_ips = cls.get_current_ips()
+        has_changed = (
+            cls.last_known_ips is not None and
+            set(cls.last_known_ips) != set(current_ips)
+        )
+
+        if has_changed:
+            logger.info("Network IPs changed: %s -> %s", cls.last_known_ips, current_ips)
+
+        cls.last_known_ips = current_ips
+        update_allowed_hosts(current_ips)
+        return current_ips, has_changed
 
     @classmethod
     def check_and_update_ip(cls) -> tuple[str, bool]:
         """
         Check current IP and detect if it changed.
 
+        Legacy wrapper that returns the primary IP.
+
         Returns:
-            Tuple of (current_ip, has_changed)
+            Tuple of (primary_ip, has_changed)
         """
-        current_ip = cls.get_current_ip()
-        has_changed = (
-            cls.last_known_ip is not None and
-            cls.last_known_ip != current_ip
-        )
-
-        if has_changed:
-            logger.info("Network IP changed: %s -> %s", cls.last_known_ip, current_ip)
-
-        cls.last_known_ip = current_ip
-        return current_ip, has_changed
+        ips, changed = cls.check_and_update_ips()
+        primary_ip = ips[0] if ips else "Unable to detect"
+        return primary_ip, changed
 
 
 def health(request: HttpRequest) -> JsonResponse:
@@ -55,20 +112,22 @@ def health(request: HttpRequest) -> JsonResponse:
 
 def network_info(request: HttpRequest) -> JsonResponse:
     """Return current network information for dynamic UI updates."""
-    local_ip, _ = NetworkState.check_and_update_ip()
+    ips, _ = NetworkState.check_and_update_ips()
     hostname = socket.gethostname()
     server_port = request.META.get('SERVER_PORT', '8080')
 
     return JsonResponse({
         'hostname': hostname,
-        'local_ip': local_ip,
+        'local_ip': ips[0] if ips else 'Unable to detect',
+        'local_ips': ips,
         'port': int(server_port)
     })
 
 
 def home(request: HttpRequest) -> HttpResponse:
     """Home page with live map and activity log."""
-    local_ip, _ = NetworkState.check_and_update_ip()
+    ips, _ = NetworkState.check_and_update_ips()
+    primary_ip = ips[0] if ips else 'Unable to detect'
     hostname = socket.gethostname()
 
     # Get the actual port from the request (handles port 0 case correctly)
@@ -91,7 +150,8 @@ def home(request: HttpRequest) -> HttpResponse:
 
     context = {
         'hostname': hostname,
-        'local_ip': local_ip,
+        'local_ip': primary_ip,
+        'local_ips': ips,
         'server_port': server_port,
         'collapse_precision': collapse_precision,
         'mqtt_port': mqtt_port,

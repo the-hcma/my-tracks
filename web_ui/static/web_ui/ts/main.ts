@@ -92,6 +92,7 @@ interface GeocodingQueueItem {
 interface NetworkInfo {
     hostname: string;
     local_ip: string;
+    local_ips: string[];
     port: number;
 }
 
@@ -2168,16 +2169,27 @@ async function checkNetworkInfo(): Promise<void> {
         if (response.ok) {
             const data: NetworkInfo = await response.json();
             const newIP = data.local_ip;
+            const ips = data.local_ips || [newIP];
 
             // Update display elements
             const hostnameEl = document.getElementById('network-hostname');
             if (hostnameEl) hostnameEl.textContent = data.hostname;
 
-            const ipEl = document.getElementById('network-ip');
-            if (ipEl) ipEl.textContent = newIP;
+            const ipsEl = document.getElementById('network-ips');
+            if (ipsEl) {
+                ipsEl.innerHTML = ips.map(ip => `<p><code>${ip}</code></p>`).join('');
+            }
 
-            const urlEl = document.getElementById('network-url');
-            if (urlEl) urlEl.textContent = `http://${newIP}:${data.port}/`;
+            const urlsEl = document.getElementById('network-urls');
+            if (urlsEl) {
+                urlsEl.innerHTML = ips.map(ip => `<p><code>http://${ip}:${data.port}/</code></p>`).join('');
+            }
+
+            // Update MQTT hosts
+            const mqttHostsEl = document.getElementById('mqtt-hosts');
+            if (mqttHostsEl) {
+                mqttHostsEl.innerHTML = ips.map(ip => `<p><code>${ip}</code></p>`).join('');
+            }
 
             // If IP changed, show a notification
             if (newIP !== lastKnownIP && lastKnownIP !== 'Unable to detect') {

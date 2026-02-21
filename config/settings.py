@@ -33,6 +33,18 @@ ALLOWED_HOSTS: list[str] = [
     if host.strip()
 ]
 
+# Auto-discover and add all local network IPs to ALLOWED_HOSTS
+# Only includes broadcast-capable interfaces (excludes VPN/tunnel adapters)
+import netifaces
+
+for iface in netifaces.interfaces():
+    addrs = netifaces.ifaddresses(iface)
+    for addr_info in addrs.get(netifaces.AF_INET, []):
+        ip = addr_info.get('addr', '')
+        has_broadcast = bool(addr_info.get('broadcast'))
+        if ip and not ip.startswith('127.') and has_broadcast and ip not in ALLOWED_HOSTS:
+            ALLOWED_HOSTS.append(ip)
+
 
 # Application definition
 
