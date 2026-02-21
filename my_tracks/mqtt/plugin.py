@@ -281,6 +281,48 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
         except Exception:
             logger.exception("WebSocket broadcast failed for device status")
 
+    # -- Protocol version check ------------------------------------------
+
+    # MQTT v3.1.1 = protocol level 4.  OwnTracks on Android defaults to
+    # v3.1 (protocol level 3, proto_name "MQIsdp") which amqtt rejects.
+    _MQTT_V31_PROTO_NAME = "MQIsdp"
+    _MQTT_V311_LEVEL = 4
+
+    async def on_mqtt_packet_received(self, *, packet: Any, session: Any = None) -> None:
+        """Log a helpful message when a client uses MQTT v3.1.
+
+        amqtt only supports MQTT v3.1.1 (protocol level 4).  When an
+        OwnTracks client connects with v3.1 the broker rejects the
+        connection but the default error is opaque.  This handler fires
+        *before* the rejection so we can tell the user exactly how to fix
+        it.
+        """
+        # Only inspect CONNECT packets
+        from amqtt.mqtt.connect import ConnectPacket
+
+        if not isinstance(packet, ConnectPacket):
+            return
+
+        vh = packet.variable_header
+        if vh is None:
+            return
+
+        proto_name: str = vh.proto_name
+        proto_level: int = vh.proto_level
+
+        if proto_name == self._MQTT_V31_PROTO_NAME or proto_level < self._MQTT_V311_LEVEL:
+            logger.warning(
+                "MQTT v3.1 connection detected (proto_name=%r, proto_level=%d). "
+                "This broker requires MQTT v3.1.1 (protocol level 4). "
+                "To reconfigure OwnTracks: save a file containing "
+                '\'{"_type": "configuration", "mqttProtocolLevel": 4}\' '
+                "to your phone and open it with OwnTracks.",
+                proto_name,
+                proto_level,
+            )
+
+    # -- Message processing ----------------------------------------------
+
     async def on_broker_message_received(
         self,
         *,
