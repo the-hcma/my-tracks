@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from django.test import TestCase
-from hamcrest import (assert_that, equal_to, has_entries, has_length, is_,
-                      is_not, none)
+from hamcrest import (assert_that, contains_string, equal_to, has_entries,
+                      has_length, is_, is_not, none)
 
 from my_tracks.models import Device, Location, OwnTracksMessage
 from my_tracks.mqtt.plugin import (OwnTracksPlugin, save_location_to_db,
@@ -596,3 +596,85 @@ class TestBroadcastDeviceStatus:
         with patch("my_tracks.mqtt.plugin.get_channel_layer_lazy", return_value=mock_layer):
             # Should not raise
             await plugin._broadcast_device_status(status_data)
+
+
+class TestMqttProtocolVersionCheck:
+    """Tests for MQTT v3.1 detection and user-friendly error message."""
+
+    @pytest.fixture
+    def plugin(self, mock_broker_context: MagicMock) -> OwnTracksPlugin:
+        """Create an OwnTracksPlugin instance for testing."""
+        return OwnTracksPlugin(mock_broker_context)
+
+    def _make_connect_packet(
+        self, proto_name: str = "MQTT", proto_level: int = 4
+    ) -> MagicMock:
+        """Create a mock ConnectPacket with given protocol fields."""
+        from amqtt.mqtt.connect import ConnectPacket
+
+        packet = MagicMock(spec=ConnectPacket)
+        packet.variable_header = MagicMock()
+        packet.variable_header.proto_name = proto_name
+        packet.variable_header.proto_level = proto_level
+        return packet
+
+    @pytest.mark.asyncio
+    async def test_v31_mqisdp_logs_warning(self, plugin: OwnTracksPlugin) -> None:
+        """MQTT v3.1 (MQIsdp/level 3) should log a warning with instructions."""
+        packet = self._make_connect_packet(proto_name="MQIsdp", proto_level=3)
+
+        with patch("my_tracks.mqtt.plugin.logger") as mock_logger:
+            await plugin.on_mqtt_packet_received(packet=packet)
+
+        mock_logger.warning.assert_called_once()
+        msg = mock_logger.warning.call_args[0][0]
+        assert_that(msg, contains_string("MQTT v3.1 connection detected"))
+        assert_that(msg, contains_string("mqttProtocolLevel"))
+        assert_that(msg, contains_string("protocol level 4"))
+
+    @pytest.mark.asyncio
+    async def test_v31_level3_with_mqtt_name_logs_warning(
+        self, plugin: OwnTracksPlugin
+    ) -> None:
+        """Proto level < 4 should trigger warning even with 'MQTT' name."""
+        packet = self._make_connect_packet(proto_name="MQTT", proto_level=3)
+
+        with patch("my_tracks.mqtt.plugin.logger") as mock_logger:
+            await plugin.on_mqtt_packet_received(packet=packet)
+
+        mock_logger.warning.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_v311_does_not_log_warning(self, plugin: OwnTracksPlugin) -> None:
+        """MQTT v3.1.1 (level 4) should not trigger any warning."""
+        packet = self._make_connect_packet(proto_name="MQTT", proto_level=4)
+
+        with patch("my_tracks.mqtt.plugin.logger") as mock_logger:
+            await plugin.on_mqtt_packet_received(packet=packet)
+
+        mock_logger.warning.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_non_connect_packet_ignored(self, plugin: OwnTracksPlugin) -> None:
+        """Non-CONNECT packets should be silently ignored."""
+        packet = MagicMock()  # Not a ConnectPacket
+
+        with patch("my_tracks.mqtt.plugin.logger") as mock_logger:
+            await plugin.on_mqtt_packet_received(packet=packet)
+
+        mock_logger.warning.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_connect_packet_no_variable_header(
+        self, plugin: OwnTracksPlugin
+    ) -> None:
+        """ConnectPacket with no variable header should not crash."""
+        from amqtt.mqtt.connect import ConnectPacket
+
+        packet = MagicMock(spec=ConnectPacket)
+        packet.variable_header = None
+
+        with patch("my_tracks.mqtt.plugin.logger") as mock_logger:
+            await plugin.on_mqtt_packet_received(packet=packet)
+
+        mock_logger.warning.assert_not_called()
