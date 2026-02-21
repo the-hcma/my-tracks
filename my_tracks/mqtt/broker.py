@@ -130,6 +130,7 @@ class MQTTBroker:
         self._broker: Broker | None = None
         self._running = False
         self._actual_mqtt_port: int | None = None
+        self._actual_ws_port: int | None = None
 
     @property
     def is_running(self) -> bool:
@@ -141,10 +142,37 @@ class MQTTBroker:
         """Get the broker configuration."""
         return self._config
 
+    def _discover_port(self, listener_name: str) -> int | None:
+        """Discover the actual port a listener is bound to.
+
+        Args:
+            listener_name: Name of the listener in the broker config
+                (e.g. ``"default"`` for TCP, ``"ws-mqtt"`` for WebSocket).
+
+        Returns:
+            The port number, or ``None`` if the broker hasn't started or
+            the listener is not found.
+        """
+        if self._broker is None:
+            return None
+        try:
+            if hasattr(self._broker, "_servers") and self._broker._servers:
+                server = self._broker._servers.get(listener_name)
+                if server is not None:
+                    instance = getattr(server, "instance", None)
+                    if instance is not None and hasattr(instance, "sockets"):
+                        for sock in instance.sockets:
+                            addr = sock.getsockname()
+                            if len(addr) >= 2:
+                                return int(addr[1])
+        except Exception:
+            pass
+        return None
+
     @property
     def actual_mqtt_port(self) -> int | None:
         """
-        Get the actual MQTT port after startup.
+        Get the actual MQTT TCP port after startup.
 
         This is useful when port 0 was specified to let the OS allocate.
         Returns None if broker hasn't started or port discovery failed.
@@ -154,25 +182,34 @@ class MQTTBroker:
         if self._broker is None:
             return None
 
-        # Try to get actual port from broker's server
-        try:
-            # amqtt stores listeners in _servers dict after start
-            # Each value is a Server object with an 'instance' attribute
-            if hasattr(self._broker, '_servers') and self._broker._servers:
-                for name, server in self._broker._servers.items():
-                    if name == 'default':  # TCP listener
-                        instance = getattr(server, 'instance', None)
-                        if instance is not None and hasattr(instance, 'sockets'):
-                            for sock in instance.sockets:
-                                addr = sock.getsockname()
-                                if len(addr) >= 2:
-                                    self._actual_mqtt_port = addr[1]
-                                    return self._actual_mqtt_port
-        except Exception:
-            pass
+        port = self._discover_port("default")
+        if port is not None:
+            self._actual_mqtt_port = port
+            return port
 
-        # Fall back to configured port
+        # Fall back to configured port when running but discovery failed
         return self.mqtt_port
+
+    @property
+    def actual_ws_port(self) -> int | None:
+        """
+        Get the actual MQTT WebSocket port after startup.
+
+        This is useful when port 0 was specified to let the OS allocate.
+        Returns None if broker hasn't started or port discovery failed.
+        """
+        if self._actual_ws_port is not None:
+            return self._actual_ws_port
+        if self._broker is None:
+            return None
+
+        port = self._discover_port("ws-mqtt")
+        if port is not None:
+            self._actual_ws_port = port
+            return port
+
+        # Fall back to configured port when running but discovery failed
+        return self.mqtt_ws_port
 
     async def start(self) -> None:
         """

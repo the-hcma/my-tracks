@@ -84,8 +84,12 @@ class TestMQTTBrokerInit:
     def test_actual_mqtt_port_none_before_start(self) -> None:
         """actual_mqtt_port should return None before broker starts."""
         broker = MQTTBroker()
-        # When broker not started, actual_mqtt_port returns None
         assert_that(broker.actual_mqtt_port, is_(None))
+
+    def test_actual_ws_port_none_before_start(self) -> None:
+        """actual_ws_port should return None before broker starts."""
+        broker = MQTTBroker()
+        assert_that(broker.actual_ws_port, is_(None))
 
 
 class TestMQTTBrokerLifecycle:
@@ -185,16 +189,124 @@ class TestOSAllocatedPorts:
                 await broker.stop()
 
     @pytest.mark.asyncio
-    async def test_mqtt_port_zero_different_from_ws_port(self) -> None:
+    async def test_ws_port_zero_allocates_actual_port(self) -> None:
+        """Starting broker with WS port 0 should allocate a real port."""
+        broker = MQTTBroker(mqtt_port=0, mqtt_ws_port=0, use_owntracks_handler=False)
+        try:
+            await broker.start()
+            actual_ws_port = broker.actual_ws_port
+            assert actual_ws_port is not None
+            assert actual_ws_port > 0
+            assert actual_ws_port != 0
+        finally:
+            if broker.is_running:
+                await broker.stop()
+
+    @pytest.mark.asyncio
+    async def test_mqtt_and_ws_ports_are_different(self) -> None:
         """OS-allocated MQTT and WS ports should be different."""
         broker = MQTTBroker(mqtt_port=0, mqtt_ws_port=0, use_owntracks_handler=False)
         try:
             await broker.start()
             mqtt_port = broker.actual_mqtt_port
-            # Note: We currently only track actual_mqtt_port, not actual_ws_port
-            # This test verifies the MQTT port is allocated correctly
+            ws_port = broker.actual_ws_port
             assert mqtt_port is not None
-            assert mqtt_port > 0
+            assert ws_port is not None
+            assert mqtt_port != ws_port
+        finally:
+            if broker.is_running:
+                await broker.stop()
+
+
+class TestProtocolListening:
+    """Verify the broker is actually listening on each protocol's port."""
+
+    @pytest.mark.asyncio
+    async def test_tcp_mqtt_port_accepting_connections(self) -> None:
+        """The MQTT TCP listener should accept raw TCP connections."""
+        broker = MQTTBroker(mqtt_port=0, mqtt_ws_port=0, use_owntracks_handler=False)
+        try:
+            await broker.start()
+            port = broker.actual_mqtt_port
+            assert port is not None
+
+            # Open a plain TCP connection — the broker should accept it
+            reader, writer = await asyncio.open_connection("127.0.0.1", port)
+            writer.close()
+            await writer.wait_closed()
+        finally:
+            if broker.is_running:
+                await broker.stop()
+
+    @pytest.mark.asyncio
+    async def test_ws_mqtt_port_accepting_connections(self) -> None:
+        """The MQTT WebSocket listener should accept TCP connections."""
+        broker = MQTTBroker(mqtt_port=0, mqtt_ws_port=0, use_owntracks_handler=False)
+        try:
+            await broker.start()
+            port = broker.actual_ws_port
+            assert port is not None
+
+            # The WS listener is still a TCP server underneath —
+            # verify it accepts the transport-level connection.
+            reader, writer = await asyncio.open_connection("127.0.0.1", port)
+            writer.close()
+            await writer.wait_closed()
+        finally:
+            if broker.is_running:
+                await broker.stop()
+
+    @pytest.mark.asyncio
+    async def test_tcp_mqtt_port_not_listening_after_stop(self) -> None:
+        """After stopping, the MQTT TCP port should refuse connections."""
+        broker = MQTTBroker(mqtt_port=0, mqtt_ws_port=0, use_owntracks_handler=False)
+        await broker.start()
+        port = broker.actual_mqtt_port
+        assert port is not None
+        await broker.stop()
+
+        with pytest.raises(OSError):
+            await asyncio.open_connection("127.0.0.1", port)
+
+    @pytest.mark.asyncio
+    async def test_ws_mqtt_port_not_listening_after_stop(self) -> None:
+        """After stopping, the MQTT WebSocket port should refuse connections."""
+        broker = MQTTBroker(mqtt_port=0, mqtt_ws_port=0, use_owntracks_handler=False)
+        await broker.start()
+        port = broker.actual_ws_port
+        assert port is not None
+        await broker.stop()
+
+        with pytest.raises(OSError):
+            await asyncio.open_connection("127.0.0.1", port)
+
+    @pytest.mark.asyncio
+    async def test_both_protocols_listening_simultaneously(self) -> None:
+        """Both TCP and WS listeners should accept connections at the same time."""
+        broker = MQTTBroker(mqtt_port=0, mqtt_ws_port=0, use_owntracks_handler=False)
+        try:
+            await broker.start()
+            mqtt_port = broker.actual_mqtt_port
+            ws_port = broker.actual_ws_port
+            assert mqtt_port is not None
+            assert ws_port is not None
+
+            # Connect to both simultaneously
+            tcp_reader, tcp_writer = await asyncio.open_connection(
+                "127.0.0.1", mqtt_port
+            )
+            ws_reader, ws_writer = await asyncio.open_connection(
+                "127.0.0.1", ws_port
+            )
+
+            # Both connections should be open
+            assert not tcp_writer.is_closing()
+            assert not ws_writer.is_closing()
+
+            tcp_writer.close()
+            ws_writer.close()
+            await tcp_writer.wait_closed()
+            await ws_writer.wait_closed()
         finally:
             if broker.is_running:
                 await broker.stop()
