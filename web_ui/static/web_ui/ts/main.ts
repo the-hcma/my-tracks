@@ -96,6 +96,12 @@ interface NetworkInfo {
     port: number;
 }
 
+/** Device info from the API */
+interface DeviceInfo {
+    device_id: string;
+    name: string;
+}
+
 /** WebSocket message from server */
 interface WebSocketMessage {
     type: string;
@@ -624,6 +630,68 @@ function ensureDeviceInSelector(deviceName: string): boolean {
     }
 
     return true;
+}
+
+/**
+ * Refresh the device selector from the server.
+ * Fetches the current device list and rebuilds the selector dropdown,
+ * preserving the current selection. Removes devices that no longer exist.
+ */
+async function refreshDeviceSelector(): Promise<void> {
+    try {
+        const response = await fetch('/api/devices/');
+        if (!response.ok) {
+            console.error('Failed to fetch devices:', response.status);
+            return;
+        }
+
+        const data = await response.json();
+        // Handle both paginated ({results: [...]}) and direct array responses
+        const deviceList: DeviceInfo[] = Array.isArray(data) ? data : (data.results || []);
+        const selector = document.getElementById('device-selector') as HTMLSelectElement;
+        if (!selector) return;
+
+        // Build display names using the same logic as the backend serializer:
+        // use name if set and not "Device ...", otherwise use device_id
+        const serverDeviceNames = deviceList.map(d =>
+            d.name && !d.name.startsWith('Device ') ? d.name : d.device_id,
+        );
+
+        // Sort case-insensitively
+        serverDeviceNames.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+
+        // Remember current selection
+        const previousSelection = selector.value;
+
+        // Clear everything except "All Devices" (index 0)
+        while (selector.options.length > 1) {
+            selector.remove(1);
+        }
+        devices.clear();
+
+        // Repopulate
+        for (const name of serverDeviceNames) {
+            devices.add(name);
+            const option = document.createElement('option');
+            option.value = name;
+            option.textContent = name;
+            selector.appendChild(option);
+        }
+
+        // Restore selection if the device still exists, otherwise reset to "All Devices"
+        if (previousSelection && serverDeviceNames.includes(previousSelection)) {
+            selector.value = previousSelection;
+        } else if (previousSelection) {
+            // Previously selected device no longer exists
+            selector.value = '';
+            selectedDevice = '';
+            console.log(`Device '${previousSelection}' no longer exists, reset to All Devices`);
+        }
+
+        console.log(`Device selector refreshed: ${serverDeviceNames.length} device(s)`);
+    } catch (error) {
+        console.error('Error refreshing device selector:', error);
+    }
 }
 
 /**
@@ -2258,7 +2326,8 @@ function connectWebSocket(): void {
                         // First connection, store the version
                         serverStartupTimestamp = message.server_startup;
                         console.log('Server startup timestamp:', serverStartupTimestamp);
-                        // Refresh live data in case we missed anything during initial connection
+                        // Refresh device list and live data
+                        refreshDeviceSelector();
                         if (isLiveMode) {
                             console.log('WebSocket first connection, refreshing live activity...');
                             refreshLiveActivitySinceLastUpdate();
@@ -2275,8 +2344,9 @@ function connectWebSocket(): void {
                         window.location.reload();
                         return;
                     } else {
-                        // Same server, but we reconnected - refresh live data to catch up on missed updates
-                        console.log('WebSocket reconnected, refreshing live activity...');
+                        // Same server, but we reconnected - refresh device list and live data
+                        console.log('WebSocket reconnected, refreshing device selector and live activity...');
+                        refreshDeviceSelector();
                         if (isLiveMode) {
                             refreshLiveActivitySinceLastUpdate();
                         }
