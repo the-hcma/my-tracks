@@ -129,11 +129,46 @@ This will:
 
 ## OwnTracks Configuration
 
+### HTTP Mode
+
 Configure your OwnTracks app with the following settings:
 
 - **Mode**: HTTP
 - **URL**: `http://your-server:8080/api/locations/`
 - **Authentication**: Use device ID in the payload
+
+### MQTT Mode (Recommended)
+
+MQTT provides real-time location updates, lower battery usage, and bidirectional
+communication (e.g., sending commands to devices).
+
+**Important**: my-tracks uses **MQTT v3.1.1** (protocol level 4). OwnTracks on
+Android defaults to MQTT v3.1, which is **not supported** by the embedded broker.
+
+#### OwnTracks App Settings
+
+1. **Mode**: MQTT
+2. **Host**: Your server's IP or hostname
+3. **Port**: `1883` (or the port shown in the web UI)
+4. **Client ID**: Leave default or set a unique ID
+5. **Username / Password**: Leave blank (anonymous access)
+
+#### Setting MQTT Protocol Level to v3.1.1
+
+OwnTracks on Android defaults to MQTT v3.1 (`MQIsdp`, protocol level 3).
+You must reconfigure it to use v3.1.1 (protocol level 4):
+
+1. Create a file on your phone (e.g., `config.otrc`) with:
+   ```json
+   {"_type": "configuration", "mqttProtocolLevel": 4}
+   ```
+2. Open the file with OwnTracks (tap it in a file manager, share to OwnTracks,
+   or use the import feature in the app)
+3. The app will apply the configuration and reconnect using v3.1.1
+
+> **Tip**: If you see connections being rejected in the server logs, check for
+> the warning message: *"MQTT v3.1 connection detected"* — this confirms the
+> protocol level needs to be updated on the device.
 
 ## API Endpoints
 

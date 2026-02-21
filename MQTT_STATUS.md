@@ -119,6 +119,7 @@ my_tracks/mqtt/
 ## Technical Notes
 
 - **Python 3.14 compatibility**: amqtt installed from git, not PyPI
+- **MQTT v3.1.1 required**: amqtt only supports protocol level 4 (v3.1.1). OwnTracks Android defaults to v3.1 — reconfigure with `{"_type": "configuration", "mqttProtocolLevel": 4}`. The broker logs a warning when a v3.1 client connects.
 - **Django ORM in async**: Use `sync_to_async` wrapper
 - **SQLite async tests**: Use `@pytest.mark.django_db(transaction=True)`
 
