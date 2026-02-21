@@ -251,6 +251,15 @@ This document defines the four specialized agents for the OwnTracks Django backe
 - Benefits: Auto-generated help with colors, type validation, shell completion, cleaner code
 - Rationale: Modern Python CLI standard, leverages type hints, better developer experience
 
+**Module-Level State**:
+- **NEVER use module-level mutable variables** (`global` statements are a code smell)
+- Group related mutable state into a holder class (e.g., `_MqttBrokerState`) and expose a single module-level instance
+- Holder classes encapsulate state, eliminate `global` declarations, and make patching in tests cleaner
+- Example:
+  - ❌ `_broker: Any = None`, `_loop = None`, `_thread = None` (3 loose globals + `global` in every function)
+  - ✅ `class _BrokerState: broker, loop, thread` → `_state = _BrokerState()` (one instance, zero `global`)
+- Rationale: Avoids `global` keyword, groups related state, improves testability
+
 **Error Message Guidelines**:
 - Error messages must provide context, not just indicate failure
 - Include both what was received and what was expected
@@ -313,6 +322,7 @@ This document defines the four specialized agents for the OwnTracks Django backe
 - [ ] Error messages are informative (include both expected and actual values)
 - [ ] Naming conventions followed (values, descriptive mappings)
 - [ ] No dead code (unused methods, variables, imports, or parameters)
+- [ ] **No module-level mutable state** (use holder classes, no `global` keyword)
 - [ ] **Empty lines have no whitespace** (run `find . -name "*.py" -type f -exec sed -i '' 's/^[[:space:]]*$//' {} +`)
 - [ ] **Imports are sorted** (run `isort .` to fix)
 - [ ] **Timezone handling correct** (database stores UTC, displays show local time)
@@ -343,6 +353,7 @@ This document defines the four specialized agents for the OwnTracks Django backe
 - Code maintainability over time
 - Edge cases from a different angle
 - Look for dead code (unused methods, setup fixtures that never run, unreachable code)
+- **No module-level mutable state** — related state must be grouped into holder classes (no `global` keyword)
 - Error message quality: ensure exceptions provide context with expected vs actual values
 - **Verify empty lines have no whitespace** (check for trailing spaces)
 - **Verify imports are sorted** (should follow PEP 8 ordering)

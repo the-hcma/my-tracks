@@ -210,7 +210,7 @@ class TestMqttBrokerStartup:
 
         with (
             patch("config.runtime.CONFIG_FILE", config_file),
-            patch.object(apps_module, "_mqtt_thread", None),
+            patch.object(apps_module._state, "thread", None),
             patch("threading.Thread", mock_thread_class),
             patch("atexit.register") as mock_atexit,
         ):
@@ -275,7 +275,7 @@ class TestMqttBrokerStartup:
 
         with (
             patch("config.runtime.CONFIG_FILE", config_file),
-            patch.object(apps_module, "_mqtt_thread", None),
+            patch.object(apps_module._state, "thread", None),
             patch("threading.Thread", mock_thread_class),
             patch("atexit.register"),
         ):
@@ -310,9 +310,9 @@ class TestStopMqttBroker:
 
         with (
             patch("asyncio.run_coroutine_threadsafe", return_value=mock_future) as mock_rct,
-            patch.object(apps_module, "_mqtt_broker", mock_broker),
-            patch.object(apps_module, "_mqtt_loop", mock_loop),
-            patch.object(apps_module, "_mqtt_thread", mock_thread),
+            patch.object(apps_module._state, "broker", mock_broker),
+            patch.object(apps_module._state, "loop", mock_loop),
+            patch.object(apps_module._state, "thread", mock_thread),
         ):
             from my_tracks.apps import _stop_mqtt_broker
 
@@ -340,9 +340,9 @@ class TestStopMqttBroker:
 
         with (
             patch("asyncio.run_coroutine_threadsafe", return_value=mock_future),
-            patch.object(apps_module, "_mqtt_broker", mock_broker),
-            patch.object(apps_module, "_mqtt_loop", mock_loop),
-            patch.object(apps_module, "_mqtt_thread", mock_thread),
+            patch.object(apps_module._state, "broker", mock_broker),
+            patch.object(apps_module._state, "loop", mock_loop),
+            patch.object(apps_module._state, "thread", mock_thread),
             patch("my_tracks.apps.logger") as mock_logger,
         ):
             from my_tracks.apps import _stop_mqtt_broker
@@ -359,9 +359,9 @@ class TestStopMqttBroker:
         import my_tracks.apps as apps_module
 
         with (
-            patch.object(apps_module, "_mqtt_broker", None),
-            patch.object(apps_module, "_mqtt_loop", None),
-            patch.object(apps_module, "_mqtt_thread", None),
+            patch.object(apps_module._state, "broker", None),
+            patch.object(apps_module._state, "loop", None),
+            patch.object(apps_module._state, "thread", None),
         ):
             from my_tracks.apps import _stop_mqtt_broker
 
@@ -399,8 +399,8 @@ class TestRunMqttBroker:
         with (
             patch("my_tracks.mqtt.broker.MQTTBroker", return_value=mock_broker),
             patch("asyncio.sleep", side_effect=mock_sleep),
-            patch.object(apps_module, "_mqtt_broker", None),
-            patch.object(apps_module, "_mqtt_loop", None),
+            patch.object(apps_module._state, "broker", None),
+            patch.object(apps_module._state, "loop", None),
         ):
             from my_tracks.apps import _run_mqtt_broker
 
@@ -429,8 +429,8 @@ class TestRunMqttBroker:
             patch("my_tracks.mqtt.broker.MQTTBroker", return_value=mock_broker),
             patch("asyncio.sleep", side_effect=mock_sleep),
             patch("config.runtime.update_runtime_config") as mock_update,
-            patch.object(apps_module, "_mqtt_broker", None),
-            patch.object(apps_module, "_mqtt_loop", None),
+            patch.object(apps_module._state, "broker", None),
+            patch.object(apps_module._state, "loop", None),
         ):
             from my_tracks.apps import _run_mqtt_broker
 
@@ -453,8 +453,8 @@ class TestRunMqttBroker:
         with (
             patch("my_tracks.mqtt.broker.MQTTBroker", return_value=mock_broker),
             patch("my_tracks.apps.logger") as mock_logger,
-            patch.object(apps_module, "_mqtt_broker", None),
-            patch.object(apps_module, "_mqtt_loop", None),
+            patch.object(apps_module._state, "broker", None),
+            patch.object(apps_module._state, "loop", None),
         ):
             from my_tracks.apps import _run_mqtt_broker
 
@@ -481,9 +481,9 @@ class TestRunMqttBroker:
         with (
             patch("my_tracks.mqtt.broker.MQTTBroker", return_value=mock_broker),
             patch("my_tracks.apps.logger") as mock_logger,
-            patch.object(apps_module, "_mqtt_broker", None),
-            patch.object(apps_module, "_mqtt_loop", None),
-            patch.object(apps_module, "_shutting_down", shutdown_event),
+            patch.object(apps_module._state, "broker", None),
+            patch.object(apps_module._state, "loop", None),
+            patch.object(apps_module._state, "shutting_down", shutdown_event),
         ):
             from my_tracks.apps import _run_mqtt_broker
 
@@ -512,9 +512,9 @@ class TestRunMqttBroker:
         with (
             patch("my_tracks.mqtt.broker.MQTTBroker", return_value=mock_broker),
             patch("my_tracks.apps.logger") as mock_logger,
-            patch.object(apps_module, "_mqtt_broker", None),
-            patch.object(apps_module, "_mqtt_loop", None),
-            patch.object(apps_module, "_shutting_down", shutdown_event),
+            patch.object(apps_module._state, "broker", None),
+            patch.object(apps_module._state, "loop", None),
+            patch.object(apps_module._state, "shutting_down", shutdown_event),
         ):
             from my_tracks.apps import _run_mqtt_broker
 
