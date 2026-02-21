@@ -140,6 +140,56 @@ class TestLocationModel:
 
 
 @pytest.mark.django_db
+class TestOptionalTrailingSlash:
+    """Verify all API endpoints accept URLs both with and without trailing slash."""
+
+    def _owntracks_payload(self) -> dict[str, Any]:
+        return {
+            "_type": "location",
+            "lat": 37.7749,
+            "lon": -122.4194,
+            "tst": int(datetime.now().timestamp()),
+            "acc": 10,
+            "tid": "TS",
+            "conn": "w",
+        }
+
+    def test_post_locations_with_slash(self, api_client: APIClient) -> None:
+        """POST /api/locations/ (with slash) should succeed."""
+        response = api_client.post(
+            "/api/locations/", self._owntracks_payload(), format="json"
+        )
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+
+    def test_post_locations_without_slash(self, api_client: APIClient) -> None:
+        """POST /api/locations (without slash) should succeed."""
+        response = api_client.post(
+            "/api/locations", self._owntracks_payload(), format="json"
+        )
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+
+    def test_get_locations_with_slash(self, api_client: APIClient) -> None:
+        """GET /api/locations/ (with slash) should succeed."""
+        response = api_client.get("/api/locations/")
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+
+    def test_get_locations_without_slash(self, api_client: APIClient) -> None:
+        """GET /api/locations (without slash) should succeed."""
+        response = api_client.get("/api/locations")
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+
+    def test_get_devices_with_slash(self, api_client: APIClient) -> None:
+        """GET /api/devices/ (with slash) should succeed."""
+        response = api_client.get("/api/devices/")
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+
+    def test_get_devices_without_slash(self, api_client: APIClient) -> None:
+        """GET /api/devices (without slash) should succeed."""
+        response = api_client.get("/api/devices")
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+
+
+@pytest.mark.django_db
 class TestLocationAPI:
     """Tests for Location API endpoints."""
 
