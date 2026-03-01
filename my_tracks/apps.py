@@ -3,6 +3,7 @@
 import asyncio
 import atexit
 import logging
+import os
 import sys
 import threading
 from typing import Any
@@ -114,15 +115,22 @@ def _run_mqtt_broker(mqtt_port: int) -> None:
             logger.exception("MQTT broker runtime error")
     except BrokerError as exc:
         cause = exc.__cause__
-        if isinstance(cause, OSError) and cause.errno == 48:
-            logger.warning(
-                "MQTT broker port %d already in use — is another server running?",
+        if isinstance(cause, OSError) and cause.errno in (48, 98):
+            # errno 48 = macOS EADDRINUSE, errno 98 = Linux EADDRINUSE
+            logger.critical(
+                "MQTT broker port %d already in use — cannot start. "
+                "Stop the other process or use --mqtt-port to choose a different port.",
                 mqtt_port,
             )
         else:
-            logger.exception("MQTT broker failed to start")
+            logger.critical("MQTT broker failed to start: %s", exc)
+        # Fatal: bring down the entire server — a half-running server
+        # (HTTP up, MQTT down) would silently drop all location updates.
+        os._exit(1)
     except Exception:
-        logger.exception("MQTT broker error")
+        logger.critical("MQTT broker startup failed unexpectedly")
+        logger.exception("Details:")
+        os._exit(1)
     finally:
         _state.loop.close()
 
