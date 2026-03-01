@@ -36,8 +36,8 @@ jobs:
     - name: Run TypeScript tests
       run: npm run test
 
-  backend:
-    name: Backend (Python)
+  backend-lint:
+    name: Backend Lint
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v6
@@ -74,6 +74,86 @@ jobs:
     - name: Install dependencies
       run: uv sync --all-extras
 
+    - name: Check import sorting with isort
+      run: uv run isort --check-only --diff my_tracks config
+
+    - name: Check type annotations with Pyright
+      run: |
+        uv run pyright
+        echo "✅ All type annotations are complete and correct"
+
+    - name: Check for pending migrations
+      run: uv run python manage.py makemigrations --check --dry-run
+
+  backend-test:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+    - name: Fetch base branch for stacked PRs
+      if: github.event_name == 'pull_request'
+      run: |
+        echo "PR base ref: ${{ github.event.pull_request.base.ref }}"
+        echo "PR head ref: ${{ github.event.pull_request.head.ref }}"
+        git fetch origin ${{ github.event.pull_request.base.ref }}:${{ github.event.pull_request.base.ref }} || true
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        version: "latest"
+
+    - name: Set up Python
+      run: uv python install 3.14
+
+    - name: Install dependencies
+      run: uv sync --all-extras
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v6
+      with:
+        node-version: '22'
+        cache: 'npm'
+
+    - name: Build frontend assets
+      run: npm ci && npm run build
+
+    - name: Run migrations
+      run: uv run python manage.py migrate
+
+    - name: Run tests with coverage
+      run: uv run pytest --cov=my_tracks --cov-fail-under=90 --cov-report=term-missing
+
+  shell-test:
+    name: Shell Script Tests
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+    - name: Fetch base branch for stacked PRs
+      if: github.event_name == 'pull_request'
+      run: |
+        echo "PR base ref: ${{ github.event.pull_request.base.ref }}"
+        echo "PR head ref: ${{ github.event.pull_request.head.ref }}"
+        git fetch origin ${{ github.event.pull_request.base.ref }}:${{ github.event.pull_request.base.ref }} || true
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        version: "latest"
+
+    - name: Set up Python
+      run: uv python install 3.14
+
+    - name: Install dependencies
+      run: uv sync --all-extras
+
     - name: Set up Node.js
       uses: actions/setup-node@v6
       with:
@@ -88,20 +168,3 @@ jobs:
 
     - name: Run shell script tests
       run: ./test-my-tracks-server
-
-    - name: Check import sorting with isort
-      run: uv run isort --check-only --diff my_tracks config
-
-    - name: Check type annotations with Pyright
-      run: |
-        uv run pyright
-        echo "✅ All type annotations are complete and correct"
-
-    - name: Check for pending migrations
-      run: uv run python manage.py makemigrations --check --dry-run
-
-    - name: Run migrations
-      run: uv run python manage.py migrate
-
-    - name: Run tests with coverage
-      run: uv run pytest --cov=my_tracks --cov-fail-under=90 --cov-report=term-missing
