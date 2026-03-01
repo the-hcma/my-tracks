@@ -12,8 +12,8 @@ from hamcrest import (assert_that, contains_string, equal_to, has_entries,
                       has_length, is_, is_not, none)
 
 from my_tracks.models import Device, Location, OwnTracksMessage
-from my_tracks.mqtt.plugin import (OwnTracksPlugin, save_location_to_db,
-                                   save_lwt_to_db)
+from my_tracks.mqtt.plugin import (OwnTracksPlugin, get_channel_layer_lazy,
+                                   save_location_to_db, save_lwt_to_db)
 
 # Allow sync DB access in async tests for testing purposes
 os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
@@ -804,3 +804,294 @@ class TestMqttProtocolVersionCheck:
             await plugin.on_mqtt_packet_received(packet=packet)
 
         mock_logger.warning.assert_not_called()
+
+
+class TestGetChannelLayerLazy:
+    """Tests for get_channel_layer_lazy function."""
+
+    def test_returns_channel_layer_when_available(self) -> None:
+        """Should return the channel layer when get_channel_layer succeeds."""
+        mock_layer = MagicMock()
+        with patch("my_tracks.mqtt.plugin.get_channel_layer", return_value=mock_layer):
+            result = get_channel_layer_lazy()
+        assert_that(result, equal_to(mock_layer))
+
+    def test_returns_none_on_exception(self) -> None:
+        """Should return None when get_channel_layer raises an exception."""
+        with patch(
+            "my_tracks.mqtt.plugin.get_channel_layer",
+            side_effect=Exception("No channel layer configured"),
+        ):
+            result = get_channel_layer_lazy()
+        assert_that(result, is_(none()))
+
+
+class TestSaveLwtToDbExceptionPath(TestCase):
+    """Tests for save_lwt_to_db generic exception handling."""
+
+    def test_generic_exception_returns_none(self) -> None:
+        """Should return None when an unexpected exception occurs in the outer try."""
+        Device.objects.create(
+            device_id="user/excdevice",
+            name="Exception Device",
+            is_online=True,
+        )
+        lwt_data: dict[str, Any] = {
+            "device": "user/excdevice",
+            "event": "offline",
+            "connected_at": None,
+        }
+        result = save_lwt_to_db(lwt_data)
+        assert_that(result, is_(none()))
+
+
+class TestHandleLocationEarlyReturn:
+    """Tests for _handle_location when save_location_to_db returns None."""
+
+    @pytest.fixture
+    def plugin(self, mock_broker_context: MagicMock) -> OwnTracksPlugin:
+        """Create plugin instance for testing."""
+        return OwnTracksPlugin(mock_broker_context)
+
+    @pytest.mark.asyncio
+    async def test_does_not_broadcast_when_save_fails(
+        self,
+        plugin: OwnTracksPlugin,
+    ) -> None:
+        """Should skip broadcast when save_location_to_db returns None."""
+        broadcast_mock = AsyncMock()
+        location_data = {
+            "device": "test",
+            "latitude": 51.5,
+            "longitude": -0.1,
+        }
+        with (
+            patch("my_tracks.mqtt.plugin.save_location_to_db", return_value=None),
+            patch.object(plugin, "_broadcast_location", broadcast_mock),
+        ):
+            await plugin._handle_location(location_data)
+
+        broadcast_mock.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_broadcasts_when_save_succeeds(
+        self,
+        plugin: OwnTracksPlugin,
+    ) -> None:
+        """Should call _broadcast_location with serialized data on success."""
+        serialized = {"id": 42, "device_id_display": "mydev", "latitude": "51.5"}
+        broadcast_mock = AsyncMock()
+        with (
+            patch("my_tracks.mqtt.plugin.save_location_to_db", return_value=serialized),
+            patch.object(plugin, "_broadcast_location", broadcast_mock),
+        ):
+            await plugin._handle_location({"device": "mydev", "latitude": 51.5, "longitude": -0.1})
+
+        broadcast_mock.assert_called_once_with(serialized)
+
+
+class TestHandleLwtEarlyReturn:
+    """Tests for _handle_lwt when save_lwt_to_db returns None."""
+
+    @pytest.fixture
+    def plugin(self, mock_broker_context: MagicMock) -> OwnTracksPlugin:
+        """Create plugin instance for testing."""
+        return OwnTracksPlugin(mock_broker_context)
+
+    @pytest.mark.asyncio
+    async def test_does_not_broadcast_when_save_fails(
+        self,
+        plugin: OwnTracksPlugin,
+    ) -> None:
+        """Should skip broadcast when save_lwt_to_db returns None."""
+        broadcast_mock = AsyncMock()
+        lwt_data = {"device": "test", "event": "offline"}
+        with (
+            patch("my_tracks.mqtt.plugin.save_lwt_to_db", return_value=None),
+            patch.object(plugin, "_broadcast_device_status", broadcast_mock),
+        ):
+            await plugin._handle_lwt(lwt_data)
+
+        broadcast_mock.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_broadcasts_when_save_succeeds(
+        self,
+        plugin: OwnTracksPlugin,
+    ) -> None:
+        """Should call _broadcast_device_status with status data on success."""
+        status_data = {
+            "device_id": "user/phone",
+            "is_online": False,
+            "event": "device_offline",
+            "disconnected_at": "2024-01-01T12:00:00+00:00",
+        }
+        broadcast_mock = AsyncMock()
+        with (
+            patch("my_tracks.mqtt.plugin.save_lwt_to_db", return_value=status_data),
+            patch.object(plugin, "_broadcast_device_status", broadcast_mock),
+        ):
+            await plugin._handle_lwt({"device": "user/phone", "event": "offline"})
+
+        broadcast_mock.assert_called_once_with(status_data)
+
+
+class TestHandleTransition:
+    """Tests for _handle_transition method."""
+
+    @pytest.fixture
+    def plugin(self, mock_broker_context: MagicMock) -> OwnTracksPlugin:
+        """Create plugin instance for testing."""
+        return OwnTracksPlugin(mock_broker_context)
+
+    @pytest.mark.asyncio
+    async def test_logs_transition_without_error(
+        self,
+        plugin: OwnTracksPlugin,
+    ) -> None:
+        """Should log transition data and return without error."""
+        transition_data = {
+            "device": "phone",
+            "event": "enter",
+            "description": "Home",
+        }
+        await plugin._handle_transition(transition_data)
+
+    @pytest.mark.asyncio
+    async def test_logs_transition_with_missing_keys(
+        self,
+        plugin: OwnTracksPlugin,
+    ) -> None:
+        """Should handle transition data with missing optional keys."""
+        transition_data: dict[str, Any] = {
+            "device": "tablet",
+        }
+        await plugin._handle_transition(transition_data)
+
+
+class TestSetupCallbacks:
+    """Tests for _setup_callbacks method."""
+
+    def test_registers_all_callback_types(self, mock_broker_context: MagicMock) -> None:
+        """Should register location, lwt, and transition callbacks."""
+        plugin = OwnTracksPlugin(mock_broker_context)
+        assert_that(plugin._handler._location_callbacks, has_length(1))
+        assert_that(plugin._handler._lwt_callbacks, has_length(1))
+        assert_that(plugin._handler._transition_callbacks, has_length(1))
+
+    def test_location_callback_is_handle_location(self, mock_broker_context: MagicMock) -> None:
+        """Registered location callback should be _handle_location."""
+        plugin = OwnTracksPlugin(mock_broker_context)
+        assert_that(plugin._handler._location_callbacks[0], equal_to(plugin._handle_location))
+
+    def test_lwt_callback_is_handle_lwt(self, mock_broker_context: MagicMock) -> None:
+        """Registered LWT callback should be _handle_lwt."""
+        plugin = OwnTracksPlugin(mock_broker_context)
+        assert_that(plugin._handler._lwt_callbacks[0], equal_to(plugin._handle_lwt))
+
+
+class TestSaveLocationToDbEdgeCases(TestCase):
+    """Additional edge-case tests for save_location_to_db."""
+
+    def test_save_location_with_all_optional_fields(self) -> None:
+        """Should save location with connection_type, velocity, altitude, ip."""
+        location_data = {
+            "device": "full_device",
+            "latitude": 48.8566,
+            "longitude": 2.3522,
+            "timestamp": datetime(2024, 3, 15, 14, 30, 0, tzinfo=UTC),
+            "tracker_id": "FD",
+            "accuracy": 15,
+            "altitude": 120,
+            "velocity": 30,
+            "battery": 72,
+            "connection": "w",
+            "client_ip": "10.0.0.5",
+            "mqtt_user": "alice",
+        }
+
+        result = save_location_to_db(location_data)
+
+        assert_that(result, is_not(none()))
+        location = Location.objects.get(id=result["id"])
+        assert_that(location.connection_type, equal_to("w"))
+        assert_that(location.velocity, equal_to(30))
+        assert_that(location.altitude, equal_to(120))
+        assert_that(location.ip_address, equal_to("10.0.0.5"))
+
+    def test_save_location_creates_device_with_default_name(self) -> None:
+        """Should create a new device with 'Device {id}' naming pattern."""
+        location_data = {
+            "device": "newdevice99",
+            "latitude": 35.6762,
+            "longitude": 139.6503,
+            "timestamp": datetime(2024, 5, 1, 8, 0, 0, tzinfo=UTC),
+        }
+
+        result = save_location_to_db(location_data)
+        assert_that(result, is_not(none()))
+
+        device = Device.objects.get(device_id="newdevice99")
+        assert_that(device.name, equal_to("Device newdevice99"))
+
+
+class TestSaveLwtToDbEdgeCases(TestCase):
+    """Additional edge-case tests for save_lwt_to_db."""
+
+    def test_exception_during_owntracks_message_create(self) -> None:
+        """Should return None when OwnTracksMessage.objects.create raises."""
+        Device.objects.create(
+            device_id="user/errdev",
+            name="Error Device",
+            is_online=True,
+        )
+        lwt_data: dict[str, Any] = {
+            "device": "user/errdev",
+            "event": "offline",
+            "connected_at": datetime(2024, 1, 1, 10, 0, 0, tzinfo=UTC),
+            "disconnected_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+        }
+        with patch.object(
+            OwnTracksMessage.objects, "create", side_effect=RuntimeError("DB write failed")
+        ):
+            result = save_lwt_to_db(lwt_data)
+        assert_that(result, is_(none()))
+
+
+class TestOnBrokerMessageReceivedEdgeCases:
+    """Edge-case tests for on_broker_message_received."""
+
+    @pytest.fixture
+    def plugin(self, mock_broker_context: MagicMock) -> OwnTracksPlugin:
+        """Create plugin instance for testing."""
+        return OwnTracksPlugin(mock_broker_context)
+
+    @pytest.mark.asyncio
+    async def test_handles_none_data(
+        self,
+        plugin: OwnTracksPlugin,
+    ) -> None:
+        """Should handle message with None data without crashing."""
+        message = MagicMock()
+        message.topic = "owntracks/user/phone"
+        message.data = None
+
+        await plugin.on_broker_message_received(
+            client_id="test-client",
+            message=message,
+        )
+
+    @pytest.mark.asyncio
+    async def test_handles_empty_bytes_data(
+        self,
+        plugin: OwnTracksPlugin,
+    ) -> None:
+        """Should handle message with empty bytes payload."""
+        message = MagicMock()
+        message.topic = "owntracks/user/phone"
+        message.data = b""
+
+        await plugin.on_broker_message_received(
+            client_id="test-client",
+            message=message,
+        )

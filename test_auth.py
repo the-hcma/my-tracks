@@ -1,15 +1,19 @@
 """Tests for user authentication, account management, and admin user endpoints."""
 
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth.models import User
 from django.test import Client
 from hamcrest import (assert_that, contains_string, equal_to, greater_than,
-                      has_entries, has_key, has_length, is_, is_not, not_none)
+                      has_entries, has_key, has_length, instance_of, is_,
+                      is_not, not_none)
 from rest_framework import status
-from rest_framework.test import APIClient
+from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.test import APIClient, APIRequestFactory
 
+from my_tracks.auth import CommandApiKeyAuthentication, get_command_api_key
 from my_tracks.models import UserProfile
 
 
@@ -474,3 +478,107 @@ class TestAdminUserAPI:
             format='json',
         )
         assert_that(response.status_code, equal_to(status.HTTP_403_FORBIDDEN))
+
+
+# ---------------------------------------------------------------------------
+# CommandApiKeyAuthentication
+# ---------------------------------------------------------------------------
+
+factory = APIRequestFactory()
+
+
+class TestGetCommandApiKey:
+    """Tests for get_command_api_key helper."""
+
+    @patch("my_tracks.auth.config", return_value="test-secret-key")
+    def test_returns_configured_key(self, mock_config: Any) -> None:
+        """Returns the configured COMMAND_API_KEY."""
+        result = get_command_api_key()
+        assert_that(result, equal_to("test-secret-key"))
+
+    @patch("my_tracks.auth.config", return_value="")
+    def test_returns_empty_when_not_set(self, mock_config: Any) -> None:
+        """Returns empty string when COMMAND_API_KEY is not configured."""
+        result = get_command_api_key()
+        assert_that(result, equal_to(""))
+
+
+class TestCommandApiKeyAuthentication:
+    """Tests for CommandApiKeyAuthentication bearer-token auth."""
+
+    def _make_request(self, auth_header: str | None = None) -> Any:
+        """Build a DRF request with optional Authorization header."""
+        kwargs: dict[str, str] = {}
+        if auth_header is not None:
+            kwargs["HTTP_AUTHORIZATION"] = auth_header
+        return factory.get("/fake/", **kwargs)
+
+    @patch("my_tracks.auth.get_command_api_key", return_value="")
+    def test_no_api_key_configured_skips_auth(self, mock_key: Any) -> None:
+        """When no key is configured, authentication is skipped (returns None)."""
+        auth = CommandApiKeyAuthentication()
+        request = self._make_request()
+        result = auth.authenticate(request)
+        assert_that(result, is_(None))
+
+    @patch("my_tracks.auth.get_command_api_key", return_value="my-secret")
+    def test_missing_header_raises(self, mock_key: Any) -> None:
+        """Raises AuthenticationFailed when Authorization header is absent."""
+        auth = CommandApiKeyAuthentication()
+        request = self._make_request()
+        try:
+            auth.authenticate(request)
+            raise AssertionError("Expected AuthenticationFailed")
+        except AuthenticationFailed as exc:
+            assert_that(str(exc.detail), contains_string("Authorization header"))
+
+    @patch("my_tracks.auth.get_command_api_key", return_value="my-secret")
+    def test_invalid_format_raises(self, mock_key: Any) -> None:
+        """Raises AuthenticationFailed for non-Bearer format."""
+        auth = CommandApiKeyAuthentication()
+        request = self._make_request("Basic dXNlcjpwYXNz")
+        try:
+            auth.authenticate(request)
+            raise AssertionError("Expected AuthenticationFailed")
+        except AuthenticationFailed as exc:
+            assert_that(str(exc.detail), contains_string("Bearer"))
+
+    @patch("my_tracks.auth.get_command_api_key", return_value="my-secret")
+    def test_wrong_token_raises(self, mock_key: Any) -> None:
+        """Raises AuthenticationFailed when token doesn't match."""
+        auth = CommandApiKeyAuthentication()
+        request = self._make_request("Bearer wrong-token")
+        try:
+            auth.authenticate(request)
+            raise AssertionError("Expected AuthenticationFailed")
+        except AuthenticationFailed as exc:
+            assert_that(str(exc.detail), contains_string("Invalid API key"))
+
+    @patch("my_tracks.auth.get_command_api_key", return_value="my-secret")
+    def test_valid_token_returns_anonymous_user(self, mock_key: Any) -> None:
+        """Returns (AnonymousUser, token) tuple for valid Bearer token."""
+        auth = CommandApiKeyAuthentication()
+        request = self._make_request("Bearer my-secret")
+        result = auth.authenticate(request)
+        assert_that(result, is_not(None))
+        assert_that(result[1], equal_to("my-secret"))
+
+    @patch("my_tracks.auth.get_command_api_key", return_value="my-secret")
+    def test_bearer_case_insensitive(self, mock_key: Any) -> None:
+        """'bearer' prefix is matched case-insensitively."""
+        auth = CommandApiKeyAuthentication()
+        request = self._make_request("bearer my-secret")
+        result = auth.authenticate(request)
+        assert_that(result, is_not(None))
+        assert_that(result[1], equal_to("my-secret"))
+
+    @patch("my_tracks.auth.get_command_api_key", return_value="my-secret")
+    def test_single_word_header_raises(self, mock_key: Any) -> None:
+        """Raises AuthenticationFailed for single-word Authorization header."""
+        auth = CommandApiKeyAuthentication()
+        request = self._make_request("my-secret")
+        try:
+            auth.authenticate(request)
+            raise AssertionError("Expected AuthenticationFailed")
+        except AuthenticationFailed as exc:
+            assert_that(str(exc.detail), contains_string("Bearer"))

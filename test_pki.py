@@ -876,6 +876,41 @@ class TestServerCertificateAPI:
         assert_that(response.status_code, equal_to(status.HTTP_200_OK))
         assert_that(response.data, has_length(2))
 
+    def test_create_server_cert_validity_out_of_range(
+        self, admin_with_ca: APIClient
+    ) -> None:
+        """Test out-of-range validity_days for server cert returns 400."""
+        response = admin_with_ca.post('/api/admin/pki/server-cert/', {
+            'common_name': 'myserver',
+            'san_entries': ['myserver'],
+            'validity_days': 0,
+        }, format='json')
+        assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
+        assert_that(response.data['error'], contains_string('validity_days'))
+
+    def test_create_server_cert_non_integer_key_size(
+        self, admin_with_ca: APIClient
+    ) -> None:
+        """Test non-integer key_size for server cert returns 400."""
+        response = admin_with_ca.post('/api/admin/pki/server-cert/', {
+            'common_name': 'myserver',
+            'san_entries': ['myserver'],
+            'key_size': 'not-a-number',
+        }, format='json')
+        assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
+        assert_that(response.data['error'], contains_string('key_size'))
+
+    def test_create_server_cert_non_list_san_entries(
+        self, admin_with_ca: APIClient
+    ) -> None:
+        """Test non-list san_entries for server cert returns 400."""
+        response = admin_with_ca.post('/api/admin/pki/server-cert/', {
+            'common_name': 'myserver',
+            'san_entries': 'not-a-list',
+        }, format='json')
+        assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
+        assert_that(response.data['error'], contains_string('san_entries'))
+
 
 @pytest.mark.django_db
 class TestServerCertificatePermissions:
@@ -1695,3 +1730,213 @@ class TestTLSHandshake:
 
             assert_that(handshake_ok[0], is_(True))
             assert_that(peer_cn[0], equal_to('gooduser'))
+
+
+@pytest.mark.django_db
+class TestClientCertificateAPI:
+    """Test client certificate REST API endpoints (create, revoke, expunge)."""
+
+    def test_list_client_certs_empty(self, admin_with_ca: APIClient) -> None:
+        """Test GET /api/admin/pki/client-certs/ returns empty list initially."""
+        response = admin_with_ca.get('/api/admin/pki/client-certs/')
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        assert_that(response.data, has_length(0))
+
+    def test_create_client_cert(self, admin_with_ca: APIClient) -> None:
+        """Test POST /api/admin/pki/client-certs/ issues a client cert."""
+        user = User.objects.create_user(username='certtest', password='pass123')
+        response = admin_with_ca.post('/api/admin/pki/client-certs/', {
+            'user_id': user.pk,
+            'key_size': 2048,
+        }, format='json')
+        assert_that(response.status_code, equal_to(status.HTTP_201_CREATED))
+        assert_that(response.data, has_key('id'))
+        assert_that(response.data['common_name'], equal_to('certtest'))
+        assert_that(response.data['is_active'], is_(True))
+
+    def test_create_client_cert_no_active_ca(
+        self, admin_api_client: APIClient
+    ) -> None:
+        """Test creating client cert without active CA returns 400."""
+        user = User.objects.create_user(username='nocauser', password='pass123')
+        response = admin_api_client.post('/api/admin/pki/client-certs/', {
+            'user_id': user.pk,
+        }, format='json')
+        assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
+        assert_that(response.data['error'], contains_string('No active CA'))
+
+    def test_create_client_cert_missing_user_id(
+        self, admin_with_ca: APIClient
+    ) -> None:
+        """Test creating client cert without user_id returns 400."""
+        response = admin_with_ca.post('/api/admin/pki/client-certs/', {
+            'key_size': 2048,
+        }, format='json')
+        assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
+        assert_that(response.data['error'], contains_string('user_id'))
+
+    def test_create_client_cert_invalid_user_id(
+        self, admin_with_ca: APIClient
+    ) -> None:
+        """Test creating client cert with nonexistent user_id returns 404."""
+        response = admin_with_ca.post('/api/admin/pki/client-certs/', {
+            'user_id': 99999,
+            'key_size': 2048,
+        }, format='json')
+        assert_that(response.status_code, equal_to(status.HTTP_404_NOT_FOUND))
+        assert_that(response.data['error'], contains_string('user ID'))
+
+    def test_create_client_cert_non_integer_validity(
+        self, admin_with_ca: APIClient
+    ) -> None:
+        """Test non-integer validity_days for client cert returns 400."""
+        user = User.objects.create_user(username='valuser', password='pass123')
+        response = admin_with_ca.post('/api/admin/pki/client-certs/', {
+            'user_id': user.pk,
+            'validity_days': 'abc',
+        }, format='json')
+        assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
+        assert_that(response.data['error'], contains_string('validity_days'))
+
+    def test_create_client_cert_validity_out_of_range(
+        self, admin_with_ca: APIClient
+    ) -> None:
+        """Test out-of-range validity_days for client cert returns 400."""
+        user = User.objects.create_user(username='rangeuser', password='pass123')
+        response = admin_with_ca.post('/api/admin/pki/client-certs/', {
+            'user_id': user.pk,
+            'validity_days': 0,
+        }, format='json')
+        assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
+        assert_that(response.data['error'], contains_string('validity_days'))
+
+    def test_create_client_cert_non_integer_key_size(
+        self, admin_with_ca: APIClient
+    ) -> None:
+        """Test non-integer key_size for client cert returns 400."""
+        user = User.objects.create_user(username='keyuser', password='pass123')
+        response = admin_with_ca.post('/api/admin/pki/client-certs/', {
+            'user_id': user.pk,
+            'key_size': 'xyz',
+        }, format='json')
+        assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
+        assert_that(response.data['error'], contains_string('key_size'))
+
+    def test_create_client_cert_invalid_key_size(
+        self, admin_with_ca: APIClient
+    ) -> None:
+        """Test disallowed key_size for client cert returns 400."""
+        user = User.objects.create_user(username='bkeyuser', password='pass123')
+        response = admin_with_ca.post('/api/admin/pki/client-certs/', {
+            'user_id': user.pk,
+            'key_size': 1024,
+        }, format='json')
+        assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
+        assert_that(response.data['error'], contains_string('key_size'))
+
+    def _create_client_cert(self, client: APIClient) -> int:
+        """Helper to create a user + client cert. Returns cert ID."""
+        user = User.objects.create_user(
+            username='actionuser', password='pass123'
+        )
+        resp = client.post('/api/admin/pki/client-certs/', {
+            'user_id': user.pk,
+            'key_size': 2048,
+        }, format='json')
+        return resp.data['id']
+
+    def test_revoke_client_cert(self, admin_with_ca: APIClient) -> None:
+        """Test POST revoke action marks cert as revoked."""
+        cert_id = self._create_client_cert(admin_with_ca)
+        response = admin_with_ca.post(
+            f'/api/admin/pki/client-certs/{cert_id}/revoke/'
+        )
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        assert_that(response.data['detail'], contains_string('revoked'))
+        cert = ClientCertificate.objects.get(pk=cert_id)
+        assert_that(cert.revoked, is_(True))
+        assert_that(cert.is_active, is_(False))
+
+    def test_revoke_already_revoked(self, admin_with_ca: APIClient) -> None:
+        """Test revoking an already-revoked cert returns 400."""
+        cert_id = self._create_client_cert(admin_with_ca)
+        admin_with_ca.post(f'/api/admin/pki/client-certs/{cert_id}/revoke/')
+        response = admin_with_ca.post(
+            f'/api/admin/pki/client-certs/{cert_id}/revoke/'
+        )
+        assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
+        assert_that(response.data['error'], contains_string('already revoked'))
+
+    def test_revoke_nonexistent(self, admin_with_ca: APIClient) -> None:
+        """Test revoking a nonexistent cert returns 404."""
+        response = admin_with_ca.post(
+            '/api/admin/pki/client-certs/99999/revoke/'
+        )
+        assert_that(response.status_code, equal_to(status.HTTP_404_NOT_FOUND))
+
+    def test_expunge_revoked_cert(self, admin_with_ca: APIClient) -> None:
+        """Test expunge permanently deletes a revoked cert."""
+        cert_id = self._create_client_cert(admin_with_ca)
+        admin_with_ca.post(f'/api/admin/pki/client-certs/{cert_id}/revoke/')
+        response = admin_with_ca.delete(
+            f'/api/admin/pki/client-certs/{cert_id}/expunge/'
+        )
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        assert_that(
+            ClientCertificate.objects.filter(pk=cert_id).exists(), is_(False)
+        )
+
+    def test_expunge_active_cert_rejected(
+        self, admin_with_ca: APIClient
+    ) -> None:
+        """Test expunging an active cert returns 400."""
+        cert_id = self._create_client_cert(admin_with_ca)
+        response = admin_with_ca.delete(
+            f'/api/admin/pki/client-certs/{cert_id}/expunge/'
+        )
+        assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
+        assert_that(response.data['error'], contains_string('active'))
+
+    def test_expunge_nonexistent(self, admin_with_ca: APIClient) -> None:
+        """Test expunging a nonexistent cert returns 404."""
+        response = admin_with_ca.delete(
+            '/api/admin/pki/client-certs/99999/expunge/'
+        )
+        assert_that(response.status_code, equal_to(status.HTTP_404_NOT_FOUND))
+
+
+@pytest.mark.django_db
+class TestCRLViewSetAPI:
+    """Test the CRL download REST API endpoint."""
+
+    def test_crl_no_active_ca(self) -> None:
+        """Test CRL download without active CA returns 404."""
+        client = APIClient()
+        response = client.get('/api/admin/pki/crl/')
+        assert_that(response.status_code, equal_to(status.HTTP_404_NOT_FOUND))
+        assert_that(response.data['error'], contains_string('No active CA'))
+
+    def test_crl_download(self, admin_with_ca: APIClient) -> None:
+        """Test CRL download returns PEM file."""
+        response = admin_with_ca.get('/api/admin/pki/crl/')
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        assert_that(response['Content-Type'], equal_to('application/x-pem-file'))
+        assert_that(response['Content-Disposition'], contains_string('.crl'))
+        assert_that(
+            response.content.decode(), contains_string('BEGIN X509 CRL')
+        )
+
+    def test_crl_with_revoked_certs(self, admin_with_ca: APIClient) -> None:
+        """Test CRL includes revoked client certificates."""
+        user = User.objects.create_user(username='crluser', password='pass123')
+        resp = admin_with_ca.post('/api/admin/pki/client-certs/', {
+            'user_id': user.pk,
+            'key_size': 2048,
+        }, format='json')
+        cert_id = resp.data['id']
+        admin_with_ca.post(f'/api/admin/pki/client-certs/{cert_id}/revoke/')
+        response = admin_with_ca.get('/api/admin/pki/crl/')
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        assert_that(
+            response.content.decode(), contains_string('BEGIN X509 CRL')
+        )
