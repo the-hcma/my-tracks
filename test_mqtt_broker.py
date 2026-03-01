@@ -1,12 +1,14 @@
 """Tests for the MQTT broker module."""
 
 import asyncio
+from unittest.mock import MagicMock, patch
 
 import pytest
 from hamcrest import (assert_that, equal_to, greater_than, has_key, is_,
                       is_not, not_none)
 
-from my_tracks.mqtt.broker import MQTTBroker, get_default_config
+from my_tracks.mqtt.broker import (MQTTBroker, create_and_start_broker,
+                                   get_default_config)
 
 
 class TestGetDefaultConfig:
@@ -321,3 +323,274 @@ class TestProtocolListening:
         finally:
             if broker.is_running:
                 await broker.stop()
+
+
+class TestAmqttBrokerProperty:
+    """Tests for amqtt_broker property."""
+
+    def test_none_before_start(self) -> None:
+        """amqtt_broker should be None before start."""
+        broker = MQTTBroker()
+        assert_that(broker.amqtt_broker, is_(None))
+
+    @pytest.mark.asyncio
+    async def test_set_after_start(self) -> None:
+        """amqtt_broker should reference the underlying Broker after start."""
+        broker = MQTTBroker(mqtt_port=0, mqtt_ws_port=0, use_owntracks_handler=False)
+        try:
+            await broker.start()
+            assert_that(broker.amqtt_broker, is_(not_none()))
+        finally:
+            if broker.is_running:
+                await broker.stop()
+
+
+class TestDiscoverPort:
+    """Tests for _discover_port method."""
+
+    def test_returns_none_when_broker_is_none(self) -> None:
+        """Should return None when internal broker has not been created."""
+        broker = MQTTBroker()
+        result = broker._discover_port("default")
+        assert_that(result, is_(None))
+
+    def test_handles_exception_gracefully(self) -> None:
+        """Should return None when discovery raises an exception."""
+        broker = MQTTBroker()
+        mock_amqtt = MagicMock()
+        mock_amqtt._servers.get.side_effect = RuntimeError("broken")
+        broker._broker = mock_amqtt
+        result = broker._discover_port("default")
+        assert_that(result, is_(None))
+
+    def test_returns_none_when_no_servers_attribute(self) -> None:
+        """Should return None when broker lacks _servers attribute."""
+        broker = MQTTBroker()
+        broker._broker = MagicMock(spec=[])
+        result = broker._discover_port("default")
+        assert_that(result, is_(None))
+
+    def test_returns_none_when_listener_not_found(self) -> None:
+        """Should return None when the requested listener is not in _servers."""
+        broker = MQTTBroker()
+        mock_amqtt = MagicMock()
+        mock_servers = MagicMock()
+        mock_servers.get.return_value = None
+        mock_amqtt._servers = mock_servers
+        broker._broker = mock_amqtt
+        result = broker._discover_port("nonexistent")
+        assert_that(result, is_(None))
+
+
+class TestPortCaching:
+    """Tests for port caching and fallback in actual_mqtt_port / actual_ws_port."""
+
+    def test_actual_mqtt_port_returns_cached_value(self) -> None:
+        """Should return cached MQTT port without calling _discover_port."""
+        broker = MQTTBroker()
+        broker._actual_mqtt_port = 12345
+        assert_that(broker.actual_mqtt_port, equal_to(12345))
+
+    def test_actual_ws_port_returns_cached_value(self) -> None:
+        """Should return cached WS port without calling _discover_port."""
+        broker = MQTTBroker()
+        broker._actual_ws_port = 54321
+        assert_that(broker.actual_ws_port, equal_to(54321))
+
+    def test_actual_mqtt_port_fallback_to_configured(self) -> None:
+        """Should fall back to configured mqtt_port when discovery fails."""
+        broker = MQTTBroker(mqtt_port=1883)
+        broker._broker = MagicMock()
+        with patch.object(broker, "_discover_port", return_value=None):
+            result = broker.actual_mqtt_port
+        assert_that(result, equal_to(1883))
+
+    def test_actual_ws_port_fallback_to_configured(self) -> None:
+        """Should fall back to configured mqtt_ws_port when discovery fails."""
+        broker = MQTTBroker(mqtt_ws_port=8083)
+        broker._broker = MagicMock()
+        with patch.object(broker, "_discover_port", return_value=None):
+            result = broker.actual_ws_port
+        assert_that(result, equal_to(8083))
+
+
+class TestCreateAndStartBroker:
+    """Tests for create_and_start_broker convenience function."""
+
+    @pytest.mark.asyncio
+    async def test_creates_running_broker(self) -> None:
+        """Should create and start a broker with the given parameters."""
+        broker = await create_and_start_broker(
+            mqtt_port=0, mqtt_ws_port=0, allow_anonymous=True,
+        )
+        try:
+            assert_that(broker.is_running, is_(True))
+            assert_that(broker.allow_anonymous, is_(True))
+            assert_that(broker.actual_mqtt_port, is_(not_none()))
+            assert_that(broker.actual_mqtt_port, greater_than(0))
+        finally:
+            if broker.is_running:
+                await broker.stop()
+
+
+class TestDjangoAuthConfig:
+    """Tests for Django auth plugin configuration."""
+
+    def test_django_auth_plugin_when_enabled(self) -> None:
+        """Should include DjangoAuthPlugin when use_django_auth=True and anonymous=False."""
+        config = get_default_config(use_django_auth=True, allow_anonymous=False)
+        assert_that(
+            "my_tracks.mqtt.auth.DjangoAuthPlugin" in config["plugins"],
+            is_(True),
+        )
+        assert_that(
+            "amqtt.plugins.authentication.AnonymousAuthPlugin" in config["plugins"],
+            is_(False),
+        )
+
+    def test_django_auth_with_anonymous_uses_anonymous_plugin(self) -> None:
+        """When django_auth=True but allow_anonymous=True, should use anonymous plugin."""
+        config = get_default_config(use_django_auth=True, allow_anonymous=True)
+        assert_that(
+            "amqtt.plugins.authentication.AnonymousAuthPlugin" in config["plugins"],
+            is_(True),
+        )
+        assert_that(
+            "my_tracks.mqtt.auth.DjangoAuthPlugin" in config["plugins"],
+            is_(False),
+        )
+
+    def test_owntracks_handler_disabled(self) -> None:
+        """Should omit OwnTracksPlugin when use_owntracks_handler=False."""
+        config = get_default_config(use_owntracks_handler=False)
+        assert_that(
+            "my_tracks.mqtt.plugin.OwnTracksPlugin" in config["plugins"],
+            is_(False),
+        )
+
+    def test_owntracks_handler_enabled_by_default(self) -> None:
+        """Should include OwnTracksPlugin by default."""
+        config = get_default_config()
+        assert_that(
+            "my_tracks.mqtt.plugin.OwnTracksPlugin" in config["plugins"],
+            is_(True),
+        )
+
+
+class TestDiscoverPortSuccessPath:
+    """Tests for _discover_port success and edge-case paths."""
+
+    def test_returns_port_from_valid_socket(self) -> None:
+        """Should return port when server, instance, and sockets are valid."""
+        broker = MQTTBroker()
+        mock_socket = MagicMock()
+        mock_socket.getsockname.return_value = ("0.0.0.0", 54321)
+
+        mock_instance = MagicMock()
+        mock_instance.sockets = [mock_socket]
+
+        mock_server = MagicMock()
+        mock_server.instance = mock_instance
+
+        mock_amqtt = MagicMock()
+        mock_amqtt._servers = {"default": mock_server}
+        broker._broker = mock_amqtt
+
+        result = broker._discover_port("default")
+        assert_that(result, equal_to(54321))
+
+    def test_returns_none_when_server_instance_is_none(self) -> None:
+        """Should return None when server exists but instance is None."""
+        broker = MQTTBroker()
+        mock_server = MagicMock()
+        mock_server.instance = None
+
+        mock_amqtt = MagicMock()
+        mock_amqtt._servers = {"default": mock_server}
+        broker._broker = mock_amqtt
+
+        result = broker._discover_port("default")
+        assert_that(result, is_(None))
+
+    def test_returns_none_when_instance_has_no_sockets(self) -> None:
+        """Should return None when instance has no sockets attribute."""
+        broker = MQTTBroker()
+        mock_instance = MagicMock(spec=[])  # No sockets attribute
+
+        mock_server = MagicMock()
+        mock_server.instance = mock_instance
+
+        mock_amqtt = MagicMock()
+        mock_amqtt._servers = {"default": mock_server}
+        broker._broker = mock_amqtt
+
+        result = broker._discover_port("default")
+        assert_that(result, is_(None))
+
+    def test_returns_none_when_socket_address_too_short(self) -> None:
+        """Should return None when socket.getsockname() returns a short tuple."""
+        broker = MQTTBroker()
+        mock_socket = MagicMock()
+        mock_socket.getsockname.return_value = ("only_host",)
+
+        mock_instance = MagicMock()
+        mock_instance.sockets = [mock_socket]
+
+        mock_server = MagicMock()
+        mock_server.instance = mock_instance
+
+        mock_amqtt = MagicMock()
+        mock_amqtt._servers = {"default": mock_server}
+        broker._broker = mock_amqtt
+
+        result = broker._discover_port("default")
+        assert_that(result, is_(None))
+
+
+class TestPortDiscoveryCaching:
+    """Tests for port discovery caching behavior."""
+
+    def test_actual_mqtt_port_caches_discovered_value(self) -> None:
+        """Once discovered, actual_mqtt_port should cache and return the same value."""
+        broker = MQTTBroker()
+        broker._broker = MagicMock()
+        with patch.object(broker, "_discover_port", return_value=11111):
+            first = broker.actual_mqtt_port
+            assert_that(first, equal_to(11111))
+
+        # Second call should use cached value (no _discover_port call)
+        assert_that(broker.actual_mqtt_port, equal_to(11111))
+        assert_that(broker._actual_mqtt_port, equal_to(11111))
+
+    def test_actual_ws_port_caches_discovered_value(self) -> None:
+        """Once discovered, actual_ws_port should cache and return the same value."""
+        broker = MQTTBroker()
+        broker._broker = MagicMock()
+        with patch.object(broker, "_discover_port", return_value=22222):
+            first = broker.actual_ws_port
+            assert_that(first, equal_to(22222))
+
+        assert_that(broker.actual_ws_port, equal_to(22222))
+        assert_that(broker._actual_ws_port, equal_to(22222))
+
+
+class TestRunForeverAutoStart:
+    """Tests for run_forever auto-start behavior."""
+
+    @pytest.mark.asyncio
+    async def test_auto_starts_when_not_running(self) -> None:
+        """run_forever should call start() if broker is not yet running."""
+        broker = MQTTBroker(mqtt_port=0, mqtt_ws_port=0, use_owntracks_handler=False)
+
+        async def cancel_soon() -> None:
+            task = asyncio.create_task(broker.run_forever())
+            await asyncio.sleep(0.3)
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        await cancel_soon()
+        # Broker was started by run_forever and then stopped by cancellation
+        assert_that(broker.is_running, is_(False))

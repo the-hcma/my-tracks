@@ -25,6 +25,9 @@ def parse_owntracks_message(payload: bytes) -> dict[str, Any] | None:
     Returns:
         Parsed JSON dictionary, or None if parsing fails
     """
+    if payload is None:
+        logger.warning("OwnTracks message payload is None")
+        return None
     try:
         data = json.loads(payload.decode("utf-8"))
         if not isinstance(data, dict):

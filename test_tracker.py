@@ -7,6 +7,7 @@ including model validation, API endpoints, and OwnTracks protocol compatibility.
 from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
 from django.test import Client
@@ -18,7 +19,8 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.test import APIClient
 
-from my_tracks.models import Device, Location
+from my_tracks.models import Device, Location, OwnTracksMessage
+from my_tracks.views import DeviceViewSet, LocationViewSet
 
 
 @pytest.fixture
@@ -658,6 +660,172 @@ class TestLocationAPI:
         assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
         assert_that(response.data['error'], contains_string('end_time'))
 
+    def test_create_location_with_x_forwarded_for(
+        self, api_client: APIClient
+    ) -> None:
+        """Test X-Forwarded-For header is used for client IP extraction."""
+        payload = {
+            "lat": 37.7749,
+            "lon": -122.4194,
+            "tst": int(datetime.now().timestamp()),
+            "tid": "FF",
+        }
+        response = api_client.post(
+            '/api/locations/',
+            payload,
+            format='json',
+            HTTP_X_FORWARDED_FOR='10.0.0.1, 192.168.1.1',
+        )
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        assert_that(response.data, equal_to([]))
+
+    def test_non_location_message_existing_device(
+        self, api_client: APIClient, sample_device: Device
+    ) -> None:
+        """Test non-location message for a device that already exists (reconnect path)."""
+        payload = {
+            "_type": "waypoint",
+            "tid": sample_device.device_id,
+            "desc": "Home",
+        }
+        response = api_client.post(
+            '/api/locations/',
+            payload,
+            format='json',
+        )
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        message = OwnTracksMessage.objects.get(message_type='waypoint')
+        assert_that(message.device, is_not(none()))
+
+    def test_create_location_websocket_broadcast_error(
+        self, api_client: APIClient
+    ) -> None:
+        """Test that WebSocket broadcast errors are caught gracefully."""
+        payload = {
+            "lat": 37.7749,
+            "lon": -122.4194,
+            "tst": int(datetime.now().timestamp()),
+            "tid": "WE",
+        }
+        with (
+            patch('my_tracks.views.get_channel_layer') as mock_gcl,
+            patch('my_tracks.views.async_to_sync') as mock_a2s,
+        ):
+            mock_gcl.return_value = MagicMock()
+            mock_a2s.return_value = MagicMock(
+                side_effect=Exception("broadcast failed")
+            )
+            response = api_client.post(
+                '/api/locations/',
+                payload,
+                format='json',
+            )
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+
+    def test_create_location_no_channel_layer(
+        self, api_client: APIClient
+    ) -> None:
+        """Test location creation when no channel layer is configured."""
+        payload = {
+            "lat": 37.7749,
+            "lon": -122.4194,
+            "tst": int(datetime.now().timestamp()),
+            "tid": "NL",
+        }
+        with patch('my_tracks.views.get_channel_layer', return_value=None):
+            response = api_client.post(
+                '/api/locations/',
+                payload,
+                format='json',
+            )
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+
+    def test_filter_locations_by_invalid_device(
+        self, auth_api_client: APIClient
+    ) -> None:
+        """Test that filtering by a nonexistent device returns 404."""
+        response = auth_api_client.get(
+            '/api/locations/', {'device': 'NONEXISTENT'}
+        )
+        assert_that(response.status_code, equal_to(status.HTTP_404_NOT_FOUND))
+        assert_that(response.data['error'], contains_string('NONEXISTENT'))
+
+    def test_filter_locations_by_invalid_start_time(
+        self, auth_api_client: APIClient
+    ) -> None:
+        """Test that invalid start_time returns 400."""
+        response = auth_api_client.get(
+            '/api/locations/', {'start_time': 'not-a-number'}
+        )
+        assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
+        assert_that(response.data['error'], contains_string('start_time'))
+
+    def test_filter_locations_by_invalid_start_date(
+        self, auth_api_client: APIClient
+    ) -> None:
+        """Test that invalid start_date returns 400."""
+        response = auth_api_client.get(
+            '/api/locations/', {'start_date': 'not-a-date'}
+        )
+        assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
+        assert_that(response.data['error'], contains_string('start_date'))
+
+    def test_filter_locations_by_end_date(
+        self,
+        auth_api_client: APIClient,
+        sample_device: Device,
+    ) -> None:
+        """Test filtering locations by ISO 8601 end_date."""
+        now = timezone.now()
+        Location.objects.create(
+            device=sample_device,
+            latitude=Decimal('1.0'),
+            longitude=Decimal('1.0'),
+            timestamp=now - timedelta(hours=3),
+        )
+        Location.objects.create(
+            device=sample_device,
+            latitude=Decimal('2.0'),
+            longitude=Decimal('2.0'),
+            timestamp=now,
+        )
+        end_date = (now - timedelta(hours=1)).isoformat()
+        response = auth_api_client.get(
+            '/api/locations/',
+            {'end_date': end_date, 'device': sample_device.device_id},
+        )
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        assert_that(response.data['results'], has_length(1))
+
+    def test_filter_locations_by_invalid_end_date(
+        self, auth_api_client: APIClient
+    ) -> None:
+        """Test that invalid end_date returns 400."""
+        response = auth_api_client.get(
+            '/api/locations/', {'end_date': 'bad-date'}
+        )
+        assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
+        assert_that(response.data['error'], contains_string('end_date'))
+
+    def test_filter_locations_by_invalid_resolution(
+        self, auth_api_client: APIClient
+    ) -> None:
+        """Test that non-integer resolution returns 400."""
+        response = auth_api_client.get(
+            '/api/locations/', {'resolution': 'abc'}
+        )
+        assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
+        assert_that(response.data['error'], contains_string('resolution'))
+
+    def test_list_locations_no_pagination(
+        self, auth_api_client: APIClient, sample_location: Location
+    ) -> None:
+        """Test list locations fallback when pagination returns None."""
+        with patch.object(LocationViewSet, 'paginate_queryset', return_value=None):
+            response = auth_api_client.get('/api/locations/')
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        assert_that(response.data, has_length(greater_than_or_equal_to(1)))
+
 
 @pytest.mark.django_db
 class TestDeviceAPI:
@@ -726,6 +894,20 @@ class TestDeviceAPI:
         assert_that(response.status_code, equal_to(status.HTTP_200_OK))
         assert_that(response.data, has_key('results'))
         assert_that(response.data['results'], has_length(greater_than_or_equal_to(1)))
+
+    def test_device_locations_no_pagination(
+        self,
+        auth_api_client: APIClient,
+        sample_device: Device,
+        sample_location: Location,
+    ) -> None:
+        """Test device locations fallback when pagination returns None."""
+        with patch.object(DeviceViewSet, 'paginate_queryset', return_value=None):
+            response = auth_api_client.get(
+                f'/api/devices/{sample_device.device_id}/locations/'
+            )
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        assert_that(response.data, has_length(greater_than_or_equal_to(1)))
 
 
 @pytest.mark.django_db
@@ -932,3 +1114,172 @@ class TestHomeView:
 
         # Verify the MY_TRACKS_CONFIG object is present
         assert_that(content, contains_string('window.MY_TRACKS_CONFIG'))
+
+
+@pytest.mark.django_db
+class TestCommandAPI:
+    """Tests for Command API endpoints (MQTT commands)."""
+
+    def test_report_location_success(self, api_client: APIClient) -> None:
+        """Test successful report-location command."""
+        with patch('my_tracks.views.async_to_sync') as mock_a2s:
+            mock_a2s.return_value = MagicMock(return_value=True)
+            response = api_client.post(
+                '/api/commands/report-location/',
+                {'device_id': 'user/device'},
+                format='json',
+            )
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        assert_that(response.data['status'], equal_to('command_sent'))
+        assert_that(response.data['command'], equal_to('reportLocation'))
+
+    def test_report_location_send_failure(self, api_client: APIClient) -> None:
+        """Test report-location when send_command returns False."""
+        with patch('my_tracks.views.async_to_sync') as mock_a2s:
+            mock_a2s.return_value = MagicMock(return_value=False)
+            response = api_client.post(
+                '/api/commands/report-location/',
+                {'device_id': 'user/device'},
+                format='json',
+            )
+        assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
+        assert_that(response.data['error'], contains_string('Failed to send'))
+
+    def test_report_location_mqtt_not_available(
+        self, api_client: APIClient
+    ) -> None:
+        """Test report-location when MQTT broker raises RuntimeError."""
+        with patch('my_tracks.views.async_to_sync') as mock_a2s:
+            mock_a2s.return_value = MagicMock(
+                side_effect=RuntimeError("no broker")
+            )
+            response = api_client.post(
+                '/api/commands/report-location/',
+                {'device_id': 'user/device'},
+                format='json',
+            )
+        assert_that(response.status_code, equal_to(status.HTTP_503_SERVICE_UNAVAILABLE))
+        assert_that(response.data['error'], contains_string('MQTT broker not available'))
+
+    def test_report_location_with_running_broker(
+        self, api_client: APIClient
+    ) -> None:
+        """Test report-location uses broker's MQTT client when running."""
+        mock_broker = MagicMock()
+        mock_broker.is_running = True
+        mock_broker.amqtt_broker = MagicMock()
+        with (
+            patch('my_tracks.views.get_mqtt_broker', return_value=mock_broker),
+            patch('my_tracks.views.async_to_sync') as mock_a2s,
+        ):
+            mock_a2s.return_value = MagicMock(return_value=True)
+            response = api_client.post(
+                '/api/commands/report-location/',
+                {'device_id': 'user/device'},
+                format='json',
+            )
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        assert_that(response.data['status'], equal_to('command_sent'))
+
+    def test_set_waypoints_success(self, api_client: APIClient) -> None:
+        """Test successful set-waypoints command."""
+        waypoints = [{'desc': 'Home', 'lat': 51.5074, 'lon': -0.1278, 'rad': 100}]
+        with patch('my_tracks.views.async_to_sync') as mock_a2s:
+            mock_a2s.return_value = MagicMock(return_value=True)
+            response = api_client.post(
+                '/api/commands/set-waypoints/',
+                {'device_id': 'user/device', 'waypoints': waypoints},
+                format='json',
+            )
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        assert_that(response.data['status'], equal_to('command_sent'))
+        assert_that(response.data['command'], equal_to('setWaypoints'))
+        assert_that(response.data['waypoint_count'], equal_to(1))
+
+    def test_set_waypoints_send_failure(self, api_client: APIClient) -> None:
+        """Test set-waypoints when send_command returns False."""
+        waypoints = [{'desc': 'Home', 'lat': 51.5074, 'lon': -0.1278, 'rad': 100}]
+        with patch('my_tracks.views.async_to_sync') as mock_a2s:
+            mock_a2s.return_value = MagicMock(return_value=False)
+            response = api_client.post(
+                '/api/commands/set-waypoints/',
+                {'device_id': 'user/device', 'waypoints': waypoints},
+                format='json',
+            )
+        assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
+        assert_that(response.data['error'], contains_string('Failed to send'))
+
+    def test_set_waypoints_mqtt_not_available(
+        self, api_client: APIClient
+    ) -> None:
+        """Test set-waypoints when MQTT broker raises RuntimeError."""
+        waypoints = [{'desc': 'Home', 'lat': 51.5074, 'lon': -0.1278, 'rad': 100}]
+        with patch('my_tracks.views.async_to_sync') as mock_a2s:
+            mock_a2s.return_value = MagicMock(
+                side_effect=RuntimeError("no broker")
+            )
+            response = api_client.post(
+                '/api/commands/set-waypoints/',
+                {'device_id': 'user/device', 'waypoints': waypoints},
+                format='json',
+            )
+        assert_that(response.status_code, equal_to(status.HTTP_503_SERVICE_UNAVAILABLE))
+        assert_that(response.data['error'], contains_string('MQTT broker not available'))
+
+    def test_clear_waypoints_success(self, api_client: APIClient) -> None:
+        """Test successful clear-waypoints command."""
+        with patch('my_tracks.views.async_to_sync') as mock_a2s:
+            mock_a2s.return_value = MagicMock(return_value=True)
+            response = api_client.post(
+                '/api/commands/clear-waypoints/',
+                {'device_id': 'user/device'},
+                format='json',
+            )
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        assert_that(response.data['status'], equal_to('command_sent'))
+        assert_that(response.data['command'], equal_to('clearWaypoints'))
+
+    def test_clear_waypoints_send_failure(self, api_client: APIClient) -> None:
+        """Test clear-waypoints when send_command returns False."""
+        with patch('my_tracks.views.async_to_sync') as mock_a2s:
+            mock_a2s.return_value = MagicMock(return_value=False)
+            response = api_client.post(
+                '/api/commands/clear-waypoints/',
+                {'device_id': 'user/device'},
+                format='json',
+            )
+        assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
+        assert_that(response.data['error'], contains_string('Failed to send'))
+
+    def test_clear_waypoints_mqtt_not_available(
+        self, api_client: APIClient
+    ) -> None:
+        """Test clear-waypoints when MQTT broker raises RuntimeError."""
+        with patch('my_tracks.views.async_to_sync') as mock_a2s:
+            mock_a2s.return_value = MagicMock(
+                side_effect=RuntimeError("no broker")
+            )
+            response = api_client.post(
+                '/api/commands/clear-waypoints/',
+                {'device_id': 'user/device'},
+                format='json',
+            )
+        assert_that(response.status_code, equal_to(status.HTTP_503_SERVICE_UNAVAILABLE))
+        assert_that(response.data['error'], contains_string('MQTT broker not available'))
+
+
+@pytest.mark.django_db
+class TestAdminUserAPI:
+    """Tests for admin user management error paths."""
+
+    def test_create_user_missing_username(
+        self, admin_api_client: APIClient
+    ) -> None:
+        """Test creating a user without username returns 400."""
+        response = admin_api_client.post(
+            '/api/admin/users/',
+            {'password': 'testpass123'},
+            format='json',
+        )
+        assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
+        assert_that(response.data['error'], contains_string('username'))

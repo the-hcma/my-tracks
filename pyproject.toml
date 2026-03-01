@@ -50,6 +50,9 @@ filterwarnings = [
     "ignore::ResourceWarning",
 ]
 
+[tool.coverage.run]
+source = ["my_tracks"]
+
 [tool.black]
 line-length = 88
 target-version = ['py314']
