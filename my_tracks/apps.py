@@ -11,8 +11,9 @@ from typing import Any
 from amqtt.errors import BrokerError
 from django.apps import AppConfig
 
-from config.runtime import CONFIG_FILE, get_mqtt_port, update_runtime_config
-from my_tracks.mqtt.broker import MQTTBroker
+from config.runtime import (CONFIG_FILE, get_mqtt_port, get_mqtt_tls_port,
+                            update_runtime_config)
+from my_tracks.mqtt.broker import MQTTBroker, TLSConfig
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,58 @@ def _stop_mqtt_broker() -> None:
             _state.thread.join(timeout=5)
 
 
-def _run_mqtt_broker(mqtt_port: int) -> None:
+def _load_tls_config() -> TLSConfig | None:
+    """Load TLS certificates from the database for the MQTT broker.
+
+    Returns TLSConfig if an active server certificate and CA exist,
+    None otherwise.
+    """
+    from my_tracks.models import CertificateAuthority, ServerCertificate
+    from my_tracks.pki import decrypt_private_key, generate_crl
+
+    try:
+        server_cert = ServerCertificate.objects.filter(is_active=True).first()
+        if server_cert is None:
+            logger.warning("MQTT TLS enabled but no active server certificate — TLS listener skipped")
+            return None
+
+        ca = CertificateAuthority.objects.filter(is_active=True).first()
+        if ca is None:
+            logger.warning("MQTT TLS enabled but no active CA — TLS listener skipped")
+            return None
+
+        server_key_pem = decrypt_private_key(bytes(server_cert.encrypted_private_key))
+        ca_key_pem = decrypt_private_key(bytes(ca.encrypted_private_key))
+
+        from my_tracks.models import ClientCertificate
+
+        revoked_certs = ClientCertificate.objects.filter(revoked=True).values_list(
+            "serial_number", "revoked_at"
+        )
+        revoked_entries = [
+            (int(serial, 16), revoked_at)
+            for serial, revoked_at in revoked_certs
+            if serial and revoked_at
+        ]
+
+        crl_pem = generate_crl(
+            ca_cert_pem=ca.certificate_pem.encode("utf-8"),
+            ca_key_pem=ca_key_pem,
+            revoked_entries=revoked_entries,
+        )
+
+        return TLSConfig(
+            server_cert_pem=server_cert.certificate_pem.encode("utf-8"),
+            server_key_pem=server_key_pem,
+            ca_cert_pem=ca.certificate_pem.encode("utf-8"),
+            crl_pem=crl_pem,
+        )
+    except Exception:
+        logger.exception("Failed to load TLS certificates from database")
+        return None
+
+
+def _run_mqtt_broker(mqtt_port: int, mqtt_tls_port: int = -1) -> None:
     """Run the MQTT broker in a dedicated thread with its own event loop.
 
     The broker needs its own asyncio event loop because Daphne does not
@@ -66,18 +118,21 @@ def _run_mqtt_broker(mqtt_port: int) -> None:
 
     Args:
         mqtt_port: TCP port for MQTT connections (0 = OS allocates)
+        mqtt_tls_port: TCP port for MQTT over TLS (-1 = disabled)
     """
     _state.loop = asyncio.new_event_loop()
     asyncio.set_event_loop(_state.loop)
 
-    # TODO: Decide on authentication strategy for MQTT connections.
-    # Currently anonymous access is allowed so the phone can connect
-    # without Django user credentials.  Options to evaluate:
-    #   1. Keep anonymous (simple, single-user setup)
-    #   2. Enable DjangoAuthPlugin with a dedicated MQTT user
-    #   3. Token-based auth via a custom plugin
+    tls_config: TLSConfig | None = None
+    if mqtt_tls_port >= 0:
+        tls_config = _load_tls_config()
+        if tls_config is None:
+            mqtt_tls_port = -1
+
     _state.broker = MQTTBroker(
         mqtt_port=mqtt_port,
+        mqtt_tls_port=mqtt_tls_port,
+        tls_config=tls_config,
         allow_anonymous=True,
         use_django_auth=False,
     )
@@ -192,16 +247,20 @@ class MyTracksConfig(AppConfig):
             return
 
         mqtt_port = get_mqtt_port()
-        if mqtt_port < 0:
-            logger.info("MQTT broker disabled (port=%d)", mqtt_port)
+        mqtt_tls_port = get_mqtt_tls_port()
+
+        if mqtt_port < 0 and mqtt_tls_port < 0:
+            logger.info("MQTT broker disabled (port=%d, tls_port=%d)", mqtt_port, mqtt_tls_port)
             return
 
         _state.thread = threading.Thread(
             target=_run_mqtt_broker,
-            args=(mqtt_port,),
+            args=(mqtt_port, mqtt_tls_port),
             daemon=True,
             name="mqtt-broker",
         )
         _state.thread.start()
         atexit.register(_stop_mqtt_broker)
-        logger.info("MQTT broker thread started (port=%d)", mqtt_port)
+        logger.info(
+            "MQTT broker thread started (port=%d, tls_port=%d)", mqtt_port, mqtt_tls_port
+        )

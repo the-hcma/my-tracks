@@ -29,6 +29,7 @@ def get_runtime_config() -> dict[str, Any]:
     defaults = {
         "http_port": 8080,
         "mqtt_port": 1883,
+        "mqtt_tls_port": 8883,
     }
 
     if not CONFIG_FILE.exists():
@@ -124,3 +125,14 @@ def get_actual_http_port() -> int | None:
     """
     config = get_runtime_config()
     return config.get("actual_http_port")
+
+
+def get_mqtt_tls_port() -> int:
+    """
+    Get MQTT TLS port from runtime configuration.
+
+    Returns:
+        Port number (>= 0 means enabled, < 0 means disabled)
+    """
+    config = get_runtime_config()
+    return int(config.get("mqtt_tls_port", 8883))

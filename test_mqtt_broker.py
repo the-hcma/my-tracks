@@ -1,14 +1,18 @@
 """Tests for the MQTT broker module."""
 
 import asyncio
+import os
+import tempfile
 from unittest.mock import MagicMock, patch
 
 import pytest
-from hamcrest import (assert_that, equal_to, greater_than, has_key, is_,
-                      is_not, not_none)
+from hamcrest import (assert_that, contains_string, equal_to, greater_than,
+                      has_key, is_, is_not, none, not_none)
 
-from my_tracks.mqtt.broker import (MQTTBroker, create_and_start_broker,
-                                   get_default_config)
+from amqtt.broker import Broker
+
+from my_tracks.mqtt.broker import (MQTTBroker, TLSConfig, _CRLBroker,
+                                   create_and_start_broker, get_default_config)
 
 
 class TestGetDefaultConfig:
@@ -594,3 +598,210 @@ class TestRunForeverAutoStart:
         await cancel_soon()
         # Broker was started by run_forever and then stopped by cancellation
         assert_that(broker.is_running, is_(False))
+
+
+class TestTLSConfig:
+    """Tests for TLS configuration in the broker."""
+
+    def _make_tls_config(self) -> TLSConfig:
+        return TLSConfig(
+            server_cert_pem=b"-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----",
+            server_key_pem=b"-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----",
+            ca_cert_pem=b"-----BEGIN CERTIFICATE-----\nfakeca\n-----END CERTIFICATE-----",
+        )
+
+    def test_tls_listener_added_when_port_enabled(self) -> None:
+        """TLS listener appears in config when mqtt_tls_port >= 0."""
+        config = get_default_config(
+            mqtt_tls_port=8883,
+            tls_certfile="/tmp/cert.pem",
+            tls_keyfile="/tmp/key.pem",
+            tls_cafile="/tmp/ca.pem",
+        )
+        assert_that(config["listeners"], has_key("mqtt-tls"))
+        tls = config["listeners"]["mqtt-tls"]
+        assert_that(tls["bind"], equal_to("0.0.0.0:8883"))
+        assert_that(tls["ssl"], is_(True))
+        assert_that(tls["certfile"], equal_to("/tmp/cert.pem"))
+        assert_that(tls["keyfile"], equal_to("/tmp/key.pem"))
+        assert_that(tls["cafile"], equal_to("/tmp/ca.pem"))
+
+    def test_tls_listener_not_added_when_port_disabled(self) -> None:
+        """No TLS listener when mqtt_tls_port is negative."""
+        config = get_default_config(mqtt_tls_port=-1)
+        listeners = config["listeners"]
+        assert_that("mqtt-tls" not in listeners, is_(True))
+
+    def test_tls_listener_not_added_without_certfile(self) -> None:
+        """No TLS listener when certfile is missing."""
+        config = get_default_config(
+            mqtt_tls_port=8883,
+            tls_keyfile="/tmp/key.pem",
+        )
+        assert_that("mqtt-tls" not in config["listeners"], is_(True))
+
+    def test_tls_listener_cafile_optional(self) -> None:
+        """TLS listener created without cafile (no client cert verification)."""
+        config = get_default_config(
+            mqtt_tls_port=8883,
+            tls_certfile="/tmp/cert.pem",
+            tls_keyfile="/tmp/key.pem",
+        )
+        tls = config["listeners"]["mqtt-tls"]
+        assert_that("cafile" not in tls, is_(True))
+
+    def test_broker_creates_temp_files_for_tls(self) -> None:
+        """MQTTBroker writes TLS certs to temp files when TLS enabled."""
+        tls_config = self._make_tls_config()
+        broker = MQTTBroker(
+            mqtt_port=0,
+            mqtt_ws_port=0,
+            mqtt_tls_port=8883,
+            tls_config=tls_config,
+            use_owntracks_handler=False,
+        )
+        assert_that(broker._tls_certfile, is_(not_none()))
+        assert_that(broker._tls_keyfile, is_(not_none()))
+        assert_that(broker._tls_cafile, is_(not_none()))
+        assert_that(os.path.exists(broker._tls_certfile), is_(True))
+        assert_that(os.path.exists(broker._tls_keyfile), is_(True))
+        assert_that(os.path.exists(broker._tls_cafile), is_(True))
+
+        with open(broker._tls_certfile, "rb") as f:
+            assert_that(f.read(), equal_to(tls_config.server_cert_pem))
+        with open(broker._tls_keyfile, "rb") as f:
+            assert_that(f.read(), equal_to(tls_config.server_key_pem))
+
+        broker._cleanup_tls_files()
+
+    def test_broker_no_temp_files_when_tls_disabled(self) -> None:
+        """No temp files created when TLS is disabled."""
+        broker = MQTTBroker(
+            mqtt_port=0,
+            mqtt_ws_port=0,
+            mqtt_tls_port=-1,
+            use_owntracks_handler=False,
+        )
+        assert_that(broker._tls_certfile, is_(none()))
+        assert_that(broker._tls_keyfile, is_(none()))
+        assert_that(broker._tls_cafile, is_(none()))
+        assert_that(len(broker._tls_temp_files), equal_to(0))
+
+    def test_cleanup_removes_temp_files(self) -> None:
+        """_cleanup_tls_files removes all temporary certificate files."""
+        tls_config = self._make_tls_config()
+        broker = MQTTBroker(
+            mqtt_port=0,
+            mqtt_ws_port=0,
+            mqtt_tls_port=8883,
+            tls_config=tls_config,
+            use_owntracks_handler=False,
+        )
+        paths = [broker._tls_certfile, broker._tls_keyfile, broker._tls_cafile]
+        for p in paths:
+            assert_that(os.path.exists(p), is_(True))
+
+        broker._cleanup_tls_files()
+
+        for p in paths:
+            assert_that(os.path.exists(p), is_(False))
+        assert_that(len(broker._tls_temp_files), equal_to(0))
+
+    def test_ca_plus_crl_concatenated_in_cafile(self) -> None:
+        """CA cert and CRL are concatenated in the cafile when CRL is provided."""
+        crl_data = b"-----BEGIN X509 CRL-----\nfakecrl\n-----END X509 CRL-----"
+        tls_config = TLSConfig(
+            server_cert_pem=b"cert",
+            server_key_pem=b"key",
+            ca_cert_pem=b"ca-cert",
+            crl_pem=crl_data,
+        )
+        broker = MQTTBroker(
+            mqtt_port=0,
+            mqtt_ws_port=0,
+            mqtt_tls_port=8883,
+            tls_config=tls_config,
+            use_owntracks_handler=False,
+        )
+        with open(broker._tls_cafile, "rb") as f:
+            content = f.read()
+        assert_that(content, equal_to(b"ca-cert\n" + crl_data))
+        broker._cleanup_tls_files()
+
+    def test_tls_port_property_disabled(self) -> None:
+        """actual_tls_port is None when TLS is disabled."""
+        broker = MQTTBroker(mqtt_port=0, mqtt_ws_port=0, mqtt_tls_port=-1)
+        assert_that(broker.actual_tls_port, is_(none()))
+
+    def test_tls_port_property_before_start(self) -> None:
+        """actual_tls_port returns configured port before broker starts."""
+        broker = MQTTBroker(mqtt_port=0, mqtt_ws_port=0, mqtt_tls_port=8883)
+        assert_that(broker.actual_tls_port, is_(none()))
+
+    def test_config_has_tls_listener(self) -> None:
+        """Broker config includes mqtt-tls listener when TLS is configured."""
+        tls_config = self._make_tls_config()
+        broker = MQTTBroker(
+            mqtt_port=0,
+            mqtt_ws_port=0,
+            mqtt_tls_port=8883,
+            tls_config=tls_config,
+            use_owntracks_handler=False,
+        )
+        assert_that(broker.config["listeners"], has_key("mqtt-tls"))
+        tls = broker.config["listeners"]["mqtt-tls"]
+        assert_that(tls["ssl"], is_(True))
+        assert_that(tls["bind"], contains_string("8883"))
+        broker._cleanup_tls_files()
+
+    @pytest.mark.asyncio
+    async def test_crl_broker_used_when_crl_provided(self) -> None:
+        """_CRLBroker is used instead of Broker when CRL is in TLS config."""
+        from unittest.mock import AsyncMock
+
+        crl_data = b"-----BEGIN X509 CRL-----\nfake\n-----END X509 CRL-----"
+        tls_config = TLSConfig(
+            server_cert_pem=b"cert",
+            server_key_pem=b"key",
+            ca_cert_pem=b"ca",
+            crl_pem=crl_data,
+        )
+        broker = MQTTBroker(
+            mqtt_port=0,
+            mqtt_ws_port=0,
+            mqtt_tls_port=8883,
+            tls_config=tls_config,
+            use_owntracks_handler=False,
+        )
+        with (
+            patch.object(_CRLBroker, "__init__", return_value=None) as mock_init,
+            patch.object(_CRLBroker, "start", new_callable=AsyncMock),
+        ):
+            await broker.start()
+
+        mock_init.assert_called_once()
+        assert_that(_CRLBroker._crl_pem, equal_to(crl_data))
+        _CRLBroker._crl_pem = None
+        broker._cleanup_tls_files()
+
+    @pytest.mark.asyncio
+    async def test_regular_broker_used_without_crl(self) -> None:
+        """Standard Broker is used when no CRL is in TLS config."""
+        from unittest.mock import AsyncMock
+
+        tls_config = self._make_tls_config()
+        broker = MQTTBroker(
+            mqtt_port=0,
+            mqtt_ws_port=0,
+            mqtt_tls_port=8883,
+            tls_config=tls_config,
+            use_owntracks_handler=False,
+        )
+        with (
+            patch.object(Broker, "__init__", return_value=None) as mock_init,
+            patch.object(Broker, "start", new_callable=AsyncMock),
+        ):
+            await broker.start()
+
+        mock_init.assert_called_once()
+        broker._cleanup_tls_files()

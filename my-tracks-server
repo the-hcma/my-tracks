@@ -8,6 +8,7 @@
 # Options:
 #   --http-port PORT          Set HTTP server port (default: 8080, 0 = OS allocates, -1 = disabled)
 #   --mqtt-port PORT     Set MQTT broker port (default: 1883, 0 = OS allocates, -1 = disabled)
+#   --mqtt-tls-port PORT Set MQTT TLS port (default: 8883, -1 = disabled)
 #   --log-level LEVEL    Set Django log level (trace, debug, info, warning, error, critical)
 #                        Default: warning (info when using --console)
 #   --console            Output logs to console in addition to file (dual logging)
@@ -99,6 +100,16 @@ cleanup() {
             done
         fi
     fi
+    # Also check for any orphaned processes on the MQTT TLS port
+    if [ "$mqtt_tls_port" -ge 0 ]; then
+        remaining=$(lsof -ti tcp:"$mqtt_tls_port" 2>/dev/null || true)
+        if [ -n "$remaining" ]; then
+            echo "   Cleaning up orphaned MQTT TLS processes on port $mqtt_tls_port..."
+            for pid in $remaining; do
+                graceful_kill "$pid" 2
+            done
+        fi
+    fi
     # Clean up runtime config file
     rm -f "config/.runtime-config.json"
     echo "👋 Server stopped"
@@ -111,6 +122,7 @@ trap cleanup INT TERM EXIT
 # Default values
 http_port=8080
 mqtt_port=1883
+mqtt_tls_port=8883
 log_level="WARNING"
 log_to_console=false
 
@@ -124,6 +136,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --mqtt-port)
             mqtt_port="$2"
+            shift 2
+            ;;
+        --mqtt-tls-port)
+            mqtt_tls_port="$2"
             shift 2
             ;;
         --log-level)
@@ -162,6 +178,13 @@ fi
 # Validate MQTT port (0 = OS allocates, negative = disabled)
 if ! [[ "$mqtt_port" =~ ^-?[0-9]+$ ]] || [ "$mqtt_port" -gt 65535 ]; then
     echo "Error: Invalid MQTT port number: $mqtt_port"
+    echo "Port must be a number between -1 and 65535 (0 = OS allocates, negative = disabled)"
+    exit 1
+fi
+
+# Validate MQTT TLS port (0 = OS allocates, negative = disabled)
+if ! [[ "$mqtt_tls_port" =~ ^-?[0-9]+$ ]] || [ "$mqtt_tls_port" -gt 65535 ]; then
+    echo "Error: Invalid MQTT TLS port number: $mqtt_tls_port"
     echo "Port must be a number between -1 and 65535 (0 = OS allocates, negative = disabled)"
     exit 1
 fi
@@ -256,6 +279,7 @@ check_port_conflict() {
 # Pre-flight: check all configured ports for conflicts
 check_port_conflict "$http_port" "HTTP"
 check_port_conflict "$mqtt_port" "MQTT"
+check_port_conflict "$mqtt_tls_port" "MQTT TLS"
 
 # Add uv to PATH if it exists
 if [ -d "$HOME/.local/bin" ]; then
@@ -300,7 +324,8 @@ runtime_config="config/.runtime-config.json"
 cat > "$runtime_config" << EOF
 {
   "http_port": $http_port,
-  "mqtt_port": $mqtt_port
+  "mqtt_port": $mqtt_port,
+  "mqtt_tls_port": $mqtt_tls_port
 }
 EOF
 
@@ -377,6 +402,16 @@ display_server_info() {
         if [ ${#local_ips[@]} -gt 0 ] && [ "${local_ips[0]}" != "unknown" ]; then
             for ip in "${local_ips[@]}"; do
                 echo "   Address: $ip:$actual_mqtt"
+            done
+        fi
+        echo ""
+    fi
+    if [ "$mqtt_tls_port" -ge 0 ]; then
+        echo "🔒 MQTT TLS:"
+        echo "   Port:    $mqtt_tls_port"
+        if [ ${#local_ips[@]} -gt 0 ] && [ "${local_ips[0]}" != "unknown" ]; then
+            for ip in "${local_ips[@]}"; do
+                echo "   Address: $ip:$mqtt_tls_port"
             done
         fi
         echo ""
