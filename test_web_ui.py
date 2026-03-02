@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import netifaces
 import pytest
+from cryptography.hazmat.primitives.serialization import pkcs12
 from django.contrib.auth.models import User
 from django.test import Client
 from hamcrest import (assert_that, contains_string, equal_to, greater_than,
@@ -731,7 +732,7 @@ class TestProfileCertificates:
         assert_that(content, contains_string('Client Certificate'))
         assert_that(content, contains_string(str(user.username)))
         assert_that(content, contains_string('Fingerprint'))
-        assert_that(content, contains_string('Download Client Cert'))
+        assert_that(content, contains_string('Download .p12 Bundle'))
 
     def test_profile_shows_ca_cert_details(self, logged_in_client: Client, user: User) -> None:
         """When a CA exists, show its details and download link."""
@@ -742,18 +743,35 @@ class TestProfileCertificates:
         assert_that(content, contains_string('Profile Test CA'))
         assert_that(content, contains_string('Download CA Cert'))
 
-    def test_download_my_cert(self, logged_in_client: Client, user: User) -> None:
-        """Authenticated user can download their own client cert PEM."""
+    def test_download_my_cert_p12(self, logged_in_client: Client, user: User) -> None:
+        """Authenticated user can download their client cert as .p12 bundle."""
+        self._create_ca_and_client_cert(user)
+        response = logged_in_client.post('/profile/download-cert/', {'p12_password': 'test1234'})
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        assert_that(response['Content-Type'], equal_to('application/x-pkcs12'))
+        assert_that(response['Content-Disposition'], contains_string('.p12'))
+        private_key, cert, cas = pkcs12.load_key_and_certificates(
+            response.content, b'test1234'
+        )
+        assert_that(private_key, is_(not_none()))
+        assert_that(cert, is_(not_none()))
+        assert_that(cas, has_length(1))
+
+    def test_download_my_cert_missing_password(self, logged_in_client: Client, user: User) -> None:
+        """POST without password returns 400."""
+        self._create_ca_and_client_cert(user)
+        response = logged_in_client.post('/profile/download-cert/', {})
+        assert_that(response.status_code, equal_to(400))
+
+    def test_download_my_cert_get_not_allowed(self, logged_in_client: Client, user: User) -> None:
+        """GET is no longer supported (method changed to POST)."""
         self._create_ca_and_client_cert(user)
         response = logged_in_client.get('/profile/download-cert/')
-        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
-        assert_that(response['Content-Type'], equal_to('application/x-pem-file'))
-        assert_that(response['Content-Disposition'], contains_string('-client.crt'))
-        assert_that(response.content.decode(), contains_string('BEGIN CERTIFICATE'))
+        assert_that(response.status_code, equal_to(405))
 
     def test_download_my_cert_no_cert(self, logged_in_client: Client) -> None:
         """Downloading cert when none exists returns 404."""
-        response = logged_in_client.get('/profile/download-cert/')
+        response = logged_in_client.post('/profile/download-cert/', {'p12_password': 'test1234'})
         assert_that(response.status_code, equal_to(404))
 
     def test_download_ca_cert(self, logged_in_client: Client, user: User) -> None:
@@ -773,9 +791,10 @@ class TestProfileCertificates:
     def test_download_requires_authentication(self) -> None:
         """Download endpoints redirect unauthenticated users."""
         client = Client()
-        for url in ['/profile/download-cert/', '/profile/download-ca/']:
-            response = client.get(url)
-            assert_that(response.status_code, equal_to(status.HTTP_302_FOUND))
+        response = client.post('/profile/download-cert/', {'p12_password': 'test'})
+        assert_that(response.status_code, equal_to(status.HTTP_302_FOUND))
+        response = client.get('/profile/download-ca/')
+        assert_that(response.status_code, equal_to(status.HTTP_302_FOUND))
 
 
 @pytest.mark.django_db

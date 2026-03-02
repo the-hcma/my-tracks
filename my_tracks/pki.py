@@ -16,6 +16,7 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
+from cryptography.hazmat.primitives.serialization import pkcs12
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 from django.conf import settings
 
@@ -431,6 +432,42 @@ def generate_crl(
 
     crl = builder.sign(ca_key, hashes.SHA256())
     return crl.public_bytes(serialization.Encoding.PEM)
+
+
+def generate_pkcs12(
+    cert_pem: bytes,
+    key_pem: bytes,
+    ca_cert_pem: bytes,
+    friendly_name: str,
+    password: bytes,
+) -> bytes:
+    """
+    Bundle a client certificate, its private key, and the CA certificate
+    into a PKCS#12 (.p12) archive protected by a password.
+
+    Args:
+        cert_pem: Client certificate in PEM format.
+        key_pem: Client private key in PEM format (unencrypted).
+        ca_cert_pem: CA certificate in PEM format (included as trust chain).
+        friendly_name: Display name stored inside the .p12 archive.
+        password: Password to encrypt the .p12 file.
+
+    Returns:
+        PKCS#12 archive as bytes.
+    """
+    cert = x509.load_pem_x509_certificate(cert_pem)
+    key = serialization.load_pem_private_key(key_pem, password=None)
+    if not isinstance(key, RSAPrivateKey):
+        raise ValueError("Expected RSA private key")
+    ca_cert = x509.load_pem_x509_certificate(ca_cert_pem)
+
+    return pkcs12.serialize_key_and_certificates(
+        name=friendly_name.encode(),
+        key=key,
+        cert=cert,
+        cas=[ca_cert],
+        encryption_algorithm=serialization.BestAvailableEncryption(password),
+    )
 
 
 def get_certificate_serial_number(cert_pem: bytes) -> int:

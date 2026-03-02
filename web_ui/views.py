@@ -23,7 +23,7 @@ from my_tracks.pki import (ALLOWED_KEY_SIZES, DEFAULT_CA_VALIDITY_DAYS,
 from my_tracks.pki import decrypt_private_key as pki_decrypt_private_key
 from my_tracks.pki import encrypt_private_key as pki_encrypt_private_key
 from my_tracks.pki import (generate_ca_certificate,
-                           generate_client_certificate,
+                           generate_client_certificate, generate_pkcs12,
                            generate_server_certificate, get_certificate_expiry,
                            get_certificate_fingerprint,
                            get_certificate_metadata, get_certificate_sans,
@@ -244,14 +244,30 @@ def profile(request: HttpRequest) -> HttpResponse:
 
 @login_required
 def download_my_cert(request: HttpRequest) -> HttpResponse:
-    """Download the authenticated user's active client certificate PEM."""
-    cert = ClientCertificate.objects.filter(
+    """Download the authenticated user's client certificate as a PKCS#12 (.p12) bundle."""
+    if request.method != 'POST':
+        return HttpResponse(b'Method not allowed', status=405)
+
+    cert = ClientCertificate.objects.select_related('issuing_ca').filter(
         user=request.user, is_active=True, revoked=False
     ).first()
     if cert is None:
         return HttpResponse(b'No active client certificate', status=404)
-    response = HttpResponse(cert.certificate_pem.encode(), content_type='application/x-pem-file')
-    response['Content-Disposition'] = f'attachment; filename="{cert.common_name}-client.crt"'
+
+    password = (request.POST.get('p12_password') or '').strip()
+    if not password:
+        return HttpResponse(b'Password is required for .p12 export', status=400)
+
+    client_key_pem = pki_decrypt_private_key(bytes(cert.encrypted_private_key))
+    p12_bytes = generate_pkcs12(
+        cert_pem=cert.certificate_pem.encode(),
+        key_pem=client_key_pem,
+        ca_cert_pem=cert.issuing_ca.certificate_pem.encode(),
+        friendly_name=cert.common_name,
+        password=password.encode(),
+    )
+    response = HttpResponse(p12_bytes, content_type='application/x-pkcs12')
+    response['Content-Disposition'] = f'attachment; filename="{cert.common_name}.p12"'
     return response
 
 

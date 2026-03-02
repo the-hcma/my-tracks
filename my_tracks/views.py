@@ -28,7 +28,7 @@ from .models import (CertificateAuthority, ClientCertificate, Device, Location,
 from .mqtt.commands import Command, CommandPublisher
 from .pki import (ALLOWED_KEY_SIZES, decrypt_private_key, encrypt_private_key,
                   generate_ca_certificate, generate_client_certificate,
-                  generate_crl, generate_server_certificate,
+                  generate_crl, generate_pkcs12, generate_server_certificate,
                   get_certificate_expiry, get_certificate_fingerprint,
                   get_certificate_sans, get_certificate_serial_number,
                   get_certificate_subject)
@@ -1270,23 +1270,38 @@ class ClientCertificateViewSet(viewsets.ViewSet):
             status=status.HTTP_200_OK,
         )
 
-    @action(detail=True, methods=['get'], url_path='download')
+    @action(detail=True, methods=['post'], url_path='download')
     def download(self, request: Request, pk: str | None = None) -> DjangoHttpResponse | Response:
-        """Download the client certificate PEM file."""
+        """Download a client certificate as a PKCS#12 (.p12) bundle."""
         try:
-            cert = ClientCertificate.objects.get(pk=pk)
+            cert = ClientCertificate.objects.select_related('issuing_ca').get(pk=pk)
         except ClientCertificate.DoesNotExist:
             return Response(
                 {"error": f"Expected valid client cert ID, got '{pk}'"},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
+        password = request.data.get('password', '')
+        if not password:
+            return Response(
+                {"error": "Expected 'password' field for .p12 encryption"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        client_key_pem = decrypt_private_key(bytes(cert.encrypted_private_key))
+        p12_bytes = generate_pkcs12(
+            cert_pem=cert.certificate_pem.encode(),
+            key_pem=client_key_pem,
+            ca_cert_pem=cert.issuing_ca.certificate_pem.encode(),
+            friendly_name=cert.common_name,
+            password=str(password).encode(),
+        )
         response = DjangoHttpResponse(
-            cert.certificate_pem,
-            content_type='application/x-pem-file',
+            p12_bytes,
+            content_type='application/x-pkcs12',
         )
         response['Content-Disposition'] = (
-            f'attachment; filename="{cert.common_name}-client.crt"'
+            f'attachment; filename="{cert.common_name}.p12"'
         )
         return response
 
