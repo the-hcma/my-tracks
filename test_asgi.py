@@ -1002,3 +1002,273 @@ class TestClientDisconnectMiddleware:
             assert_that(handler_after_first is handler_after_second, is_(True))
         finally:
             loop.set_exception_handler(original_handler)
+
+
+class TestLoadTlsConfig:
+    """Tests for _load_tls_config: TLS cert loading from database."""
+
+    def test_returns_none_when_no_server_cert(self) -> None:
+        """No active server cert → returns None, warns, no cert info logged."""
+        import my_tracks.apps as apps_module
+
+        mock_server_cls = MagicMock()
+        mock_server_cls.objects.filter.return_value.first.return_value = None
+
+        with (
+            patch.object(apps_module, "logger") as mock_log,
+            patch("my_tracks.models.ServerCertificate", mock_server_cls),
+        ):
+            result = apps_module._load_tls_config()
+
+        assert_that(result, is_(None))
+        mock_log.warning.assert_called_once()
+        warning_msg = mock_log.warning.call_args[0][0]
+        assert_that(warning_msg, contains_string("no active server certificate"))
+        mock_log.info.assert_not_called()
+
+    def test_returns_none_when_no_ca(self) -> None:
+        """Server cert exists but no active CA → returns None, warns."""
+        import my_tracks.apps as apps_module
+
+        mock_server_cls = MagicMock()
+        mock_server_cls.objects.filter.return_value.first.return_value = MagicMock()
+
+        mock_ca_cls = MagicMock()
+        mock_ca_cls.objects.filter.return_value.first.return_value = None
+
+        with (
+            patch.object(apps_module, "logger") as mock_log,
+            patch("my_tracks.models.ServerCertificate", mock_server_cls),
+            patch("my_tracks.models.CertificateAuthority", mock_ca_cls),
+        ):
+            result = apps_module._load_tls_config()
+
+        assert_that(result, is_(None))
+        mock_log.warning.assert_called_once()
+        warning_msg = mock_log.warning.call_args[0][0]
+        assert_that(warning_msg, contains_string("no active CA"))
+
+    def test_returns_tls_config_and_logs_cert_info(self) -> None:
+        """Active server cert + CA → returns TLSConfig, calls _log_cert_info."""
+        import my_tracks.apps as apps_module
+        from my_tracks.pki import (encrypt_private_key,
+                                   generate_ca_certificate,
+                                   generate_server_certificate)
+
+        ca_pem, ca_key = generate_ca_certificate(
+            common_name="Test CA", key_size=2048,
+        )
+        srv_pem, srv_key = generate_server_certificate(
+            ca_pem, ca_key, common_name="test-srv",
+            san_entries=["test-srv"], key_size=2048,
+        )
+
+        mock_server_cert = MagicMock()
+        mock_server_cert.certificate_pem = srv_pem.decode("utf-8")
+        mock_server_cert.encrypted_private_key = encrypt_private_key(srv_key)
+
+        mock_ca = MagicMock()
+        mock_ca.certificate_pem = ca_pem.decode("utf-8")
+        mock_ca.encrypted_private_key = encrypt_private_key(ca_key)
+
+        mock_server_cls = MagicMock()
+        mock_server_cls.objects.filter.return_value.first.return_value = mock_server_cert
+
+        mock_ca_cls = MagicMock()
+        mock_ca_cls.objects.filter.return_value.first.return_value = mock_ca
+
+        mock_client_cls = MagicMock()
+        mock_client_cls.objects.filter.return_value.values_list.return_value = []
+
+        with (
+            patch("my_tracks.models.ServerCertificate", mock_server_cls),
+            patch("my_tracks.models.CertificateAuthority", mock_ca_cls),
+            patch("my_tracks.models.ClientCertificate", mock_client_cls),
+            patch.object(apps_module, "_log_cert_info") as mock_cert_log,
+        ):
+            result = apps_module._load_tls_config()
+
+        assert_that(result, is_(not_none()))
+        mock_cert_log.assert_called_once_with(srv_pem, ca_pem)
+        assert_that(result.server_cert_pem, equal_to(srv_pem))
+        assert_that(result.ca_cert_pem, equal_to(ca_pem))
+
+
+class TestRunMqttBrokerTlsBehavior:
+    """Tests for TLS-specific behavior in _run_mqtt_broker."""
+
+    def test_tls_disabled_when_no_cert(self) -> None:
+        """TLS port requested but no cert → TLS port set to -1, broker created without TLS."""
+        import my_tracks.apps as apps_module
+
+        mock_broker = MagicMock()
+        mock_broker.actual_mqtt_port = 1883
+
+        async def mock_start() -> None:
+            pass
+
+        async def mock_sleep(seconds: float) -> None:
+            mock_broker.is_running = False
+
+        mock_broker.start = mock_start
+        mock_broker.is_running = True
+
+        with (
+            patch.object(apps_module, "MQTTBroker", return_value=mock_broker) as mock_cls,
+            patch("asyncio.sleep", side_effect=mock_sleep),
+            patch.object(apps_module, "_load_tls_config", return_value=None),
+            patch.object(apps_module._state, "broker", None),
+            patch.object(apps_module._state, "loop", None),
+        ):
+            apps_module._run_mqtt_broker(1883, mqtt_tls_port=8883)
+
+        call_kwargs = mock_cls.call_args
+        assert_that(call_kwargs.kwargs.get("mqtt_tls_port", call_kwargs[1].get("mqtt_tls_port", -99)),
+                    equal_to(-1))
+        assert_that(call_kwargs.kwargs.get("tls_config", call_kwargs[1].get("tls_config")),
+                    is_(None))
+
+    def test_tls_enabled_when_cert_exists(self) -> None:
+        """TLS port requested with valid cert → broker created with TLS config."""
+        import my_tracks.apps as apps_module
+
+        mock_tls_config = MagicMock()
+        mock_broker = MagicMock()
+        mock_broker.actual_mqtt_port = 1883
+
+        async def mock_start() -> None:
+            pass
+
+        async def mock_sleep(seconds: float) -> None:
+            mock_broker.is_running = False
+
+        mock_broker.start = mock_start
+        mock_broker.is_running = True
+
+        with (
+            patch.object(apps_module, "MQTTBroker", return_value=mock_broker) as mock_cls,
+            patch("asyncio.sleep", side_effect=mock_sleep),
+            patch.object(apps_module, "_load_tls_config", return_value=mock_tls_config),
+            patch.object(apps_module._state, "broker", None),
+            patch.object(apps_module._state, "loop", None),
+        ):
+            apps_module._run_mqtt_broker(1883, mqtt_tls_port=8883)
+
+        call_kwargs = mock_cls.call_args
+        assert_that(call_kwargs.kwargs.get("mqtt_tls_port", call_kwargs[1].get("mqtt_tls_port", -99)),
+                    equal_to(8883))
+        assert_that(call_kwargs.kwargs.get("tls_config", call_kwargs[1].get("tls_config")),
+                    is_(mock_tls_config))
+
+
+class TestLogCertInfo:
+    """Tests for _log_cert_info startup logging."""
+
+    def test_logs_cert_details(self) -> None:
+        """Should log CN, CA, expiry, and fingerprint at INFO level."""
+        import my_tracks.apps as apps_module
+        from my_tracks.pki import (generate_ca_certificate,
+                                   generate_server_certificate)
+
+        ca_pem, ca_key = generate_ca_certificate(
+            common_name="Log Test CA", key_size=2048,
+        )
+        srv_pem, _ = generate_server_certificate(
+            ca_pem, ca_key, common_name="myhost",
+            san_entries=["myhost"], key_size=2048,
+        )
+
+        with patch.object(apps_module, "logger") as mock_log:
+            apps_module._log_cert_info(srv_pem, ca_pem)
+
+        mock_log.info.assert_called_once()
+        msg = mock_log.info.call_args[0][0] % mock_log.info.call_args[0][1:]
+        assert_that(msg, contains_string("myhost"))
+        assert_that(msg, contains_string("Log Test CA"))
+        assert_that(msg, contains_string("fingerprint="))
+        mock_log.warning.assert_not_called()
+
+    def test_warns_when_expiry_near(self) -> None:
+        """Should emit WARNING when cert expires within 30 days."""
+        import my_tracks.apps as apps_module
+        from my_tracks.pki import (generate_ca_certificate,
+                                   generate_server_certificate)
+
+        ca_pem, ca_key = generate_ca_certificate(
+            common_name="Expiry CA", key_size=2048,
+        )
+        srv_pem, _ = generate_server_certificate(
+            ca_pem, ca_key, common_name="expiring",
+            san_entries=["expiring"], validity_days=15, key_size=2048,
+        )
+
+        with patch.object(apps_module, "logger") as mock_log:
+            apps_module._log_cert_info(srv_pem, ca_pem)
+
+        mock_log.warning.assert_called_once()
+        warning_msg = mock_log.warning.call_args[0][0] % mock_log.warning.call_args[0][1:]
+        assert_that(warning_msg, contains_string("expires in"))
+        assert_that(warning_msg, contains_string("consider renewing"))
+
+    def test_warns_when_cert_already_expired(self) -> None:
+        """Should emit WARNING when cert is already expired."""
+        from datetime import UTC, datetime, timedelta
+
+        from cryptography import x509
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
+        from cryptography.x509.oid import NameOID
+
+        import my_tracks.apps as apps_module
+        from my_tracks.pki import generate_ca_certificate
+
+        ca_pem, ca_key_pem = generate_ca_certificate(
+            common_name="Expired CA", key_size=2048,
+        )
+        ca_key = serialization.load_pem_private_key(ca_key_pem, password=None)
+        if not isinstance(ca_key, RSAPrivateKey):
+            raise ValueError("Expected RSA key")
+        ca_cert = x509.load_pem_x509_certificate(ca_pem)
+
+        srv_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        now = datetime.now(UTC)
+        cert = (
+            x509.CertificateBuilder()
+            .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "expired-host")]))
+            .issuer_name(ca_cert.subject)
+            .public_key(srv_key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now - timedelta(days=365))
+            .not_valid_after(now - timedelta(days=1))
+            .sign(ca_key, hashes.SHA256())
+        )
+        srv_pem = cert.public_bytes(serialization.Encoding.PEM)
+
+        with patch.object(apps_module, "logger") as mock_log:
+            apps_module._log_cert_info(srv_pem, ca_pem)
+
+        mock_log.warning.assert_called_once()
+        warning_msg = mock_log.warning.call_args[0][0] % mock_log.warning.call_args[0][1:]
+        assert_that(warning_msg, contains_string("EXPIRED"))
+        assert_that(warning_msg, contains_string("clients will reject"))
+
+    def test_no_warning_when_expiry_far(self) -> None:
+        """Should not emit WARNING when cert expires in more than 30 days."""
+        import my_tracks.apps as apps_module
+        from my_tracks.pki import (generate_ca_certificate,
+                                   generate_server_certificate)
+
+        ca_pem, ca_key = generate_ca_certificate(
+            common_name="OK CA", key_size=2048,
+        )
+        srv_pem, _ = generate_server_certificate(
+            ca_pem, ca_key, common_name="healthy",
+            san_entries=["healthy"], validity_days=365, key_size=2048,
+        )
+
+        with patch.object(apps_module, "logger") as mock_log:
+            apps_module._log_cert_info(srv_pem, ca_pem)
+
+        mock_log.info.assert_called_once()
+        mock_log.warning.assert_not_called()

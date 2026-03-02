@@ -58,6 +58,38 @@ def _stop_mqtt_broker() -> None:
             _state.thread.join(timeout=5)
 
 
+def _log_cert_info(server_cert_pem: bytes, ca_cert_pem: bytes) -> None:
+    """Log server certificate details and warn if expiry is near."""
+    from datetime import UTC, datetime, timedelta
+
+    from my_tracks.pki import (get_certificate_expiry,
+                               get_certificate_fingerprint,
+                               get_certificate_subject)
+
+    cn = get_certificate_subject(server_cert_pem)
+    fingerprint = get_certificate_fingerprint(server_cert_pem)
+    expiry = get_certificate_expiry(server_cert_pem)
+    ca_cn = get_certificate_subject(ca_cert_pem)
+
+    logger.info(
+        "TLS server certificate: CN=%s  CA=%s  expires=%s  fingerprint=%s",
+        cn, ca_cn, expiry.strftime("%Y-%m-%d %H:%M UTC"), fingerprint,
+    )
+
+    days_remaining = (expiry - datetime.now(UTC)).days
+    if days_remaining < 0:
+        logger.warning(
+            "TLS server certificate EXPIRED %d day(s) ago — "
+            "clients will reject connections",
+            abs(days_remaining),
+        )
+    elif days_remaining < 30:
+        logger.warning(
+            "TLS server certificate expires in %d day(s) — consider renewing soon",
+            days_remaining,
+        )
+
+
 def _load_tls_config() -> TLSConfig | None:
     """Load TLS certificates from the database for the MQTT broker.
 
@@ -78,6 +110,11 @@ def _load_tls_config() -> TLSConfig | None:
             logger.warning("MQTT TLS enabled but no active CA — TLS listener skipped")
             return None
 
+        server_cert_pem = server_cert.certificate_pem.encode("utf-8")
+        ca_cert_pem = ca.certificate_pem.encode("utf-8")
+
+        _log_cert_info(server_cert_pem, ca_cert_pem)
+
         server_key_pem = decrypt_private_key(bytes(server_cert.encrypted_private_key))
         ca_key_pem = decrypt_private_key(bytes(ca.encrypted_private_key))
 
@@ -93,15 +130,15 @@ def _load_tls_config() -> TLSConfig | None:
         ]
 
         crl_pem = generate_crl(
-            ca_cert_pem=ca.certificate_pem.encode("utf-8"),
+            ca_cert_pem=ca_cert_pem,
             ca_key_pem=ca_key_pem,
             revoked_entries=revoked_entries,
         )
 
         return TLSConfig(
-            server_cert_pem=server_cert.certificate_pem.encode("utf-8"),
+            server_cert_pem=server_cert_pem,
             server_key_pem=server_key_pem,
-            ca_cert_pem=ca.certificate_pem.encode("utf-8"),
+            ca_cert_pem=ca_cert_pem,
             crl_pem=crl_pem,
         )
     except Exception:

@@ -339,6 +339,43 @@ fi
 echo "📦 Collecting static files..."
 uv run python manage.py collectstatic --noinput --clear > /dev/null 2>&1
 
+# Check for an active server certificate (for TLS banner)
+tls_cert_cn=""
+tls_cert_ca=""
+tls_cert_fingerprint=""
+tls_cert_expiry=""
+tls_cert_days_remaining=""
+if [ "$mqtt_tls_port" -ge 0 ]; then
+    tls_info=$(python3 -c "
+import os, sys
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
+import django; django.setup()
+from my_tracks.models import ServerCertificate, CertificateAuthority
+from my_tracks.pki import get_certificate_fingerprint, get_certificate_subject, get_certificate_expiry
+from datetime import UTC, datetime
+cert = ServerCertificate.objects.filter(is_active=True).first()
+if not cert:
+    sys.exit(0)
+ca = CertificateAuthority.objects.filter(is_active=True).first()
+pem = cert.certificate_pem.encode('utf-8')
+expiry = get_certificate_expiry(pem)
+days = (expiry - datetime.now(UTC)).days
+ca_cn = get_certificate_subject(ca.certificate_pem.encode('utf-8')) if ca else 'unknown'
+print(get_certificate_subject(pem))
+print(ca_cn)
+print(get_certificate_fingerprint(pem))
+print(expiry.strftime('%Y-%m-%d %H:%M UTC'))
+print(days)
+" 2>/dev/null || true)
+    if [ -n "$tls_info" ]; then
+        tls_cert_cn=$(echo "$tls_info" | sed -n '1p')
+        tls_cert_ca=$(echo "$tls_info" | sed -n '2p')
+        tls_cert_fingerprint=$(echo "$tls_info" | sed -n '3p')
+        tls_cert_expiry=$(echo "$tls_info" | sed -n '4p')
+        tls_cert_days_remaining=$(echo "$tls_info" | sed -n '5p')
+    fi
+fi
+
 # Get all local IP addresses (non-loopback)
 get_local_ips() {
     if command -v python3 &>/dev/null; then
@@ -406,7 +443,7 @@ display_server_info() {
         fi
         echo ""
     fi
-    if [ "$mqtt_tls_port" -ge 0 ]; then
+    if [ "$mqtt_tls_port" -ge 0 ] && [ -n "$tls_cert_cn" ]; then
         echo "🔒 MQTT TLS:"
         echo "   Port:    $mqtt_tls_port"
         if [ ${#local_ips[@]} -gt 0 ] && [ "${local_ips[0]}" != "unknown" ]; then
@@ -414,6 +451,16 @@ display_server_info() {
                 echo "   Address: $ip:$mqtt_tls_port"
             done
         fi
+        echo "   Cert:    CN=$tls_cert_cn  CA=$tls_cert_ca"
+        echo "   Expires: $tls_cert_expiry  Fingerprint: $tls_cert_fingerprint"
+        if [ -n "$tls_cert_days_remaining" ] && [ "$tls_cert_days_remaining" -lt 0 ] 2>/dev/null; then
+            echo "   ⚠️  EXPIRED ${tls_cert_days_remaining#-} day(s) ago — clients will reject connections"
+        elif [ -n "$tls_cert_days_remaining" ] && [ "$tls_cert_days_remaining" -lt 30 ] 2>/dev/null; then
+            echo "   ⚠️  Expires in $tls_cert_days_remaining day(s) — consider renewing soon"
+        fi
+        echo ""
+    elif [ "$mqtt_tls_port" -ge 0 ]; then
+        echo "🔒 MQTT TLS: disabled (no active server certificate)"
         echo ""
     fi
     echo "📝 Log level: $log_level"

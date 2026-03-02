@@ -2,14 +2,11 @@
 
 import asyncio
 import os
-import tempfile
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from hamcrest import (assert_that, contains_string, equal_to, greater_than,
                       has_key, is_, is_not, none, not_none)
-
-from amqtt.broker import Broker
 
 from my_tracks.mqtt.broker import (MQTTBroker, TLSConfig, _CRLBroker,
                                    create_and_start_broker, get_default_config)
@@ -32,16 +29,6 @@ class TestGetDefaultConfig:
         """Custom MQTT port should be respected."""
         config = get_default_config(mqtt_port=11883)
         assert_that(config["listeners"]["default"]["bind"], equal_to("0.0.0.0:11883"))
-
-    def test_default_ws_port(self) -> None:
-        """Default WebSocket port should be 8083."""
-        config = get_default_config()
-        assert_that(config["listeners"]["ws-mqtt"]["bind"], equal_to("0.0.0.0:8083"))
-
-    def test_custom_ws_port(self) -> None:
-        """Custom WebSocket port should be respected."""
-        config = get_default_config(mqtt_ws_port=18083)
-        assert_that(config["listeners"]["ws-mqtt"]["bind"], equal_to("0.0.0.0:18083"))
 
     def test_allow_anonymous_default(self) -> None:
         """Anonymous connections should include AnonymousAuthPlugin."""
@@ -80,13 +67,11 @@ class TestMQTTBrokerInit:
         """Broker should use default ports."""
         broker = MQTTBroker()
         assert_that(broker.mqtt_port, equal_to(1883))
-        assert_that(broker.mqtt_ws_port, equal_to(8083))
 
     def test_custom_ports(self) -> None:
         """Broker should accept custom ports."""
-        broker = MQTTBroker(mqtt_port=11883, mqtt_ws_port=18083)
+        broker = MQTTBroker(mqtt_port=11883)
         assert_that(broker.mqtt_port, equal_to(11883))
-        assert_that(broker.mqtt_ws_port, equal_to(18083))
 
     def test_not_running_initially(self) -> None:
         """Broker should not be running after initialization."""
@@ -104,11 +89,6 @@ class TestMQTTBrokerInit:
         broker = MQTTBroker()
         assert_that(broker.actual_mqtt_port, is_(None))
 
-    def test_actual_ws_port_none_before_start(self) -> None:
-        """actual_ws_port should return None before broker starts."""
-        broker = MQTTBroker()
-        assert_that(broker.actual_ws_port, is_(None))
-
 
 class TestMQTTBrokerLifecycle:
     """Tests for MQTTBroker start/stop lifecycle."""
@@ -116,7 +96,7 @@ class TestMQTTBrokerLifecycle:
     @pytest.mark.asyncio
     async def test_start_sets_running_flag(self) -> None:
         """Starting the broker should set is_running to True."""
-        broker = MQTTBroker(mqtt_port=0, mqtt_ws_port=0, use_owntracks_handler=False)
+        broker = MQTTBroker(mqtt_port=0, use_owntracks_handler=False)
         try:
             await broker.start()
             assert_that(broker.is_running, is_(True))
@@ -127,10 +107,9 @@ class TestMQTTBrokerLifecycle:
     @pytest.mark.asyncio
     async def test_actual_mqtt_port_after_start(self) -> None:
         """actual_mqtt_port should return port after broker starts."""
-        broker = MQTTBroker(mqtt_port=0, mqtt_ws_port=0, use_owntracks_handler=False)
+        broker = MQTTBroker(mqtt_port=0, use_owntracks_handler=False)
         try:
             await broker.start()
-            # After start, actual_mqtt_port should return a valid port
             actual = broker.actual_mqtt_port
             assert_that(actual, is_(not_none()))
             assert_that(actual, greater_than(0))
@@ -141,7 +120,7 @@ class TestMQTTBrokerLifecycle:
     @pytest.mark.asyncio
     async def test_stop_clears_running_flag(self) -> None:
         """Stopping the broker should set is_running to False."""
-        broker = MQTTBroker(mqtt_port=0, mqtt_ws_port=0, use_owntracks_handler=False)
+        broker = MQTTBroker(mqtt_port=0, use_owntracks_handler=False)
         await broker.start()
         await broker.stop()
         assert_that(broker.is_running, is_(False))
@@ -149,7 +128,7 @@ class TestMQTTBrokerLifecycle:
     @pytest.mark.asyncio
     async def test_start_twice_raises_error(self) -> None:
         """Starting an already running broker should raise RuntimeError."""
-        broker = MQTTBroker(mqtt_port=0, mqtt_ws_port=0, use_owntracks_handler=False)
+        broker = MQTTBroker(mqtt_port=0, use_owntracks_handler=False)
         try:
             await broker.start()
             with pytest.raises(RuntimeError, match="already running"):
@@ -161,14 +140,14 @@ class TestMQTTBrokerLifecycle:
     @pytest.mark.asyncio
     async def test_stop_not_running_raises_error(self) -> None:
         """Stopping a non-running broker should raise RuntimeError."""
-        broker = MQTTBroker(mqtt_port=0, mqtt_ws_port=0, use_owntracks_handler=False)
+        broker = MQTTBroker(mqtt_port=0, use_owntracks_handler=False)
         with pytest.raises(RuntimeError, match="not running"):
             await broker.stop()
 
     @pytest.mark.asyncio
     async def test_run_forever_can_be_cancelled(self) -> None:
         """run_forever should handle cancellation gracefully."""
-        broker = MQTTBroker(mqtt_port=0, mqtt_ws_port=0, use_owntracks_handler=False)
+        broker = MQTTBroker(mqtt_port=0, use_owntracks_handler=False)
 
         async def run_then_cancel() -> None:
             task = asyncio.create_task(broker.run_forever())
@@ -180,7 +159,6 @@ class TestMQTTBrokerLifecycle:
                 pass
 
         await run_then_cancel()
-        # Broker should be stopped after cancellation
         assert_that(broker.is_running, is_(False))
 
 
@@ -190,46 +168,14 @@ class TestOSAllocatedPorts:
     @pytest.mark.asyncio
     async def test_mqtt_port_zero_allocates_actual_port(self) -> None:
         """Starting broker with port 0 should allocate a real port."""
-        broker = MQTTBroker(mqtt_port=0, mqtt_ws_port=0, use_owntracks_handler=False)
+        broker = MQTTBroker(mqtt_port=0, use_owntracks_handler=False)
         try:
             await broker.start()
             assert_that(broker.is_running, is_(True))
-            # actual_mqtt_port should return the OS-allocated port
             actual_mqtt_port = broker.actual_mqtt_port
             assert_that(actual_mqtt_port, is_(not_none()))
-            # OS should allocate an ephemeral port (typically > 1024)
             assert_that(actual_mqtt_port, greater_than(0))
-            # Should not be 0 anymore
             assert_that(actual_mqtt_port, is_not(equal_to(0)))
-        finally:
-            if broker.is_running:
-                await broker.stop()
-
-    @pytest.mark.asyncio
-    async def test_ws_port_zero_allocates_actual_port(self) -> None:
-        """Starting broker with WS port 0 should allocate a real port."""
-        broker = MQTTBroker(mqtt_port=0, mqtt_ws_port=0, use_owntracks_handler=False)
-        try:
-            await broker.start()
-            actual_ws_port = broker.actual_ws_port
-            assert_that(actual_ws_port, is_(not_none()))
-            assert_that(actual_ws_port, greater_than(0))
-            assert_that(actual_ws_port, is_not(equal_to(0)))
-        finally:
-            if broker.is_running:
-                await broker.stop()
-
-    @pytest.mark.asyncio
-    async def test_mqtt_and_ws_ports_are_different(self) -> None:
-        """OS-allocated MQTT and WS ports should be different."""
-        broker = MQTTBroker(mqtt_port=0, mqtt_ws_port=0, use_owntracks_handler=False)
-        try:
-            await broker.start()
-            mqtt_port = broker.actual_mqtt_port
-            ws_port = broker.actual_ws_port
-            assert_that(mqtt_port, is_(not_none()))
-            assert_that(ws_port, is_(not_none()))
-            assert_that(mqtt_port, is_not(equal_to(ws_port)))
         finally:
             if broker.is_running:
                 await broker.stop()
@@ -241,31 +187,12 @@ class TestProtocolListening:
     @pytest.mark.asyncio
     async def test_tcp_mqtt_port_accepting_connections(self) -> None:
         """The MQTT TCP listener should accept raw TCP connections."""
-        broker = MQTTBroker(mqtt_port=0, mqtt_ws_port=0, use_owntracks_handler=False)
+        broker = MQTTBroker(mqtt_port=0, use_owntracks_handler=False)
         try:
             await broker.start()
             port = broker.actual_mqtt_port
             assert_that(port, is_(not_none()))
 
-            # Open a plain TCP connection — the broker should accept it
-            reader, writer = await asyncio.open_connection("127.0.0.1", port)
-            writer.close()
-            await writer.wait_closed()
-        finally:
-            if broker.is_running:
-                await broker.stop()
-
-    @pytest.mark.asyncio
-    async def test_ws_mqtt_port_accepting_connections(self) -> None:
-        """The MQTT WebSocket listener should accept TCP connections."""
-        broker = MQTTBroker(mqtt_port=0, mqtt_ws_port=0, use_owntracks_handler=False)
-        try:
-            await broker.start()
-            port = broker.actual_ws_port
-            assert_that(port, is_(not_none()))
-
-            # The WS listener is still a TCP server underneath —
-            # verify it accepts the transport-level connection.
             reader, writer = await asyncio.open_connection("127.0.0.1", port)
             writer.close()
             await writer.wait_closed()
@@ -276,7 +203,7 @@ class TestProtocolListening:
     @pytest.mark.asyncio
     async def test_tcp_mqtt_port_not_listening_after_stop(self) -> None:
         """After stopping, the MQTT TCP port should refuse connections."""
-        broker = MQTTBroker(mqtt_port=0, mqtt_ws_port=0, use_owntracks_handler=False)
+        broker = MQTTBroker(mqtt_port=0, use_owntracks_handler=False)
         await broker.start()
         port = broker.actual_mqtt_port
         assert_that(port, is_(not_none()))
@@ -284,49 +211,6 @@ class TestProtocolListening:
 
         with pytest.raises(OSError):
             await asyncio.open_connection("127.0.0.1", port)
-
-    @pytest.mark.asyncio
-    async def test_ws_mqtt_port_not_listening_after_stop(self) -> None:
-        """After stopping, the MQTT WebSocket port should refuse connections."""
-        broker = MQTTBroker(mqtt_port=0, mqtt_ws_port=0, use_owntracks_handler=False)
-        await broker.start()
-        port = broker.actual_ws_port
-        assert_that(port, is_(not_none()))
-        await broker.stop()
-
-        with pytest.raises(OSError):
-            await asyncio.open_connection("127.0.0.1", port)
-
-    @pytest.mark.asyncio
-    async def test_both_protocols_listening_simultaneously(self) -> None:
-        """Both TCP and WS listeners should accept connections at the same time."""
-        broker = MQTTBroker(mqtt_port=0, mqtt_ws_port=0, use_owntracks_handler=False)
-        try:
-            await broker.start()
-            mqtt_port = broker.actual_mqtt_port
-            ws_port = broker.actual_ws_port
-            assert_that(mqtt_port, is_(not_none()))
-            assert_that(ws_port, is_(not_none()))
-
-            # Connect to both simultaneously
-            tcp_reader, tcp_writer = await asyncio.open_connection(
-                "127.0.0.1", mqtt_port
-            )
-            ws_reader, ws_writer = await asyncio.open_connection(
-                "127.0.0.1", ws_port
-            )
-
-            # Both connections should be open
-            assert_that(tcp_writer.is_closing(), is_(False))
-            assert_that(ws_writer.is_closing(), is_(False))
-
-            tcp_writer.close()
-            ws_writer.close()
-            await tcp_writer.wait_closed()
-            await ws_writer.wait_closed()
-        finally:
-            if broker.is_running:
-                await broker.stop()
 
 
 class TestAmqttBrokerProperty:
@@ -340,7 +224,7 @@ class TestAmqttBrokerProperty:
     @pytest.mark.asyncio
     async def test_set_after_start(self) -> None:
         """amqtt_broker should reference the underlying Broker after start."""
-        broker = MQTTBroker(mqtt_port=0, mqtt_ws_port=0, use_owntracks_handler=False)
+        broker = MQTTBroker(mqtt_port=0, use_owntracks_handler=False)
         try:
             await broker.start()
             assert_that(broker.amqtt_broker, is_(not_none()))
@@ -387,19 +271,13 @@ class TestDiscoverPort:
 
 
 class TestPortCaching:
-    """Tests for port caching and fallback in actual_mqtt_port / actual_ws_port."""
+    """Tests for port caching and fallback in actual_mqtt_port."""
 
     def test_actual_mqtt_port_returns_cached_value(self) -> None:
         """Should return cached MQTT port without calling _discover_port."""
         broker = MQTTBroker()
         broker._actual_mqtt_port = 12345
         assert_that(broker.actual_mqtt_port, equal_to(12345))
-
-    def test_actual_ws_port_returns_cached_value(self) -> None:
-        """Should return cached WS port without calling _discover_port."""
-        broker = MQTTBroker()
-        broker._actual_ws_port = 54321
-        assert_that(broker.actual_ws_port, equal_to(54321))
 
     def test_actual_mqtt_port_fallback_to_configured(self) -> None:
         """Should fall back to configured mqtt_port when discovery fails."""
@@ -409,14 +287,6 @@ class TestPortCaching:
             result = broker.actual_mqtt_port
         assert_that(result, equal_to(1883))
 
-    def test_actual_ws_port_fallback_to_configured(self) -> None:
-        """Should fall back to configured mqtt_ws_port when discovery fails."""
-        broker = MQTTBroker(mqtt_ws_port=8083)
-        broker._broker = MagicMock()
-        with patch.object(broker, "_discover_port", return_value=None):
-            result = broker.actual_ws_port
-        assert_that(result, equal_to(8083))
-
 
 class TestCreateAndStartBroker:
     """Tests for create_and_start_broker convenience function."""
@@ -425,7 +295,7 @@ class TestCreateAndStartBroker:
     async def test_creates_running_broker(self) -> None:
         """Should create and start a broker with the given parameters."""
         broker = await create_and_start_broker(
-            mqtt_port=0, mqtt_ws_port=0, allow_anonymous=True,
+            mqtt_port=0, allow_anonymous=True,
         )
         try:
             assert_that(broker.is_running, is_(True))
@@ -562,20 +432,8 @@ class TestPortDiscoveryCaching:
             first = broker.actual_mqtt_port
             assert_that(first, equal_to(11111))
 
-        # Second call should use cached value (no _discover_port call)
         assert_that(broker.actual_mqtt_port, equal_to(11111))
         assert_that(broker._actual_mqtt_port, equal_to(11111))
-
-    def test_actual_ws_port_caches_discovered_value(self) -> None:
-        """Once discovered, actual_ws_port should cache and return the same value."""
-        broker = MQTTBroker()
-        broker._broker = MagicMock()
-        with patch.object(broker, "_discover_port", return_value=22222):
-            first = broker.actual_ws_port
-            assert_that(first, equal_to(22222))
-
-        assert_that(broker.actual_ws_port, equal_to(22222))
-        assert_that(broker._actual_ws_port, equal_to(22222))
 
 
 class TestRunForeverAutoStart:
@@ -584,7 +442,7 @@ class TestRunForeverAutoStart:
     @pytest.mark.asyncio
     async def test_auto_starts_when_not_running(self) -> None:
         """run_forever should call start() if broker is not yet running."""
-        broker = MQTTBroker(mqtt_port=0, mqtt_ws_port=0, use_owntracks_handler=False)
+        broker = MQTTBroker(mqtt_port=0, use_owntracks_handler=False)
 
         async def cancel_soon() -> None:
             task = asyncio.create_task(broker.run_forever())
@@ -596,7 +454,6 @@ class TestRunForeverAutoStart:
                 pass
 
         await cancel_soon()
-        # Broker was started by run_forever and then stopped by cancellation
         assert_that(broker.is_running, is_(False))
 
 
@@ -655,7 +512,6 @@ class TestTLSConfig:
         tls_config = self._make_tls_config()
         broker = MQTTBroker(
             mqtt_port=0,
-            mqtt_ws_port=0,
             mqtt_tls_port=8883,
             tls_config=tls_config,
             use_owntracks_handler=False,
@@ -678,7 +534,6 @@ class TestTLSConfig:
         """No temp files created when TLS is disabled."""
         broker = MQTTBroker(
             mqtt_port=0,
-            mqtt_ws_port=0,
             mqtt_tls_port=-1,
             use_owntracks_handler=False,
         )
@@ -692,7 +547,6 @@ class TestTLSConfig:
         tls_config = self._make_tls_config()
         broker = MQTTBroker(
             mqtt_port=0,
-            mqtt_ws_port=0,
             mqtt_tls_port=8883,
             tls_config=tls_config,
             use_owntracks_handler=False,
@@ -718,7 +572,6 @@ class TestTLSConfig:
         )
         broker = MQTTBroker(
             mqtt_port=0,
-            mqtt_ws_port=0,
             mqtt_tls_port=8883,
             tls_config=tls_config,
             use_owntracks_handler=False,
@@ -730,12 +583,12 @@ class TestTLSConfig:
 
     def test_tls_port_property_disabled(self) -> None:
         """actual_tls_port is None when TLS is disabled."""
-        broker = MQTTBroker(mqtt_port=0, mqtt_ws_port=0, mqtt_tls_port=-1)
+        broker = MQTTBroker(mqtt_port=0, mqtt_tls_port=-1)
         assert_that(broker.actual_tls_port, is_(none()))
 
     def test_tls_port_property_before_start(self) -> None:
         """actual_tls_port returns configured port before broker starts."""
-        broker = MQTTBroker(mqtt_port=0, mqtt_ws_port=0, mqtt_tls_port=8883)
+        broker = MQTTBroker(mqtt_port=0, mqtt_tls_port=8883)
         assert_that(broker.actual_tls_port, is_(none()))
 
     def test_config_has_tls_listener(self) -> None:
@@ -743,7 +596,6 @@ class TestTLSConfig:
         tls_config = self._make_tls_config()
         broker = MQTTBroker(
             mqtt_port=0,
-            mqtt_ws_port=0,
             mqtt_tls_port=8883,
             tls_config=tls_config,
             use_owntracks_handler=False,
@@ -757,8 +609,6 @@ class TestTLSConfig:
     @pytest.mark.asyncio
     async def test_crl_broker_used_when_crl_provided(self) -> None:
         """_CRLBroker is used instead of Broker when CRL is in TLS config."""
-        from unittest.mock import AsyncMock
-
         crl_data = b"-----BEGIN X509 CRL-----\nfake\n-----END X509 CRL-----"
         tls_config = TLSConfig(
             server_cert_pem=b"cert",
@@ -768,7 +618,6 @@ class TestTLSConfig:
         )
         broker = MQTTBroker(
             mqtt_port=0,
-            mqtt_ws_port=0,
             mqtt_tls_port=8883,
             tls_config=tls_config,
             use_owntracks_handler=False,
@@ -785,21 +634,18 @@ class TestTLSConfig:
         broker._cleanup_tls_files()
 
     @pytest.mark.asyncio
-    async def test_regular_broker_used_without_crl(self) -> None:
-        """Standard Broker is used when no CRL is in TLS config."""
-        from unittest.mock import AsyncMock
-
+    async def test_crl_broker_used_without_crl_but_with_tls(self) -> None:
+        """_CRLBroker is used for mutual TLS even when CRL is absent."""
         tls_config = self._make_tls_config()
         broker = MQTTBroker(
             mqtt_port=0,
-            mqtt_ws_port=0,
             mqtt_tls_port=8883,
             tls_config=tls_config,
             use_owntracks_handler=False,
         )
         with (
-            patch.object(Broker, "__init__", return_value=None) as mock_init,
-            patch.object(Broker, "start", new_callable=AsyncMock),
+            patch.object(_CRLBroker, "__init__", return_value=None) as mock_init,
+            patch.object(_CRLBroker, "start", new_callable=AsyncMock),
         ):
             await broker.start()
 
