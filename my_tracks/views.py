@@ -84,7 +84,7 @@ class LocationViewSet(viewsets.ModelViewSet):
         else:
             client_ip = request.META.get('REMOTE_ADDR')
 
-        logger.info("[HTTP] Incoming location request from: %s", client_ip)
+        logger.info("[HTTP] Incoming location request from: %s (non-TLS)", client_ip)
         logger.debug("Request data: %s, Content-Type: %s", request.data, request.content_type)
 
         # Check message type

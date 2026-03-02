@@ -289,6 +289,11 @@ LOGGING = {
             'filters': ['daphne_port_zero_filter'],
             'propagate': False,
         },
+        'transitions.core': {
+            'handlers': ['console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
     },
 }
 

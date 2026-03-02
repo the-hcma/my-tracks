@@ -7,14 +7,18 @@ to WebSocket clients.
 """
 
 import logging
+import ssl
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from amqtt.broker import BrokerContext
 from amqtt.mqtt.connect import ConnectPacket
 from amqtt.plugins.base import BasePlugin
-from amqtt.session import ApplicationMessage
+from amqtt.session import ApplicationMessage, Session
 from asgiref.sync import sync_to_async
 from channels.layers import get_channel_layer
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes
 
 from my_tracks.models import Device, Location, OwnTracksMessage
 from my_tracks.mqtt.handlers import OwnTracksMessageHandler
@@ -24,6 +28,30 @@ if TYPE_CHECKING:
     from channels.layers import BaseChannelLayer
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _ClientTLSInfo:
+    """TLS identity for a connected MQTT client."""
+
+    cn: str
+    fingerprint: str
+
+    def __str__(self) -> str:
+        return f"CN={self.cn} [{self.fingerprint}]"
+
+
+def _extract_tls_info(ssl_obj: ssl.SSLObject) -> _ClientTLSInfo | None:
+    """Extract CN and fingerprint from a peer certificate on an SSL connection."""
+    der_cert = ssl_obj.getpeercert(binary_form=True)
+    if der_cert is None:
+        return None
+    cert = x509.load_der_x509_certificate(der_cert)
+    cn_attrs = cert.subject.get_attributes_for_oid(x509.oid.NameOID.COMMON_NAME)
+    cn = str(cn_attrs[0].value) if cn_attrs else "unknown"
+    digest = cert.fingerprint(hashes.SHA256())
+    fingerprint = ":".join(f"{b:02X}" for b in digest[:4])
+    return _ClientTLSInfo(cn=cn, fingerprint=fingerprint)
 
 
 def get_channel_layer_lazy() -> "BaseChannelLayer | None":
@@ -157,6 +185,7 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
         super().__init__(context)
         self._handler = OwnTracksMessageHandler()
         self._setup_callbacks()
+        self._client_tls: dict[str, _ClientTLSInfo | None] = {}
         logger.info("OwnTracksPlugin initialized")
 
     def _setup_callbacks(self) -> None:
@@ -164,6 +193,70 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
         self._handler.on_location(self._handle_location)
         self._handler.on_lwt(self._handle_lwt)
         self._handler.on_transition(self._handle_transition)
+
+    def _get_handler_writer_ssl(self, client_id: str) -> ssl.SSLObject | None:
+        """Try to get the SSL object from a client's handler writer."""
+        try:
+            broker = self.context._broker_instance  # noqa: SLF001
+            entry = broker._sessions.get(client_id)  # noqa: SLF001
+            if entry is None:
+                return None
+            _session, handler = entry
+            if handler.writer is None:
+                return None
+            return handler.writer.get_ssl_info()
+        except Exception:
+            return None
+
+    async def on_broker_client_connected(
+        self,
+        *,
+        client_id: str,
+        client_session: Session,
+    ) -> None:
+        """Log client connections with TLS identity when available."""
+        addr = client_session.remote_address or "unknown"
+
+        ssl_obj = self._get_handler_writer_ssl(client_id)
+        if ssl_obj is not None:
+            tls_info = _extract_tls_info(ssl_obj)
+            self._client_tls[client_id] = tls_info
+            if tls_info:
+                logger.info(
+                    "[MQTT] Client connected: %s from %s via TLS (%s)",
+                    client_id, addr, tls_info,
+                )
+            else:
+                logger.info(
+                    "[MQTT] Client connected: %s from %s via TLS (no client cert)",
+                    client_id, addr,
+                )
+        else:
+            self._client_tls[client_id] = None
+            logger.info(
+                "[MQTT] Client connected: %s from %s (non-TLS)",
+                client_id, addr,
+            )
+
+    async def on_broker_client_disconnected(
+        self,
+        *,
+        client_id: str,
+        client_session: Session,
+    ) -> None:
+        """Clean up cached TLS info on disconnect."""
+        tls_info = self._client_tls.pop(client_id, None)
+        tag = f" TLS ({tls_info})" if tls_info else " (non-TLS)"
+        logger.info("[MQTT] Client disconnected: %s%s", client_id, tag)
+
+    def _tls_tag(self, client_id: str) -> str:
+        """Return a short TLS descriptor for log messages."""
+        tls_info = self._client_tls.get(client_id)
+        if tls_info is not None:
+            return f"TLS {tls_info}"
+        if client_id in self._client_tls:
+            return "non-TLS"
+        return "unknown"
 
     async def _handle_location(self, location_data: dict[str, Any]) -> None:
         """
@@ -184,9 +277,10 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
             return
 
         logger.info(
-            "[MQTT] Location saved: id=%s, device=%s",
+            "[MQTT] Location saved: id=%s, device=%s (%s)",
             serialized.get("id"),
             serialized.get("device_id_display"),
+            location_data.get("tls_tag", "unknown"),
         )
 
         logger.info(
@@ -228,10 +322,11 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
         Transition messages indicate region enter/exit events.
         """
         logger.info(
-            "[MQTT] Transition: device=%s, event=%s, region=%s",
+            "[MQTT] Transition: device=%s, event=%s, region=%s (%s)",
             transition_data.get("device"),
             transition_data.get("event"),
             transition_data.get("description"),
+            transition_data.get("tls_tag", "unknown"),
         )
         # TODO: Store transition events when model supports it
 
@@ -351,9 +446,11 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
         if not topic.startswith("owntracks/"):
             return
 
+        tls_tag = self._tls_tag(client_id)
         logger.debug(
-            "MQTT message received: client=%s, topic=%s, size=%d",
+            "MQTT message received: client=%s (%s), topic=%s, size=%d",
             client_id,
+            tls_tag,
             topic,
             len(message.data) if message.data else 0,
         )
@@ -367,4 +464,6 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
         # Process through OwnTracks handler
         # Convert bytearray to bytes if needed
         payload = bytes(message.data) if isinstance(message.data, bytearray) else message.data
-        await self._handler.handle_message(topic, payload, client_ip=client_ip)
+        await self._handler.handle_message(
+            topic, payload, client_ip=client_ip, tls_tag=tls_tag,
+        )
