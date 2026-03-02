@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.serialization import pkcs12
 from cryptography.x509.oid import ExtendedKeyUsageOID
 from django.contrib.auth.models import User
 from hamcrest import (assert_that, contains_string, equal_to, greater_than,
@@ -19,8 +20,8 @@ from my_tracks.pki import (ALLOWED_KEY_SIZES, DEFAULT_CERT_VALIDITY_DAYS,
                            VALIDITY_PRESETS, decrypt_private_key,
                            encrypt_private_key, generate_ca_certificate,
                            generate_client_certificate, generate_crl,
-                           generate_server_certificate, get_certificate_expiry,
-                           get_certificate_fingerprint,
+                           generate_pkcs12, generate_server_certificate,
+                           get_certificate_expiry, get_certificate_fingerprint,
                            get_certificate_metadata, get_certificate_sans,
                            get_certificate_serial_number,
                            get_certificate_subject)
@@ -1291,24 +1292,90 @@ class TestClientCertificateDownload:
         )
         return resp.data['id']
 
-    def test_download_client_cert(self, admin_api_client: APIClient) -> None:
-        """GET /api/admin/pki/client-certs/{id}/download/ returns PEM file."""
+    def test_download_p12(self, admin_api_client: APIClient) -> None:
+        """POST /api/admin/pki/client-certs/{id}/download/ returns PKCS#12 bundle."""
         cert_id = self._create_ca_and_client_cert(admin_api_client)
-        response = admin_api_client.get(f'/api/admin/pki/client-certs/{cert_id}/download/')
+        response = admin_api_client.post(
+            f'/api/admin/pki/client-certs/{cert_id}/download/',
+            {'password': 'testpass123'},
+            format='json',
+        )
         assert_that(response.status_code, equal_to(status.HTTP_200_OK))
-        assert_that(response['Content-Type'], equal_to('application/x-pem-file'))
-        assert_that(response['Content-Disposition'], contains_string('-client.crt'))
-        assert_that(response.content.decode(), starts_with('-----BEGIN CERTIFICATE-----'))
+        assert_that(response['Content-Type'], equal_to('application/x-pkcs12'))
+        assert_that(response['Content-Disposition'], contains_string('.p12'))
+        private_key, cert, cas = pkcs12.load_key_and_certificates(
+            response.content, b'testpass123'
+        )
+        assert_that(private_key, is_(not_none()))
+        assert_that(cert, is_(not_none()))
+        assert_that(cas, has_length(1))
+
+    def test_download_p12_missing_password(self, admin_api_client: APIClient) -> None:
+        """POST without password returns 400."""
+        cert_id = self._create_ca_and_client_cert(admin_api_client)
+        response = admin_api_client.post(
+            f'/api/admin/pki/client-certs/{cert_id}/download/',
+            {},
+            format='json',
+        )
+        assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
 
     def test_download_nonexistent_client_cert(self, admin_api_client: APIClient) -> None:
         """Downloading a nonexistent client cert returns 404."""
-        response = admin_api_client.get('/api/admin/pki/client-certs/99999/download/')
+        response = admin_api_client.post(
+            '/api/admin/pki/client-certs/99999/download/',
+            {'password': 'test'},
+            format='json',
+        )
         assert_that(response.status_code, equal_to(status.HTTP_404_NOT_FOUND))
 
     def test_download_forbidden_for_non_admin(self, auth_api_client: APIClient) -> None:
         """Non-admin users cannot download client certs via the admin endpoint."""
-        response = auth_api_client.get('/api/admin/pki/client-certs/1/download/')
+        response = auth_api_client.post(
+            '/api/admin/pki/client-certs/1/download/',
+            {'password': 'test'},
+            format='json',
+        )
         assert_that(response.status_code, equal_to(status.HTTP_403_FORBIDDEN))
+
+
+class TestGeneratePkcs12:
+    """Test the generate_pkcs12 utility function."""
+
+    def test_round_trip(self) -> None:
+        """Generated .p12 can be loaded back with the same password."""
+        ca_pem, ca_key_pem = generate_ca_certificate(key_size=2048)
+        cert_pem, key_pem = generate_client_certificate(
+            ca_pem, ca_key_pem, username='alice', key_size=2048,
+        )
+        password = b'test-secret'
+        p12_data = generate_pkcs12(
+            cert_pem=cert_pem,
+            key_pem=key_pem,
+            ca_cert_pem=ca_pem,
+            friendly_name='alice',
+            password=password,
+        )
+        private_key, cert, cas = pkcs12.load_key_and_certificates(p12_data, password)
+        assert_that(private_key, is_(not_none()))
+        assert_that(cert, is_(not_none()))
+        assert_that(cas, has_length(1))
+
+    def test_wrong_password_fails(self) -> None:
+        """Loading .p12 with wrong password raises an error."""
+        ca_pem, ca_key_pem = generate_ca_certificate(key_size=2048)
+        cert_pem, key_pem = generate_client_certificate(
+            ca_pem, ca_key_pem, username='bob', key_size=2048,
+        )
+        p12_data = generate_pkcs12(
+            cert_pem=cert_pem,
+            key_pem=key_pem,
+            ca_cert_pem=ca_pem,
+            friendly_name='bob',
+            password=b'correct-password',
+        )
+        with pytest.raises(Exception):
+            pkcs12.load_key_and_certificates(p12_data, b'wrong-password')
 
 
 class TestCertificateMetadata:

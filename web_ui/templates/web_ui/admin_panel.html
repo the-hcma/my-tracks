@@ -1053,7 +1053,8 @@
                         <td>{{ cc.not_valid_after|date:"Y-m-d" }}</td>
                         <td>{{ cc.created_at|date:"Y-m-d H:i" }}</td>
                         <td>
-                            <a href="/api/admin/pki/client-certs/{{ cc.pk }}/download/" class="action-btn" title="Download client certificate PEM">Download</a>
+                            <button type="button" class="action-btn" title="Download .p12 bundle"
+                                    onclick="downloadP12({{ cc.pk }}, '{{ cc.common_name }}')">Download .p12</button>
                             {% if cc.is_active and not cc.revoked %}
                             <form method="post" action="{% url 'web_ui:admin_panel' %}" style="display:inline"
                                   onsubmit="return confirm('Revoke client certificate for \'{{ cc.user.username }}\'?\n\nThis will deactivate the certificate and add it to the CRL.')">
@@ -1326,6 +1327,40 @@
             } catch {
                 errorEl.textContent = 'Network error.';
                 errorEl.style.display = 'block';
+            }
+        }
+
+        async function downloadP12(certId, commonName) {
+            const password = prompt('Enter a password to protect the .p12 file:');
+            if (!password) return;
+
+            const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
+            try {
+                const resp = await fetch(`/api/admin/pki/client-certs/${certId}/download/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken,
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ password }),
+                });
+                if (!resp.ok) {
+                    const data = await resp.json();
+                    alert(data.error || 'Download failed.');
+                    return;
+                }
+                const blob = await resp.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${commonName}.p12`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+            } catch {
+                alert('Network error while downloading .p12 file.');
             }
         }
     </script>
