@@ -121,6 +121,85 @@
             grid-column: 1 / -1;
         }
 
+        .san-editor {
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 0.5rem;
+            background: var(--bg);
+        }
+
+        .san-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.4rem;
+            margin-bottom: 0.5rem;
+            min-height: 1.8rem;
+        }
+
+        .san-tags:empty {
+            margin-bottom: 0;
+        }
+
+        .san-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 0.25rem 0.5rem;
+            background: var(--accent-light, #e3f2fd);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-family: monospace;
+        }
+
+        .san-tag .san-label {
+            user-select: all;
+        }
+
+        .san-tag .san-remove {
+            cursor: pointer;
+            color: var(--text-muted);
+            font-size: 1rem;
+            line-height: 1;
+            padding: 0 0.15rem;
+            border: none;
+            background: none;
+        }
+
+        .san-tag .san-remove:hover {
+            color: var(--danger, #d32f2f);
+        }
+
+        .san-add-row {
+            display: flex;
+            gap: 0.4rem;
+        }
+
+        .san-add-row input {
+            flex: 1;
+            padding: 0.35rem 0.5rem;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-size: 0.8rem;
+            background: var(--bg);
+            color: var(--text);
+        }
+
+        .san-add-btn {
+            padding: 0.35rem 0.75rem;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            background: var(--surface);
+            color: var(--text);
+            font-size: 0.8rem;
+            cursor: pointer;
+        }
+
+        .san-add-btn:hover {
+            background: var(--border);
+        }
+
         .form-group label {
             display: block;
             font-size: 0.8rem;
@@ -1048,8 +1127,15 @@
                     </div>
                     <div class="form-row">
                         <div class="form-group full-width">
-                            <label for="id_sc_san_entries">Subject Alternative Names (comma-separated IPs and hostnames)</label>
-                            <input type="text" name="sc_san_entries" id="id_sc_san_entries" value="{{ default_sans }}" required autocomplete="off">
+                            <label>Subject Alternative Names</label>
+                            <div class="san-editor" id="san-editor">
+                                <div class="san-tags" id="san-tags"></div>
+                                <div class="san-add-row">
+                                    <input type="text" id="san-new-entry" placeholder="Add hostname or IP…" autocomplete="off">
+                                    <button type="button" id="san-add-btn" class="san-add-btn">Add</button>
+                                </div>
+                            </div>
+                            <input type="hidden" name="sc_san_entries" id="id_sc_san_entries" value="">
                         </div>
                     </div>
                     <button type="submit" class="submit-btn" {% if active_sc %}onclick="return confirm('This will deactivate the current active server certificate:\n\n  {{ active_sc.common_name }} (expires {{ active_sc.not_valid_after|date:"Y-m-d" }})\n\nContinue?')"{% endif %}>Generate Server Certificate</button>
@@ -1464,6 +1550,64 @@
                 alert('Network error while downloading .p12 file.');
             }
         }
+
+        /* ── SAN tag editor ─────────────────────────────────── */
+        (function() {
+            const tagsContainer = document.getElementById('san-tags');
+            const hiddenInput = document.getElementById('id_sc_san_entries');
+            const newEntry = document.getElementById('san-new-entry');
+            const addBtn = document.getElementById('san-add-btn');
+            if (!tagsContainer || !hiddenInput) return;
+
+            const sans = new Set();
+
+            function syncHidden() {
+                hiddenInput.value = [...sans].join(', ');
+            }
+
+            function renderTag(value) {
+                const tag = document.createElement('span');
+                tag.className = 'san-tag';
+                tag.innerHTML =
+                    '<span class="san-label"></span>' +
+                    '<button type="button" class="san-remove" title="Remove">&times;</button>';
+                tag.querySelector('.san-label').textContent = value;
+                tag.querySelector('.san-remove').addEventListener('click', function() {
+                    sans.delete(value);
+                    tag.remove();
+                    syncHidden();
+                });
+                tagsContainer.appendChild(tag);
+            }
+
+            function addSan(value) {
+                const v = value.trim();
+                if (!v || sans.has(v)) return;
+                sans.add(v);
+                renderTag(v);
+                syncHidden();
+            }
+
+            if (addBtn && newEntry) {
+                addBtn.addEventListener('click', function() {
+                    addSan(newEntry.value);
+                    newEntry.value = '';
+                    newEntry.focus();
+                });
+                newEntry.addEventListener('keydown', function(e) {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        addSan(newEntry.value);
+                        newEntry.value = '';
+                    }
+                });
+            }
+
+            /* Seed with auto-detected values from server */
+            {% for san in default_san_list %}
+            addSan('{{ san }}');
+            {% endfor %}
+        })();
     </script>
 </body>
 </html>
