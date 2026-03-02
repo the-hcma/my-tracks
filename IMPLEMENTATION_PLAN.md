@@ -204,12 +204,11 @@ Evolution plan for My Tracks, a self-hosted location tracking backend for the Ow
     - Reusable `check_port_conflict` shell function covers HTTP and MQTT ports
     - Prevents half-running server state (HTTP up, MQTT down)
 
-## Upcoming Work
+### Phase 6, Step 4: MQTT Broker TLS Integration ✅
 
-### Phase 6, Step 4: MQTT Broker TLS Integration ← NEXT
 Full TLS integration: server certificate presentation + client certificate authentication + CRL enforcement.
 
-- **Server-side TLS**
+- **Server-side TLS** ✅ (PR #325, #326)
   - MQTT broker reads active server cert from database at startup
   - `--mqtt-tls-port` flag (default: 8883, -1 = disabled)
   - Broker presents server certificate for TLS connections
@@ -217,29 +216,56 @@ Full TLS integration: server certificate presentation + client certificate authe
   - Display TLS status and port in web UI (About & Setup page)
   - OwnTracks setup instructions updated for TLS mode
 
-- **Client certificate authentication**
-  - MQTT broker requires client certificate for TLS connections
+- **Client certificate authentication** ✅
+  - MQTT broker requires client certificate for TLS connections (`CERT_REQUIRED`)
   - Validate client cert is signed by active CA
-  - Map client cert CN to Django user for topic ACL
-  - Fallback to username/password auth when client cert not provided
+  - TLS 1.2 cap ensures `CERT_REQUIRED` is enforced during initial handshake
 
-- **Certificate validation & CRL enforcement** (CRITICAL)
-  - The broker MUST reject connections from clients presenting:
-    - A certificate not signed by the active CA (untrusted issuer)
-    - An expired certificate (`not_valid_after` in the past)
-    - A revoked certificate (serial number present on the CRL)
+- **Certificate validation & CRL enforcement** ✅
+  - Untrusted, expired, and revoked client certs rejected at TLS handshake
   - CRL loaded into the broker's TLS context via `VERIFY_CRL_CHECK_LEAF`
-  - CRL refreshed when a certificate is revoked (regenerate + reload)
-  - Empty CRL (no revocations) must not block valid clients
+  - Empty CRL (no revocations) does not block valid clients
 
-- **Tests** — mirror the existing `TestTLSHandshake` tests from `test_pki.py` in the MQTT broker context:
-  - TLS listener startup and cert loading from database
-  - Valid client cert → MQTT connection accepted, CN maps to correct user
+- **End-to-end TLS tests** ✅ (PR #327)
+  - Valid client cert → MQTT connection accepted + publish/receive works
   - Untrusted cert (not signed by CA) → connection refused
   - Expired client cert → connection refused
   - Revoked client cert (on CRL) → connection refused
-  - Non-revoked client cert with CRL checking enabled → connection accepted
-  - CRL regeneration after revocation → previously-valid cert now rejected
+  - No client cert → connection refused
+  - Revoked cert accepted when CRL checking is disabled
+
+15. **PKCS#12 Client Certificate Download** ✅ (PR #331)
+    - Replaced PEM download with password-protected `.p12` bundle (cert + private key + CA)
+    - Profile page: POST form with password field and eye icon reveal toggle
+    - Admin panel: JavaScript prompt + fetch for `.p12` download
+    - Required for importing client certs onto mobile devices (Android/iOS)
+
+16. **Mobile-Friendly Web UI** ✅ (PR #332)
+    - Added `<meta name="viewport">` tag (root cause of tiny fonts on mobile)
+    - Responsive CSS with `@media` queries for all pages (home, profile, admin, about)
+    - Tables wrapped in scroll containers, forms stack vertically on small screens
+
+17. **TLS Client Identification & Handshake Logging** (PR #333)
+    - MQTT connections logged with TLS status: `TLS (CN=username [AA:BB:CC:DD])` or `(non-TLS)`
+    - Extract peer certificate CN and SHA-256 fingerprint from SSL transport
+    - Location and transition messages annotated with TLS identity in logs
+    - HTTP location endpoint explicitly marked `(non-TLS)` in logs
+    - Failed TLS handshakes now logged at WARNING level (previously silently dropped by asyncio)
+    - Suppressed noisy `transitions.core` INFO logs and `sys_interval` deprecation warning
+
+18. **Interactive SAN Tag Editor** (PR #334)
+    - Replaced comma-separated text input with tag-style add/remove editor
+    - Auto-detects local IPs, hostname, AND request hostname (e.g., `mytracks.hcma.info`)
+    - Users can add/remove individual SAN entries before generating server certificate
+
+## Upcoming Work
+
+### Phase 6, Step 5: TLS Hot-Reload ← NEXT
+
+- **TLS certificate hot-reload** (TODO)
+  - When a new CA or server certificate is generated via the admin panel, the MQTT broker should detect the change and reload its TLS context automatically — currently requires a full server restart
+  - Options: file watcher on temp cert files, database change signal, or explicit "reload TLS" admin action
+  - CRL refresh on revocation should also be automatic
 
 ### Phase 7: Advanced Integration
 1. **Transition events** — Handle region enter/exit events, store transition history
