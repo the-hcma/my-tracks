@@ -181,45 +181,62 @@ esac
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$script_dir"
 
-# Check if server is already running on this port
-existing_pids=$(lsof -ti tcp:"$http_port" 2>/dev/null | tr '\n' ' ' | sed 's/ $//' || true)
+# Generic port conflict check.
+# Usage: check_port_conflict PORT LABEL
+#   PORT  — TCP port number to check (skipped if < 1)
+#   LABEL — human-readable name shown in prompts (e.g. "HTTP", "MQTT")
+#
+# If the port is in use the user is asked whether to stop the existing
+# processes.  Answering "no" exits the script immediately.
+check_port_conflict() {
+    local port=$1
+    local label=$2
 
-if [ -n "$existing_pids" ]; then
-    echo "⚠️  Server already running on port $http_port"
+    # Skip disabled or OS-allocated ports
+    if [ "$port" -lt 1 ]; then
+        return 0
+    fi
+
+    local existing_pids
+    existing_pids=$(lsof -ti tcp:"$port" 2>/dev/null | tr '\n' ' ' | sed 's/ $//' || true)
+
+    if [ -z "$existing_pids" ]; then
+        return 0
+    fi
+
+    echo "⚠️  $label port $port is already in use"
     echo ""
-    
-    # Show all processes using this port
+
     for pid in $existing_pids; do
+        local process_info
         process_info=$(ps -p "$pid" -o command= 2>/dev/null || echo "unknown process")
         echo "  PID $pid: $process_info"
     done
     echo ""
-    
-    # Ask user what to do
-    read -r -p "Stop all processes on port $http_port and start a new server? [y/N] " response
+
+    read -r -p "Stop all processes on $label port $port and start a new server? [y/N] " response
     case "$response" in
         [yY][eE][sS]|[yY])
-            # Stop all processes
             for pid in $existing_pids; do
                 echo "Stopping process $pid..."
                 kill "$pid" 2>/dev/null || true
             done
-            
-            # Wait for processes to terminate (max 5 seconds)
+
             sleep "$PORT_RELEASE_WAIT_SECONDS"
             # 20 iterations * 0.25s = 5 seconds total
             for i in $(seq 1 20); do
-                still_running=$(lsof -ti tcp:"$http_port" 2>/dev/null || true)
+                local still_running
+                still_running=$(lsof -ti tcp:"$port" 2>/dev/null || true)
                 if [ -z "$still_running" ]; then
-                    echo "✅ All processes stopped"
-                    sleep "$PORT_RELEASE_WAIT_SECONDS"  # Give port time to be released
-                    break
+                    echo "✅ All $label processes stopped"
+                    sleep "$PORT_RELEASE_WAIT_SECONDS"
+                    return 0
                 fi
                 sleep "$POLL_INTERVAL_SECONDS"
             done
-            
-            # Force kill any remaining processes
-            still_running=$(lsof -ti tcp:"$http_port" 2>/dev/null || true)
+
+            local still_running
+            still_running=$(lsof -ti tcp:"$port" 2>/dev/null || true)
             if [ -n "$still_running" ]; then
                 echo "Some processes still running, forcing termination..."
                 for pid in $still_running; do
@@ -234,7 +251,11 @@ if [ -n "$existing_pids" ]; then
             exit 0
             ;;
     esac
-fi
+}
+
+# Pre-flight: check all configured ports for conflicts
+check_port_conflict "$http_port" "HTTP"
+check_port_conflict "$mqtt_port" "MQTT"
 
 # Add uv to PATH if it exists
 if [ -d "$HOME/.local/bin" ]; then

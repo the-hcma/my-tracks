@@ -240,6 +240,12 @@ test_shellcheck_passes() {
     fi
 }
 
+# Ensure runtime config from server starts is always cleaned up
+test_cleanup() {
+    rm -f config/.runtime-config.json
+}
+trap test_cleanup EXIT
+
 # Run all tests
 echo "========================================"
 echo "Running my-tracks-server script tests"

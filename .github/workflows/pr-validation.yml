@@ -103,5 +103,8 @@ jobs:
     - name: Run migrations
       run: uv run python manage.py migrate
 
+    - name: Clean up runtime config from shell tests
+      run: rm -f config/.runtime-config.json
+
     - name: Run tests with coverage
       run: uv run pytest --cov=my_tracks --cov-fail-under=90 --cov-report=term-missing

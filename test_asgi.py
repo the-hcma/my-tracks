@@ -15,7 +15,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from hamcrest import assert_that, equal_to, is_, not_none
+from hamcrest import assert_that, contains_string, equal_to, is_, not_none
 
 
 class TestRuntimeConfig:
@@ -445,7 +445,7 @@ class TestRunMqttBroker:
         mock_update.assert_called_once_with("actual_mqtt_port", 54321)
 
     def test_handles_broker_exception(self) -> None:
-        """Logs exception if broker startup fails."""
+        """Generic exception during startup logs critical and exits."""
         import my_tracks.apps as apps_module
 
         mock_broker = MagicMock()
@@ -459,6 +459,7 @@ class TestRunMqttBroker:
         with (
             patch.object(apps_module, "MQTTBroker", return_value=mock_broker),
             patch("my_tracks.apps.logger") as mock_logger,
+            patch("my_tracks.apps.os._exit") as mock_exit,
             patch.object(apps_module._state, "broker", None),
             patch.object(apps_module._state, "loop", None),
         ):
@@ -466,7 +467,8 @@ class TestRunMqttBroker:
 
             _run_mqtt_broker(1883)
 
-        mock_logger.exception.assert_called_once_with("MQTT broker error")
+        mock_logger.critical.assert_any_call("MQTT broker startup failed unexpectedly")
+        mock_exit.assert_called_once_with(1)
 
     def test_event_loop_stopped_during_shutdown_logs_debug(self) -> None:
         """RuntimeError during shutdown should be logged at DEBUG, not ERROR."""
@@ -655,10 +657,10 @@ class TestSkipBrokerForManagementCommand:
 
 
 class TestBrokerErrorHandling:
-    """Tests for graceful BrokerError handling in _run_mqtt_broker."""
+    """Tests for fatal BrokerError handling in _run_mqtt_broker."""
 
-    def test_address_in_use_logs_warning(self) -> None:
-        """BrokerError wrapping errno 48 logs a warning instead of traceback."""
+    def test_address_in_use_logs_critical_and_exits(self) -> None:
+        """BrokerError wrapping errno 48 (macOS) logs critical and exits."""
         from amqtt.errors import BrokerError
 
         import my_tracks.apps as apps_module
@@ -675,6 +677,7 @@ class TestBrokerErrorHandling:
         with (
             patch.object(apps_module, "MQTTBroker", return_value=mock_broker),
             patch("my_tracks.apps.logger") as mock_logger,
+            patch("my_tracks.apps.os._exit") as mock_exit,
             patch.object(apps_module._state, "broker", None),
             patch.object(apps_module._state, "loop", None),
         ):
@@ -682,14 +685,42 @@ class TestBrokerErrorHandling:
 
             _run_mqtt_broker(0)
 
-        mock_logger.warning.assert_called_once_with(
-            "MQTT broker port %d already in use — is another server running?",
-            0,
-        )
-        mock_logger.exception.assert_not_called()
+        mock_logger.critical.assert_called_once()
+        call_args = mock_logger.critical.call_args[0][0]
+        assert_that(call_args, contains_string("already in use"))
+        mock_exit.assert_called_once_with(1)
 
-    def test_other_broker_error_logs_exception(self) -> None:
-        """BrokerError without address-in-use cause logs full exception."""
+    def test_address_in_use_errno_98_logs_critical_and_exits(self) -> None:
+        """BrokerError wrapping errno 98 (Linux) logs critical and exits."""
+        from amqtt.errors import BrokerError
+
+        import my_tracks.apps as apps_module
+
+        mock_broker = MagicMock()
+        os_error = OSError(98, "Address already in use")
+
+        async def mock_start() -> None:
+            raise BrokerError("Broker can't be started") from os_error
+
+        mock_broker.start = mock_start
+        mock_broker.is_running = True
+
+        with (
+            patch.object(apps_module, "MQTTBroker", return_value=mock_broker),
+            patch("my_tracks.apps.logger") as mock_logger,
+            patch("my_tracks.apps.os._exit") as mock_exit,
+            patch.object(apps_module._state, "broker", None),
+            patch.object(apps_module._state, "loop", None),
+        ):
+            from my_tracks.apps import _run_mqtt_broker
+
+            _run_mqtt_broker(0)
+
+        mock_logger.critical.assert_called_once()
+        mock_exit.assert_called_once_with(1)
+
+    def test_other_broker_error_logs_critical_and_exits(self) -> None:
+        """BrokerError without address-in-use cause logs critical and exits."""
         from amqtt.errors import BrokerError
 
         import my_tracks.apps as apps_module
@@ -705,6 +736,7 @@ class TestBrokerErrorHandling:
         with (
             patch.object(apps_module, "MQTTBroker", return_value=mock_broker),
             patch("my_tracks.apps.logger") as mock_logger,
+            patch("my_tracks.apps.os._exit") as mock_exit,
             patch.object(apps_module._state, "broker", None),
             patch.object(apps_module._state, "loop", None),
         ):
@@ -712,9 +744,8 @@ class TestBrokerErrorHandling:
 
             _run_mqtt_broker(0)
 
-        mock_logger.exception.assert_called_once_with(
-            "MQTT broker failed to start"
-        )
+        mock_logger.critical.assert_called()
+        mock_exit.assert_called_once_with(1)
 
 
 class TestClientDisconnectMiddleware:
