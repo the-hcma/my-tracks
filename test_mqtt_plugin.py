@@ -2,17 +2,23 @@
 
 import json
 import os
-from datetime import UTC, datetime
+import ssl
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.x509.oid import NameOID
 from django.test import TestCase
 from hamcrest import (assert_that, contains_string, equal_to, has_entries,
-                      has_length, is_, is_not, none)
+                      has_length, is_, is_not, none, not_none, starts_with)
 
 from my_tracks.models import Device, Location, OwnTracksMessage
-from my_tracks.mqtt.plugin import (OwnTracksPlugin, get_channel_layer_lazy,
+from my_tracks.mqtt.plugin import (OwnTracksPlugin, _ClientTLSInfo,
+                                   _extract_tls_info, get_channel_layer_lazy,
                                    save_location_to_db, save_lwt_to_db)
 
 # Allow sync DB access in async tests for testing purposes
@@ -1095,3 +1101,248 @@ class TestOnBrokerMessageReceivedEdgeCases:
             client_id="test-client",
             message=message,
         )
+
+
+def _make_self_signed_cert(cn: str = "testuser") -> bytes:
+    """Generate a self-signed DER certificate for testing."""
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    subject = issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, cn)])
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(issuer)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(datetime.now(tz=UTC))
+        .not_valid_after(datetime.now(tz=UTC) + timedelta(days=1))
+        .sign(key, hashes.SHA256())
+    )
+    return cert.public_bytes(serialization.Encoding.DER)
+
+
+class TestExtractTlsInfo:
+    """Tests for _extract_tls_info helper."""
+
+    def test_extracts_cn_and_fingerprint(self) -> None:
+        """Should return CN and truncated SHA-256 fingerprint from peer cert."""
+        der_cert = _make_self_signed_cert("alice")
+        mock_ssl = MagicMock(spec=ssl.SSLObject)
+        mock_ssl.getpeercert.return_value = der_cert
+
+        result = _extract_tls_info(mock_ssl)
+
+        assert_that(result, is_(not_none()))
+        assert_that(result.cn, equal_to("alice"))
+        # Fingerprint is first 4 bytes of SHA-256 in hex, colon-separated
+        assert_that(len(result.fingerprint.split(":")), equal_to(4))
+
+    def test_returns_none_when_no_peer_cert(self) -> None:
+        """Should return None when SSL has no peer certificate."""
+        mock_ssl = MagicMock(spec=ssl.SSLObject)
+        mock_ssl.getpeercert.return_value = None
+
+        result = _extract_tls_info(mock_ssl)
+
+        assert_that(result, is_(none()))
+
+    def test_cert_without_cn(self) -> None:
+        """Should use 'unknown' when certificate has no CN attribute."""
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        subject = issuer = x509.Name([x509.NameAttribute(NameOID.ORGANIZATION_NAME, "TestOrg")])
+        cert = (
+            x509.CertificateBuilder()
+            .subject_name(subject)
+            .issuer_name(issuer)
+            .public_key(key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(datetime.now(tz=UTC))
+            .not_valid_after(datetime.now(tz=UTC) + timedelta(days=1))
+            .sign(key, hashes.SHA256())
+        )
+        der_cert = cert.public_bytes(serialization.Encoding.DER)
+
+        mock_ssl = MagicMock(spec=ssl.SSLObject)
+        mock_ssl.getpeercert.return_value = der_cert
+
+        result = _extract_tls_info(mock_ssl)
+
+        assert_that(result, is_(not_none()))
+        assert_that(result.cn, equal_to("unknown"))
+
+
+class TestClientTLSInfoStr:
+    """Tests for _ClientTLSInfo.__str__."""
+
+    def test_str_representation(self) -> None:
+        """Should format as CN=name [fingerprint]."""
+        info = _ClientTLSInfo(cn="bob", fingerprint="AA:BB:CC:DD")
+        assert_that(str(info), equal_to("CN=bob [AA:BB:CC:DD]"))
+
+
+class TestPluginTLSClientIdentification:
+    """Tests for TLS client identification in OwnTracksPlugin."""
+
+    @pytest.fixture
+    def plugin(self, mock_broker_context: MagicMock) -> OwnTracksPlugin:
+        """Create plugin instance for testing."""
+        return OwnTracksPlugin(mock_broker_context)
+
+    def test_tls_tag_for_unknown_client(self, plugin: OwnTracksPlugin) -> None:
+        """Should return 'unknown' for client not in cache."""
+        assert_that(plugin._tls_tag("never-seen"), equal_to("unknown"))
+
+    def test_tls_tag_for_non_tls_client(self, plugin: OwnTracksPlugin) -> None:
+        """Should return 'non-TLS' for client connected without TLS."""
+        plugin._client_tls["plain-client"] = None
+        assert_that(plugin._tls_tag("plain-client"), equal_to("non-TLS"))
+
+    def test_tls_tag_for_tls_client(self, plugin: OwnTracksPlugin) -> None:
+        """Should return TLS info string for TLS client."""
+        info = _ClientTLSInfo(cn="alice", fingerprint="AA:BB:CC:DD")
+        plugin._client_tls["tls-client"] = info
+        assert_that(plugin._tls_tag("tls-client"), equal_to("TLS CN=alice [AA:BB:CC:DD]"))
+
+    @pytest.mark.asyncio
+    async def test_on_broker_client_connected_tls_with_cert(
+        self,
+        plugin: OwnTracksPlugin,
+    ) -> None:
+        """Should cache TLS info and log cert identity on TLS connection with client cert."""
+        der_cert = _make_self_signed_cert("phoneuser")
+        mock_ssl = MagicMock(spec=ssl.SSLObject)
+        mock_ssl.getpeercert.return_value = der_cert
+
+        mock_session = MagicMock()
+        mock_session.remote_address = "10.0.0.1"
+
+        with patch.object(plugin, "_get_handler_writer_ssl", return_value=mock_ssl):
+            await plugin.on_broker_client_connected(
+                client_id="phone-123",
+                client_session=mock_session,
+            )
+
+        assert_that(plugin._client_tls["phone-123"], is_(not_none()))
+        assert_that(plugin._client_tls["phone-123"].cn, equal_to("phoneuser"))
+
+    @pytest.mark.asyncio
+    async def test_on_broker_client_connected_tls_without_client_cert(
+        self,
+        plugin: OwnTracksPlugin,
+    ) -> None:
+        """Should cache None TLS info when TLS but no client cert presented."""
+        mock_ssl = MagicMock(spec=ssl.SSLObject)
+        mock_ssl.getpeercert.return_value = None
+
+        mock_session = MagicMock()
+        mock_session.remote_address = "10.0.0.2"
+
+        with patch.object(plugin, "_get_handler_writer_ssl", return_value=mock_ssl):
+            await plugin.on_broker_client_connected(
+                client_id="nocert-456",
+                client_session=mock_session,
+            )
+
+        # Stored but with None value since SSL was present but no client cert
+        assert_that("nocert-456" in plugin._client_tls, is_(True))
+        assert_that(plugin._client_tls["nocert-456"], is_(none()))
+
+    @pytest.mark.asyncio
+    async def test_on_broker_client_connected_non_tls(
+        self,
+        plugin: OwnTracksPlugin,
+    ) -> None:
+        """Should cache None for non-TLS connections."""
+        mock_session = MagicMock()
+        mock_session.remote_address = "192.168.1.5"
+
+        with patch.object(plugin, "_get_handler_writer_ssl", return_value=None):
+            await plugin.on_broker_client_connected(
+                client_id="plain-789",
+                client_session=mock_session,
+            )
+
+        assert_that("plain-789" in plugin._client_tls, is_(True))
+        assert_that(plugin._client_tls["plain-789"], is_(none()))
+
+    @pytest.mark.asyncio
+    async def test_on_broker_client_disconnected_cleans_up(
+        self,
+        plugin: OwnTracksPlugin,
+    ) -> None:
+        """Should remove TLS info from cache on disconnect."""
+        info = _ClientTLSInfo(cn="bob", fingerprint="EE:FF:00:11")
+        plugin._client_tls["disc-client"] = info
+
+        mock_session = MagicMock()
+        await plugin.on_broker_client_disconnected(
+            client_id="disc-client",
+            client_session=mock_session,
+        )
+
+        assert_that("disc-client" in plugin._client_tls, is_(False))
+
+    @pytest.mark.asyncio
+    async def test_on_broker_client_disconnected_missing_client(
+        self,
+        plugin: OwnTracksPlugin,
+    ) -> None:
+        """Should not error when disconnecting a client not in cache."""
+        mock_session = MagicMock()
+        await plugin.on_broker_client_disconnected(
+            client_id="never-connected",
+            client_session=mock_session,
+        )
+
+    def test_get_handler_writer_ssl_returns_none_when_no_broker(
+        self,
+        plugin: OwnTracksPlugin,
+        mock_broker_context: MagicMock,
+    ) -> None:
+        """Should return None when broker internals are not accessible."""
+        # Make accessing _broker_instance raise
+        type(mock_broker_context)._broker_instance = property(
+            lambda self: (_ for _ in ()).throw(AttributeError("no broker"))
+        )
+        result = plugin._get_handler_writer_ssl("test-client")
+        assert_that(result, is_(none()))
+
+    def test_get_handler_writer_ssl_returns_ssl_object(
+        self,
+        plugin: OwnTracksPlugin,
+        mock_broker_context: MagicMock,
+    ) -> None:
+        """Should return SSL object from handler's writer."""
+        mock_ssl = MagicMock(spec=ssl.SSLObject)
+        mock_writer = MagicMock()
+        mock_writer.get_ssl_info.return_value = mock_ssl
+
+        mock_handler = MagicMock()
+        mock_handler.writer = mock_writer
+
+        mock_session = MagicMock()
+        mock_broker = MagicMock()
+        mock_broker._sessions = {"client-1": (mock_session, mock_handler)}
+        mock_broker_context._broker_instance = mock_broker
+
+        result = plugin._get_handler_writer_ssl("client-1")
+        assert_that(result, equal_to(mock_ssl))
+
+    def test_get_handler_writer_ssl_returns_none_for_non_tls(
+        self,
+        plugin: OwnTracksPlugin,
+        mock_broker_context: MagicMock,
+    ) -> None:
+        """Should return None when writer has no SSL info."""
+        mock_writer = MagicMock()
+        mock_writer.get_ssl_info.return_value = None
+
+        mock_handler = MagicMock()
+        mock_handler.writer = mock_writer
+
+        mock_session = MagicMock()
+        mock_broker = MagicMock()
+        mock_broker._sessions = {"client-2": (mock_session, mock_handler)}
+        mock_broker_context._broker_instance = mock_broker
+
+        result = plugin._get_handler_writer_ssl("client-2")
+        assert_that(result, is_(none()))

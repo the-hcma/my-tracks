@@ -282,6 +282,7 @@ class OwnTracksMessageHandler:
         payload: bytes,
         *,
         client_ip: str | None = None,
+        tls_tag: str = "unknown",
     ) -> None:
         """
         Handle an incoming MQTT message.
@@ -290,6 +291,7 @@ class OwnTracksMessageHandler:
             topic: MQTT topic
             payload: Message payload bytes
             client_ip: IP address of the MQTT client (from broker session)
+            tls_tag: TLS identification string for logging
         """
         # Parse topic
         topic_info = parse_owntracks_topic(topic)
@@ -309,11 +311,13 @@ class OwnTracksMessageHandler:
 
         # Route to appropriate handler
         if msg_type == "location":
-            await self._handle_location(message, topic_info, client_ip=client_ip, mqtt_user=mqtt_user)
+            await self._handle_location(
+                message, topic_info, client_ip=client_ip, mqtt_user=mqtt_user, tls_tag=tls_tag,
+            )
         elif msg_type == "lwt":
             await self._handle_lwt(message, topic_info)
         elif msg_type == "transition":
-            await self._handle_transition(message, topic_info)
+            await self._handle_transition(message, topic_info, tls_tag=tls_tag)
         else:
             logger.debug("Unhandled OwnTracks message type: %s", msg_type)
 
@@ -324,6 +328,7 @@ class OwnTracksMessageHandler:
         *,
         client_ip: str | None = None,
         mqtt_user: str = "",
+        tls_tag: str = "unknown",
     ) -> None:
         """Handle a location message."""
         location_data = extract_location_data(message, topic_info)
@@ -334,6 +339,7 @@ class OwnTracksMessageHandler:
             location_data["client_ip"] = client_ip
         if mqtt_user:
             location_data["mqtt_user"] = mqtt_user
+        location_data["tls_tag"] = tls_tag
 
         for callback in self._location_callbacks:
             try:
@@ -365,11 +371,15 @@ class OwnTracksMessageHandler:
         self,
         message: dict[str, Any],
         topic_info: dict[str, str],
+        *,
+        tls_tag: str = "unknown",
     ) -> None:
         """Handle a transition message."""
         transition_data = extract_transition_data(message, topic_info)
         if not transition_data:
             return
+
+        transition_data["tls_tag"] = tls_tag
 
         for callback in self._transition_callbacks:
             try:
