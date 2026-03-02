@@ -68,6 +68,7 @@ amqtt = { git = "https://github.com/Yakifo/amqtt.git" }
 
 [dependency-groups]
 dev = [
+    "coverage-enable-subprocess>=1.0",
     "pyhamcrest>=2.1.0",
     "pytest-xdist>=3.8.0",
 ]
