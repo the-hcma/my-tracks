@@ -549,6 +549,97 @@
             color: var(--text-muted);
             min-width: 60px;
         }
+
+        @media (max-width: 768px) {
+            body {
+                padding: 0.75rem;
+            }
+
+            .admin-card {
+                padding: 1rem;
+            }
+
+            .admin-header {
+                flex-direction: column;
+                gap: 0.5rem;
+                align-items: flex-start;
+                margin-bottom: 1rem;
+            }
+
+            .admin-header h1 {
+                font-size: 1.25rem;
+            }
+
+            .section-title {
+                font-size: 0.95rem;
+            }
+
+            .tab-bar {
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+
+            .tab-btn {
+                font-size: 0.8rem;
+                padding: 0.6rem 1rem;
+                white-space: nowrap;
+            }
+
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+
+            .user-table {
+                font-size: 0.8rem;
+            }
+
+            .user-table th {
+                font-size: 0.7rem;
+                padding: 0.4rem;
+            }
+
+            .user-table td {
+                padding: 0.5rem 0.4rem;
+            }
+
+            .action-btn {
+                padding: 4px 8px;
+                font-size: 0.7rem;
+            }
+
+            .ca-detail-row {
+                grid-template-columns: 1fr;
+                gap: 0.15rem;
+                font-size: 0.85rem;
+            }
+
+            .ca-value {
+                font-size: 0.8rem;
+            }
+
+            .ca-actions {
+                flex-wrap: wrap;
+            }
+
+            .nav-links a {
+                font-size: 0.9rem;
+            }
+
+            .modal-card {
+                margin: 1rem;
+                padding: 1.5rem;
+            }
+
+            .cert-tooltip .cert-tooltip-content {
+                left: 0;
+                transform: none;
+            }
+
+            .table-scroll {
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+        }
     </style>
 </head>
 <body>
@@ -630,6 +721,7 @@
             <div style="margin-top: 2rem;">
             <h3 class="section-title">Users</h3>
 
+            <div class="table-scroll">
             <table class="user-table">
                 <thead>
                     <tr>
@@ -720,6 +812,7 @@
                     {% endfor %}
                 </tbody>
             </table>
+            </div>
             <p class="user-count">{{ users|length }} user{{ users|length|pluralize }}</p>
             </div>
             </div>
@@ -812,6 +905,7 @@
             {% if ca_history %}
             <div class="ca-history">
                 <h4 class="ca-generate-title">CA History</h4>
+                <div class="table-scroll">
                 <table class="user-table">
                     <thead>
                         <tr>
@@ -853,6 +947,7 @@
                         {% endfor %}
                     </tbody>
                 </table>
+                </div>
             </div>
             {% endif %}
 
@@ -967,6 +1062,7 @@
             {% if sc_history %}
             <div class="ca-history">
                 <h4 class="ca-generate-title">Server Certificate History</h4>
+                <div class="table-scroll">
                 <table class="user-table">
                     <thead>
                         <tr>
@@ -1008,6 +1104,7 @@
                         {% endfor %}
                     </tbody>
                 </table>
+                </div>
             </div>
             {% endif %}
 
@@ -1023,6 +1120,7 @@
             {% endif %}
 
             {% if client_certs %}
+            <div class="table-scroll">
             <table class="user-table">
                 <thead>
                     <tr>
@@ -1078,6 +1176,7 @@
                     {% endfor %}
                 </tbody>
             </table>
+            </div>
             {% else %}
             <p class="ca-no-active">No client certificates issued yet.</p>
             {% endif %}
@@ -1142,6 +1241,7 @@
             </div>
 
             {% if revoked_certs %}
+            <div class="table-scroll">
             <table class="user-table">
                 <thead>
                     <tr>
@@ -1164,6 +1264,7 @@
                     {% endfor %}
                 </tbody>
             </table>
+            </div>
             {% endif %}
 
             {% else %}

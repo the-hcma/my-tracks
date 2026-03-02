@@ -818,3 +818,115 @@ a:hover {
     max-width: none !important;
     white-space: nowrap !important;
 }
+
+/* ── Mobile responsive ── */
+@media (max-width: 768px) {
+    .left-column {
+        padding: 8px;
+    }
+
+    .map-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+        margin-bottom: 6px;
+    }
+
+    .map-header h2 {
+        font-size: 1rem;
+        margin: 0;
+    }
+
+    .map-controls {
+        flex-wrap: wrap;
+        gap: 6px;
+        width: 100%;
+    }
+
+    .mode-toggle button {
+        padding: 6px 10px;
+        font-size: 13px;
+    }
+
+    .device-selector,
+    .time-range-selector {
+        font-size: 13px;
+        padding: 6px 8px;
+    }
+
+    .historic-controls {
+        flex-wrap: wrap;
+        width: 100%;
+    }
+
+    .time-slider-container {
+        min-width: 0;
+        flex: 1;
+    }
+
+    .header-toggle {
+        padding: 6px 10px;
+        font-size: 18px;
+    }
+
+    .user-menu {
+        font-size: 13px;
+        padding: 4px 10px;
+    }
+
+    .user-name {
+        font-size: 13px;
+    }
+
+    .status-indicator {
+        font-size: 13px;
+        padding: 4px 10px;
+    }
+
+    #status-text {
+        display: none;
+    }
+
+    .hamburger-btn {
+        padding: 6px 10px;
+        font-size: 20px;
+    }
+
+    .log-entry {
+        font-size: 13px;
+        white-space: normal;
+        word-break: break-word;
+    }
+
+    .log-meta {
+        font-size: 12px;
+    }
+
+    .log-header {
+        flex-direction: column;
+        gap: 8px;
+        align-items: flex-start;
+        margin-bottom: 12px;
+    }
+
+    .log-controls {
+        width: 100%;
+        flex-wrap: wrap;
+    }
+
+    #log-container {
+        padding: 8px;
+        height: auto;
+        max-height: calc(100vh - 200px);
+    }
+
+    .precision-slider-container {
+        padding: 8px 12px 4px;
+    }
+
+    .device-legend {
+        font-size: 13px;
+        bottom: 10px;
+        right: 6px;
+    }
+}
