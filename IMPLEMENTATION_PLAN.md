@@ -1,6 +1,6 @@
 # My Tracks — Implementation Plan
 
-**Last Updated**: February 28, 2026
+**Last Updated**: March 2, 2026
 
 ## Overview
 
@@ -189,6 +189,21 @@ Evolution plan for My Tracks, a self-hosted location tracking backend for the Ow
 11. **Server Script Fix** ✅ (PR #309)
     - Declining restart prompt no longer triggers cleanup of running processes
 
+12. **Test Coverage & Reliability** ✅ (PR #317)
+    - Fixed Python 3.14 test failures (`dict.get` read-only, `None` payload handling)
+    - Added tests for `CommandApiKeyAuthentication`, MQTT broker error paths, ASGI lifecycle
+    - Coverage improved from 85.5% to 98.27% (818 Python tests)
+
+13. **CI/CD Improvements** ✅ (PR #319, #323)
+    - Parallel test execution with accurate coverage (`coverage-enable-subprocess` + pytest-xdist)
+    - Split single backend CI job into 3 parallel jobs: Backend Lint (16s), Backend Tests (1m37s), Shell Script Tests (1m25s)
+    - CI wall-clock time reduced from ~3m30s to ~1m37s (55% faster)
+
+14. **Fatal Port Conflicts** ✅ (PR #320)
+    - MQTT broker bind failure now calls `os._exit(1)` instead of logging a warning
+    - Reusable `check_port_conflict` shell function covers HTTP and MQTT ports
+    - Prevents half-running server state (HTTP up, MQTT down)
+
 ## Upcoming Work
 
 ### Phase 6, Step 4: MQTT Broker TLS Integration ← NEXT
@@ -245,12 +260,13 @@ my_tracks/mqtt/
 
 ## Test Coverage
 
-- 672 Python tests + 79 TypeScript tests passing
-- 85.5% code coverage (**needs improvement to reach 90% target**)
-  - Key gaps: `serializers.py` (32%), `mqtt/plugin.py` (77%), `views.py` (85%)
+- 818 Python tests + 79 TypeScript tests passing
+- 98.27% code coverage (target: 90%)
+- Tests run in parallel via pytest-xdist with accurate coverage merging
 - All pyright checks pass (0 errors, 0 warnings)
 - All imports sorted (isort clean)
 - All shell scripts pass shellcheck
+- CI pipeline: 4 parallel jobs (Frontend, Backend Lint, Backend Tests, Shell Script Tests)
 
 ## Technical Notes
 
