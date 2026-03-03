@@ -15,7 +15,8 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.utils import timezone as tz
 
-from config.runtime import get_actual_mqtt_port, get_mqtt_port
+from config.runtime import (get_actual_mqtt_port, get_mqtt_port,
+                            get_mqtt_tls_port)
 from my_tracks.models import (CertificateAuthority, ClientCertificate,
                               Location, ServerCertificate)
 from my_tracks.pki import (ALLOWED_KEY_SIZES, DEFAULT_CA_VALIDITY_DAYS,
@@ -295,13 +296,22 @@ def about(request: HttpRequest) -> HttpResponse:
     mqtt_port = mqtt_actual_port if mqtt_actual_port is not None else mqtt_configured_port
     mqtt_enabled = mqtt_configured_port >= 0
 
-    context = {
+    mqtt_tls_port = get_mqtt_tls_port()
+    active_sc = ServerCertificate.objects.filter(is_active=True).select_related(
+        'issuing_ca',
+    ).first()
+    mqtt_tls_enabled = mqtt_tls_port >= 0 and active_sc is not None
+
+    context: dict[str, object] = {
         'hostname': hostname,
         'local_ip': primary_ip,
         'local_ips': ips,
         'server_port': server_port,
         'mqtt_port': mqtt_port,
         'mqtt_enabled': mqtt_enabled,
+        'mqtt_tls_port': mqtt_tls_port,
+        'mqtt_tls_enabled': mqtt_tls_enabled,
+        'active_sc': active_sc,
     }
     return render(request, 'web_ui/about.html', context)
 

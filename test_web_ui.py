@@ -328,9 +328,24 @@ class TestMQTTEndpointDisplay:
             response = logged_in_client.get('/about/')
 
         content = response.content.decode('utf-8')
-        assert_that(content, contains_string('MQTT (Recommended)'))
+        assert_that(content, contains_string('Choose Connection Mode'))
         assert_that(content, contains_string('For MQTT Mode'))
         assert_that(content, contains_string('For HTTP Mode'))
+
+    def test_about_page_shows_mqtt_tls_disabled(self, logged_in_client: Client) -> None:
+        """Test that about page shows MQTT TLS disabled when no server cert exists."""
+        from unittest.mock import patch
+
+        with (
+            patch('web_ui.views.get_mqtt_port', return_value=1883),
+            patch('web_ui.views.get_actual_mqtt_port', return_value=None),
+            patch('web_ui.views.get_mqtt_tls_port', return_value=8883),
+        ):
+            response = logged_in_client.get('/about/')
+
+        content = response.content.decode('utf-8')
+        assert_that(content, contains_string('MQTT TLS'))
+        assert_that(content, contains_string('Generate a server certificate'))
 
     def test_about_page_redirects_unauthenticated(self, client: Client) -> None:
         """Test that about page redirects unauthenticated users."""
