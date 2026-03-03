@@ -418,6 +418,14 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
             sc_sans_raw = str(request.POST.get('sc_san_entries') or '')
             sc_san_list = [s.strip() for s in sc_sans_raw.split(',') if s.strip()]
 
+            request_host = request.get_host().split(":")[0]
+            if request_host and request_host not in sc_san_list:
+                sc_san_list.append(request_host)
+                logger.info(
+                    "Auto-included request hostname '%s' in server certificate SANs",
+                    request_host,
+                )
+
             active_ca_obj = CertificateAuthority.objects.filter(is_active=True).first()
 
             if not active_ca_obj:

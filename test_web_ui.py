@@ -1379,17 +1379,25 @@ class TestAdminPanelServerCert:
         content = response.content.decode('utf-8')
         assert_that(content, contains_string('Common Name is required'))
 
-    def test_generate_server_cert_no_sans(self, admin_logged_in_client: Client) -> None:
-        """Empty SANs should show an error."""
+    def test_generate_server_cert_empty_sans_auto_includes_host(
+        self, admin_logged_in_client: Client,
+    ) -> None:
+        """Empty SANs auto-includes the request hostname, so the cert is generated."""
+        from my_tracks.models import ServerCertificate
+
         self._create_ca(admin_logged_in_client)
         response = admin_logged_in_client.post('/admin-panel/', {
             'form_type': 'generate_server_cert',
             'sc_common_name': 'myserver',
             'sc_validity_days': '365',
+            'sc_key_size': '2048',
             'sc_san_entries': '',
         })
         content = response.content.decode('utf-8')
-        assert_that(content, contains_string('SAN entry is required'))
+        assert_that(content, contains_string('generated successfully'))
+        sc = ServerCertificate.objects.filter(is_active=True).first()
+        assert_that(sc, is_(not_none()))
+        assert_that(sc.san_entries, has_item('testserver'))  # type: ignore[union-attr]
 
     def test_generate_server_cert_invalid_key_size(self, admin_logged_in_client: Client) -> None:
         """Invalid key size should show an error."""
@@ -1519,6 +1527,62 @@ class TestAdminPanelServerCert:
         )
         content = response.content.decode('utf-8')
         assert_that(content, contains_string('mytracks.example.com'))
+
+    @override_settings(ALLOWED_HOSTS=['*'])
+    def test_auto_include_request_host_in_cert_sans(
+        self, admin_logged_in_client: Client,
+    ) -> None:
+        """Request hostname is auto-included in SANs even if user omits it."""
+        from my_tracks.models import ServerCertificate
+
+        self._create_ca(admin_logged_in_client)
+        response = admin_logged_in_client.post(
+            '/admin-panel/',
+            {
+                'form_type': 'generate_server_cert',
+                'sc_common_name': 'myserver',
+                'sc_validity_days': '365',
+                'sc_key_size': '2048',
+                'sc_san_entries': '10.0.0.1, 192.168.1.1',
+            },
+            SERVER_NAME='mytracks.example.com',
+        )
+        content = response.content.decode('utf-8')
+        assert_that(content, contains_string('generated successfully'))
+        sc = ServerCertificate.objects.filter(is_active=True).first()
+        assert_that(sc, is_(not_none()))
+        san_list: list[str] = sc.san_entries  # type: ignore[union-attr]
+        assert_that(san_list, has_item('10.0.0.1'))
+        assert_that(san_list, has_item('192.168.1.1'))
+        assert_that(san_list, has_item('mytracks.example.com'))
+
+    def test_no_duplicate_when_host_already_in_sans(
+        self, admin_logged_in_client: Client,
+    ) -> None:
+        """Request hostname is not duplicated if already in the SAN list."""
+        from my_tracks.models import ServerCertificate
+
+        self._create_ca(admin_logged_in_client)
+        admin_logged_in_client.post('/admin-panel/', {
+            'form_type': 'generate_server_cert',
+            'sc_common_name': 'myserver',
+            'sc_validity_days': '365',
+            'sc_key_size': '2048',
+            'sc_san_entries': 'testserver, 10.0.0.1',
+        })
+        sc = ServerCertificate.objects.filter(is_active=True).first()
+        assert_that(sc, is_(not_none()))
+        san_list: list[str] = sc.san_entries  # type: ignore[union-attr]
+        testserver_count = sum(1 for s in san_list if s == 'testserver')
+        assert_that(testserver_count, equal_to(1))
+
+    def test_san_host_warning_in_template(self, admin_logged_in_client: Client) -> None:
+        """The SAN editor should contain the host warning element."""
+        self._create_ca(admin_logged_in_client)
+        response = admin_logged_in_client.get('/admin-panel/')
+        content = response.content.decode('utf-8')
+        assert_that(content, contains_string('san-host-warning'))
+        assert_that(content, contains_string('not in the SAN list'))
 
 
 @pytest.mark.django_db

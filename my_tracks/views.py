@@ -1002,6 +1002,14 @@ class ServerCertificateViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        request_host = request.get_host().split(":")[0]
+        if request_host and request_host not in san_list:
+            san_list.append(request_host)
+            logger.info(
+                "Auto-included request hostname '%s' in server certificate SANs",
+                request_host,
+            )
+
         ca_key_pem = decrypt_private_key(bytes(active_ca.encrypted_private_key))
 
         cert_pem, server_key_pem = generate_server_certificate(

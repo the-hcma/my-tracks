@@ -200,6 +200,23 @@
             background: var(--border);
         }
 
+        .san-cell {
+            font-size: 0.8rem;
+            max-width: 220px;
+            word-break: break-word;
+        }
+
+        .san-host-warning {
+            margin-top: 0.5rem;
+            padding: 0.5rem 0.75rem;
+            background: #3b2a00;
+            border: 1px solid #886a20;
+            border-radius: 6px;
+            color: #ffd666;
+            font-size: 0.8rem;
+            line-height: 1.4;
+        }
+
         .form-group label {
             display: block;
             font-size: 0.8rem;
@@ -1136,9 +1153,12 @@
                                 </div>
                             </div>
                             <input type="hidden" name="sc_san_entries" id="id_sc_san_entries" value="">
+                            <div class="san-host-warning" id="san-host-warning" style="display:none">
+                                &#9888; The hostname you used to access this page (<strong id="san-host-warning-name"></strong>) is not in the SAN list. TLS clients connecting via this hostname will reject the certificate.
+                            </div>
                         </div>
                     </div>
-                    <button type="submit" class="submit-btn" {% if active_sc %}onclick="return confirm('This will deactivate the current active server certificate:\n\n  {{ active_sc.common_name }} (expires {{ active_sc.not_valid_after|date:"Y-m-d" }})\n\nContinue?')"{% endif %}>Generate Server Certificate</button>
+                    <button type="submit" class="submit-btn" {% if active_sc %}onclick="return confirm('This will deactivate the current active server certificate:\n\n  CN: {{ active_sc.common_name }}\n  Expires: {{ active_sc.not_valid_after|date:"Y-m-d" }}\n  SANs: {{ active_sc.san_entries|join:", " }}\n\nA server restart is required for the new certificate to take effect.\n\nContinue?')"{% endif %}>Generate Server Certificate</button>
                 </form>
                 {% else %}
                 <p class="ca-no-active">A CA certificate is required before generating a server certificate.</p>
@@ -1154,6 +1174,7 @@
                         <tr>
                             <th>Common Name</th>
                             <th>Status</th>
+                            <th>SANs</th>
                             <th>Key Size</th>
                             <th>Issuing CA</th>
                             <th>Expires</th>
@@ -1171,6 +1192,7 @@
                                     <span class="status-pill inactive">inactive</span>
                                 {% endif %}
                             </td>
+                            <td class="san-cell">{{ sc.san_entries|join:", " }}</td>
                             <td>{{ sc.key_size }}-bit</td>
                             <td>{{ sc.issuing_ca.common_name }}</td>
                             <td>{{ sc.not_valid_after|date:"Y-m-d" }}</td>
@@ -1557,12 +1579,23 @@
             const hiddenInput = document.getElementById('id_sc_san_entries');
             const newEntry = document.getElementById('san-new-entry');
             const addBtn = document.getElementById('san-add-btn');
+            const hostWarning = document.getElementById('san-host-warning');
+            const hostWarningName = document.getElementById('san-host-warning-name');
             if (!tagsContainer || !hiddenInput) return;
 
+            const requestHost = location.hostname;
             const sans = new Set();
+
+            if (hostWarningName) hostWarningName.textContent = requestHost;
+
+            function checkHostWarning() {
+                if (!hostWarning || !requestHost) return;
+                hostWarning.style.display = sans.has(requestHost) ? 'none' : 'block';
+            }
 
             function syncHidden() {
                 hiddenInput.value = [...sans].join(', ');
+                checkHostWarning();
             }
 
             function renderTag(value) {
