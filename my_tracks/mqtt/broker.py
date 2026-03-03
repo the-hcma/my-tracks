@@ -17,7 +17,10 @@ import tempfile
 from dataclasses import dataclass
 from typing import Any
 
-from amqtt.broker import Broker
+from amqtt.adapters import ReaderAdapter, WriterAdapter
+from amqtt.broker import Broker, BrokerProtocolHandler
+from amqtt.errors import AMQTTError, MQTTError, NoDataError
+from amqtt.session import Session
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +95,7 @@ class _CRLBroker(Broker):
     """
 
     _crl_pem: bytes | None = None
+    _server_cert_sans: list[str] = []
     _original_exception_handler: Any = None
 
     @staticmethod
@@ -126,6 +130,40 @@ class _CRLBroker(Broker):
         loop.set_exception_handler(_CRLBroker._original_exception_handler)
         _CRLBroker._original_exception_handler = None
         await super().shutdown()
+
+    async def _initialize_client_session(
+        self,
+        reader: ReaderAdapter,
+        writer: WriterAdapter,
+        remote_address: str,
+        remote_port: int,
+    ) -> tuple[BrokerProtocolHandler, Session]:
+        """Wrap parent to detect TLS clients that disconnect before MQTT CONNECT.
+
+        When a TLS handshake succeeds server-side but the client
+        immediately closes the connection (no MQTT data), it almost
+        always means the client rejected the server certificate
+        (hostname not in SANs, untrusted CA, etc.).  This override
+        adds a clear WARNING with the server cert's SANs so the
+        operator can diagnose the problem.
+        """
+        try:
+            return await super()._initialize_client_session(
+                reader, writer, remote_address, remote_port,
+            )
+        except (AMQTTError, MQTTError, NoDataError):
+            ssl_obj = writer.get_ssl_info()
+            if ssl_obj is not None:
+                sans = ", ".join(_CRLBroker._server_cert_sans) or "none"
+                logger.warning(
+                    "[MQTT TLS] Client %s:%s completed TLS handshake but "
+                    "disconnected before sending MQTT data. The client "
+                    "likely rejected the server certificate (hostname not "
+                    "in SANs, untrusted CA, or expired cert). "
+                    "Server cert SANs: [%s]",
+                    remote_address, remote_port, sans,
+                )
+            raise
 
 
 def get_default_config(
@@ -276,7 +314,25 @@ class MQTTBroker:
 
         amqtt requires file paths, not in-memory PEM data.
         Files are cleaned up when the broker stops.
+        Also extracts server cert SANs for diagnostic logging.
         """
+        from cryptography import x509
+        from cryptography.x509.oid import ExtensionOID
+
+        try:
+            cert = x509.load_pem_x509_certificate(tls_config.server_cert_pem)
+            san_ext = cert.extensions.get_extension_for_oid(
+                ExtensionOID.SUBJECT_ALTERNATIVE_NAME,
+            )
+            san_names = san_ext.value.get_values_for_type(x509.DNSName)
+            san_ips = [
+                str(ip)
+                for ip in san_ext.value.get_values_for_type(x509.IPAddress)
+            ]
+            _CRLBroker._server_cert_sans = san_names + san_ips
+        except Exception:
+            _CRLBroker._server_cert_sans = []
+
         cert_file = tempfile.NamedTemporaryFile(suffix=".pem", delete=False)
         cert_file.write(tls_config.server_cert_pem)
         cert_file.flush()

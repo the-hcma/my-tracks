@@ -229,6 +229,32 @@ class DaphnePortZeroFilter(logging.Filter):
         return True
 
 
+class AmqttConnectionFilter(logging.Filter):
+    """Rewrite amqtt's ambiguous 'connections acquired' messages."""
+
+    _prev_count: dict[str, int] = {}
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = str(getattr(record, 'msg', ''))
+        if 'connections acquired' not in msg:
+            return True
+        # Parse "Listener 'name': N/M connections acquired"
+        try:
+            parts = msg.split("'")
+            listener = parts[1]
+            count_part = parts[2].split('/')[0].strip().rstrip(':').strip()
+            count = int(count_part)
+        except (IndexError, ValueError):
+            return True
+        prev = self._prev_count.get(listener, 0)
+        self._prev_count[listener] = count
+        if count > prev:
+            record.msg = f"[{listener}] Client connected ({count} active)"
+        else:
+            record.msg = f"[{listener}] Client disconnected ({count} active)"
+        return True
+
+
 # Custom formatter that uses local time instead of UTC
 class LocalTimeFormatter(logging.Formatter):
     def formatTime(self, record: logging.LogRecord, datefmt: str | None = None) -> str:
@@ -252,6 +278,9 @@ LOGGING = {
         },
         'daphne_port_zero_filter': {
             '()': 'config.settings.DaphnePortZeroFilter',
+        },
+        'amqtt_connection_filter': {
+            '()': 'config.settings.AmqttConnectionFilter',
         },
     },
     'formatters': {
@@ -287,6 +316,12 @@ LOGGING = {
             'handlers': ['console'],
             'level': 'INFO',
             'filters': ['daphne_port_zero_filter'],
+            'propagate': False,
+        },
+        'amqtt.broker': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'filters': ['amqtt_connection_filter'],
             'propagate': False,
         },
         'transitions.core': {

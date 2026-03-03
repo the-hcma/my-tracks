@@ -1,12 +1,15 @@
 """Tests for the MQTT broker module."""
 
 import asyncio
+import ipaddress
+import logging
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from hamcrest import (assert_that, contains_string, equal_to, greater_than,
-                      has_key, is_, is_not, none, not_none)
+                      has_item, has_key, has_length, is_, is_not, none,
+                      not_none)
 
 from my_tracks.mqtt.broker import (MQTTBroker, TLSConfig, _CRLBroker,
                                    create_and_start_broker, get_default_config)
@@ -651,3 +654,133 @@ class TestTLSConfig:
 
         mock_init.assert_called_once()
         broker._cleanup_tls_files()
+
+    def test_server_cert_sans_extracted_on_setup(self) -> None:
+        """_setup_tls_files extracts SANs from the server certificate."""
+        from datetime import UTC, datetime, timedelta
+
+        from cryptography import x509
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        cert = (
+            x509.CertificateBuilder()
+            .subject_name(x509.Name([x509.NameAttribute(x509.oid.NameOID.COMMON_NAME, "test")]))
+            .issuer_name(x509.Name([x509.NameAttribute(x509.oid.NameOID.COMMON_NAME, "test")]))
+            .public_key(key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(datetime.now(UTC))
+            .not_valid_after(datetime.now(UTC) + timedelta(days=1))
+            .add_extension(
+                x509.SubjectAlternativeName([
+                    x509.DNSName("mqtt.example.com"),
+                    x509.DNSName("mytracks.local"),
+                    x509.IPAddress(ipaddress.IPv4Address("192.168.1.10")),
+                ]),
+                critical=False,
+            )
+            .sign(key, hashes.SHA256())
+        )
+        cert_pem = cert.public_bytes(serialization.Encoding.PEM)
+        key_pem = key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.TraditionalOpenSSL,
+            serialization.NoEncryption(),
+        )
+
+        _CRLBroker._server_cert_sans = []
+        tls_config = TLSConfig(
+            server_cert_pem=cert_pem,
+            server_key_pem=key_pem,
+            ca_cert_pem=cert_pem,
+        )
+        broker = MQTTBroker(
+            mqtt_port=0, mqtt_tls_port=8883,
+            tls_config=tls_config, use_owntracks_handler=False,
+        )
+        assert_that(_CRLBroker._server_cert_sans, has_length(3))
+        assert_that(_CRLBroker._server_cert_sans, has_item("mqtt.example.com"))
+        assert_that(_CRLBroker._server_cert_sans, has_item("mytracks.local"))
+        assert_that(_CRLBroker._server_cert_sans, has_item("192.168.1.10"))
+        broker._cleanup_tls_files()
+        _CRLBroker._server_cert_sans = []
+
+    def test_server_cert_sans_empty_on_invalid_cert(self) -> None:
+        """_setup_tls_files sets empty SANs when cert can't be parsed."""
+        _CRLBroker._server_cert_sans = ["stale"]
+        tls_config = TLSConfig(
+            server_cert_pem=b"not-a-cert",
+            server_key_pem=b"not-a-key",
+            ca_cert_pem=b"not-a-ca",
+        )
+        broker = MQTTBroker(
+            mqtt_port=0, mqtt_tls_port=8883,
+            tls_config=tls_config, use_owntracks_handler=False,
+        )
+        assert_that(_CRLBroker._server_cert_sans, has_length(0))
+        broker._cleanup_tls_files()
+
+    @pytest.mark.asyncio
+    async def test_tls_immediate_disconnect_warning(self) -> None:
+        """TLS connection that drops before MQTT CONNECT logs diagnostic warning."""
+        from amqtt.errors import AMQTTError
+
+        _CRLBroker._server_cert_sans = ["mqtt.example.com", "192.168.1.10"]
+
+        broker_instance = _CRLBroker.__new__(_CRLBroker)
+        broker_instance.logger = logging.getLogger("amqtt.broker")
+
+        mock_writer = MagicMock()
+        mock_writer.get_ssl_info.return_value = MagicMock()
+        mock_reader = MagicMock()
+
+        broker_logger = logging.getLogger("my_tracks.mqtt.broker")
+        with (
+            patch.object(
+                _CRLBroker.__bases__[0], "_initialize_client_session",
+                new_callable=AsyncMock,
+                side_effect=AMQTTError("No more data"),
+            ),
+            patch.object(broker_logger, "warning") as mock_warn,
+            pytest.raises(AMQTTError),
+        ):
+            await broker_instance._initialize_client_session(
+                mock_reader, mock_writer, "10.0.0.5", 12345,
+            )
+
+        mock_warn.assert_called_once()
+        msg = mock_warn.call_args[0][0] % mock_warn.call_args[0][1:]
+        assert_that(msg, contains_string("10.0.0.5:12345"))
+        assert_that(msg, contains_string("disconnected before sending MQTT data"))
+        assert_that(msg, contains_string("mqtt.example.com"))
+        assert_that(msg, contains_string("192.168.1.10"))
+        _CRLBroker._server_cert_sans = []
+
+    @pytest.mark.asyncio
+    async def test_non_tls_disconnect_no_warning(self) -> None:
+        """Non-TLS connection that fails does not log the TLS warning."""
+        from amqtt.errors import AMQTTError
+
+        broker_instance = _CRLBroker.__new__(_CRLBroker)
+        broker_instance.logger = logging.getLogger("amqtt.broker")
+
+        mock_writer = MagicMock()
+        mock_writer.get_ssl_info.return_value = None
+        mock_reader = MagicMock()
+
+        broker_logger = logging.getLogger("my_tracks.mqtt.broker")
+        with (
+            patch.object(
+                _CRLBroker.__bases__[0], "_initialize_client_session",
+                new_callable=AsyncMock,
+                side_effect=AMQTTError("No more data"),
+            ),
+            patch.object(broker_logger, "warning") as mock_warn,
+            pytest.raises(AMQTTError),
+        ):
+            await broker_instance._initialize_client_session(
+                mock_reader, mock_writer, "10.0.0.5", 12345,
+            )
+
+        mock_warn.assert_not_called()
