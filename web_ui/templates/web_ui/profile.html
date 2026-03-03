@@ -160,6 +160,22 @@
             color: var(--text);
         }
 
+        .form-actions {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .form-actions .submit-btn {
+            flex: 1;
+        }
+
+        .form-actions .password-toggle {
+            position: static;
+            transform: none;
+            flex-shrink: 0;
+        }
+
         .form-group input:read-only {
             opacity: 0.6;
             cursor: not-allowed;
@@ -557,40 +573,28 @@
             <hr class="section-divider">
 
             <h3 class="section-title">Change Password</h3>
-            <form method="post" action="{% url 'web_ui:profile' %}">
+            <form method="post" action="{% url 'web_ui:profile' %}" id="change-password-form">
                 {% csrf_token %}
                 <input type="hidden" name="form_type" value="password">
                 <div class="form-group">
                     <label for="id_current_password">Current Password</label>
-                    <div class="password-wrapper">
-                        <input type="password" name="current_password" id="id_current_password" required>
-                        <button type="button" class="password-toggle" aria-label="Show password">
-                            <svg class="eye-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                            <svg class="eye-off-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/></svg>
-                        </button>
-                    </div>
+                    <input type="password" name="current_password" id="id_current_password" required class="change-pw-field">
                 </div>
                 <div class="form-group">
                     <label for="id_new_password">New Password</label>
-                    <div class="password-wrapper">
-                        <input type="password" name="new_password" id="id_new_password" required minlength="8">
-                        <button type="button" class="password-toggle" aria-label="Show password">
-                            <svg class="eye-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                            <svg class="eye-off-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/></svg>
-                        </button>
-                    </div>
+                    <input type="password" name="new_password" id="id_new_password" required minlength="8" class="change-pw-field">
                 </div>
                 <div class="form-group">
                     <label for="id_confirm_password">Confirm New Password</label>
-                    <div class="password-wrapper">
-                        <input type="password" name="confirm_password" id="id_confirm_password" required minlength="8">
-                        <button type="button" class="password-toggle" aria-label="Show password">
-                            <svg class="eye-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                            <svg class="eye-off-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/></svg>
-                        </button>
-                    </div>
+                    <input type="password" name="confirm_password" id="id_confirm_password" required minlength="8" class="change-pw-field">
                 </div>
-                <button type="submit" class="submit-btn">Change Password</button>
+                <div class="form-actions">
+                    <button type="submit" class="submit-btn">Change Password</button>
+                    <button type="button" class="password-toggle" id="change-pw-reveal" aria-label="Show passwords">
+                        <svg class="eye-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        <svg class="eye-off-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/></svg>
+                    </button>
+                </div>
             </form>
 
             <div class="meta-info">
@@ -599,7 +603,25 @@
         </div>
     </div>
     <script>
-        document.querySelectorAll('.password-toggle').forEach(btn => {
+        // Single toggle for change-password form (reveals all three fields)
+        const changePwReveal = document.getElementById('change-pw-reveal');
+        if (changePwReveal) {
+            changePwReveal.addEventListener('click', function() {
+                const fields = document.querySelectorAll('.change-pw-field');
+                const eyeIcon = this.querySelector('.eye-icon');
+                const eyeOffIcon = this.querySelector('.eye-off-icon');
+                const isHidden = fields[0]?.type === 'password';
+                const newType = isHidden ? 'text' : 'password';
+
+                fields.forEach(f => { f.type = newType; });
+                eyeIcon.style.display = isHidden ? 'none' : 'block';
+                eyeOffIcon.style.display = isHidden ? 'block' : 'none';
+                this.setAttribute('aria-label', isHidden ? 'Hide passwords' : 'Show passwords');
+            });
+        }
+
+        // Per-field toggles (used by the .p12 password field)
+        document.querySelectorAll('.password-wrapper .password-toggle').forEach(btn => {
             btn.addEventListener('click', function() {
                 const wrapper = this.closest('.password-wrapper');
                 const input = wrapper.querySelector('input');
