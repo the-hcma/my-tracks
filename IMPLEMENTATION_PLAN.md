@@ -297,14 +297,91 @@ Full TLS integration: server certificate presentation + client certificate authe
 
 ## Upcoming Work
 
-### Phase 6, Step 5: TLS Hot-Reload ← NEXT
+### Phase 7: Production Containerization ← NEXT
+
+Package the application as a production-ready container image deployable on a CentOS 8+ host, with proper database, TLS termination, and a one-command deployment script.
+
+**Step 1: PostgreSQL Support**
+- Wire `DATABASE_URL` env var into `config/settings.py` using `dj-database-url`
+- Default: SQLite for development, PostgreSQL for production
+- Add migration and data-export helpers for SQLite → PostgreSQL migration
+- `psycopg2-binary` already in `pyproject.toml`
+
+**Step 2: Production Settings Hardening**
+- `SECRET_KEY` — fail loudly if unset when `DEBUG=False`
+- `ALLOWED_HOSTS` — require explicit setting in production (remove `netifaces` auto-detect when `DEBUG=False`)
+- `CSRF_TRUSTED_ORIGINS` — require explicit setting for HTTPS origins
+- `SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')` when behind nginx
+- `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE` = True in production
+- Separate `config/settings_prod.py` or env-driven conditional blocks
+
+**Step 3: Dockerfile & Image Build**
+- Multi-stage build:
+  1. **Node stage**: `npm ci && npm run build` (produces JS/CSS bundles)
+  2. **Python stage**: `uv sync`, `collectstatic`, copy app code
+  3. **Runtime stage**: minimal base, copy venv + staticfiles + app
+- Base image: Python 3.14 on a slim/bookworm base (CentOS 8 host runs the container, image itself can be Debian-based)
+- Single container runs Daphne + embedded MQTT broker (same process model as today)
+- Exposed ports: `8080` (HTTP/WS, internal only), `8883` (MQTT TLS, internet-facing)
+- Health check endpoint: `GET /api/health/` (new, lightweight)
+- Non-root user inside container
+- `.dockerignore` to exclude dev artifacts, `.venv`, `node_modules`, `db.sqlite3`
+
+**Step 4: Docker Compose Stack**
+- `docker-compose.yml` with three services:
+  1. **nginx** — TLS termination (HTTPS on 443), reverse proxy to my-tracks:8080, WebSocket upgrade headers, static file caching headers
+  2. **my-tracks** — the application container (HTTP 8080 internal, MQTT TLS 8883 exposed)
+  3. **postgres** — PostgreSQL 17 with persistent volume
+- Nginx config:
+  - HTTPS (443) → proxy to my-tracks:8080 (HTTP + WebSocket)
+  - MQTT TLS (8883) → passthrough directly to my-tracks:8883 (TCP stream, not HTTP)
+  - Plain MQTT (1883) NOT exposed to the internet
+  - HTTP (80) → redirect to HTTPS
+- Volumes: `postgres-data`, `certs` (nginx TLS certs), `logs`
+- Environment file (`.env.production`) template with all required variables
+
+**Step 5: Deployment Script**
+- `deploy` script (bash, following project conventions):
+  - Generates `SECRET_KEY` if not set
+  - Generates self-signed nginx TLS cert or prompts for Let's Encrypt / existing cert
+  - Creates `.env.production` from template with guided prompts
+  - Pulls/builds image, runs `docker compose up -d`
+  - Runs `migrate` inside the container
+  - Creates initial admin user if first deployment
+  - Prints summary: URLs, ports, credentials
+- `deploy --update` for pulling new image + migrate + restart
+- `deploy --backup` for database dump
+
+**Step 6: Container Registry**
+- Publish image to GitHub Container Registry (`ghcr.io/the-hcma/my-tracks`)
+- CI/CD: add GitHub Actions workflow to build and push image on release tags
+- Semantic versioning: tag images as `latest`, `vX.Y.Z`
+- Multi-arch build (amd64 + arm64) for broad host compatibility
+
+**Step 7: Network Hardening**
+- Only exposed ports on host: `443` (HTTPS) and `8883` (MQTT TLS)
+- HTTP 8080 and plain MQTT 1883 are internal to the Docker network only
+- Nginx rate limiting on login endpoint
+- Firewall guidance in deployment docs (firewalld for CentOS 8)
+
+**Step 8: Documentation**
+- `DEPLOYMENT.md` with:
+  - Prerequisites (Docker, Docker Compose, CentOS 8+)
+  - Quick start (one-command deploy)
+  - Configuration reference (all env vars)
+  - TLS certificate setup (self-signed vs Let's Encrypt vs custom)
+  - Backup and restore
+  - Upgrading to new versions
+  - Troubleshooting
+
+### Phase 6, Step 5: TLS Hot-Reload
 
 - **TLS certificate hot-reload** (TODO)
   - When a new CA or server certificate is generated via the admin panel, the MQTT broker should detect the change and reload its TLS context automatically — currently requires a full server restart
   - Options: file watcher on temp cert files, database change signal, or explicit "reload TLS" admin action
   - CRL refresh on revocation should also be automatic
 
-### Phase 7: Advanced Integration
+### Phase 8: Advanced Integration
 1. **Transition events** — Handle region enter/exit events, store transition history
 2. **Waypoints sync** — Connect waypoint storage to command API, allow UI to send waypoints to devices
 3. **Friends feature** — Handle card messages (`_type: "card"`), friend relationship model, filtered location broadcasts, friend list API, WebSocket permission filtering
