@@ -28,14 +28,15 @@ This document defines the four specialized agents for the My Tracks project.
 2. **Wait for CI/CD**: Poll GitHub Actions frequently (every 5 seconds) until all checks pass
 3. **User Testing**: After CI passes, inform user that PR is ready for manual testing
 4. **User Approval**: Wait for explicit user approval before proceeding
-5. **Merge PR**: Only after user approval, merge the PR using squash method
-6. **Cleanup**: Delete feature branch and update local main
+5. **Submit to merge queue**: Only after user approval, add the `merge-it` label to submit the PR to the Graphite merge queue: `gh pr edit <pr-number> --add-label "merge-it"`
+6. **Cleanup**: After merge completes, `gt sync --force` to update local main and clean up branches
 
 **DO NOT**:
 - ❌ Create PR before all quality gates pass
 - ❌ Ask user to test before CI/CD passes
 - ❌ Merge PR without explicit user approval
 - ❌ Skip waiting for CI/CD checks
+- ❌ **NEVER merge PRs directly** (`gh pr merge`, GitHub merge button, etc.) — always use the `merge-it` label to submit to the merge queue
 
 **Branch Workflow** (CRITICAL - Use Graphite CLI):
 - ✅ **ALWAYS** use Graphite CLI for branch and PR management
