@@ -40,6 +40,45 @@ class TLSConfig:
     crl_pem: bytes | None = None
 
 
+def _tls_exception_handler(
+    loop: asyncio.AbstractEventLoop,
+    context: dict[str, Any],
+    original_handler: Any,
+) -> None:
+    """Asyncio exception handler that logs TLS handshake failures.
+
+    When ``asyncio.start_server`` is used with an ``ssl`` context,
+    failed TLS handshakes never reach the ``stream_connected`` callback.
+    Instead asyncio dispatches them through the event-loop exception
+    handler, which by default only emits a DEBUG-level message to the
+    ``asyncio`` logger -- invisible in production.
+
+    This handler intercepts SSL-related exceptions and logs them at
+    WARNING level so operators can diagnose client connection failures.
+    All non-SSL exceptions are forwarded to the original handler.
+    """
+    exception = context.get("exception")
+    if isinstance(exception, (ssl.SSLError, ssl.SSLCertVerificationError, ConnectionResetError)):
+        transport = context.get("transport")
+        peername = "unknown"
+        if transport is not None:
+            try:
+                peer = transport.get_extra_info("peername")
+                if peer:
+                    peername = f"{peer[0]}:{peer[1]}"
+            except Exception:
+                pass
+        logger.warning(
+            "[MQTT TLS] Handshake failed from %s: %s",
+            peername, exception,
+        )
+        return
+    if callable(original_handler):
+        original_handler(context)
+    else:
+        loop.default_exception_handler(context)
+
+
 class _CRLBroker(Broker):
     """Broker subclass that enforces mutual TLS with optional CRL checking.
 
@@ -53,6 +92,7 @@ class _CRLBroker(Broker):
     """
 
     _crl_pem: bytes | None = None
+    _original_exception_handler: Any = None
 
     @staticmethod
     def _create_ssl_context(listener: Any) -> ssl.SSLContext:
@@ -68,6 +108,24 @@ class _CRLBroker(Broker):
             ctx.verify_flags |= ssl.VERIFY_CRL_CHECK_LEAF
             logger.info("CRL enforcement enabled for revocation checking")
         return ctx
+
+    async def start(self) -> None:
+        """Start the broker and install the TLS exception handler."""
+        await super().start()
+        loop = asyncio.get_running_loop()
+        _CRLBroker._original_exception_handler = loop.get_exception_handler()
+        loop.set_exception_handler(
+            lambda loop, ctx: _tls_exception_handler(
+                loop, ctx, _CRLBroker._original_exception_handler,
+            )
+        )
+
+    async def shutdown(self) -> None:
+        """Shutdown the broker and restore the original exception handler."""
+        loop = asyncio.get_running_loop()
+        loop.set_exception_handler(_CRLBroker._original_exception_handler)
+        _CRLBroker._original_exception_handler = None
+        await super().shutdown()
 
 
 def get_default_config(
@@ -103,7 +161,7 @@ def get_default_config(
         (e.g. ``AnonymousAuthPlugin`` or ``DjangoAuthPlugin``).
     """
     plugins: dict[str, dict[str, Any]] = {
-        "amqtt.plugins.sys.broker.BrokerSysPlugin": {},
+        "amqtt.plugins.sys.broker.BrokerSysPlugin": {"sys_interval": 30},
     }
 
     if use_django_auth and not allow_anonymous:
@@ -139,7 +197,6 @@ def get_default_config(
 
     return {
         "listeners": listeners,
-        "sys_interval": 30,
         "plugins": plugins,
     }
 
