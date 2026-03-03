@@ -145,11 +145,11 @@
             align-items: center;
             gap: 0.3rem;
             padding: 0.25rem 0.5rem;
-            background: var(--accent-light, #e3f2fd);
+            background: var(--input-bg);
             color: var(--text);
-            border: 1px solid var(--border);
+            border: 1px solid var(--accent);
             border-radius: 4px;
-            font-size: 0.8rem;
+            font-size: 0.85rem;
             font-family: monospace;
         }
 
@@ -202,8 +202,7 @@
 
         .san-cell {
             font-size: 0.8rem;
-            max-width: 220px;
-            word-break: break-word;
+            white-space: nowrap;
         }
 
         .san-host-warning {
@@ -1192,7 +1191,7 @@
                                     <span class="status-pill inactive">inactive</span>
                                 {% endif %}
                             </td>
-                            <td class="san-cell">{{ sc.san_entries|join:", " }}</td>
+                            <td class="san-cell">{% for san in sc.san_entries %}{{ san }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</td>
                             <td>{{ sc.key_size }}-bit</td>
                             <td>{{ sc.issuing_ca.common_name }}</td>
                             <td>{{ sc.not_valid_after|date:"Y-m-d" }}</td>
