@@ -150,6 +150,37 @@ class TestGetHttpPort:
             assert_that(get_http_port(), is_(equal_to(0)))
 
 
+class TestGetMqttTlsPort:
+    """Tests for get_mqtt_tls_port function."""
+
+    def test_default_tls_port(self, tmp_path: Path) -> None:
+        """Returns 8883 (standard MQTT TLS) when config file doesn't exist."""
+        from config.runtime import get_mqtt_tls_port
+
+        with patch("config.runtime.CONFIG_FILE", tmp_path / "nonexistent.json"):
+            assert_that(get_mqtt_tls_port(), is_(equal_to(8883)))
+
+    def test_custom_tls_port(self, tmp_path: Path) -> None:
+        """Returns custom TLS port from config file."""
+        from config.runtime import get_mqtt_tls_port
+
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"mqtt_tls_port": 8883}))
+
+        with patch("config.runtime.CONFIG_FILE", config_file):
+            assert_that(get_mqtt_tls_port(), is_(equal_to(8883)))
+
+    def test_tls_port_disabled(self, tmp_path: Path) -> None:
+        """Returns -1 when TLS is explicitly disabled."""
+        from config.runtime import get_mqtt_tls_port
+
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"mqtt_tls_port": -1}))
+
+        with patch("config.runtime.CONFIG_FILE", config_file):
+            assert_that(get_mqtt_tls_port(), is_(equal_to(-1)))
+
+
 class TestActualPortFunctions:
     """Tests for get_actual_mqtt_port and get_actual_http_port."""
 
@@ -212,6 +243,7 @@ class TestMqttBrokerStartup:
             patch.object(apps_module, "CONFIG_FILE", config_file),
             patch.object(apps_module, "_is_management_command", return_value=False),
             patch.object(apps_module, "get_mqtt_port", return_value=1883),
+            patch.object(apps_module, "get_mqtt_tls_port", return_value=-1),
             patch.object(apps_module._state, "thread", None),
             patch("threading.Thread", mock_thread_class),
             patch("atexit.register") as mock_atexit,
@@ -225,7 +257,7 @@ class TestMqttBrokerStartup:
         call_kwargs = mock_thread_class.call_args[1]
         assert_that(call_kwargs["daemon"], is_(True))
         assert_that(call_kwargs["name"], is_(equal_to("mqtt-broker")))
-        assert_that(call_kwargs["args"], is_(equal_to((1883,))))
+        assert_that(call_kwargs["args"], is_(equal_to((1883, -1))))
         mock_thread_instance.start.assert_called_once()
         mock_atexit.assert_called_once()
 
@@ -257,6 +289,7 @@ class TestMqttBrokerStartup:
             patch.object(apps_module, "CONFIG_FILE", config_file),
             patch.object(apps_module, "_is_management_command", return_value=False),
             patch.object(apps_module, "get_mqtt_port", return_value=-1),
+            patch.object(apps_module, "get_mqtt_tls_port", return_value=-1),
             patch("threading.Thread") as mock_thread_class,
         ):
             from my_tracks.apps import MyTracksConfig
@@ -281,6 +314,7 @@ class TestMqttBrokerStartup:
             patch.object(apps_module, "CONFIG_FILE", config_file),
             patch.object(apps_module, "_is_management_command", return_value=False),
             patch.object(apps_module, "get_mqtt_port", return_value=0),
+            patch.object(apps_module, "get_mqtt_tls_port", return_value=-1),
             patch.object(apps_module._state, "thread", None),
             patch("threading.Thread", mock_thread_class),
             patch("atexit.register"),
@@ -291,7 +325,7 @@ class TestMqttBrokerStartup:
             app_config.ready()
 
         call_kwargs = mock_thread_class.call_args[1]
-        assert_that(call_kwargs["args"], is_(equal_to((0,))))
+        assert_that(call_kwargs["args"], is_(equal_to((0, -1))))
         mock_thread_instance.start.assert_called_once()
 
 

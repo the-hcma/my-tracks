@@ -12,6 +12,9 @@ The broker handles OwnTracks MQTT protocol for:
 
 import asyncio
 import logging
+import ssl
+import tempfile
+from dataclasses import dataclass
 from typing import Any
 
 from amqtt.broker import Broker
@@ -23,9 +26,48 @@ logger = logging.getLogger(__name__)
 _SHUTDOWN_POLL_INTERVAL_SECONDS = 0.1
 
 
+@dataclass
+class TLSConfig:
+    """TLS configuration for the MQTT broker.
+
+    Holds PEM-encoded certificates and keys needed to set up
+    a TLS listener with optional client certificate verification.
+    """
+
+    server_cert_pem: bytes
+    server_key_pem: bytes
+    ca_cert_pem: bytes
+    crl_pem: bytes | None = None
+
+
+class _CRLBroker(Broker):
+    """Broker subclass that adds CRL verification to the TLS context.
+
+    amqtt's ``_create_ssl_context`` hardcodes ``CERT_OPTIONAL`` and
+    has no hook for CRL loading.  This override keeps the parent
+    behaviour but loads the CRL into the trust store and enables
+    leaf-level revocation checking.
+    """
+
+    _crl_pem: bytes | None = None
+
+    @staticmethod
+    def _create_ssl_context(listener: Any) -> ssl.SSLContext:
+        ctx = Broker._create_ssl_context(listener)
+        if _CRLBroker._crl_pem is not None:
+            ctx.load_verify_locations(cadata=_CRLBroker._crl_pem.decode("ascii"))
+            ctx.verify_flags |= ssl.VERIFY_CRL_CHECK_LEAF
+            logger.info("CRL loaded into TLS context for revocation checking")
+        return ctx
+
+
 def get_default_config(
     mqtt_port: int = 1883,
     mqtt_ws_port: int = 8083,
+    mqtt_tls_port: int = -1,
+    tls_certfile: str | None = None,
+    tls_keyfile: str | None = None,
+    tls_cafile: str | None = None,
     allow_anonymous: bool = True,
     use_django_auth: bool = False,
     use_owntracks_handler: bool = True,
@@ -36,6 +78,10 @@ def get_default_config(
     Args:
         mqtt_port: TCP port for MQTT connections (default: 1883)
         mqtt_ws_port: WebSocket port for MQTT over WS (default: 8083)
+        mqtt_tls_port: TCP port for MQTT over TLS (default: -1 = disabled)
+        tls_certfile: Path to server certificate PEM file (required when TLS enabled)
+        tls_keyfile: Path to server private key PEM file (required when TLS enabled)
+        tls_cafile: Path to CA certificate PEM file for client cert verification
         allow_anonymous: Allow anonymous connections (default: True for initial setup)
         use_django_auth: Use Django authentication plugin (default: False)
         use_owntracks_handler: Use OwnTracks message handler plugin (default: True)
@@ -49,42 +95,49 @@ def get_default_config(
         by including an auth plugin directly in the ``plugins`` dict
         (e.g. ``AnonymousAuthPlugin`` or ``DjangoAuthPlugin``).
     """
-    # Use dict-style plugin config so each plugin can receive its own
-    # configuration dataclass via dacite.
     plugins: dict[str, dict[str, Any]] = {
         "amqtt.plugins.sys.broker.BrokerSysPlugin": {},
     }
 
-    # Add authentication plugin — amqtt requires at least one
-    # BaseAuthPlugin in the plugins dict, otherwise _authenticate()
-    # rejects every connection ("no plugin responded with a boolean").
     if use_django_auth and not allow_anonymous:
         plugins["my_tracks.mqtt.auth.DjangoAuthPlugin"] = {}
     else:
-        # AnonymousAuthPlugin.Config defaults allow_anonymous=True;
-        # pass it explicitly for clarity.
         plugins["amqtt.plugins.authentication.AnonymousAuthPlugin"] = {
             "allow_anonymous": allow_anonymous,
         }
 
-    # Add OwnTracks handler plugin if requested (requires Django)
     if use_owntracks_handler:
         plugins["my_tracks.mqtt.plugin.OwnTracksPlugin"] = {}
 
-    return {
-        "listeners": {
-            "default": {
-                "type": "tcp",
-                "bind": f"0.0.0.0:{mqtt_port}",
-                "max_connections": 100,
-            },
-            "ws-mqtt": {
-                "type": "ws",
-                "bind": f"0.0.0.0:{mqtt_ws_port}",
-                "max_connections": 50,
-            },
+    listeners: dict[str, dict[str, Any]] = {
+        "default": {
+            "type": "tcp",
+            "bind": f"0.0.0.0:{mqtt_port}",
+            "max_connections": 100,
         },
-        "sys_interval": 30,  # $SYS topic update interval in seconds
+        "ws-mqtt": {
+            "type": "ws",
+            "bind": f"0.0.0.0:{mqtt_ws_port}",
+            "max_connections": 50,
+        },
+    }
+
+    if mqtt_tls_port >= 0 and tls_certfile and tls_keyfile:
+        tls_listener: dict[str, Any] = {
+            "type": "tcp",
+            "bind": f"0.0.0.0:{mqtt_tls_port}",
+            "ssl": True,
+            "certfile": tls_certfile,
+            "keyfile": tls_keyfile,
+            "max_connections": 100,
+        }
+        if tls_cafile:
+            tls_listener["cafile"] = tls_cafile
+        listeners["mqtt-tls"] = tls_listener
+
+    return {
+        "listeners": listeners,
+        "sys_interval": 30,
         "plugins": plugins,
     }
 
@@ -107,6 +160,8 @@ class MQTTBroker:
         self,
         mqtt_port: int = 1883,
         mqtt_ws_port: int = 8083,
+        mqtt_tls_port: int = -1,
+        tls_config: TLSConfig | None = None,
         allow_anonymous: bool = True,
         use_django_auth: bool = False,
         use_owntracks_handler: bool = True,
@@ -118,6 +173,8 @@ class MQTTBroker:
         Args:
             mqtt_port: TCP port for MQTT connections
             mqtt_ws_port: WebSocket port for MQTT over WS
+            mqtt_tls_port: TCP port for MQTT over TLS (-1 = disabled)
+            tls_config: TLS certificate configuration (required when mqtt_tls_port >= 0)
             allow_anonymous: Allow anonymous connections
             use_django_auth: Use Django authentication plugin for user auth
             use_owntracks_handler: Use OwnTracks message handler plugin (requires Django)
@@ -125,9 +182,19 @@ class MQTTBroker:
         """
         self.mqtt_port = mqtt_port
         self.mqtt_ws_port = mqtt_ws_port
+        self.mqtt_tls_port = mqtt_tls_port
+        self.tls_config = tls_config
         self.allow_anonymous = allow_anonymous
         self.use_django_auth = use_django_auth
         self.use_owntracks_handler = use_owntracks_handler
+
+        self._tls_temp_files: list[tempfile.NamedTemporaryFile] = []  # type: ignore[type-arg]
+        self._tls_certfile: str | None = None
+        self._tls_keyfile: str | None = None
+        self._tls_cafile: str | None = None
+
+        if tls_config and mqtt_tls_port >= 0:
+            self._setup_tls_files(tls_config)
 
         if config is not None:
             self._config = config
@@ -135,6 +202,10 @@ class MQTTBroker:
             self._config = get_default_config(
                 mqtt_port=mqtt_port,
                 mqtt_ws_port=mqtt_ws_port,
+                mqtt_tls_port=mqtt_tls_port,
+                tls_certfile=self._tls_certfile,
+                tls_keyfile=self._tls_keyfile,
+                tls_cafile=self._tls_cafile,
                 allow_anonymous=allow_anonymous,
                 use_django_auth=use_django_auth,
                 use_owntracks_handler=use_owntracks_handler,
@@ -144,6 +215,45 @@ class MQTTBroker:
         self._running = False
         self._actual_mqtt_port: int | None = None
         self._actual_ws_port: int | None = None
+        self._actual_tls_port: int | None = None
+
+    def _setup_tls_files(self, tls_config: TLSConfig) -> None:
+        """Write TLS certificates to temporary files for amqtt.
+
+        amqtt requires file paths, not in-memory PEM data.
+        Files are cleaned up when the broker stops.
+        """
+        cert_file = tempfile.NamedTemporaryFile(suffix=".pem", delete=False)
+        cert_file.write(tls_config.server_cert_pem)
+        cert_file.flush()
+        self._tls_temp_files.append(cert_file)
+        self._tls_certfile = cert_file.name
+
+        key_file = tempfile.NamedTemporaryFile(suffix=".pem", delete=False)
+        key_file.write(tls_config.server_key_pem)
+        key_file.flush()
+        self._tls_temp_files.append(key_file)
+        self._tls_keyfile = key_file.name
+
+        ca_data = tls_config.ca_cert_pem
+        if tls_config.crl_pem:
+            ca_data = ca_data + b"\n" + tls_config.crl_pem
+        ca_file = tempfile.NamedTemporaryFile(suffix=".pem", delete=False)
+        ca_file.write(ca_data)
+        ca_file.flush()
+        self._tls_temp_files.append(ca_file)
+        self._tls_cafile = ca_file.name
+
+    def _cleanup_tls_files(self) -> None:
+        """Remove temporary TLS certificate files."""
+        import os as _os
+
+        for f in self._tls_temp_files:
+            try:
+                _os.unlink(f.name)
+            except OSError:
+                pass
+        self._tls_temp_files.clear()
 
     @property
     def is_running(self) -> bool:
@@ -229,6 +339,28 @@ class MQTTBroker:
         # Fall back to configured port when running but discovery failed
         return self.mqtt_ws_port
 
+    @property
+    def actual_tls_port(self) -> int | None:
+        """
+        Get the actual MQTT TLS port after startup.
+
+        Returns None if TLS is disabled, broker hasn't started, or
+        port discovery failed.
+        """
+        if self.mqtt_tls_port < 0:
+            return None
+        if self._actual_tls_port is not None:
+            return self._actual_tls_port
+        if self._broker is None:
+            return None
+
+        port = self._discover_port("mqtt-tls")
+        if port is not None:
+            self._actual_tls_port = port
+            return port
+
+        return self.mqtt_tls_port
+
     async def start(self) -> None:
         """
         Start the MQTT broker.
@@ -242,13 +374,16 @@ class MQTTBroker:
         if self._running:
             raise RuntimeError("MQTT broker is already running")
 
-        logger.info(
-            "Starting MQTT broker on ports %d (TCP) and %d (WebSocket)",
-            self.mqtt_port,
-            self.mqtt_ws_port,
-        )
+        ports_msg = f"ports {self.mqtt_port} (TCP) and {self.mqtt_ws_port} (WebSocket)"
+        if self.mqtt_tls_port >= 0:
+            ports_msg += f" and {self.mqtt_tls_port} (TLS)"
+        logger.info("Starting MQTT broker on %s", ports_msg)
 
-        self._broker = Broker(self._config)
+        if self.tls_config and self.tls_config.crl_pem:
+            _CRLBroker._crl_pem = self.tls_config.crl_pem
+            self._broker = _CRLBroker(self._config)
+        else:
+            self._broker = Broker(self._config)
         await self._broker.start()
         self._running = True
 
@@ -271,6 +406,8 @@ class MQTTBroker:
         await self._broker.shutdown()
         self._broker = None
         self._running = False
+        self._cleanup_tls_files()
+        _CRLBroker._crl_pem = None
 
         logger.info("MQTT broker stopped")
 
