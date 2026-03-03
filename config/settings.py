@@ -233,12 +233,12 @@ class AmqttConnectionFilter(logging.Filter):
     """Rewrite amqtt's ambiguous 'connections acquired' messages."""
 
     _prev_count: dict[str, int] = {}
+    _LISTENER_TO_TRANSPORT = {"default": "mqtt", "mqtt-tls": "mqtt-tls"}
 
     def filter(self, record: logging.LogRecord) -> bool:
         msg = str(getattr(record, 'msg', ''))
         if 'connections acquired' not in msg:
             return True
-        # Parse "Listener 'name': N/M connections acquired"
         try:
             parts = msg.split("'")
             listener = parts[1]
@@ -248,10 +248,11 @@ class AmqttConnectionFilter(logging.Filter):
             return True
         prev = self._prev_count.get(listener, 0)
         self._prev_count[listener] = count
+        tag = self._LISTENER_TO_TRANSPORT.get(listener, listener)
         if count > prev:
-            record.msg = f"[{listener}] Client connected ({count} active)"
+            record.msg = f"[{tag}] Client connected ({count} active)"
         else:
-            record.msg = f"[{listener}] Client disconnected ({count} active)"
+            record.msg = f"[{tag}] Client disconnected ({count} active)"
         return True
 
 

@@ -208,6 +208,21 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
         except Exception:
             return None
 
+    def _transport(self, client_id: str) -> str:
+        """Return the transport tag for a client: ``mqtt-tls`` or ``mqtt``."""
+        if client_id in self._client_tls:
+            ssl_obj = self._get_handler_writer_ssl(client_id)
+            if ssl_obj is not None or self._client_tls[client_id] is not None:
+                return "mqtt-tls"
+        return "mqtt"
+
+    def _identity(self, client_id: str) -> str:
+        """Return TLS identity suffix like ``(CN=hcma [AA:BB:CC:DD])`` or ``""``."""
+        tls_info = self._client_tls.get(client_id)
+        if tls_info is not None:
+            return f" ({tls_info})"
+        return ""
+
     async def on_broker_client_connected(
         self,
         *,
@@ -223,18 +238,18 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
             self._client_tls[client_id] = tls_info
             if tls_info:
                 logger.info(
-                    "[MQTT] Client connected: %s from %s via TLS (%s)",
+                    "[mqtt-tls] Client connected: %s from %s (%s)",
                     client_id, addr, tls_info,
                 )
             else:
                 logger.info(
-                    "[MQTT] Client connected: %s from %s via TLS (no client cert)",
+                    "[mqtt-tls] Client connected: %s from %s (no client cert)",
                     client_id, addr,
                 )
         else:
             self._client_tls[client_id] = None
             logger.info(
-                "[MQTT] Client connected: %s from %s (non-TLS)",
+                "[mqtt] Client connected: %s from %s",
                 client_id, addr,
             )
 
@@ -245,18 +260,10 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
         client_session: Session,
     ) -> None:
         """Clean up cached TLS info on disconnect."""
-        tls_info = self._client_tls.pop(client_id, None)
-        tag = f" TLS ({tls_info})" if tls_info else " (non-TLS)"
-        logger.info("[MQTT] Client disconnected: %s%s", client_id, tag)
-
-    def _tls_tag(self, client_id: str) -> str:
-        """Return a short TLS descriptor for log messages."""
-        tls_info = self._client_tls.get(client_id)
-        if tls_info is not None:
-            return f"TLS {tls_info}"
-        if client_id in self._client_tls:
-            return "non-TLS"
-        return "unknown"
+        transport = self._transport(client_id)
+        identity = self._identity(client_id)
+        self._client_tls.pop(client_id, None)
+        logger.info("[%s] Client disconnected: %s%s", transport, client_id, identity)
 
     async def _handle_location(self, location_data: dict[str, Any]) -> None:
         """
@@ -264,31 +271,36 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
 
         Saves to database and broadcasts via WebSocket.
         """
+        transport = location_data.get("transport", "mqtt")
+        identity = location_data.get("tls_identity", "")
+
         logger.debug(
-            "Processing MQTT location: device=%s, lat=%s, lon=%s",
+            "[%s] Processing location: device=%s, lat=%s, lon=%s",
+            transport,
             location_data.get("device"),
             location_data.get("latitude"),
             location_data.get("longitude"),
         )
 
-        # Save to database (sync operation wrapped for async)
         serialized = await sync_to_async(save_location_to_db)(location_data)
         if serialized is None:
             return
 
         logger.info(
-            "[MQTT] Location saved: id=%s, device=%s (%s)",
+            "[%s] Location saved: id=%s, device=%s%s",
+            transport,
             serialized.get("id"),
             serialized.get("device_id_display"),
-            location_data.get("tls_tag", "unknown"),
+            identity,
         )
 
         logger.info(
-            "[MQTT] 📡 Broadcasting location to WebSocket (id=%s, device=%s)",
+            "[%s] Broadcasting location to WebSocket (id=%s, device=%s)",
+            transport,
             serialized.get("id"),
             serialized.get("device_id_display"),
         )
-        await self._broadcast_location(serialized)
+        await self._broadcast_location(serialized, transport=transport)
 
     async def _handle_lwt(self, lwt_data: dict[str, Any]) -> None:
         """
@@ -297,23 +309,25 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
         LWT messages indicate a device has gone offline. This marks the
         device as offline in the database and broadcasts the status change.
         """
+        transport = lwt_data.get("transport", "mqtt")
+
         logger.info(
-            "[MQTT] Device offline via LWT: device=%s",
+            "[%s] Device offline via LWT: device=%s",
+            transport,
             lwt_data.get("device"),
         )
 
-        # Save LWT to database and mark device offline
         status_data = await sync_to_async(save_lwt_to_db)(lwt_data)
         if status_data is None:
             return
 
         logger.info(
-            "[MQTT] Device marked offline: device=%s",
+            "[%s] Device marked offline: device=%s",
+            transport,
             status_data.get("device_id"),
         )
 
-        # Broadcast device status change via WebSocket
-        await self._broadcast_device_status(status_data)
+        await self._broadcast_device_status(status_data, transport=transport)
 
     async def _handle_transition(self, transition_data: dict[str, Any]) -> None:
         """
@@ -321,25 +335,29 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
 
         Transition messages indicate region enter/exit events.
         """
+        transport = transition_data.get("transport", "mqtt")
+        identity = transition_data.get("tls_identity", "")
+
         logger.info(
-            "[MQTT] Transition: device=%s, event=%s, region=%s (%s)",
+            "[%s] Transition: device=%s, event=%s, region=%s%s",
+            transport,
             transition_data.get("device"),
             transition_data.get("event"),
             transition_data.get("description"),
-            transition_data.get("tls_tag", "unknown"),
+            identity,
         )
         # TODO: Store transition events when model supports it
 
-    async def _broadcast_location(self, location_data: dict[str, Any]) -> None:
-        """
-        Broadcast a location update to WebSocket clients.
-
-        Args:
-            location_data: Serialized location data to broadcast
-        """
+    async def _broadcast_location(
+        self,
+        location_data: dict[str, Any],
+        *,
+        transport: str = "mqtt",
+    ) -> None:
+        """Broadcast a location update to WebSocket clients."""
         channel_layer = get_channel_layer_lazy()
         if channel_layer is None:
-            logger.warning("WebSocket broadcast skipped: no channel layer configured")
+            logger.warning("[%s] WebSocket broadcast skipped: no channel layer", transport)
             return
 
         try:
@@ -351,22 +369,23 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
                 },
             )
             logger.info(
-                "[MQTT] ✅ WebSocket broadcast completed for location %s",
+                "[%s] WebSocket broadcast completed for location %s",
+                transport,
                 location_data.get("id"),
             )
         except Exception:
-            logger.exception("[MQTT] WebSocket broadcast failed")
+            logger.exception("[%s] WebSocket broadcast failed", transport)
 
-    async def _broadcast_device_status(self, status_data: dict[str, Any]) -> None:
-        """
-        Broadcast a device status change to WebSocket clients.
-
-        Args:
-            status_data: Device status data including device_id and is_online
-        """
+    async def _broadcast_device_status(
+        self,
+        status_data: dict[str, Any],
+        *,
+        transport: str = "mqtt",
+    ) -> None:
+        """Broadcast a device status change to WebSocket clients."""
         channel_layer = get_channel_layer_lazy()
         if channel_layer is None:
-            logger.warning("WebSocket broadcast skipped: no channel layer configured")
+            logger.warning("[%s] WebSocket broadcast skipped: no channel layer", transport)
             return
 
         try:
@@ -378,12 +397,13 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
                 },
             )
             logger.info(
-                "[MQTT] ✅ WebSocket broadcast completed for device status: device=%s, online=%s",
+                "[%s] WebSocket broadcast completed for device status: device=%s, online=%s",
+                transport,
                 status_data.get("device_id"),
                 status_data.get("is_online"),
             )
         except Exception:
-            logger.exception("[MQTT] WebSocket broadcast failed for device status")
+            logger.exception("[%s] WebSocket broadcast failed for device status", transport)
 
     # -- Protocol version check ------------------------------------------
 
@@ -446,24 +466,24 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
         if not topic.startswith("owntracks/"):
             return
 
-        tls_tag = self._tls_tag(client_id)
+        transport = self._transport(client_id)
+        identity = self._identity(client_id)
         logger.debug(
-            "MQTT message received: client=%s (%s), topic=%s, size=%d",
+            "[%s] Message received: client=%s%s, topic=%s, size=%d",
+            transport,
             client_id,
-            tls_tag,
+            identity,
             topic,
             len(message.data) if message.data else 0,
         )
 
-        # Look up client IP from broker session
         client_ip: str | None = None
         session = self.context.get_session(client_id)
         if session is not None:
             client_ip = session.remote_address
 
-        # Process through OwnTracks handler
-        # Convert bytearray to bytes if needed
         payload = bytes(message.data) if isinstance(message.data, bytearray) else message.data
         await self._handler.handle_message(
-            topic, payload, client_ip=client_ip, tls_tag=tls_tag,
+            topic, payload, client_ip=client_ip,
+            transport=transport, tls_identity=identity,
         )

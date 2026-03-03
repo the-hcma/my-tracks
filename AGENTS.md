@@ -165,6 +165,26 @@ This document defines the four specialized agents for the My Tracks project.
 - Apply to both production code and tests
 - Rationale: Self-documenting, type-safe, prevents typos
 
+**Transport Labels in Log Messages**:
+- Every client-activity log message MUST begin with a lowercase transport tag in brackets
+- Tags identify the protocol and encryption used for the connection:
+  - `[mqtt]` — plain MQTT (TCP)
+  - `[mqtt-tls]` — MQTT over TLS
+  - `[http]` — plain HTTP
+  - `[http-tls]` — HTTP over TLS (future)
+  - `[ws]` — WebSocket
+- Tags are always lowercase, always first, always in brackets
+- TLS identity info follows the action, not the tag: `[mqtt-tls] Location saved: id=42, device=hcma (CN=hcma [AD:BF:AA:5C])`
+- When broadcasting from one transport to another, the tag reflects the **origin** transport: `[mqtt-tls] Broadcasting location to WebSocket ...`
+- Examples:
+  - ✅ `[mqtt-tls] Client connected: hcma from 192.168.1.5 (CN=hcma [AD:BF:AA:5C])`
+  - ✅ `[mqtt] Client connected: hcma from 192.168.1.5`
+  - ✅ `[http] Incoming location request from: 10.0.0.1`
+  - ✅ `[ws] Client connected from 192.168.1.5:54321`
+  - ❌ `[MQTT] Client connected: hcma from 192.168.1.5 via TLS (CN=...)` (uppercase, verbose)
+  - ❌ `WebSocket client connected from 192.168.1.5` (no transport tag)
+- Rationale: Consistent, scannable logs; easy to grep by transport; clear origin tracking
+
 **Shell Script Convention**:
 - All shell scripts MUST be created without the `.sh` extension
 - Use hyphens for multi-word script names (kebab-case)
@@ -329,6 +349,7 @@ This document defines the four specialized agents for the My Tracks project.
 - [ ] Naming conventions followed (values, descriptive mappings)
 - [ ] No dead code (unused methods, variables, imports, or parameters)
 - [ ] **No module-level mutable state** (use holder classes, no `global` keyword)
+- [ ] **Transport labels in log messages** (client activity uses `[mqtt]`, `[mqtt-tls]`, `[http]`, `[ws]`)
 - [ ] **Empty lines have no whitespace** (run `find . -name "*.py" -type f -exec sed -i '' 's/^[[:space:]]*$//' {} +`)
 - [ ] **Imports are sorted** (run `isort .` to fix)
 - [ ] **No local imports** (all imports at module level — no lazy imports inside functions/methods)
@@ -363,6 +384,7 @@ This document defines the four specialized agents for the My Tracks project.
 - Edge cases from a different angle
 - Look for dead code (unused methods, setup fixtures that never run, unreachable code)
 - **No module-level mutable state** — related state must be grouped into holder classes (no `global` keyword)
+- **Transport labels in log messages** — client activity must use `[mqtt]`, `[mqtt-tls]`, `[http]`, `[ws]` tags
 - Error message quality: ensure exceptions provide context with expected vs actual values
 - **Verify empty lines have no whitespace** (check for trailing spaces)
 - **Verify imports are sorted** (should follow PEP 8 ordering)

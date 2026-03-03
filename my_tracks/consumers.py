@@ -59,8 +59,9 @@ class LocationConsumer(AsyncWebsocketConsumer):
 
         client_addr = self.get_client_address()
         logger.info(
-            f"WebSocket client connected from {client_addr}",
-            extra={"channel": self.channel_name, "client_address": client_addr}
+            "[ws] Client connected from %s",
+            client_addr,
+            extra={"channel": self.channel_name, "client_address": client_addr},
         )
 
         # Send welcome message with server startup timestamp
@@ -77,8 +78,9 @@ class LocationConsumer(AsyncWebsocketConsumer):
 
         client_addr = self.get_client_address()
         logger.info(
-            f"WebSocket client disconnected from {client_addr}",
-            extra={"channel": self.channel_name, "client_address": client_addr, "close_code": close_code}
+            "[ws] Client disconnected from %s",
+            client_addr,
+            extra={"channel": self.channel_name, "client_address": client_addr, "close_code": close_code},
         )
 
     async def location_update(self, event: dict[str, Any]) -> None:
@@ -91,8 +93,9 @@ class LocationConsumer(AsyncWebsocketConsumer):
         location_id = event.get('data', {}).get('id')
         client_addr = self.get_client_address()
         logger.debug(
-            f"Sending location update to WebSocket client at {client_addr}",
-            extra={"channel": self.channel_name, "client_address": client_addr, "location_id": location_id}
+            "[ws] Sending location update to client at %s",
+            client_addr,
+            extra={"channel": self.channel_name, "client_address": client_addr, "location_id": location_id},
         )
         # Send location data to WebSocket client
         await self.send(text_data=json.dumps({
@@ -111,7 +114,7 @@ class LocationConsumer(AsyncWebsocketConsumer):
         is_online = event.get('data', {}).get('is_online')
         client_addr = self.get_client_address()
         logger.debug(
-            "Sending device status to WebSocket client at %s: device=%s, online=%s",
+            "[ws] Sending device status to client at %s: device=%s, online=%s",
             client_addr,
             device_id,
             is_online,

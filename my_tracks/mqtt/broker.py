@@ -72,7 +72,7 @@ def _tls_exception_handler(
             except Exception:
                 pass
         logger.warning(
-            "[MQTT TLS] Handshake failed from %s: %s",
+            "[mqtt-tls] Handshake failed from %s: %s",
             peername, exception,
         )
         return
@@ -156,7 +156,7 @@ class _CRLBroker(Broker):
             if ssl_obj is not None:
                 sans = ", ".join(_CRLBroker._server_cert_sans) or "none"
                 logger.warning(
-                    "[MQTT TLS] Client %s:%s completed TLS handshake but "
+                    "[mqtt-tls] Client %s:%s completed TLS handshake but "
                     "disconnected before sending MQTT data. The client "
                     "likely rejected the server certificate (hostname not "
                     "in SANs, untrusted CA, or expired cert). "
