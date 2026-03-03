@@ -8,7 +8,7 @@ import * as L from 'leaflet';
 import noUiSlider, { type API as NoUiSliderAPI } from 'nouislider';
 import 'nouislider/dist/nouislider.css';
 import { getPreferredTheme, setTheme, toggleTheme } from './theme';
-import { dateAndMinutesToTimestamps, formatMinutesAsTime, getTodayDateString } from './utils';
+import { dateAndMinutesToTimestamps, extractResultsList, formatMinutesAsTime, getTodayDateString } from './utils';
 
 // Configuration passed from Django template
 interface MyTracksConfig {
@@ -601,8 +601,7 @@ async function refreshDeviceSelector(): Promise<void> {
         }
 
         const data = await response.json();
-        // Handle both paginated ({results: [...]}) and direct array responses
-        const deviceList: DeviceInfo[] = Array.isArray(data) ? data : (data.results || []);
+        const deviceList: DeviceInfo[] = extractResultsList<DeviceInfo>(data);
         const selector = document.getElementById('device-selector') as HTMLSelectElement;
         if (!selector) return;
 
@@ -1900,7 +1899,8 @@ async function requestDeviceLocations(): Promise<void> {
             mqtt_topic_id: string;
             is_online: boolean;
         }
-        const devices: DeviceInfo[] = await devicesResp.json();
+        const data = await devicesResp.json();
+        const devices: DeviceInfo[] = extractResultsList<DeviceInfo>(data);
 
         const mqttDevices = devices.filter(d => d.mqtt_topic_id && d.is_online);
         if (mqttDevices.length === 0) {

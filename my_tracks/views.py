@@ -400,6 +400,8 @@ class CommandViewSet(viewsets.ViewSet):
             )
         device_id = str(raw_device_id)
 
+        logger.info("[http] reportLocation command requested for device %s", device_id)
+
         publisher = self._get_publisher()
 
         try:
@@ -408,17 +410,19 @@ class CommandViewSet(viewsets.ViewSet):
                 Command.report_location(),
             )
         except RuntimeError as e:
-            logger.warning("MQTT broker not available: %s", e)
+            logger.warning("[http] MQTT broker not available for command: %s", e)
             return Response(
                 {"error": "MQTT broker not available", "detail": str(e)},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
         if success:
+            logger.info("[http] reportLocation command sent to %s", device_id)
             return Response(
                 {"status": "command_sent", "device_id": device_id, "command": "reportLocation"},
                 status=status.HTTP_200_OK,
             )
+        logger.warning("[http] reportLocation command failed for %s", device_id)
         return Response(
             {"error": "Failed to send command", "device_id": device_id},
             status=status.HTTP_400_BAD_REQUEST,

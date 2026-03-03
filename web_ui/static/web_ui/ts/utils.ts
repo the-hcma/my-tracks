@@ -220,3 +220,23 @@ export function dateAndMinutesToTimestamps(
     const endTimestamp = dayStart.getTime() / 1000 + endMinutes * 60 + 59;
     return [startTimestamp, endTimestamp];
 }
+
+/**
+ * Extract an array from a potentially paginated API response.
+ *
+ * DRF's LimitOffsetPagination wraps results as `{count, results: [...]}`.
+ * This helper normalises both paginated and plain-array responses into a
+ * flat array so callers don't need to know the response shape.
+ */
+export function extractResultsList<T>(data: unknown): T[] {
+    if (Array.isArray(data)) {
+        return data as T[];
+    }
+    if (data !== null && typeof data === 'object' && 'results' in data) {
+        const results = (data as Record<string, unknown>).results;
+        if (Array.isArray(results)) {
+            return results as T[];
+        }
+    }
+    return [];
+}

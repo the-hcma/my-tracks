@@ -3,6 +3,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
+    extractResultsList,
     hashString,
     formatTime,
     formatDateForTitle,
@@ -379,5 +380,47 @@ describe('dateAndMinutesToTimestamps', () => {
         const [start, end] = dateAndMinutesToTimestamps('2026-02-20', 720, 720);
         // Both at minute 720 but end gets +59 seconds
         expect(end - start).toBe(59);
+    });
+});
+
+describe('extractResultsList', () => {
+    it('returns the array directly when data is already an array', () => {
+        const data = [{ id: 1 }, { id: 2 }];
+        expect(extractResultsList(data)).toEqual([{ id: 1 }, { id: 2 }]);
+    });
+
+    it('unwraps paginated response with results key', () => {
+        const data = { count: 2, next: null, previous: null, results: [{ id: 1 }, { id: 2 }] };
+        expect(extractResultsList(data)).toEqual([{ id: 1 }, { id: 2 }]);
+    });
+
+    it('returns empty array for paginated response with empty results', () => {
+        const data = { count: 0, next: null, previous: null, results: [] };
+        expect(extractResultsList(data)).toEqual([]);
+    });
+
+    it('returns empty array for null', () => {
+        expect(extractResultsList(null)).toEqual([]);
+    });
+
+    it('returns empty array for undefined', () => {
+        expect(extractResultsList(undefined)).toEqual([]);
+    });
+
+    it('returns empty array for a plain object without results key', () => {
+        expect(extractResultsList({ count: 5 })).toEqual([]);
+    });
+
+    it('returns empty array when results is not an array', () => {
+        expect(extractResultsList({ results: 'not-an-array' })).toEqual([]);
+    });
+
+    it('preserves generic type through extraction', () => {
+        interface Device { device_id: string; is_online: boolean }
+        const data = { count: 1, results: [{ device_id: 'phone', is_online: true }] };
+        const devices: Device[] = extractResultsList<Device>(data);
+        expect(devices).toHaveLength(1);
+        expect(devices[0].device_id).toBe('phone');
+        expect(devices[0].is_online).toBe(true);
     });
 });
