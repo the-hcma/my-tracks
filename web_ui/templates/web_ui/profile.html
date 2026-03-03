@@ -266,9 +266,44 @@
         }
 
         .cert-actions {
-            display: flex;
-            gap: 0.5rem;
             margin-top: 0.75rem;
+        }
+
+        .p12-download-form {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .p12-password-row {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .p12-password-row label {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            white-space: nowrap;
+        }
+
+        .p12-password-row .password-wrapper {
+            flex: 1;
+        }
+
+        .p12-password-row input {
+            width: 100%;
+            padding: 0.3rem 2.5rem 0.3rem 0.5rem;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-size: 0.8rem;
+            background: var(--bg);
+            color: var(--text);
+        }
+
+        .cert-hint {
+            font-size: 0.75rem;
+            color: var(--text-muted);
         }
 
         .cert-btn {
@@ -402,7 +437,23 @@
                         <span class="cert-value">{{ active_cert.not_valid_after|date:"Y-m-d" }}</span>
                     </div>
                     <div class="cert-actions">
-                        <a href="{% url 'web_ui:download_my_cert' %}" class="cert-btn">Download Client Cert</a>
+                        <form method="post" action="{% url 'web_ui:download_my_cert' %}" class="p12-download-form">
+                            {% csrf_token %}
+                            <div class="p12-password-row">
+                                <label for="p12_password">Password for .p12</label>
+                                <div class="password-wrapper">
+                                    <input type="password" name="p12_password" id="p12_password" required
+                                           placeholder="Enter password to protect the .p12 file"
+                                           minlength="4" autocomplete="new-password">
+                                    <button type="button" class="password-toggle" aria-label="Show password">
+                                        <svg class="eye-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                        <svg class="eye-off-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/></svg>
+                                    </button>
+                                </div>
+                            </div>
+                            <button type="submit" class="cert-btn">Download .p12 Bundle</button>
+                            <span class="cert-hint">Includes certificate + private key + CA (for OwnTracks)</span>
+                        </form>
                     </div>
                 </div>
                 {% else %}
