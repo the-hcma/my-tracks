@@ -41,12 +41,15 @@ class TLSConfig:
 
 
 class _CRLBroker(Broker):
-    """Broker subclass that adds CRL verification to the TLS context.
+    """Broker subclass that enforces mutual TLS with optional CRL checking.
 
-    amqtt's ``_create_ssl_context`` hardcodes ``CERT_OPTIONAL`` and
-    has no hook for CRL loading.  This override keeps the parent
-    behaviour but loads the CRL into the trust store and enables
-    leaf-level revocation checking.
+    amqtt's ``_create_ssl_context`` hardcodes ``CERT_OPTIONAL``, which
+    with TLS 1.3 silently accepts invalid client certificates.  This
+    override switches to ``CERT_REQUIRED`` so that bad, expired, or
+    untrusted client certs cause an immediate handshake failure.
+
+    When ``_crl_pem`` is set, the override also enables leaf-level CRL
+    revocation checking so that revoked certs are rejected.
     """
 
     _crl_pem: bytes | None = None
@@ -54,16 +57,21 @@ class _CRLBroker(Broker):
     @staticmethod
     def _create_ssl_context(listener: Any) -> ssl.SSLContext:
         ctx = Broker._create_ssl_context(listener)
+        ctx.verify_mode = ssl.CERT_REQUIRED
+        # TLS 1.3 defers client cert verification to post-handshake,
+        # which asyncio.start_server does not propagate reliably.
+        # Cap at TLS 1.2 so CERT_REQUIRED is enforced during the
+        # initial handshake.  TLS 1.2 remains secure and is the
+        # norm for MQTT / IoT devices.
+        ctx.maximum_version = ssl.TLSVersion.TLSv1_2
         if _CRLBroker._crl_pem is not None:
-            ctx.load_verify_locations(cadata=_CRLBroker._crl_pem.decode("ascii"))
             ctx.verify_flags |= ssl.VERIFY_CRL_CHECK_LEAF
-            logger.info("CRL loaded into TLS context for revocation checking")
+            logger.info("CRL enforcement enabled for revocation checking")
         return ctx
 
 
 def get_default_config(
     mqtt_port: int = 1883,
-    mqtt_ws_port: int = 8083,
     mqtt_tls_port: int = -1,
     tls_certfile: str | None = None,
     tls_keyfile: str | None = None,
@@ -77,7 +85,6 @@ def get_default_config(
 
     Args:
         mqtt_port: TCP port for MQTT connections (default: 1883)
-        mqtt_ws_port: WebSocket port for MQTT over WS (default: 8083)
         mqtt_tls_port: TCP port for MQTT over TLS (default: -1 = disabled)
         tls_certfile: Path to server certificate PEM file (required when TLS enabled)
         tls_keyfile: Path to server private key PEM file (required when TLS enabled)
@@ -115,11 +122,6 @@ def get_default_config(
             "bind": f"0.0.0.0:{mqtt_port}",
             "max_connections": 100,
         },
-        "ws-mqtt": {
-            "type": "ws",
-            "bind": f"0.0.0.0:{mqtt_ws_port}",
-            "max_connections": 50,
-        },
     }
 
     if mqtt_tls_port >= 0 and tls_certfile and tls_keyfile:
@@ -150,7 +152,7 @@ class MQTTBroker:
     integration points for the Django application.
 
     Example:
-        broker = MQTTBroker(mqtt_port=1883, mqtt_ws_port=8083)
+        broker = MQTTBroker(mqtt_port=1883)
         await broker.start()
         # ... broker is running ...
         await broker.stop()
@@ -159,7 +161,6 @@ class MQTTBroker:
     def __init__(
         self,
         mqtt_port: int = 1883,
-        mqtt_ws_port: int = 8083,
         mqtt_tls_port: int = -1,
         tls_config: TLSConfig | None = None,
         allow_anonymous: bool = True,
@@ -172,7 +173,6 @@ class MQTTBroker:
 
         Args:
             mqtt_port: TCP port for MQTT connections
-            mqtt_ws_port: WebSocket port for MQTT over WS
             mqtt_tls_port: TCP port for MQTT over TLS (-1 = disabled)
             tls_config: TLS certificate configuration (required when mqtt_tls_port >= 0)
             allow_anonymous: Allow anonymous connections
@@ -181,7 +181,6 @@ class MQTTBroker:
             config: Custom configuration (overrides defaults if provided)
         """
         self.mqtt_port = mqtt_port
-        self.mqtt_ws_port = mqtt_ws_port
         self.mqtt_tls_port = mqtt_tls_port
         self.tls_config = tls_config
         self.allow_anonymous = allow_anonymous
@@ -201,7 +200,6 @@ class MQTTBroker:
         else:
             self._config = get_default_config(
                 mqtt_port=mqtt_port,
-                mqtt_ws_port=mqtt_ws_port,
                 mqtt_tls_port=mqtt_tls_port,
                 tls_certfile=self._tls_certfile,
                 tls_keyfile=self._tls_keyfile,
@@ -214,7 +212,6 @@ class MQTTBroker:
         self._broker: Broker | None = None
         self._running = False
         self._actual_mqtt_port: int | None = None
-        self._actual_ws_port: int | None = None
         self._actual_tls_port: int | None = None
 
     def _setup_tls_files(self, tls_config: TLSConfig) -> None:
@@ -275,7 +272,7 @@ class MQTTBroker:
 
         Args:
             listener_name: Name of the listener in the broker config
-                (e.g. ``"default"`` for TCP, ``"ws-mqtt"`` for WebSocket).
+                (e.g. ``"default"`` for TCP, ``"mqtt-tls"`` for TLS).
 
         Returns:
             The port number, or ``None`` if the broker hasn't started or
@@ -319,27 +316,6 @@ class MQTTBroker:
         return self.mqtt_port
 
     @property
-    def actual_ws_port(self) -> int | None:
-        """
-        Get the actual MQTT WebSocket port after startup.
-
-        This is useful when port 0 was specified to let the OS allocate.
-        Returns None if broker hasn't started or port discovery failed.
-        """
-        if self._actual_ws_port is not None:
-            return self._actual_ws_port
-        if self._broker is None:
-            return None
-
-        port = self._discover_port("ws-mqtt")
-        if port is not None:
-            self._actual_ws_port = port
-            return port
-
-        # Fall back to configured port when running but discovery failed
-        return self.mqtt_ws_port
-
-    @property
     def actual_tls_port(self) -> int | None:
         """
         Get the actual MQTT TLS port after startup.
@@ -374,12 +350,12 @@ class MQTTBroker:
         if self._running:
             raise RuntimeError("MQTT broker is already running")
 
-        ports_msg = f"ports {self.mqtt_port} (TCP) and {self.mqtt_ws_port} (WebSocket)"
+        ports_msg = f"port {self.mqtt_port} (TCP)"
         if self.mqtt_tls_port >= 0:
             ports_msg += f" and {self.mqtt_tls_port} (TLS)"
         logger.info("Starting MQTT broker on %s", ports_msg)
 
-        if self.tls_config and self.tls_config.crl_pem:
+        if self.tls_config:
             _CRLBroker._crl_pem = self.tls_config.crl_pem
             self._broker = _CRLBroker(self._config)
         else:
@@ -432,7 +408,6 @@ class MQTTBroker:
 
 async def create_and_start_broker(
     mqtt_port: int = 1883,
-    mqtt_ws_port: int = 8083,
     allow_anonymous: bool = True,
 ) -> MQTTBroker:
     """
@@ -442,7 +417,6 @@ async def create_and_start_broker(
 
     Args:
         mqtt_port: TCP port for MQTT connections
-        mqtt_ws_port: WebSocket port for MQTT over WS
         allow_anonymous: Allow anonymous connections
 
     Returns:
@@ -450,7 +424,6 @@ async def create_and_start_broker(
     """
     broker = MQTTBroker(
         mqtt_port=mqtt_port,
-        mqtt_ws_port=mqtt_ws_port,
         allow_anonymous=allow_anonymous,
     )
     await broker.start()
