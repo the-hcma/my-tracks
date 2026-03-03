@@ -8,7 +8,7 @@ import netifaces
 import pytest
 from cryptography.hazmat.primitives.serialization import pkcs12
 from django.contrib.auth.models import User
-from django.test import Client
+from django.test import Client, override_settings
 from hamcrest import (assert_that, contains_string, equal_to, greater_than,
                       has_item, has_key, has_length, instance_of, is_, is_not,
                       not_, not_none)
@@ -1500,13 +1500,25 @@ class TestAdminPanelServerCert:
         assert_that(content, contains_string('Cannot expunge'))
 
     def test_default_sans_populated(self, admin_logged_in_client: Client) -> None:
-        """The SAN field should be pre-populated with local IPs and hostname."""
+        """The SAN editor should be seeded with local IPs, hostname, and request host."""
         self._create_ca(admin_logged_in_client)
         response = admin_logged_in_client.get('/admin-panel/')
         content = response.content.decode('utf-8')
         import socket
         hostname = socket.gethostname()
         assert_that(content, contains_string(hostname))
+        assert_that(content, contains_string('san-editor'))
+        assert_that(content, contains_string('san-tags'))
+
+    @override_settings(ALLOWED_HOSTS=['*'])
+    def test_default_sans_includes_request_host(self, admin_logged_in_client: Client) -> None:
+        """When accessed via a custom hostname, that host is included in SANs."""
+        self._create_ca(admin_logged_in_client)
+        response = admin_logged_in_client.get(
+            '/admin-panel/', SERVER_NAME='mytracks.example.com',
+        )
+        content = response.content.decode('utf-8')
+        assert_that(content, contains_string('mytracks.example.com'))
 
 
 @pytest.mark.django_db

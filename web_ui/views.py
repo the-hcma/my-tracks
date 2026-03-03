@@ -615,7 +615,13 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
 
     ips = get_all_local_ips()
     hostname = socket.gethostname()
-    context['default_sans'] = ', '.join(ips + [hostname]) if ips else hostname
+    san_candidates: list[str] = list(ips)
+    san_candidates.append(hostname)
+    request_host = request.get_host().split(":")[0]
+    if request_host and request_host not in san_candidates:
+        san_candidates.append(request_host)
+    context['default_san_list'] = san_candidates
+    context['default_sans'] = ', '.join(san_candidates)
     context['hostname'] = hostname
 
     return render(request, 'web_ui/admin_panel.html', context)
