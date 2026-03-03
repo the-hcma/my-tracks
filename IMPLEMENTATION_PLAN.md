@@ -1,6 +1,6 @@
 # My Tracks — Implementation Plan
 
-**Last Updated**: March 2, 2026
+**Last Updated**: March 3, 2026
 
 ## Overview
 
@@ -245,7 +245,7 @@ Full TLS integration: server certificate presentation + client certificate authe
     - Responsive CSS with `@media` queries for all pages (home, profile, admin, about)
     - Tables wrapped in scroll containers, forms stack vertically on small screens
 
-17. **TLS Client Identification & Handshake Logging** (PR #333)
+17. **TLS Client Identification & Handshake Logging** ✅ (PR #333)
     - MQTT connections logged with TLS status: `TLS (CN=username [AA:BB:CC:DD])` or `(non-TLS)`
     - Extract peer certificate CN and SHA-256 fingerprint from SSL transport
     - Location and transition messages annotated with TLS identity in logs
@@ -253,10 +253,47 @@ Full TLS integration: server certificate presentation + client certificate authe
     - Failed TLS handshakes now logged at WARNING level (previously silently dropped by asyncio)
     - Suppressed noisy `transitions.core` INFO logs and `sys_interval` deprecation warning
 
-18. **Interactive SAN Tag Editor** (PR #334)
+18. **Interactive SAN Tag Editor** ✅ (PR #334)
     - Replaced comma-separated text input with tag-style add/remove editor
     - Auto-detects local IPs, hostname, AND request hostname (e.g., `mytracks.hcma.info`)
     - Users can add/remove individual SAN entries before generating server certificate
+
+19. **Single Reveal Button for Change Password** ✅ (PR #336)
+    - Consolidated multiple password reveal toggles into a single button on profile change-password form
+
+20. **SAN Hostname Auto-Include & Frontend Warning** ✅ (PR #337)
+    - Backend auto-includes request hostname in server certificate SANs during generation
+    - Frontend warning if the access hostname is removed from the SAN list
+    - Prevents `SSLPeerUnverifiedException` from clients connecting via a hostname not in SANs
+
+21. **TLS Disconnect Diagnostic Logging** ✅ (PR #338)
+    - Log WARNING when TLS client disconnects immediately after handshake (before MQTT data)
+    - Includes client IP and server certificate SANs for diagnosing client-side cert rejections
+    - Surfaces issues like hostname mismatch or untrusted CA that are invisible at server level
+
+22. **Widen Desktop Layout** ✅ (PR #339)
+    - Admin panel: 900px → 1200px, About page: 700px → 960px, Profile: 560px → 720px
+    - Better use of screen real estate on desktop browsers
+
+23. **Consistent Transport Labels in Logs** ✅ (PR #340)
+    - All client-activity log messages now begin with a lowercase transport tag: `[mqtt]`, `[mqtt-tls]`, `[http]`, `[ws]`
+    - TLS identity info follows the action, not the tag
+    - Custom `AmqttConnectionFilter` rewrites ambiguous amqtt "connections acquired" messages
+    - Added transport labeling guideline to AGENTS.md
+
+24. **MQTT TLS Info on About & Setup Page** ✅ (PR #341)
+    - New "MQTT TLS" section showing status, port, server cert details (CN, fingerprint, SANs, expiry), and CA details
+    - OwnTracks configuration instructions updated to prioritize TLS mode when enabled
+
+25. **Fix Device Polling (Paginated Response Bug)** ✅ (PR #342)
+    - "Poll Devices" button was silently failing: frontend treated paginated `/api/devices/` response as flat array
+    - Extracted `extractResultsList<T>()` utility for consistent pagination handling
+    - Added `[http]` transport-tagged logging to command endpoint
+    - 8 new TypeScript tests for paginated response extraction
+
+26. **CI Shell Test Fix** ✅ (PR #343)
+    - Changed `test_valid_log_levels` from "wait for success" to "fast negative check" (2s timeout)
+    - Prevents CI timeout caused by `npm build` / `collectstatic` consuming the 5s window
 
 ## Upcoming Work
 
@@ -286,8 +323,8 @@ my_tracks/mqtt/
 
 ## Test Coverage
 
-- 818 Python tests + 79 TypeScript tests passing
-- 98.27% code coverage (target: 90%)
+- 871 Python tests + 87 TypeScript tests passing
+- 97.21% code coverage (target: 90%)
 - Tests run in parallel via pytest-xdist with accurate coverage merging
 - All pyright checks pass (0 errors, 0 warnings)
 - All imports sorted (isort clean)
