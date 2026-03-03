@@ -84,7 +84,7 @@ class LocationViewSet(viewsets.ModelViewSet):
         else:
             client_ip = request.META.get('REMOTE_ADDR')
 
-        logger.info("[HTTP] Incoming location request from: %s (non-TLS)", client_ip)
+        logger.info("[http] Incoming location request from: %s", client_ip)
         logger.debug("Request data: %s, Content-Type: %s", request.data, request.content_type)
 
         # Check message type
@@ -135,7 +135,7 @@ class LocationViewSet(viewsets.ModelViewSet):
             device_id = extract_device_id(field_name_to_value)
             if device_id:
                 field_name_to_value['device_id'] = device_id
-                logger.info("[HTTP] Extracted device_id '%s' from request data", device_id)
+                logger.info("[http] Extracted device_id '%s' from request data", device_id)
 
         serializer = self.get_serializer(data=field_name_to_value, context={'client_ip': client_ip})
         serializer.is_valid(raise_exception=True)
@@ -147,7 +147,7 @@ class LocationViewSet(viewsets.ModelViewSet):
         if channel_layer:
             try:
                 logger.info(
-                    "[HTTP] 📡 Broadcasting location to WebSocket (id=%s, device=%s)",
+                    "[http] Broadcasting location to WebSocket (id=%s, device=%s)",
                     location_data.get('id'),
                     location_data.get('device_id_display'),
                 )
@@ -159,17 +159,17 @@ class LocationViewSet(viewsets.ModelViewSet):
                     }
                 )
                 logger.info(
-                    "[HTTP] ✅ WebSocket broadcast completed for location %s",
+                    "[http] WebSocket broadcast completed for location %s",
                     location_data.get('id'),
                 )
             except Exception as e:
                 logger.error(
-                    "WebSocket broadcast failed",
+                    "[http] WebSocket broadcast failed",
                     extra={"location_id": location_data.get("id"), "error": str(e)},
                     exc_info=True
                 )
         else:
-            logger.warning("WebSocket broadcast skipped: no channel layer configured")
+            logger.warning("[http] WebSocket broadcast skipped: no channel layer")
 
         # OwnTracks expects an empty JSON array response
         return Response([], status=status.HTTP_200_OK)

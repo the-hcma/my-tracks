@@ -893,7 +893,7 @@ class TestHandleLocationEarlyReturn:
         ):
             await plugin._handle_location({"device": "mydev", "latitude": 51.5, "longitude": -0.1})
 
-        broadcast_mock.assert_called_once_with(serialized)
+        broadcast_mock.assert_called_once_with(serialized, transport="mqtt")
 
 
 class TestHandleLwtEarlyReturn:
@@ -939,7 +939,7 @@ class TestHandleLwtEarlyReturn:
         ):
             await plugin._handle_lwt({"device": "user/phone", "event": "offline"})
 
-        broadcast_mock.assert_called_once_with(status_data)
+        broadcast_mock.assert_called_once_with(status_data, transport="mqtt")
 
 
 class TestHandleTransition:
@@ -1187,20 +1187,35 @@ class TestPluginTLSClientIdentification:
         """Create plugin instance for testing."""
         return OwnTracksPlugin(mock_broker_context)
 
-    def test_tls_tag_for_unknown_client(self, plugin: OwnTracksPlugin) -> None:
-        """Should return 'unknown' for client not in cache."""
-        assert_that(plugin._tls_tag("never-seen"), equal_to("unknown"))
+    def test_transport_for_unknown_client(self, plugin: OwnTracksPlugin) -> None:
+        """Should return 'mqtt' for client not in cache."""
+        assert_that(plugin._transport("never-seen"), equal_to("mqtt"))
 
-    def test_tls_tag_for_non_tls_client(self, plugin: OwnTracksPlugin) -> None:
-        """Should return 'non-TLS' for client connected without TLS."""
+    def test_transport_for_non_tls_client(self, plugin: OwnTracksPlugin) -> None:
+        """Should return 'mqtt' for client connected without TLS."""
         plugin._client_tls["plain-client"] = None
-        assert_that(plugin._tls_tag("plain-client"), equal_to("non-TLS"))
+        assert_that(plugin._transport("plain-client"), equal_to("mqtt"))
 
-    def test_tls_tag_for_tls_client(self, plugin: OwnTracksPlugin) -> None:
-        """Should return TLS info string for TLS client."""
+    def test_transport_for_tls_client(self, plugin: OwnTracksPlugin) -> None:
+        """Should return 'mqtt-tls' for TLS client."""
         info = _ClientTLSInfo(cn="alice", fingerprint="AA:BB:CC:DD")
         plugin._client_tls["tls-client"] = info
-        assert_that(plugin._tls_tag("tls-client"), equal_to("TLS CN=alice [AA:BB:CC:DD]"))
+        assert_that(plugin._transport("tls-client"), equal_to("mqtt-tls"))
+
+    def test_identity_for_unknown_client(self, plugin: OwnTracksPlugin) -> None:
+        """Should return empty string for client not in cache."""
+        assert_that(plugin._identity("never-seen"), equal_to(""))
+
+    def test_identity_for_non_tls_client(self, plugin: OwnTracksPlugin) -> None:
+        """Should return empty string for non-TLS client."""
+        plugin._client_tls["plain-client"] = None
+        assert_that(plugin._identity("plain-client"), equal_to(""))
+
+    def test_identity_for_tls_client(self, plugin: OwnTracksPlugin) -> None:
+        """Should return formatted identity string for TLS client."""
+        info = _ClientTLSInfo(cn="alice", fingerprint="AA:BB:CC:DD")
+        plugin._client_tls["tls-client"] = info
+        assert_that(plugin._identity("tls-client"), equal_to(" (CN=alice [AA:BB:CC:DD])"))
 
     @pytest.mark.asyncio
     async def test_on_broker_client_connected_tls_with_cert(

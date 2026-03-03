@@ -282,7 +282,8 @@ class OwnTracksMessageHandler:
         payload: bytes,
         *,
         client_ip: str | None = None,
-        tls_tag: str = "unknown",
+        transport: str = "mqtt",
+        tls_identity: str = "",
     ) -> None:
         """
         Handle an incoming MQTT message.
@@ -291,15 +292,14 @@ class OwnTracksMessageHandler:
             topic: MQTT topic
             payload: Message payload bytes
             client_ip: IP address of the MQTT client (from broker session)
-            tls_tag: TLS identification string for logging
+            transport: Transport label for logging (``mqtt`` or ``mqtt-tls``)
+            tls_identity: TLS identity suffix, e.g. ``" (CN=alice [AA:BB])"``
         """
-        # Parse topic
         topic_info = parse_owntracks_topic(topic)
         if not topic_info:
             logger.debug("Ignoring non-OwnTracks topic: %s", topic)
             return
 
-        # Parse message
         message = parse_owntracks_message(payload)
         if not message:
             return
@@ -309,15 +309,17 @@ class OwnTracksMessageHandler:
 
         mqtt_user = topic_info.get("user", "")
 
-        # Route to appropriate handler
         if msg_type == "location":
             await self._handle_location(
-                message, topic_info, client_ip=client_ip, mqtt_user=mqtt_user, tls_tag=tls_tag,
+                message, topic_info, client_ip=client_ip, mqtt_user=mqtt_user,
+                transport=transport, tls_identity=tls_identity,
             )
         elif msg_type == "lwt":
-            await self._handle_lwt(message, topic_info)
+            await self._handle_lwt(message, topic_info, transport=transport)
         elif msg_type == "transition":
-            await self._handle_transition(message, topic_info, tls_tag=tls_tag)
+            await self._handle_transition(
+                message, topic_info, transport=transport, tls_identity=tls_identity,
+            )
         else:
             logger.debug("Unhandled OwnTracks message type: %s", msg_type)
 
@@ -328,7 +330,8 @@ class OwnTracksMessageHandler:
         *,
         client_ip: str | None = None,
         mqtt_user: str = "",
-        tls_tag: str = "unknown",
+        transport: str = "mqtt",
+        tls_identity: str = "",
     ) -> None:
         """Handle a location message."""
         location_data = extract_location_data(message, topic_info)
@@ -339,7 +342,8 @@ class OwnTracksMessageHandler:
             location_data["client_ip"] = client_ip
         if mqtt_user:
             location_data["mqtt_user"] = mqtt_user
-        location_data["tls_tag"] = tls_tag
+        location_data["transport"] = transport
+        location_data["tls_identity"] = tls_identity
 
         for callback in self._location_callbacks:
             try:
@@ -353,11 +357,15 @@ class OwnTracksMessageHandler:
         self,
         message: dict[str, Any],
         topic_info: dict[str, str],
+        *,
+        transport: str = "mqtt",
     ) -> None:
         """Handle an LWT message."""
         lwt_data = extract_lwt_data(message, topic_info)
         if not lwt_data:
             return
+
+        lwt_data["transport"] = transport
 
         for callback in self._lwt_callbacks:
             try:
@@ -372,14 +380,16 @@ class OwnTracksMessageHandler:
         message: dict[str, Any],
         topic_info: dict[str, str],
         *,
-        tls_tag: str = "unknown",
+        transport: str = "mqtt",
+        tls_identity: str = "",
     ) -> None:
         """Handle a transition message."""
         transition_data = extract_transition_data(message, topic_info)
         if not transition_data:
             return
 
-        transition_data["tls_tag"] = tls_tag
+        transition_data["transport"] = transport
+        transition_data["tls_identity"] = tls_identity
 
         for callback in self._transition_callbacks:
             try:
