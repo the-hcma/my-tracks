@@ -111,7 +111,7 @@ class TestTlsCertificates:
 
     def test_has_tls_section(self) -> None:
         text = DEPLOYMENT_MD.read_text()
-        assert_that(text, contains_string("## TLS Certificates"))
+        assert_that(text, contains_string("## TLS Certificates (HTTPS)"))
 
     def test_documents_self_signed(self) -> None:
         text = DEPLOYMENT_MD.read_text()
@@ -136,6 +136,10 @@ class TestTlsCertificates:
     def test_certbot_command(self) -> None:
         text = DEPLOYMENT_MD.read_text()
         assert_that(text, contains_string("certbot certonly"))
+
+    def test_distinguishes_https_from_mqtt_tls(self) -> None:
+        text = DEPLOYMENT_MD.read_text()
+        assert_that(text, contains_string("**not** related to MQTT over TLS"))
 
 
 class TestOperations:
