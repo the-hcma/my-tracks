@@ -30,6 +30,7 @@ from my_tracks.pki import (generate_ca_certificate,
                            get_certificate_metadata, get_certificate_sans,
                            get_certificate_serial_number,
                            get_certificate_subject)
+from my_tracks.utils import get_version
 
 logger = logging.getLogger(__name__)
 
@@ -303,6 +304,7 @@ def about(request: HttpRequest) -> HttpResponse:
     mqtt_tls_enabled = mqtt_tls_port >= 0 and active_sc is not None
 
     context: dict[str, object] = {
+        'version': get_version(),
         'hostname': hostname,
         'local_ip': primary_ip,
         'local_ips': ips,

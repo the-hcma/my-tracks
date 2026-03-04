@@ -5,8 +5,22 @@ This module provides shared helpers used across views, serializers,
 and MQTT handlers for common operations like device identification.
 """
 import logging
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _get_pkg_version
 
 logger = logging.getLogger(__name__)
+
+
+def get_version() -> str:
+    """Return the application version from package metadata.
+
+    The version is read from pyproject.toml via importlib.metadata,
+    making pyproject.toml the single source of truth.
+    """
+    try:
+        return _get_pkg_version("my-tracks")
+    except PackageNotFoundError:
+        return "unknown"
 
 
 def extract_device_id(data: dict[str, object]) -> str | None:
