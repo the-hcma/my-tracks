@@ -89,9 +89,9 @@ class TestReleaseScriptStructure:
         first_line = RELEASE_SCRIPT.read_text().splitlines()[0]
         assert_that(first_line, starts_with("#!/usr/bin/env python3"))
 
-    def test_auto_venv_activation(self) -> None:
+    def test_auto_uv_activation(self) -> None:
         text = RELEASE_SCRIPT.read_text()
-        assert_that(text, contains_string("_activate_venv"))
+        assert_that(text, contains_string("_ensure_uv"))
 
     def test_uses_typer(self) -> None:
         text = RELEASE_SCRIPT.read_text()
@@ -155,7 +155,7 @@ class TestReleaseScriptFunctional:
 def _load_release_module() -> object:
     """Load the release script as a Python module (extensionless file).
 
-    Since tests run inside the venv already, _activate_venv is a no-op.
+    Since tests run inside the venv already, _ensure_uv is a no-op.
     """
     loader = importlib.machinery.SourceFileLoader("release_mod", str(RELEASE_SCRIPT))
     spec = importlib.util.spec_from_loader("release_mod", loader)

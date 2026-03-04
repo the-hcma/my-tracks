@@ -232,21 +232,22 @@ This document defines the four specialized agents for the My Tracks project.
 - **MUST use Typer** for command-line argument parsing instead of argparse
 - Use `Annotated` types with `typer.Option()` and `typer.Argument()` for clean, type-safe CLIs
 - Shebang: `#!/usr/bin/env python3` (standard, portable)
-- **MUST include auto-venv activation** so scripts work without manual venv activation:
+- **MUST include auto-activation via `uv run`** so scripts work without manual venv activation:
   ```python
-  # === Auto-activate virtual environment ===
+  # === Auto-activate via uv ===
   import os
+  import shutil
   import sys
-  from pathlib import Path
 
-  def _activate_venv() -> None:
-      """Find and activate the project's virtual environment."""
-      script_dir = Path(__file__).resolve().parent
-      venv_python = script_dir / ".venv" / "bin" / "python"
-      if venv_python.exists() and sys.executable != str(venv_python):
-          os.execv(str(venv_python), [str(venv_python)] + sys.argv)
+  def _ensure_uv() -> None:
+      """Re-exec under `uv run` if not already in the managed environment."""
+      if os.environ.get("UV_ACTIVE") or "/.venv/" in (sys.executable or ""):
+          return
+      uv = shutil.which("uv")
+      if uv:
+          os.execv(uv, [uv, "run", sys.argv[0], *sys.argv[1:]])
 
-  _activate_venv()
+  _ensure_uv()
   # === End auto-activate ===
   ```
 - Use `typer.echo()` for output instead of `print()` for consistent behavior

@@ -4,26 +4,28 @@
 Single source of truth for the version is pyproject.toml.
 """
 
-# === Auto-activate virtual environment ===
+# === Auto-activate via uv ===
 import os
+import shutil
 import sys
-from pathlib import Path
 
 
-def _activate_venv() -> None:
-    """Find and activate the project's virtual environment."""
-    script_dir = Path(__file__).resolve().parent
-    venv_python = script_dir / ".venv" / "bin" / "python"
-    if venv_python.exists() and sys.executable != str(venv_python):
-        os.execv(str(venv_python), [str(venv_python)] + sys.argv)
+def _ensure_uv() -> None:
+    """Re-exec under `uv run` if not already in the managed environment."""
+    if os.environ.get("UV_ACTIVE") or "/.venv/" in (sys.executable or ""):
+        return
+    uv = shutil.which("uv")
+    if uv:
+        os.execv(uv, [uv, "run", sys.argv[0], *sys.argv[1:]])
 
 
-_activate_venv()
+_ensure_uv()
 # === End auto-activate ===
 
 import re
 import subprocess
 from enum import Enum
+from pathlib import Path
 from typing import Annotated
 
 import typer
