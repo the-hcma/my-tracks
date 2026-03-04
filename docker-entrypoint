@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+#
+# Container entrypoint for my-tracks.
+#
+# Runs database migrations and starts Daphne with the embedded MQTT broker.
+# Static files and frontend assets are pre-built in the Docker image.
+#
+# Usage (inside container):
+#   ./docker-entrypoint [OPTIONS]
+#
+# Options:
+#   --http-port PORT      HTTP server port (default: 8080)
+#   --mqtt-port PORT      MQTT broker port (default: 1883, -1 = disabled)
+#   --mqtt-tls-port PORT  MQTT TLS port (default: 8883, -1 = disabled)
+#   --log-level LEVEL     Log level: trace, debug, info, warning, error, critical (default: info)
+#   --skip-migrate        Skip database migrations on startup
+
+set -e
+
+http_port=8080
+mqtt_port=1883
+mqtt_tls_port=8883
+log_level="INFO"
+skip_migrate=false
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --http-port)
+            http_port="$2"
+            shift 2
+            ;;
+        --mqtt-port)
+            mqtt_port="$2"
+            shift 2
+            ;;
+        --mqtt-tls-port)
+            mqtt_tls_port="$2"
+            shift 2
+            ;;
+        --log-level)
+            log_level=$(echo "$2" | tr '[:lower:]' '[:upper:]')
+            shift 2
+            ;;
+        --skip-migrate)
+            skip_migrate=true
+            shift
+            ;;
+        -h|--help)
+            sed -n '2,/^$/p' "$0" | sed 's/^# \?//'
+            exit 0
+            ;;
+        *)
+            echo "Error: Unknown option: $1"
+            exit 1
+            ;;
+    esac
+done
+
+case $log_level in
+    TRACE|DEBUG|INFO|WARNING|ERROR|CRITICAL) ;;
+    *)
+        echo "Error: Invalid log level: $log_level"
+        echo "Valid levels: trace, debug, info, warning, error, critical"
+        exit 1
+        ;;
+esac
+
+export DJANGO_LOG_LEVEL="$log_level"
+
+runtime_config="config/.runtime-config.json"
+cat > "$runtime_config" << EOF
+{
+  "http_port": $http_port,
+  "mqtt_port": $mqtt_port,
+  "mqtt_tls_port": $mqtt_tls_port
+}
+EOF
+
+if [ "$skip_migrate" = false ]; then
+    echo "Running database migrations..."
+    python manage.py migrate --noinput
+fi
+
+echo "Starting my-tracks (http=$http_port, mqtt=$mqtt_port, mqtt-tls=$mqtt_tls_port, log=$log_level)"
+exec daphne -b 0.0.0.0 -p "$http_port" --verbosity 0 config.asgi:application
