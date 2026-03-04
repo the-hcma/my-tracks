@@ -352,19 +352,32 @@ Package the application as a production-ready container image deployable on a Ce
 - `deploy --update` for pulling new image + migrate + restart
 - `deploy --backup` for database dump
 
-**Step 6: Container Registry**
-- Publish image to GitHub Container Registry (`ghcr.io/the-hcma/my-tracks`)
-- CI/CD: add GitHub Actions workflow to build and push image on release tags
-- Semantic versioning: tag images as `latest`, `vX.Y.Z`
-- Multi-arch build (amd64 + arm64) for broad host compatibility
+**Step 6: Semantic Versioning**
+- Add version tracking to the project (single source of truth in `pyproject.toml`)
+- Use a lightweight versioning scheme: `vMAJOR.MINOR.PATCH` (e.g., `v1.0.0`)
+- Create a `release` script or GitHub Action that:
+  - Bumps version in `pyproject.toml`
+  - Creates a git tag (`vX.Y.Z`)
+  - Pushes tag to trigger the container publish workflow
+- Version is baked into the container image at build time (accessible via `/api/health/` or `/about/`)
+- Changelog generation from commit history / merged PRs (optional, e.g., via `git-cliff` or GitHub Releases auto-notes)
 
-**Step 7: Network Hardening**
+**Step 7: Container Registry & CI/CD Publish**
+- Publish image to GitHub Container Registry (`ghcr.io/the-hcma/my-tracks`)
+- GitHub Actions workflow triggered on version tags (`v*`):
+  - Builds the multi-stage Docker image
+  - Tags as `latest` and `vX.Y.Z`
+  - Pushes to `ghcr.io`
+- Multi-arch build (amd64 + arm64) for broad host compatibility
+- Workflow also runs on PRs (build-only, no push) to catch Dockerfile regressions early
+
+**Step 8: Network Hardening**
 - Only exposed ports on host: `443` (HTTPS) and `8883` (MQTT TLS)
 - HTTP 8080 and plain MQTT 1883 are internal to the Docker network only
 - Nginx rate limiting on login endpoint
 - Firewall guidance in deployment docs (firewalld for CentOS 8)
 
-**Step 8: Documentation**
+**Step 9: Documentation**
 - `DEPLOYMENT.md` with:
   - Prerequisites (Docker, Docker Compose, CentOS 8+)
   - Quick start (one-command deploy)
@@ -372,16 +385,17 @@ Package the application as a production-ready container image deployable on a Ce
   - TLS certificate setup (self-signed vs Let's Encrypt vs custom)
   - Backup and restore
   - Upgrading to new versions
+  - Releasing new versions (semver workflow)
   - Troubleshooting
 
-### Phase 6, Step 5: TLS Hot-Reload
+### Phase 8: TLS Hot-Reload
 
-- **TLS certificate hot-reload** (TODO)
+- **TLS certificate hot-reload**
   - When a new CA or server certificate is generated via the admin panel, the MQTT broker should detect the change and reload its TLS context automatically — currently requires a full server restart
   - Options: file watcher on temp cert files, database change signal, or explicit "reload TLS" admin action
   - CRL refresh on revocation should also be automatic
 
-### Phase 8: Advanced Integration
+### Phase 9: Advanced Integration
 1. **Transition events** — Handle region enter/exit events, store transition history
 2. **Waypoints sync** — Connect waypoint storage to command API, allow UI to send waypoints to devices
 3. **Friends feature** — Handle card messages (`_type: "card"`), friend relationship model, filtered location broadcasts, friend list API, WebSocket permission filtering
