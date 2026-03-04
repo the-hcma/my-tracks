@@ -13,7 +13,9 @@ from pathlib import Path
 from typing import Any
 
 import dj_database_url
+import netifaces
 from decouple import config
+from django.core.exceptions import ImproperlyConfigured
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR: Path = Path(__file__).resolve().parent.parent
@@ -22,11 +24,17 @@ BASE_DIR: Path = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY: str = str(config('SECRET_KEY', default='django-insecure-change-me-in-production'))
-
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG: bool = config('DEBUG', default=True, cast=bool)
+
+# SECURITY WARNING: keep the secret key used in production secret!
+_secret_key_default = 'django-insecure-change-me-in-production' if DEBUG else ''
+SECRET_KEY: str = str(config('SECRET_KEY', default=_secret_key_default))
+if not SECRET_KEY:
+    raise ImproperlyConfigured(
+        "SECRET_KEY must be set in production (DEBUG=False). "
+        "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(50))\""
+    )
 
 # Allow URLs both with and without trailing slashes (OwnTracks POSTs without slash)
 APPEND_SLASH = False
@@ -37,17 +45,16 @@ ALLOWED_HOSTS: list[str] = [
     if host.strip()
 ]
 
-# Auto-discover and add all local network IPs to ALLOWED_HOSTS
-# Only includes broadcast-capable interfaces (excludes VPN/tunnel adapters)
-import netifaces
-
-for iface in netifaces.interfaces():
-    addrs = netifaces.ifaddresses(iface)
-    for addr_info in addrs.get(netifaces.AF_INET, []):
-        ip = addr_info.get('addr', '')
-        has_broadcast = bool(addr_info.get('broadcast'))
-        if ip and not ip.startswith('127.') and has_broadcast and ip not in ALLOWED_HOSTS:
-            ALLOWED_HOSTS.append(ip)
+if DEBUG:
+    # Auto-discover and add all local network IPs to ALLOWED_HOSTS in development.
+    # Only includes broadcast-capable interfaces (excludes VPN/tunnel adapters).
+    for iface in netifaces.interfaces():
+        addrs = netifaces.ifaddresses(iface)
+        for addr_info in addrs.get(netifaces.AF_INET, []):
+            ip = addr_info.get('addr', '')
+            has_broadcast = bool(addr_info.get('broadcast'))
+            if ip and not ip.startswith('127.') and has_broadcast and ip not in ALLOWED_HOSTS:
+                ALLOWED_HOSTS.append(ip)
 
 
 # Application definition
@@ -348,6 +355,12 @@ def _parse_csrf_origins(value: str) -> list[str]:
 CSRF_TRUSTED_ORIGINS: list[str] = _parse_csrf_origins(
     str(config('CSRF_TRUSTED_ORIGINS', default=''))
 )
+
+# Production security settings (only active when DEBUG=False)
+if not DEBUG:
+    SECURE_PROXY_SSL_HEADER: tuple[str, str] = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
 
 # Channels configuration
 CHANNEL_LAYERS: dict[str, Any] = {
