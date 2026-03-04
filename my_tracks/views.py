@@ -6,6 +6,8 @@ from OwnTracks clients and querying stored location history.
 """
 import logging
 from datetime import UTC, datetime, timedelta
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as get_package_version
 from typing import Any
 
 from asgiref.sync import async_to_sync
@@ -1354,4 +1356,22 @@ class CRLViewSet(viewsets.ViewSet):
         )
         http_response['Content-Disposition'] = 'attachment; filename="my-tracks.crl"'
         return http_response
+
+
+class HealthViewSet(viewsets.ViewSet):
+    """Lightweight health check for container orchestration and monitoring."""
+
+    permission_classes = [AllowAny]
+    authentication_classes: list[type] = []
+
+    def list(self, request: Request) -> Response:
+        """Return health status and version. No auth, no DB queries."""
+        try:
+            app_version = get_package_version("my-tracks")
+        except PackageNotFoundError:
+            app_version = "unknown"
+        return Response(
+            {"status": "ok", "version": app_version},
+            status=status.HTTP_200_OK,
+        )
 
