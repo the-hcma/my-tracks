@@ -1,0 +1,135 @@
+#!/usr/bin/env python3
+"""Release script — bump version, tag, and push.
+
+Single source of truth for the version is pyproject.toml.
+"""
+
+# === Auto-activate virtual environment ===
+import os
+import sys
+from pathlib import Path
+
+
+def _activate_venv() -> None:
+    """Find and activate the project's virtual environment."""
+    script_dir = Path(__file__).resolve().parent
+    venv_python = script_dir / ".venv" / "bin" / "python"
+    if venv_python.exists() and sys.executable != str(venv_python):
+        os.execv(str(venv_python), [str(venv_python)] + sys.argv)
+
+
+_activate_venv()
+# === End auto-activate ===
+
+import re
+import subprocess
+from enum import Enum
+from typing import Annotated
+
+import typer
+
+app = typer.Typer(help="Bump version, create git tag, and push.", add_completion=False)
+
+PYPROJECT_PATH = Path(__file__).resolve().parent / "pyproject.toml"
+VERSION_RE = re.compile(r'^(version\s*=\s*")(\d+\.\d+\.\d+)(")', re.MULTILINE)
+
+
+class BumpPart(str, Enum):
+    major = "major"
+    minor = "minor"
+    patch = "patch"
+
+
+def _read_version() -> str:
+    """Read the current version from pyproject.toml."""
+    text = PYPROJECT_PATH.read_text()
+    match = VERSION_RE.search(text)
+    if not match:
+        typer.echo("Error: could not find version in pyproject.toml", err=True)
+        raise typer.Exit(code=1)
+    return match.group(2)
+
+
+def _write_version(new_version: str) -> None:
+    """Write a new version into pyproject.toml."""
+    text = PYPROJECT_PATH.read_text()
+    new_text = VERSION_RE.sub(rf"\g<1>{new_version}\3", text)
+    PYPROJECT_PATH.write_text(new_text)
+
+
+def _bump(current: str, part: BumpPart) -> str:
+    """Compute the bumped version string."""
+    major, minor, patch = (int(x) for x in current.split("."))
+    if part == BumpPart.major:
+        return f"{major + 1}.0.0"
+    if part == BumpPart.minor:
+        return f"{major}.{minor + 1}.0"
+    return f"{major}.{minor}.{patch + 1}"
+
+
+def _run(cmd: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
+    """Run a subprocess, echoing the command."""
+    typer.echo(f"  $ {' '.join(cmd)}")
+    return subprocess.run(cmd, check=check, text=True, capture_output=True)
+
+
+def _has_uncommitted_changes() -> bool:
+    """Return True if the working tree has uncommitted changes."""
+    result = _run(["git", "status", "--porcelain"], check=False)
+    return bool(result.stdout.strip())
+
+
+@app.command()
+def main(
+    part: Annotated[BumpPart, typer.Argument(help="Version part to bump")],
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", "-n", help="Show what would happen without making changes")
+    ] = False,
+    skip_push: Annotated[
+        bool, typer.Option("--skip-push", help="Create commit and tag but don't push")
+    ] = False,
+) -> None:
+    """Bump the project version, commit, tag, and push."""
+    current = _read_version()
+    new_version = _bump(current, part)
+    tag = f"v{new_version}"
+
+    typer.echo(f"Bumping version: {current} → {new_version} ({part.value})")
+    typer.echo(f"Tag: {tag}")
+
+    if dry_run:
+        typer.echo("\n(dry run — no changes made)")
+        return
+
+    if _has_uncommitted_changes():
+        typer.echo("Error: working tree has uncommitted changes — commit or stash first", err=True)
+        raise typer.Exit(code=1)
+
+    existing_tags = _run(["git", "tag", "--list", tag], check=False)
+    if tag in existing_tags.stdout.splitlines():
+        typer.echo(f"Error: tag {tag} already exists", err=True)
+        raise typer.Exit(code=1)
+
+    typer.echo(f"\nWriting {new_version} to pyproject.toml...")
+    _write_version(new_version)
+
+    typer.echo("Creating release commit...")
+    _run(["git", "add", "pyproject.toml"])
+    _run(["git", "commit", "-m", f"release: {tag}"])
+
+    typer.echo(f"Creating tag {tag}...")
+    _run(["git", "tag", "-a", tag, "-m", f"Release {tag}"])
+
+    if skip_push:
+        typer.echo(f"\nDone! Version bumped to {new_version}. Tag {tag} created (not pushed).")
+        return
+
+    typer.echo("Pushing commit and tag...")
+    _run(["git", "push"])
+    _run(["git", "push", "--tags"])
+
+    typer.echo(f"\nDone! Released {tag}")
+
+
+if __name__ == "__main__":
+    app()
