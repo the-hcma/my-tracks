@@ -71,10 +71,12 @@ cp .env.production.example .env.production
 | `HTTPS_PORT`      | `443`        | Host port for HTTPS                                 |
 | `HTTP_PORT`       | `80`         | Host port for HTTP (redirects to HTTPS)             |
 | `MQTT_TLS_PORT`   | `8883`       | Host port for MQTT over TLS                         |
-| `CERTS_DIR`       | `./certs`    | Path to directory containing TLS certificates       |
+| `CERTS_DIR`       | `./certs`    | Path to nginx HTTPS certificates (not MQTT TLS)     |
 | `COMMAND_API_KEY`  | *(unset)*   | If set, command endpoints require Bearer token auth |
 
-## TLS Certificates
+## TLS Certificates (HTTPS)
+
+These certificates are for **nginx HTTPS** — the web UI, REST API, and WebSocket connections. They are **not** related to MQTT over TLS, which uses its own PKI certificates managed through the My Tracks admin panel.
 
 Nginx requires `fullchain.pem` and `privkey.pem` in the `CERTS_DIR` directory.
 
@@ -229,7 +231,7 @@ The bundled `nginx/nginx.conf` provides:
 
 - **HTTPS** (443) — reverse proxies to `my-tracks:8080`, with WebSocket upgrade headers for `/ws/`
 - **HTTP** (80) — redirects to HTTPS, except `/.well-known/acme-challenge/` (for Let's Encrypt)
-- **MQTT TLS** (8883) — TCP stream passthrough to `my-tracks:8883` (the app handles TLS directly)
+- **MQTT TLS** (8883) — TCP stream passthrough to `my-tracks:8883` (the app handles MQTT TLS directly using its own PKI certificates, managed via the admin panel)
 - **Security headers** — HSTS, X-Content-Type-Options, X-Frame-Options
 - **Rate limiting** — login endpoint throttled to 5 requests/second
 - **Static file caching** — 30-day expiry on `/static/`
