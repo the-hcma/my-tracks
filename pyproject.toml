@@ -17,6 +17,7 @@ dependencies = [
     "amqtt",
     "netifaces>=0.11.0",
     "cryptography>=46.0.4",
+    "dj-database-url>=3.1.2",
 ]
 
 [project.optional-dependencies]
