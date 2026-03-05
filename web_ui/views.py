@@ -1,6 +1,7 @@
 """Views for the Web UI application."""
 
 import logging
+import os
 from dataclasses import dataclass, field
 from datetime import timedelta
 
@@ -90,9 +91,10 @@ def get_server_info(request: HttpRequest) -> ServerInfo:
     """
     Derive externally-visible server info from the incoming request.
 
-    Behind a reverse proxy (nginx), the request Host header carries the real
-    hostname and port the client used.  In direct-access mode (development),
-    it falls back to netifaces-based LAN IP detection.
+    Behind a reverse proxy (nginx) with Docker port mapping, the Host header
+    carries the hostname but not the external port (nginx sees its internal
+    port, not the Docker-mapped one).  HTTPS_PORT from the environment
+    provides the externally-visible port in that scenario.
     """
     request_host = request.get_host()
     if ':' in request_host:
@@ -100,6 +102,10 @@ def get_server_info(request: HttpRequest) -> ServerInfo:
     else:
         hostname = request_host
         port = '443' if request.is_secure() else '80'
+
+    env_port = os.environ.get('HTTPS_PORT') if request.is_secure() else os.environ.get('HTTP_PORT')
+    if env_port:
+        port = env_port
 
     scheme = 'https' if request.is_secure() else 'http'
 
@@ -113,9 +119,9 @@ def get_server_info(request: HttpRequest) -> ServerInfo:
 
     hosts.discard(hostname)
 
-    real_hosts = {h for h in hosts if h not in _LOOPBACK_HOSTS}
-    if real_hosts:
-        accessible = sorted(real_hosts)
+    primary_is_real = hostname not in _LOOPBACK_HOSTS
+    if primary_is_real:
+        accessible = sorted(h for h in hosts if h not in _LOOPBACK_HOSTS)
     else:
         accessible = sorted(hosts)
 
@@ -266,9 +272,9 @@ def profile(request: HttpRequest) -> HttpResponse:
             context['profile_success'] = 'Profile updated successfully.'
 
         elif form_type == 'password':
-            current_password = request.POST.get('current_password', '')
-            new_password = request.POST.get('new_password', '')
-            confirm_password = request.POST.get('confirm_password', '')
+            current_password = str(request.POST.get('current_password', ''))
+            new_password = str(request.POST.get('new_password', ''))
+            confirm_password = str(request.POST.get('confirm_password', ''))
 
             if not user.check_password(current_password):
                 context['password_error'] = 'Current password is incorrect.'
@@ -284,7 +290,7 @@ def profile(request: HttpRequest) -> HttpResponse:
                     update_session_auth_hash(request, user)
                     context['password_success'] = 'Password changed successfully.'
                 except ValidationError as e:
-                    context['password_error'] = ' '.join(e.messages)
+                    context['password_error'] = ' '.join(str(m) for m in e.messages)
 
     active_cert = ClientCertificate.objects.filter(
         user=request.user, is_active=True, revoked=False
@@ -350,10 +356,12 @@ def about(request: HttpRequest) -> HttpResponse:
     """About & Setup page with server info and OwnTracks configuration."""
     info = get_server_info(request)
 
+    behind_proxy = bool(os.environ.get('HTTPS_PORT'))
+
     mqtt_configured_port = get_mqtt_port()
     mqtt_actual_port = get_actual_mqtt_port()
     mqtt_port = mqtt_actual_port if mqtt_actual_port is not None else mqtt_configured_port
-    mqtt_enabled = mqtt_configured_port >= 0
+    mqtt_enabled = mqtt_configured_port >= 0 and not behind_proxy
 
     mqtt_tls_port = get_mqtt_tls_port()
     active_sc = ServerCertificate.objects.filter(is_active=True).select_related(
@@ -369,6 +377,7 @@ def about(request: HttpRequest) -> HttpResponse:
         'server_url': info.base_url,
         'scheme': info.scheme,
         'accessible_hosts': info.accessible_hosts,
+        'behind_proxy': behind_proxy,
         'mqtt_port': mqtt_port,
         'mqtt_enabled': mqtt_enabled,
         'mqtt_tls_port': mqtt_tls_port,
@@ -380,7 +389,7 @@ def about(request: HttpRequest) -> HttpResponse:
 
 def _is_staff(user: User) -> bool:  # type: ignore[override]
     """Check if user is staff (for use with user_passes_test decorator)."""
-    return user.is_staff
+    return bool(user.is_staff)
 
 
 @login_required
@@ -393,11 +402,11 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
         form_type = request.POST.get('form_type')
 
         if form_type == 'create_user':
-            username = request.POST.get('username', '').strip()
-            email = request.POST.get('email', '').strip()
-            first_name = request.POST.get('first_name', '').strip()
-            last_name = request.POST.get('last_name', '').strip()
-            password = request.POST.get('password', '')
+            username = str(request.POST.get('username', '')).strip()
+            email = str(request.POST.get('email', '')).strip()
+            first_name = str(request.POST.get('first_name', '')).strip()
+            last_name = str(request.POST.get('last_name', '')).strip()
+            password = str(request.POST.get('password', ''))
             is_admin = request.POST.get('is_admin') == 'on'
 
             if not username:
