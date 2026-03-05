@@ -297,72 +297,48 @@ Full TLS integration: server certificate presentation + client certificate authe
 
 ## Upcoming Work
 
-### Phase 7: Production Containerization ← NEXT
+### Phase 7: Production Containerization
 
 Package the application as a production-ready container image deployable on a CentOS 8+ host, with proper database, TLS termination, and a one-command deployment script.
 
-**Step 1: PostgreSQL Support**
-- Wire `DATABASE_URL` env var into `config/settings.py` using `dj-database-url`
+**Step 1: PostgreSQL Support** ✅ (PR #355)
+- `DATABASE_URL` env var wired into `config/settings.py` using `dj-database-url`
 - Default: SQLite for development, PostgreSQL for production
-- Add migration and data-export helpers for SQLite → PostgreSQL migration
-- `psycopg2-binary` already in `pyproject.toml`
+- Connection pooling (`conn_max_age=600`, `conn_health_checks=True`)
 
-**Step 2: Production Settings Hardening**
-- `SECRET_KEY` — fail loudly if unset when `DEBUG=False`
-- `ALLOWED_HOSTS` — require explicit setting in production (remove `netifaces` auto-detect when `DEBUG=False`)
-- `CSRF_TRUSTED_ORIGINS` — require explicit setting for HTTPS origins
-- `SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')` when behind nginx
-- `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE` = True in production
-- Separate `config/settings_prod.py` or env-driven conditional blocks
+**Step 2: Production Settings Hardening** ✅ (PR #356)
+- `SECRET_KEY` raises `ImproperlyConfigured` if unset when `DEBUG=False`
+- `ALLOWED_HOSTS` requires explicit setting in production (`netifaces` auto-detect only when `DEBUG=True`)
+- `SECURE_PROXY_SSL_HEADER`, `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE` set in production
 
-**Step 3: Dockerfile & Image Build**
-- Multi-stage build:
-  1. **Node stage**: `npm ci && npm run build` (produces JS/CSS bundles)
-  2. **Python stage**: `uv sync`, `collectstatic`, copy app code
-  3. **Runtime stage**: minimal base, copy venv + staticfiles + app
-- Base image: Python 3.14 on a slim/bookworm base (CentOS 8 host runs the container, image itself can be Debian-based)
-- Single container runs Daphne + embedded MQTT broker (same process model as today)
-- Exposed ports: `8080` (HTTP/WS, internal only), `8883` (MQTT TLS, internet-facing)
-- Health check endpoint: `GET /api/health/` (new, lightweight)
-- Non-root user inside container
-- `.dockerignore` to exclude dev artifacts, `.venv`, `node_modules`, `db.sqlite3`
+**Step 3: Dockerfile & Image Build** ✅ (PR #357)
+- Multi-stage build: Node → Python (uv) → slim runtime
+- Health check endpoint: `GET /api/health/` (no auth, returns version)
+- Non-root `app` user, `libpq5` for PostgreSQL, ports 8080 + 8883
+- `docker-entrypoint` script with configurable ports, log level, `--skip-migrate`
+- `.dockerignore` excludes dev artifacts
 
-**Step 4: Docker Compose Stack**
-- `docker-compose.yml` with three services:
-  1. **nginx** — TLS termination (HTTPS on 443), reverse proxy to my-tracks:8080, WebSocket upgrade headers, static file caching headers
-  2. **my-tracks** — the application container (HTTP 8080 internal, MQTT TLS 8883 exposed)
-  3. **postgres** — PostgreSQL 17 with persistent volume
-- Nginx config:
-  - HTTPS (443) → proxy to my-tracks:8080 (HTTP + WebSocket)
-  - MQTT TLS (8883) → passthrough directly to my-tracks:8883 (TCP stream, not HTTP)
-  - Plain MQTT (1883) NOT exposed to the internet
-  - HTTP (80) → redirect to HTTPS
-- Volumes: `postgres-data`, `certs` (nginx TLS certs), `logs`
-- Environment file (`.env.production`) template with all required variables
+**Step 4: Docker Compose Stack** ✅ (PR #358)
+- Three services: nginx (TLS termination), my-tracks (app), postgres (database)
+- Optional certbot service for Let's Encrypt (`--profile certbot`)
+- Nginx: HTTPS reverse proxy, HTTP→HTTPS redirect, MQTT TLS TCP passthrough
+- Security headers (HSTS, X-Frame-Options), login rate limiting, static file caching
+- `.env.production.example` template with all configuration variables
 
-**Step 5: Deployment Script**
-- `deploy` script (bash, following project conventions):
-  - Generates `SECRET_KEY` if not set
-  - Generates self-signed nginx TLS cert or prompts for Let's Encrypt / existing cert
-  - Creates `.env.production` from template with guided prompts
-  - Pulls/builds image, runs `docker compose up -d`
-  - Runs `migrate` inside the container
-  - Creates initial admin user if first deployment
-  - Prints summary: URLs, ports, credentials
-- `deploy --update` for pulling new image + migrate + restart
-- `deploy --backup` for database dump
+**Step 5: Deployment Script** ✅ (PR #359)
+- `./deploy` interactive first-time setup (secret generation, TLS certs, admin user)
+- `./deploy --update` pulls latest image, migrates, restarts
+- `./deploy --backup` timestamped gzipped `pg_dump`
+- `./deploy --status`, `--stop`, `--logs` convenience commands
 
-**Step 6: Semantic Versioning**
-- Add version tracking to the project (single source of truth in `pyproject.toml`)
-- Use a lightweight versioning scheme: `vMAJOR.MINOR.PATCH` (e.g., `v1.0.0`)
-- Create a `release` script or GitHub Action that:
-  - Bumps version in `pyproject.toml`
-  - Creates a git tag (`vX.Y.Z`)
-  - Pushes tag to trigger the container publish workflow
-- Version is baked into the container image at build time (accessible via `/api/health/` or `/about/`)
-- Changelog generation from commit history / merged PRs (optional, e.g., via `git-cliff` or GitHub Releases auto-notes)
+**Step 6: Semantic Versioning** ✅ (PR #354)
+- `pyproject.toml` is single source of truth for version
+- `get_version()` utility in `my_tracks/utils.py` via `importlib.metadata`
+- Version displayed on About page and `/api/health/` endpoint
+- `./release patch|minor|major` script (Typer CLI): bumps version, commits, tags, pushes
+- Supports `--dry-run` and `--skip-push`
 
-**Step 7: Container Registry & CI/CD Publish**
+**Step 7: Container Registry & CI/CD Publish** ← NEXT
 - Publish image to GitHub Container Registry (`ghcr.io/the-hcma/my-tracks`)
 - GitHub Actions workflow triggered on version tags (`v*`):
   - Builds the multi-stage Docker image
@@ -371,22 +347,21 @@ Package the application as a production-ready container image deployable on a Ce
 - Multi-arch build (amd64 + arm64) for broad host compatibility
 - Workflow also runs on PRs (build-only, no push) to catch Dockerfile regressions early
 
-**Step 8: Network Hardening**
-- Only exposed ports on host: `443` (HTTPS) and `8883` (MQTT TLS)
-- HTTP 8080 and plain MQTT 1883 are internal to the Docker network only
+**Step 8: Network Hardening** ✅ (baked into Steps 4-5)
+- Only exposed host ports: 443 (HTTPS), 80 (redirect), 8883 (MQTT TLS)
+- HTTP 8080 and plain MQTT 1883 internal to Docker network only
 - Nginx rate limiting on login endpoint
-- Firewall guidance in deployment docs (firewalld for CentOS 8)
+- Firewall guidance in DEPLOYMENT.md (firewalld + ufw)
 
-**Step 9: Documentation**
-- `DEPLOYMENT.md` with:
-  - Prerequisites (Docker, Docker Compose, CentOS 8+)
-  - Quick start (one-command deploy)
-  - Configuration reference (all env vars)
-  - TLS certificate setup (self-signed vs Let's Encrypt vs custom)
-  - Backup and restore
-  - Upgrading to new versions
-  - Releasing new versions (semver workflow)
-  - Troubleshooting
+**Step 9: Documentation** ✅ (PR #351, #362)
+- Comprehensive DEPLOYMENT.md rewrite for containerized deployment
+- Architecture diagram, configuration reference, TLS certificate options
+- Day-to-day operations, semver release workflow, troubleshooting
+- Clarified HTTPS vs MQTT TLS certificate distinction
+
+27. **Replace venv activation with uv run** ✅ (PR #363)
+    - Replaced `_activate_venv()` pattern with `_ensure_uv()` in `release`, `generate-tail`, `verify-setup`
+    - Updated AGENTS.md Python CLI convention to use `uv run` instead of virtualenv
 
 ### Phase 8: TLS Hot-Reload
 
@@ -414,8 +389,8 @@ my_tracks/mqtt/
 
 ## Test Coverage
 
-- 871 Python tests + 87 TypeScript tests passing
-- 97.21% code coverage (target: 90%)
+- 897+ Python tests + 87 TypeScript tests passing
+- 97% code coverage (target: 90%)
 - Tests run in parallel via pytest-xdist with accurate coverage merging
 - All pyright checks pass (0 errors, 0 warnings)
 - All imports sorted (isort clean)
