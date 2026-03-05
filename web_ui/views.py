@@ -431,6 +431,8 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
                         user.is_superuser = True
                         user.save()
                     role = "administrator" if is_admin else "user"
+                    logger.info("[http] User '%s' created '%s' (role=%s) via admin panel",
+                                 request.user.username, username, role)
                     context['create_success'] = f"User '{username}' created as {role}."
                 except Exception as e:
                     context['create_error'] = str(e)

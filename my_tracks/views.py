@@ -659,6 +659,10 @@ class AdminUserViewSet(viewsets.ViewSet):
             user.is_superuser = True
             user.save()
 
+        role = "admin" if is_staff else "user"
+        logger.info("[http] User '%s' created '%s' (role=%s) via API",
+                     request.user.username, username, role)
+
         return Response(
             UserSerializer(user).data,
             status=status.HTTP_201_CREATED,

@@ -4,6 +4,7 @@ Database models for OwnTracks location tracking.
 This module defines the data models for storing device information
 and location data from OwnTracks clients.
 """
+import logging
 from typing import Any
 
 from django.contrib.auth.models import User
@@ -11,6 +12,8 @@ from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
+
+logger = logging.getLogger(__name__)
 
 
 class Device(models.Model):
@@ -452,4 +455,7 @@ def create_user_profile(
 ) -> None:
     """Auto-create a UserProfile whenever a new User is created."""
     if created:
+        role = "admin" if instance.is_staff else "user"
+        logger.info("New user created: '%s' (role=%s, email='%s')",
+                     instance.username, role, instance.email or "")
         UserProfile.objects.create(user=instance)
