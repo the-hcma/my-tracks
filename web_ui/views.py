@@ -1,7 +1,7 @@
 """Views for the Web UI application."""
 
 import logging
-import socket
+from dataclasses import dataclass, field
 from datetime import timedelta
 
 from django.conf import settings
@@ -33,6 +33,8 @@ from my_tracks.utils import get_version
 
 logger = logging.getLogger(__name__)
 
+_LOOPBACK_HOSTS = frozenset(('localhost', '127.0.0.1', '::1'))
+
 
 def get_all_local_ips() -> list[str]:
     """
@@ -57,6 +59,73 @@ def get_all_local_ips() -> list[str]:
             if ip and not ip.startswith('127.') and has_broadcast:
                 ips.append(ip)
     return sorted(set(ips))
+
+
+@dataclass
+class ServerInfo:
+    """Externally-visible server connection information."""
+
+    hostname: str
+    port: str
+    scheme: str
+    accessible_hosts: list[str] = field(default_factory=list)
+    lan_ips: list[str] = field(default_factory=list)
+
+    @property
+    def base_url(self) -> str:
+        default_port = '443' if self.scheme == 'https' else '80'
+        host_part = self.hostname
+        if self.port != default_port:
+            host_part = f'{self.hostname}:{self.port}'
+        return f'{self.scheme}://{host_part}'
+
+    def url_for_host(self, host: str) -> str:
+        default_port = '443' if self.scheme == 'https' else '80'
+        if self.port != default_port:
+            return f'{self.scheme}://{host}:{self.port}'
+        return f'{self.scheme}://{host}'
+
+
+def get_server_info(request: HttpRequest) -> ServerInfo:
+    """
+    Derive externally-visible server info from the incoming request.
+
+    Behind a reverse proxy (nginx), the request Host header carries the real
+    hostname and port the client used.  In direct-access mode (development),
+    it falls back to netifaces-based LAN IP detection.
+    """
+    request_host = request.get_host()
+    if ':' in request_host:
+        hostname, port = request_host.rsplit(':', 1)
+    else:
+        hostname = request_host
+        port = '443' if request.is_secure() else '80'
+
+    scheme = 'https' if request.is_secure() else 'http'
+
+    hosts: set[str] = set()
+    for h in settings.ALLOWED_HOSTS:
+        if h and h != '*':
+            hosts.add(h)
+
+    lan_ips = get_all_local_ips()
+    hosts.update(lan_ips)
+
+    hosts.discard(hostname)
+
+    real_hosts = {h for h in hosts if h not in _LOOPBACK_HOSTS}
+    if real_hosts:
+        accessible = sorted(real_hosts)
+    else:
+        accessible = sorted(hosts)
+
+    return ServerInfo(
+        hostname=hostname,
+        port=port,
+        scheme=scheme,
+        accessible_hosts=accessible,
+        lan_ips=lan_ips,
+    )
 
 
 def update_allowed_hosts(ips: list[str]) -> None:
@@ -137,48 +206,37 @@ def health(request: HttpRequest) -> JsonResponse:
 @login_required
 def network_info(request: HttpRequest) -> JsonResponse:
     """Return current network information for dynamic UI updates."""
-    ips, _ = NetworkState.check_and_update_ips()
-    hostname = socket.gethostname()
-    server_port = request.META.get('SERVER_PORT', '8080')
+    info = get_server_info(request)
 
     return JsonResponse({
-        'hostname': hostname,
-        'local_ip': ips[0] if ips else 'Unable to detect',
-        'local_ips': ips,
-        'port': int(server_port)
+        'hostname': info.hostname,
+        'local_ip': info.hostname,
+        'local_ips': info.accessible_hosts,
+        'port': int(info.port),
+        'scheme': info.scheme,
+        'server_url': info.base_url,
     })
 
 
 @login_required
 def home(request: HttpRequest) -> HttpResponse:
     """Home page with live map and activity log."""
-    ips, _ = NetworkState.check_and_update_ips()
-    primary_ip = ips[0] if ips else 'Unable to detect'
-    hostname = socket.gethostname()
+    info = get_server_info(request)
 
-    # Get the actual port from the request (handles port 0 case correctly)
-    server_port = request.META.get('SERVER_PORT', '8080')
-
-    # Get coordinate precision from database schema
-    # The Location model defines decimal_places for lat/lon fields
-    # We use this to derive a sensible collapsing precision (~1 meter = 5 decimals)
     lat_field = Location._meta.get_field('latitude')
-    db_decimal_places = lat_field.decimal_places or 10  # Default to 10 if not set
-    # For collapsing, use 5 decimals (~1.1m precision) - derived from DB but practical
-    # This avoids over-aggregation while still grouping GPS jitter
+    db_decimal_places = lat_field.decimal_places or 10
     collapse_precision = min(db_decimal_places, 5)
 
-    # Get MQTT port (actual port if OS-allocated, else configured port)
     mqtt_configured_port = get_mqtt_port()
     mqtt_actual_port = get_actual_mqtt_port()
     mqtt_port = mqtt_actual_port if mqtt_actual_port is not None else mqtt_configured_port
     mqtt_enabled = mqtt_configured_port >= 0
 
     context = {
-        'hostname': hostname,
-        'local_ip': primary_ip,
-        'local_ips': ips,
-        'server_port': server_port,
+        'hostname': info.hostname,
+        'local_ip': info.hostname,
+        'local_ips': info.accessible_hosts,
+        'server_port': info.port,
         'collapse_precision': collapse_precision,
         'mqtt_port': mqtt_port,
         'mqtt_enabled': mqtt_enabled,
@@ -290,10 +348,7 @@ def download_ca_cert(request: HttpRequest) -> HttpResponse:
 @login_required
 def about(request: HttpRequest) -> HttpResponse:
     """About & Setup page with server info and OwnTracks configuration."""
-    ips, _ = NetworkState.check_and_update_ips()
-    primary_ip = ips[0] if ips else 'Unable to detect'
-    hostname = socket.gethostname()
-    server_port = request.META.get('SERVER_PORT', '8080')
+    info = get_server_info(request)
 
     mqtt_configured_port = get_mqtt_port()
     mqtt_actual_port = get_actual_mqtt_port()
@@ -308,10 +363,12 @@ def about(request: HttpRequest) -> HttpResponse:
 
     context: dict[str, object] = {
         'version': get_version(),
-        'hostname': hostname,
-        'local_ip': primary_ip,
-        'local_ips': ips,
-        'server_port': server_port,
+        'server_info': info,
+        'hostname': info.hostname,
+        'server_port': info.port,
+        'server_url': info.base_url,
+        'scheme': info.scheme,
+        'accessible_hosts': info.accessible_hosts,
         'mqtt_port': mqtt_port,
         'mqtt_enabled': mqtt_enabled,
         'mqtt_tls_port': mqtt_tls_port,
@@ -636,15 +693,14 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
     ))
     context['active_tab'] = 'pki' if pki_has_message else 'users'
 
-    ips = get_all_local_ips()
-    hostname = socket.gethostname()
-    san_candidates: list[str] = list(ips)
-    san_candidates.append(hostname)
-    request_host = request.get_host().split(":")[0]
-    if request_host and request_host not in san_candidates:
-        san_candidates.append(request_host)
+    admin_info = get_server_info(request)
+    san_candidates: list[str] = list(admin_info.lan_ips)
+    san_candidates.append(admin_info.hostname)
+    for host in admin_info.accessible_hosts:
+        if host not in san_candidates:
+            san_candidates.append(host)
     context['default_san_list'] = san_candidates
     context['default_sans'] = ', '.join(san_candidates)
-    context['hostname'] = hostname
+    context['hostname'] = admin_info.hostname
 
     return render(request, 'web_ui/admin_panel.html', context)

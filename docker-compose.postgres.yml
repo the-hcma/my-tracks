@@ -1,0 +1,35 @@
+# Containerized PostgreSQL for local/testing use.
+#
+# Include this file alongside docker-compose.yml to run a transient
+# PostgreSQL instance inside the Docker stack:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d
+#
+# For production with an external database, omit this file and set
+# DATABASE_URL in .env.production to point to your managed PostgreSQL.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mytracks}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: ${POSTGRES_DB:-mytracks}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mytracks}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  my-tracks:
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-mytracks}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-mytracks}
+
+volumes:
+  postgres-data:

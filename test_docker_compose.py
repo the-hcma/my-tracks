@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from hamcrest import (assert_that, contains_string, equal_to, has_item,
-                      has_key, is_)
+                      has_key, is_, is_not)
 
 _ROOT = Path(__file__).resolve().parent
 
@@ -13,16 +13,13 @@ def _read(name: str) -> str:
 
 
 class TestDockerCompose:
-    """Validate docker-compose.yml structure."""
+    """Validate docker-compose.yml structure (base file, no postgres)."""
 
     def test_compose_file_exists(self) -> None:
         assert_that((_ROOT / "docker-compose.yml").exists(), is_(True))
 
     def test_defines_my_tracks_service(self) -> None:
         assert_that(_read("docker-compose.yml"), contains_string("my-tracks:"))
-
-    def test_defines_postgres_service(self) -> None:
-        assert_that(_read("docker-compose.yml"), contains_string("postgres:"))
 
     def test_defines_nginx_service(self) -> None:
         assert_that(_read("docker-compose.yml"), contains_string("nginx:"))
@@ -35,17 +32,15 @@ class TestDockerCompose:
         assert_that(source, contains_string("profiles:"))
         assert_that(source, contains_string("- certbot"))
 
-    def test_postgres_has_healthcheck(self) -> None:
-        assert_that(_read("docker-compose.yml"), contains_string("pg_isready"))
+    def test_no_postgres_in_base(self) -> None:
+        source = _read("docker-compose.yml")
+        assert_that(source, is_not(contains_string("postgres:")))
+        assert_that(source, is_not(contains_string("postgres-data:")))
 
-    def test_my_tracks_depends_on_postgres(self) -> None:
-        assert_that(_read("docker-compose.yml"), contains_string("service_healthy"))
-
-    def test_postgres_data_volume_defined(self) -> None:
-        assert_that(_read("docker-compose.yml"), contains_string("postgres-data:"))
-
-    def test_database_url_uses_postgres(self) -> None:
-        assert_that(_read("docker-compose.yml"), contains_string("postgresql://"))
+    def test_no_database_url_in_base(self) -> None:
+        assert_that(
+            _read("docker-compose.yml"), is_not(contains_string("DATABASE_URL"))
+        )
 
     def test_nginx_exposes_443(self) -> None:
         assert_that(_read("docker-compose.yml"), contains_string("443"))
@@ -58,6 +53,38 @@ class TestDockerCompose:
 
     def test_env_production_referenced(self) -> None:
         assert_that(_read("docker-compose.yml"), contains_string(".env.production"))
+
+
+class TestDockerComposePostgres:
+    """Validate docker-compose.postgres.yml (optional internal DB)."""
+
+    def test_postgres_compose_file_exists(self) -> None:
+        assert_that((_ROOT / "docker-compose.postgres.yml").exists(), is_(True))
+
+    def test_defines_postgres_service(self) -> None:
+        assert_that(
+            _read("docker-compose.postgres.yml"), contains_string("postgres:")
+        )
+
+    def test_postgres_has_healthcheck(self) -> None:
+        assert_that(
+            _read("docker-compose.postgres.yml"), contains_string("pg_isready")
+        )
+
+    def test_my_tracks_depends_on_postgres(self) -> None:
+        assert_that(
+            _read("docker-compose.postgres.yml"), contains_string("service_healthy")
+        )
+
+    def test_postgres_data_volume_defined(self) -> None:
+        assert_that(
+            _read("docker-compose.postgres.yml"), contains_string("postgres-data:")
+        )
+
+    def test_database_url_uses_postgres(self) -> None:
+        assert_that(
+            _read("docker-compose.postgres.yml"), contains_string("postgresql://")
+        )
 
 
 class TestNginxConfig:
@@ -129,6 +156,9 @@ class TestEnvProductionExample:
 
     def test_contains_debug_false(self) -> None:
         assert_that(_read(".env.production.example"), contains_string("DEBUG=False"))
+
+    def test_contains_database_url(self) -> None:
+        assert_that(_read(".env.production.example"), contains_string("DATABASE_URL="))
 
     def test_contains_postgres_password(self) -> None:
         assert_that(_read(".env.production.example"), contains_string("POSTGRES_PASSWORD="))

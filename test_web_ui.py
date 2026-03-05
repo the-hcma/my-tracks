@@ -120,8 +120,8 @@ class TestWebUIViews:
         assert_that(data['status'], equal_to('ok'))
 
     def test_network_info_returns_expected_fields(self, logged_in_client: Client) -> None:
-        """Test that network_info returns required fields."""
-        response = logged_in_client.get('/network-info/', SERVER_PORT='8080')
+        """Test that network_info returns required fields derived from the request."""
+        response = logged_in_client.get('/network-info/')
 
         assert_that(response.status_code, equal_to(status.HTTP_200_OK))
         data = response.json()
@@ -129,7 +129,9 @@ class TestWebUIViews:
         assert_that(data, has_key('local_ip'))
         assert_that(data, has_key('local_ips'))
         assert_that(data, has_key('port'))
-        assert_that(data['port'], equal_to(8080))
+        assert_that(data, has_key('scheme'))
+        assert_that(data, has_key('server_url'))
+        assert_that(data['hostname'], equal_to('testserver'))
         assert_that(data['local_ips'], instance_of(list))
 
 
@@ -264,6 +266,125 @@ class TestNetworkState:
         ips, changed = NetworkState.check_and_update_ips()
         assert_that(changed, equal_to(False))
         assert_that(ips, equal_to(current_ips))
+
+
+@pytest.mark.django_db
+class TestServerInfo:
+    """Test the ServerInfo helper and get_server_info function."""
+
+    def test_server_info_from_plain_request(self, logged_in_client: Client) -> None:
+        """Test server info from a standard Django test client request."""
+        from web_ui.views import ServerInfo, get_server_info
+
+        response = logged_in_client.get('/about/')
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        content = response.content.decode('utf-8')
+        assert_that(content, contains_string('testserver'))
+
+    @override_settings(ALLOWED_HOSTS=['*'])
+    def test_server_info_uses_request_host(self, logged_in_client: Client) -> None:
+        """Hostname is derived from the request Host header, not socket."""
+        response = logged_in_client.get(
+            '/about/', SERVER_NAME='mytracks.example.com',
+        )
+        content = response.content.decode('utf-8')
+        assert_that(content, contains_string('mytracks.example.com'))
+
+    @override_settings(ALLOWED_HOSTS=['*'])
+    def test_server_info_extracts_port_from_host(self) -> None:
+        """Port is extracted from the Host header when non-standard."""
+        from django.test import RequestFactory
+
+        from web_ui.views import get_server_info
+
+        factory = RequestFactory()
+        request = factory.get('/', SERVER_NAME='mytracks.local', SERVER_PORT='8443')
+        request.META['HTTP_HOST'] = 'mytracks.local:8443'
+        info = get_server_info(request)
+        assert_that(info.hostname, equal_to('mytracks.local'))
+        assert_that(info.port, equal_to('8443'))
+
+    @override_settings(
+        ALLOWED_HOSTS=['*'],
+        SECURE_PROXY_SSL_HEADER=('HTTP_X_FORWARDED_PROTO', 'https'),
+    )
+    def test_server_info_defaults_port_443_for_https(self) -> None:
+        """When no port in Host and using HTTPS, port defaults to 443."""
+        from django.test import RequestFactory
+
+        from web_ui.views import get_server_info
+
+        factory = RequestFactory()
+        request = factory.get('/', SERVER_NAME='mytracks.local')
+        request.META['HTTP_HOST'] = 'mytracks.local'
+        request.META['HTTP_X_FORWARDED_PROTO'] = 'https'
+        info = get_server_info(request)
+        assert_that(info.scheme, equal_to('https'))
+        assert_that(info.port, equal_to('443'))
+
+    @override_settings(ALLOWED_HOSTS=['mytracks.example.com', 'backup.example.com', 'localhost'])
+    def test_server_info_accessible_hosts_from_allowed_hosts(self) -> None:
+        """Accessible hosts are populated from ALLOWED_HOSTS, excluding the primary."""
+        from django.test import RequestFactory
+
+        from web_ui.views import get_server_info
+
+        factory = RequestFactory()
+        request = factory.get('/', SERVER_NAME='mytracks.example.com')
+        request.META['HTTP_HOST'] = 'mytracks.example.com'
+        info = get_server_info(request)
+        assert_that(info.accessible_hosts, has_item('backup.example.com'))
+        assert_that('mytracks.example.com' not in info.accessible_hosts, is_(True))
+
+    @override_settings(ALLOWED_HOSTS=['mytracks.example.com', 'localhost', '127.0.0.1'])
+    def test_server_info_filters_loopback_when_real_hosts_exist(self) -> None:
+        """Loopback hosts are excluded when real hosts are available."""
+        from django.test import RequestFactory
+
+        from web_ui.views import get_server_info
+
+        factory = RequestFactory()
+        request = factory.get('/', SERVER_NAME='mytracks.example.com')
+        request.META['HTTP_HOST'] = 'mytracks.example.com'
+        info = get_server_info(request)
+        assert_that('localhost' not in info.accessible_hosts, is_(True))
+        assert_that('127.0.0.1' not in info.accessible_hosts, is_(True))
+
+    def test_server_info_base_url_with_standard_port(self) -> None:
+        """base_url omits port when it matches the scheme default."""
+        from web_ui.views import ServerInfo
+
+        info = ServerInfo(hostname='example.com', port='443', scheme='https')
+        assert_that(info.base_url, equal_to('https://example.com'))
+
+    def test_server_info_base_url_with_custom_port(self) -> None:
+        """base_url includes port when non-standard."""
+        from web_ui.views import ServerInfo
+
+        info = ServerInfo(hostname='example.com', port='8443', scheme='https')
+        assert_that(info.base_url, equal_to('https://example.com:8443'))
+
+    def test_server_info_url_for_host(self) -> None:
+        """url_for_host builds correct URL for a given host."""
+        from web_ui.views import ServerInfo
+
+        info = ServerInfo(hostname='primary.com', port='8443', scheme='https')
+        assert_that(
+            info.url_for_host('backup.com'),
+            equal_to('https://backup.com:8443'),
+        )
+
+    def test_about_page_shows_server_url(self, logged_in_client: Client) -> None:
+        """About page should display the server URL derived from the request."""
+        response = logged_in_client.get('/about/')
+        content = response.content.decode('utf-8')
+        assert_that(content, contains_string('http://testserver/'))
+
+    def test_about_page_shows_api_url(self, logged_in_client: Client) -> None:
+        """About page OwnTracks config should show server URL for API endpoints."""
+        response = logged_in_client.get('/about/')
+        content = response.content.decode('utf-8')
+        assert_that(content, contains_string('http://testserver/api/locations/'))
 
 
 @pytest.mark.django_db
@@ -1523,13 +1644,11 @@ class TestAdminPanelServerCert:
         assert_that(content, contains_string('Cannot expunge'))
 
     def test_default_sans_populated(self, admin_logged_in_client: Client) -> None:
-        """The SAN editor should be seeded with local IPs, hostname, and request host."""
+        """The SAN editor should be seeded with request hostname and local IPs."""
         self._create_ca(admin_logged_in_client)
         response = admin_logged_in_client.get('/admin-panel/')
         content = response.content.decode('utf-8')
-        import socket
-        hostname = socket.gethostname()
-        assert_that(content, contains_string(hostname))
+        assert_that(content, contains_string('testserver'))
         assert_that(content, contains_string('san-editor'))
         assert_that(content, contains_string('san-tags'))
 
