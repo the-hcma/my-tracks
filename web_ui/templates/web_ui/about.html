@@ -85,32 +85,20 @@
         <h2>🌐 HTTP Server</h2>
         <div class="endpoint" id="network-info">
             <p><strong>Status:</strong> <span style="color: var(--success-color, #4CAF50);">● Enabled</span></p>
-            <p><strong>Hostname:</strong> <code>{{ hostname }}</code></p>
-            <p><strong>Network IPs:</strong></p>
-            {% for ip in local_ips %}
-                <p><code>{{ ip }}</code></p>
-            {% empty %}
-                <p><code>Unable to detect</code></p>
+            <p><strong>URL:</strong> <code><a href="{{ server_url }}/" style="color: inherit;">{{ server_url }}/</a></code></p>
+            {% if accessible_hosts %}
+            <p style="margin-top: 10px;"><strong>Also accessible via:</strong></p>
+            {% for host in accessible_hosts %}
+                <p><code><a href="{{ scheme }}://{{ host }}{% if server_port != '443' and server_port != '80' %}:{{ server_port }}{% endif %}/" style="color: inherit;">{{ scheme }}://{{ host }}{% if server_port != '443' and server_port != '80' %}:{{ server_port }}{% endif %}/</a></code></p>
             {% endfor %}
-            <p><strong>Port:</strong> <code>{{ server_port }}</code></p>
-            <p style="margin-top: 10px;">Access from other devices on your LAN:</p>
-            {% for ip in local_ips %}
-                <p><code>http://{{ ip }}:{{ server_port }}/</code></p>
-            {% empty %}
-                <p><code>http://{{ local_ip }}:{{ server_port }}/</code></p>
-            {% endfor %}
+            {% endif %}
         </div>
 
         <h2>📶 MQTT Broker</h2>
         {% if mqtt_enabled %}
         <div class="endpoint">
             <p><strong>Status:</strong> <span style="color: var(--success-color, #4CAF50);">● Enabled</span></p>
-            <p><strong>Host:</strong></p>
-            {% for ip in local_ips %}
-                <p><code>{{ ip }}</code></p>
-            {% empty %}
-                <p><code>{{ local_ip }}</code></p>
-            {% endfor %}
+            <p><strong>Host:</strong> <code>{{ hostname }}</code></p>
             <p><strong>Port:</strong> <code>{{ mqtt_port }}</code></p>
             <p style="margin-top: 10px;">MQTT is recommended for better battery life and real-time updates.</p>
         </div>
@@ -125,12 +113,7 @@
         {% if mqtt_tls_enabled %}
         <div class="endpoint">
             <p><strong>Status:</strong> <span style="color: var(--success-color, #4CAF50);">● Enabled</span></p>
-            <p><strong>Host:</strong></p>
-            {% for ip in local_ips %}
-                <p><code>{{ ip }}</code></p>
-            {% empty %}
-                <p><code>{{ local_ip }}</code></p>
-            {% endfor %}
+            <p><strong>Host:</strong> <code>{{ hostname }}</code></p>
             <p><strong>Port:</strong> <code>{{ mqtt_tls_port }}</code></p>
             <p style="margin-top: 10px;">Mutual TLS — clients must present a valid certificate signed by the CA.</p>
         </div>
@@ -201,7 +184,7 @@
         <div class="endpoint">
             <p><strong>4a. For MQTT TLS Mode (Recommended):</strong></p>
             <p>Mode: <code>MQTT</code></p>
-            <p>Host: <code>{{ local_ip }}</code> (use any IP or hostname from the MQTT TLS section above)</p>
+            <p>Host: <code>{{ hostname }}</code></p>
             <p>Port: <code>{{ mqtt_tls_port }}</code></p>
             <p>TLS: <code>ON</code></p>
             <p>Authentication: <code>ON</code> (use your server username/password)</p>
@@ -210,7 +193,7 @@
         <div class="endpoint">
             <p><strong>4b. For MQTT Mode (no TLS):</strong></p>
             <p>Mode: <code>MQTT</code></p>
-            <p>Host: <code>{{ local_ip }}</code> (use any IP shown above)</p>
+            <p>Host: <code>{{ hostname }}</code></p>
             <p>Port: <code>{{ mqtt_port }}</code></p>
             <p>TLS: <code>OFF</code></p>
             <p>Authentication: <code>ON</code> (use your server username/password)</p>
@@ -218,13 +201,13 @@
         <div class="endpoint">
             <p><strong>4c. For HTTP Mode:</strong></p>
             <p>Mode: <code>HTTP</code></p>
-            <p>URL: <code>http://{{ local_ip }}:{{ server_port }}/api/locations/</code></p>
+            <p>URL: <code>{{ server_url }}/api/locations/</code></p>
         </div>
         {% else %}
         <div class="endpoint">
             <p><strong>4a. For MQTT Mode:</strong></p>
             <p>Mode: <code>MQTT</code></p>
-            <p>Host: <code>{{ local_ip }}</code> (use any IP shown above)</p>
+            <p>Host: <code>{{ hostname }}</code></p>
             <p>Port: <code>{{ mqtt_port }}</code></p>
             <p>TLS: <code>OFF</code></p>
             <p>Authentication: <code>ON</code> (use your server username/password)</p>
@@ -232,7 +215,7 @@
         <div class="endpoint">
             <p><strong>4b. For HTTP Mode:</strong></p>
             <p>Mode: <code>HTTP</code></p>
-            <p>URL: <code>http://{{ local_ip }}:{{ server_port }}/api/locations/</code></p>
+            <p>URL: <code>{{ server_url }}/api/locations/</code></p>
         </div>
         {% endif %}
         {% else %}
@@ -242,7 +225,7 @@
         </div>
         <div class="endpoint">
             <p><strong>4. Configure URL</strong></p>
-            <p>URL: <code>http://{{ local_ip }}:{{ server_port }}/api/locations/</code></p>
+            <p>URL: <code>{{ server_url }}/api/locations/</code></p>
         </div>
         {% endif %}
         <div class="endpoint">

@@ -1,0 +1,686 @@
+#!/usr/bin/env bash
+#
+# Local production container tester for my-tracks.
+#
+# Usage:
+#   ./production-testing/my-tracks-production-container-manager --start
+#   ./production-testing/my-tracks-production-container-manager --start --freshen-up
+#   ./production-testing/my-tracks-production-container-manager --stop
+#   -h, --help    Show this help message
+#
+# --start   Build and launch the full production stack (nginx + my-tracks + postgres)
+#           on non-conflicting local ports (8443/8080/8883). Creates .env.production
+#           and self-signed certs if they don't exist. Reuses existing .env.production
+#           unless --freshen-up is passed.
+#
+# --stop    Tear down the stack and remove volumes.
+#
+# --freshen-up  (with --start) Regenerate .env.production and certs from scratch.
+#
+# --import-sqlite [path]  (with --start) Import a local SQLite database into the
+#           containerized PostgreSQL. Defaults to ./db.sqlite3 if no path given.
+#           Requires --freshen-up or a fresh start (empty database).
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIR
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+readonly PROJECT_DIR
+readonly ENV_FILE="$PROJECT_DIR/.env.production"
+readonly CERTS_DIR="$PROJECT_DIR/certs"
+
+readonly DEFAULT_HTTPS_PORT=8443
+readonly DEFAULT_HTTP_PORT=8080
+readonly DEFAULT_MQTT_TLS_PORT=8883
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+die() { echo "Error: $1" >&2; exit 1; }
+
+info() { echo "==> $1"; }
+
+detect_compose_cmd() {
+    if docker compose version >/dev/null 2>&1; then
+        echo "docker compose"
+    elif command -v docker-compose >/dev/null 2>&1; then
+        echo "docker-compose"
+    else
+        die "Neither 'docker compose' (plugin) nor 'docker-compose' (standalone) found"
+    fi
+}
+
+generate_secret() {
+    python3 -c "import secrets; print(secrets.token_urlsafe(50))" 2>/dev/null \
+        || openssl rand -base64 48 2>/dev/null \
+        || die "Cannot generate secret — install Python 3 or OpenSSL"
+}
+
+COMPOSE_CMD=""
+COMPOSE_FILES=()
+
+check_prerequisites() {
+    command -v docker >/dev/null 2>&1 || die "Docker is not installed.
+  Install with:  brew install docker"
+
+    if ! docker info >/dev/null 2>&1; then
+        die "Docker daemon is not running.
+  If you use Colima:         colima start
+  If you use Docker Desktop: open -a Docker
+  Install a runtime:         brew install colima && colima start"
+    fi
+
+    if ! docker buildx version >/dev/null 2>&1; then
+        die "Docker buildx plugin is required but not installed.
+  Install with:  brew install docker-buildx
+  Then link:     mkdir -p ~/.docker/cli-plugins && ln -sfn \$(brew --prefix)/bin/docker-buildx ~/.docker/cli-plugins/docker-buildx"
+    fi
+
+    COMPOSE_CMD="$(detect_compose_cmd)"
+
+    command -v curl >/dev/null 2>&1 || die "curl is not installed (required for health checks).
+  Install with:  brew install curl"
+
+    command -v openssl >/dev/null 2>&1 || die "openssl is not installed (required for TLS certificate generation).
+  Install with:  brew install openssl"
+
+    command -v python3 >/dev/null 2>&1 || die "python3 is not installed (required for secret generation).
+  Install with:  brew install python"
+}
+
+env_get() {
+    local key="$1"
+    if [ -f "$ENV_FILE" ]; then
+        grep -E "^${key}=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2-
+    fi
+}
+
+is_internal_db() {
+    local db_url
+    db_url="$(env_get "DATABASE_URL")"
+    [[ -z "$db_url" || "$db_url" == *"@postgres:"* ]]
+}
+
+setup_compose_files() {
+    COMPOSE_FILES=("-f" "$PROJECT_DIR/docker-compose.yml")
+    if is_internal_db; then
+        COMPOSE_FILES+=("-f" "$PROJECT_DIR/docker-compose.postgres.yml")
+    fi
+}
+
+compose() {
+    $COMPOSE_CMD --env-file "$ENV_FILE" \
+        "${COMPOSE_FILES[@]}" \
+        --project-directory "$PROJECT_DIR" \
+        "$@"
+}
+
+mask_password_in_url() {
+    local url="$1"
+    echo "$url" | sed -E 's|(://[^:]+:)[^@]+(@)|\1***\2|'
+}
+
+usage() {
+    cat <<EOF
+Usage: my-tracks-production-container-manager [OPTIONS]
+
+Options:
+  --start                Build and start the production container stack
+  --start --freshen-up   Regenerate config and certs before starting
+  --start --import-sqlite [path]
+                         Import local SQLite db into PostgreSQL (default: ./db.sqlite3)
+  --stop                 Stop the stack and remove volumes
+  -h, --help             Show this help message
+
+Default ports (chosen to avoid conflicts with dev server):
+  HTTPS:    ${DEFAULT_HTTPS_PORT}  →  https://localhost:${DEFAULT_HTTPS_PORT}
+  HTTP:     ${DEFAULT_HTTP_PORT}  →  redirects to HTTPS
+  MQTT TLS: ${DEFAULT_MQTT_TLS_PORT}
+
+Database:
+  By default, a containerized PostgreSQL is started (transient, data in Docker volume).
+  To use an external PostgreSQL, set DATABASE_URL in .env.production and omit
+  POSTGRES_USER/POSTGRES_PASSWORD/POSTGRES_DB.
+EOF
+}
+
+# ── Environment & Certs ─────────────────────────────────────────────────────
+
+ENV_SPEC=(
+    "SECRET_KEY|auto|Django secret key"
+    "DEBUG|False|Debug mode"
+    "ALLOWED_HOSTS|localhost,127.0.0.1|Allowed hostnames"
+    "CSRF_TRUSTED_ORIGINS|https://localhost:${DEFAULT_HTTPS_PORT}|Trusted CSRF origins"
+    "HTTPS_PORT|${DEFAULT_HTTPS_PORT}|Host HTTPS port"
+    "HTTP_PORT|${DEFAULT_HTTP_PORT}|Host HTTP port"
+    "MQTT_TLS_PORT|${DEFAULT_MQTT_TLS_PORT}|Host MQTT TLS port"
+)
+
+INTERNAL_DB_SPEC=(
+    "POSTGRES_USER|mytracks|PostgreSQL username"
+    "POSTGRES_PASSWORD|auto|PostgreSQL password"
+    "POSTGRES_DB|mytracks|PostgreSQL database name"
+)
+
+prompt_value() {
+    local var_name="$1" default="$2" description="$3"
+    local current value
+
+    current="$(env_get "$var_name")"
+    if [ -n "$current" ]; then
+        echo "$current"
+        return
+    fi
+
+    if [ "$default" = "auto" ]; then
+        generate_secret
+        return
+    fi
+
+    printf "  %s (%s) [%s]: " "$var_name" "$description" "$default" >&2
+    read -r value
+    echo "${value:-$default}"
+}
+
+choose_database_mode() {
+    echo "" >&2
+    echo "  ── Database configuration ──" >&2
+    echo "    1) Containerized PostgreSQL (transient, data in Docker volume)" >&2
+    echo "    2) External PostgreSQL (provide your own DATABASE_URL)" >&2
+    echo "" >&2
+    printf "  Choose [1]: " >&2
+    read -r db_choice
+    db_choice="${db_choice:-1}"
+
+    if [ "$db_choice" = "2" ]; then
+        echo "" >&2
+        printf "  DATABASE_URL (e.g., postgresql://user:pass@host:5432/dbname): " >&2
+        read -r db_url
+        [ -n "$db_url" ] || die "DATABASE_URL cannot be empty"
+        echo "$db_url"
+    else
+        echo "internal"
+    fi
+}
+
+extract_source_env_value() {
+    local var_name="$1"
+    grep -E "^${var_name}=" "$PROJECT_DIR/.env" 2>/dev/null | head -1 | cut -d= -f2-
+}
+
+extract_source_secret_key() {
+    local key
+    key="$(extract_source_env_value "SECRET_KEY")"
+    if [ -n "$key" ]; then
+        echo "$key"
+        return
+    fi
+    DJANGO_SETTINGS_MODULE=config.settings \
+        DATABASE_URL="sqlite:///dev-null" \
+        uv run --directory "$PROJECT_DIR" python -c \
+            "from django.conf import settings; print(settings.SECRET_KEY)" 2>/dev/null || true
+}
+
+build_csrf_origins() {
+    local allowed_hosts="$1" https_port="$2"
+    local origins=""
+    IFS=',' read -ra hosts <<< "$allowed_hosts"
+    for host in "${hosts[@]}"; do
+        host="$(echo "$host" | xargs)"
+        [ -z "$host" ] && continue
+        if [ -n "$origins" ]; then
+            origins="${origins},"
+        fi
+        if [ "$https_port" = "443" ]; then
+            origins="${origins}https://${host}"
+        else
+            origins="${origins}https://${host}:${https_port}"
+        fi
+    done
+    echo "$origins"
+}
+
+create_env_file() {
+    local override_secret_key="${1:-}"
+    local override_allowed_hosts="${2:-}"
+
+    info "Generating .env.production"
+
+    local db_result
+    db_result="$(choose_database_mode)"
+
+    local secret_key
+    if [ -n "$override_secret_key" ]; then
+        secret_key="$override_secret_key"
+        echo ""
+        echo "  ⚠  SECRET_KEY preserved from source environment for PKI compatibility."
+        echo "     This key was NOT generated for production use. Do NOT deploy this"
+        echo "     configuration to a publicly accessible server. For real production,"
+        echo "     re-generate all PKI certificates after switching to a strong SECRET_KEY."
+        echo ""
+    else
+        secret_key="$(generate_secret)"
+    fi
+
+    local allowed_hosts
+    if [ -n "$override_allowed_hosts" ]; then
+        allowed_hosts="$override_allowed_hosts"
+        info "Using ALLOWED_HOSTS from source environment: $allowed_hosts"
+    else
+        allowed_hosts="localhost,127.0.0.1"
+    fi
+
+    local csrf_origins
+    csrf_origins="$(build_csrf_origins "$allowed_hosts" "$DEFAULT_HTTPS_PORT")"
+
+    if [ "$db_result" = "internal" ]; then
+        local pg_password
+        pg_password="$(generate_secret)"
+
+        cat > "$ENV_FILE" <<ENVEOF
+SECRET_KEY=${secret_key}
+DEBUG=False
+ALLOWED_HOSTS=${allowed_hosts}
+CSRF_TRUSTED_ORIGINS=${csrf_origins}
+POSTGRES_USER=mytracks
+POSTGRES_PASSWORD=${pg_password}
+POSTGRES_DB=mytracks
+DATABASE_URL=postgresql://mytracks:${pg_password}@postgres:5432/mytracks
+HTTPS_PORT=${DEFAULT_HTTPS_PORT}
+HTTP_PORT=${DEFAULT_HTTP_PORT}
+MQTT_TLS_PORT=${DEFAULT_MQTT_TLS_PORT}
+ENVEOF
+    else
+        cat > "$ENV_FILE" <<ENVEOF
+SECRET_KEY=${secret_key}
+DEBUG=False
+ALLOWED_HOSTS=${allowed_hosts}
+CSRF_TRUSTED_ORIGINS=${csrf_origins}
+DATABASE_URL=${db_result}
+HTTPS_PORT=${DEFAULT_HTTPS_PORT}
+HTTP_PORT=${DEFAULT_HTTP_PORT}
+MQTT_TLS_PORT=${DEFAULT_MQTT_TLS_PORT}
+ENVEOF
+    fi
+
+    info "Created $ENV_FILE"
+}
+
+validate_and_repair_env() {
+    local missing=() var_name default description
+    for spec in "${ENV_SPEC[@]}"; do
+        IFS='|' read -r var_name default description <<< "$spec"
+        if [ -z "$(env_get "$var_name")" ]; then
+            missing+=("$spec")
+        fi
+    done
+
+    if [ -z "$(env_get "DATABASE_URL")" ]; then
+        local db_result
+        db_result="$(choose_database_mode)"
+        if [ "$db_result" = "internal" ]; then
+            local pg_password
+            pg_password="$(generate_secret)"
+            {
+                echo "POSTGRES_USER=mytracks"
+                echo "POSTGRES_PASSWORD=${pg_password}"
+                echo "POSTGRES_DB=mytracks"
+                echo "DATABASE_URL=postgresql://mytracks:${pg_password}@postgres:5432/mytracks"
+            } >> "$ENV_FILE"
+            info "Added internal database configuration to $ENV_FILE"
+        else
+            echo "DATABASE_URL=${db_result}" >> "$ENV_FILE"
+            info "Added external DATABASE_URL to $ENV_FILE"
+        fi
+    fi
+
+    if is_internal_db; then
+        for spec in "${INTERNAL_DB_SPEC[@]}"; do
+            IFS='|' read -r var_name default description <<< "$spec"
+            if [ -z "$(env_get "$var_name")" ]; then
+                missing+=("$spec")
+            fi
+        done
+    fi
+
+    if [ ${#missing[@]} -eq 0 ]; then
+        return
+    fi
+
+    echo ""
+    info "Missing variables in $ENV_FILE — filling in:"
+    echo ""
+
+    for spec in "${missing[@]}"; do
+        IFS='|' read -r var_name default description <<< "$spec"
+        local value
+        value="$(prompt_value "$var_name" "$default" "$description")"
+        echo "${var_name}=${value}" >> "$ENV_FILE"
+    done
+
+    echo ""
+    info "Updated $ENV_FILE with missing values"
+}
+
+load_config_from_env() {
+    ACTIVE_HTTPS_PORT="$(env_get "HTTPS_PORT")"
+    ACTIVE_HTTPS_PORT="${ACTIVE_HTTPS_PORT:-$DEFAULT_HTTPS_PORT}"
+    ACTIVE_HTTP_PORT="$(env_get "HTTP_PORT")"
+    ACTIVE_HTTP_PORT="${ACTIVE_HTTP_PORT:-$DEFAULT_HTTP_PORT}"
+    ACTIVE_MQTT_TLS_PORT="$(env_get "MQTT_TLS_PORT")"
+    ACTIVE_MQTT_TLS_PORT="${ACTIVE_MQTT_TLS_PORT:-$DEFAULT_MQTT_TLS_PORT}"
+    HEALTH_URL="https://localhost:${ACTIVE_HTTPS_PORT}/api/health/"
+
+    DB_USER="$(env_get "POSTGRES_USER")"
+    DB_USER="${DB_USER:-mytracks}"
+    DB_NAME="$(env_get "POSTGRES_DB")"
+    DB_NAME="${DB_NAME:-mytracks}"
+    DATABASE_URL="$(env_get "DATABASE_URL")"
+}
+
+import_sqlite_to_postgres() {
+    local sqlite_path="$1"
+
+    if [ ! -f "$sqlite_path" ]; then
+        die "SQLite database not found: $sqlite_path"
+    fi
+
+    info "Importing SQLite database: $sqlite_path"
+
+    info "Dumping data from SQLite (via Django dumpdata)..."
+    local dump_file
+    dump_file="$(mktemp "${TMPDIR:-/tmp}/my-tracks-dump-XXXXXX").json"
+
+    DJANGO_SETTINGS_MODULE=config.settings \
+        DATABASE_URL="sqlite:///$sqlite_path" \
+        uv run --directory "$PROJECT_DIR" python manage.py dumpdata \
+            --natural-foreign --natural-primary \
+            --exclude contenttypes --exclude auth.permission \
+            --exclude admin.logentry --exclude sessions \
+            --exclude my_tracks.userprofile \
+            --indent 2 \
+            -o "$dump_file" 2>&1 || die "Failed to dump SQLite data"
+
+    local record_count
+    record_count="$(python3 -c "import json; print(len(json.load(open('$dump_file'))))")"
+    info "Exported $record_count records from SQLite"
+
+    info "Loading data into PostgreSQL (via Django loaddata)..."
+    compose run --rm --entrypoint "" -T my-tracks \
+        python manage.py loaddata --format json - < "$dump_file" \
+        || die "Failed to import data into PostgreSQL"
+
+    rm -f "$dump_file"
+    info "Successfully imported $record_count records into PostgreSQL"
+}
+
+create_self_signed_certs() {
+    info "Generating self-signed TLS certificates"
+    mkdir -p "$CERTS_DIR"
+    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+        -keyout "$CERTS_DIR/privkey.pem" \
+        -out "$CERTS_DIR/fullchain.pem" \
+        -subj "/CN=localhost" \
+        2>/dev/null
+    info "Certs written to $CERTS_DIR/"
+}
+
+# ── Banner ───────────────────────────────────────────────────────────────────
+
+print_banner() {
+    local compose_manual="$COMPOSE_CMD --env-file $ENV_FILE"
+    local compose_files_display=""
+    for f in "${COMPOSE_FILES[@]}"; do
+        compose_files_display="$compose_files_display $f"
+    done
+
+    local health_response
+    health_response="$(curl -sk "$HEALTH_URL" 2>/dev/null)"
+
+    echo ""
+    echo "╔══════════════════════════════════════════════════════════════╗"
+    echo "║              my-tracks production stack running             ║"
+    echo "╚══════════════════════════════════════════════════════════════╝"
+    echo ""
+    echo "  Health:    $health_response"
+    echo "  Web UI:    https://localhost:${ACTIVE_HTTPS_PORT}"
+    echo "  API:       https://localhost:${ACTIVE_HTTPS_PORT}/api/"
+    echo "  MQTT TLS:  0.0.0.0:${ACTIVE_MQTT_TLS_PORT}  (all interfaces)"
+    echo ""
+
+    if is_internal_db; then
+        print_internal_db_banner "$compose_manual"
+    else
+        print_external_db_banner
+    fi
+
+    echo "  ── Commands ──────────────────────────────────────────────"
+    echo "  Create admin user:"
+    echo "    $compose_manual${compose_files_display} exec my-tracks python manage.py createsuperuser"
+    echo ""
+    echo "  View logs:"
+    echo "    $compose_manual${compose_files_display} logs -f my-tracks"
+    echo ""
+    echo "  Stop (destroys volumes):"
+    echo "    $SCRIPT_DIR/my-tracks-production-container-manager --stop"
+    echo ""
+    echo "  Stop (preserves data):"
+    echo "    $compose_manual${compose_files_display} down"
+    echo ""
+}
+
+print_internal_db_banner() {
+    local compose_manual="$1"
+    local compose_files_display=""
+    for f in "${COMPOSE_FILES[@]}"; do
+        compose_files_display="$compose_files_display $f"
+    done
+
+    echo "  ── Database (containerized) ────────────────────────────────"
+    echo "  Engine:    PostgreSQL 17 (container: postgres)"
+    echo "  Host:      localhost (internal to Docker network)"
+    echo "  Database:  ${DB_NAME}"
+    echo "  User:      ${DB_USER}"
+    echo ""
+    echo "  ⚠  DATABASE IS TRANSIENT: Data lives in a Docker volume."
+    echo "     Running --stop destroys the volume and ALL data."
+    echo "     To preserve data between restarts:"
+    echo "       $compose_manual${compose_files_display} down  (without -v)"
+    echo ""
+    echo "  Browse data:"
+    echo "    $compose_manual${compose_files_display} exec postgres psql -U ${DB_USER} ${DB_NAME}"
+    echo ""
+    echo "     For persistent storage, use an external PostgreSQL instead:"
+    echo "       1. Set DATABASE_URL in .env.production"
+    echo "          (e.g., postgresql://user:pass@your-db-host:5432/mytracks)"
+    echo "       2. Remove POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB entries"
+    echo "       3. Restart with --freshen-up"
+    echo "     The containerized postgres will not be started when DATABASE_URL"
+    echo "     points to an external host."
+    echo ""
+}
+
+print_external_db_banner() {
+    local masked_url
+    masked_url="$(mask_password_in_url "$DATABASE_URL")"
+
+    echo "  ── Database (external) ─────────────────────────────────────"
+    echo "  URL:       $masked_url"
+    echo ""
+    echo "  ℹ  Database is managed externally — not affected by --stop."
+    echo ""
+}
+
+# ── Commands ─────────────────────────────────────────────────────────────────
+
+cmd_start() {
+    local freshen_up="$1"
+    local import_sqlite="$2"
+
+    check_prerequisites
+
+    if [ "$freshen_up" = "true" ]; then
+        info "Freshen-up: tearing down existing stack and volumes"
+        if [ -f "$ENV_FILE" ]; then
+            setup_compose_files
+            compose down -v 2>/dev/null || true
+        fi
+        local source_secret_key=""
+        local source_allowed_hosts=""
+        if [ -n "$import_sqlite" ]; then
+            source_secret_key="$(extract_source_secret_key)"
+            source_allowed_hosts="$(extract_source_env_value "ALLOWED_HOSTS")"
+            if [ -z "$source_secret_key" ]; then
+                echo ""
+                echo "  ⚠  Could not extract SECRET_KEY from the source environment."
+                echo "     PKI certificates (CA, server, client) use Fernet encryption"
+                echo "     tied to SECRET_KEY. Without the original key, imported PKI"
+                echo "     private keys will be unreadable."
+                echo ""
+                printf "  Source SECRET_KEY (leave empty to generate new): " >&2
+                read -r source_secret_key
+            fi
+        fi
+        create_env_file "$source_secret_key" "$source_allowed_hosts"
+    elif [ ! -f "$ENV_FILE" ]; then
+        info "No .env.production found — creating one"
+        create_env_file "" ""
+    else
+        info "Reusing existing $ENV_FILE (use --freshen-up to regenerate)"
+    fi
+    validate_and_repair_env
+    load_config_from_env
+    setup_compose_files
+    info "Using env file: $ENV_FILE"
+
+    if ! is_internal_db; then
+        info "External database detected — containerized postgres will NOT be started"
+    fi
+
+    if [ "$freshen_up" = "true" ] || [ ! -f "$CERTS_DIR/fullchain.pem" ]; then
+        create_self_signed_certs
+    else
+        info "Reusing existing certs in $CERTS_DIR/"
+    fi
+
+    info "Building container image"
+    compose build
+
+    local compose_manual="$COMPOSE_CMD --env-file $ENV_FILE"
+    local compose_files_display=""
+    for f in "${COMPOSE_FILES[@]}"; do
+        compose_files_display="$compose_files_display $f"
+    done
+    local log_hint="$compose_manual${compose_files_display} logs -f my-tracks"
+
+    if [ -n "$import_sqlite" ]; then
+        if ! is_internal_db; then
+            die "--import-sqlite is only supported with containerized PostgreSQL"
+        fi
+        command -v uv >/dev/null 2>&1 || die "uv is required for --import-sqlite (used to run Django dumpdata).
+  Install with:  curl -LsSf https://astral.sh/uv/install.sh | sh"
+
+        info "Starting postgres for data import"
+        compose up -d postgres
+
+        info "Waiting for postgres to be healthy..."
+        local pg_attempts=0
+        while [ $pg_attempts -lt 30 ]; do
+            if compose exec -T postgres pg_isready -U "$DB_USER" >/dev/null 2>&1; then
+                break
+            fi
+            pg_attempts=$((pg_attempts + 1))
+            sleep 2
+        done
+        [ $pg_attempts -lt 30 ] || die "PostgreSQL did not become healthy"
+
+        info "Running database migrations..."
+        compose run --rm --entrypoint "" -T my-tracks \
+            python manage.py migrate --noinput \
+            || die "Failed to run migrations"
+
+        import_sqlite_to_postgres "$import_sqlite"
+    fi
+
+    info "Starting stack"
+    compose up -d
+
+    info "Waiting for health check (${HEALTH_URL})..."
+    local attempts=0
+    local max_attempts=30
+    while [ $attempts -lt $max_attempts ]; do
+        if curl -sk "$HEALTH_URL" 2>/dev/null | grep -q '"status"'; then
+            break
+        fi
+        attempts=$((attempts + 1))
+        sleep 2
+    done
+
+    if [ $attempts -ge $max_attempts ]; then
+        echo ""
+        echo "WARNING: Health check did not pass within 60 seconds."
+        echo "Check logs with: $log_hint"
+        exit 1
+    fi
+
+    print_banner
+}
+
+cmd_stop() {
+    check_prerequisites
+
+    if [ -f "$ENV_FILE" ]; then
+        load_config_from_env
+        setup_compose_files
+    else
+        COMPOSE_FILES=("-f" "$PROJECT_DIR/docker-compose.yml")
+    fi
+
+    info "Stopping stack and removing volumes"
+    compose down -v
+    info "Stack stopped. .env.production and certs/ are preserved for next run."
+}
+
+# ── Main ─────────────────────────────────────────────────────────────────────
+
+main() {
+    local action=""
+    local freshen_up="false"
+    local import_sqlite=""
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --start)      action="start"; shift ;;
+            --stop)       action="stop"; shift ;;
+            --freshen-up) freshen_up="true"; shift ;;
+            --import-sqlite)
+                shift
+                if [ $# -gt 0 ] && [[ "$1" != --* ]]; then
+                    if [[ "$1" = /* ]]; then
+                        import_sqlite="$1"
+                    else
+                        import_sqlite="$PWD/$1"
+                    fi
+                    shift
+                else
+                    import_sqlite="$PROJECT_DIR/db.sqlite3"
+                fi
+                [ -f "$import_sqlite" ] || die "SQLite database not found: $import_sqlite"
+                ;;
+            -h|--help)    usage; exit 0 ;;
+            *)            die "Unknown option: $1. Use --help for usage." ;;
+        esac
+    done
+
+    if [ -z "$action" ]; then
+        usage
+        exit 1
+    fi
+
+    case "$action" in
+        start) cmd_start "$freshen_up" "$import_sqlite" ;;
+        stop)  cmd_stop ;;
+    esac
+}
+
+main "$@"
