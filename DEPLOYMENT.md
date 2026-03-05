@@ -402,17 +402,275 @@ rm .env.production
 ./deploy                  # fresh start
 ```
 
+## Local Testing (macOS)
+
+You can run the full production stack locally to verify everything works before deploying to a real server. This is especially useful for testing MQTT TLS, PKI certificate flows, and the nginx reverse proxy setup.
+
+### Prerequisites
+
+Install [Colima](https://github.com/abiosoft/colima) — a lightweight Docker runtime for macOS that doesn't require Docker Desktop:
+
+```bash
+brew install colima docker docker-compose docker-buildx
+colima start
+```
+
+Verify Docker is working:
+
+```bash
+docker info
+docker buildx version
+```
+
+You'll also need these tools (the container manager checks for them on startup):
+
+| Tool       | Install                              | Purpose                        |
+|------------|--------------------------------------|--------------------------------|
+| `colima`   | `brew install colima`                | Docker runtime (macOS)         |
+| `docker`   | `brew install docker`                | Container engine CLI           |
+| `docker-compose` | `brew install docker-compose`  | Multi-container orchestration  |
+| `docker-buildx` | `brew install docker-buildx`    | Image building                 |
+| `curl`     | pre-installed on macOS               | Health check verification      |
+| `openssl`  | pre-installed on macOS               | Self-signed certificate generation |
+| `uv`       | `curl -LsSf https://astral.sh/uv/install.sh \| sh` | Required only for `--import-sqlite` |
+
+### Container Manager
+
+The `production-testing/my-tracks-production-container-manager` script automates the entire local testing lifecycle:
+
+```bash
+# Start the stack (first run creates .env.production + self-signed certs)
+./production-testing/my-tracks-production-container-manager --start
+
+# Start fresh (regenerate .env.production and certs)
+./production-testing/my-tracks-production-container-manager --start --freshen-up
+
+# Start and import your local development SQLite database
+./production-testing/my-tracks-production-container-manager --start --freshen-up --import-sqlite db.sqlite3
+
+# Stop and tear down
+./production-testing/my-tracks-production-container-manager --stop
+```
+
+### What `--start` Does
+
+1. **Checks prerequisites** — Docker daemon, `buildx`, `compose`, `curl`, `openssl`
+2. **Creates `.env.production`** (if missing or `--freshen-up`) — generates `SECRET_KEY`, sets ports, prompts for database mode (containerized or external PostgreSQL)
+3. **Generates self-signed TLS certs** for nginx HTTPS
+4. **Builds the container image** from the local source
+5. **Starts the stack** — nginx, my-tracks, and optionally PostgreSQL
+6. **Waits for the health check** to pass
+7. **Prints a banner** with all access URLs
+
+### Default Ports
+
+The container manager uses non-privileged ports to avoid conflicts:
+
+| Service    | Port  | URL                             |
+|------------|-------|---------------------------------|
+| HTTPS      | 8443  | `https://localhost:8443/`       |
+| HTTP       | 8080  | `http://localhost:8080/` (redirects to HTTPS) |
+| MQTT TLS   | 8883  | `localhost:8883`                |
+
+### Importing Your Development Database
+
+If you've been running My Tracks in development with SQLite and want to test with your real data in the production container:
+
+```bash
+./production-testing/my-tracks-production-container-manager --start --freshen-up --import-sqlite db.sqlite3
+```
+
+This will:
+- Export data from your SQLite database using Django's `dumpdata`
+- Preserve your `SECRET_KEY` from `.env` so PKI private keys remain decryptable
+- Preserve your `ALLOWED_HOSTS` so your domain works without 400 errors
+- Start PostgreSQL, run migrations, and import the data
+- Start the full stack with all your data (including PKI certificates) ready
+
+> **Note**: The SQLite file is read but never modified — this is a non-destructive operation.
+
+### Database Modes
+
+When creating `.env.production`, the script prompts you to choose:
+
+1. **Containerized PostgreSQL** (default) — runs inside Docker, data lives in a Docker volume. If you destroy the container (`--stop`), the data is gone. Good for testing.
+
+2. **External PostgreSQL** — provide a `DATABASE_URL` to an existing PostgreSQL instance. The script won't start a postgres container. Use this when testing against a persistent database.
+
+### Accessing the Database (Containerized)
+
+When using the containerized PostgreSQL, the banner shows a `psql` command to connect:
+
+```bash
+docker compose --env-file .env.production -f docker-compose.yml -f docker-compose.postgres.yml \
+  exec postgres psql -U mytracks mytracks
+```
+
+### Cleanup
+
+```bash
+# Stop containers and remove volumes
+./production-testing/my-tracks-production-container-manager --stop
+
+# Optionally remove generated files
+rm -rf .env.production certs/
+
+# Stop Colima when done
+colima stop
+```
+
 ## Bare Metal (Alternative)
 
-If you prefer not to use Docker, the application can be deployed directly:
+If you prefer not to use Docker, the application can be deployed directly on the host.
 
-1. Install Python 3.14+, PostgreSQL, and Nginx on the host
-2. Clone the repository and run `uv sync`
-3. Configure `.env` with `DATABASE_URL`, `SECRET_KEY`, etc.
-4. Run migrations: `uv run python manage.py migrate`
-5. Collect static files: `uv run python manage.py collectstatic --noinput`
-6. Start the server: `./my-tracks-server --log-level warning`
-7. Configure Nginx as a reverse proxy (see `nginx/nginx.conf` for reference)
-8. Set up a systemd service for automatic restarts
+### CentOS 8+ / RHEL 8+
 
-See [QUICKSTART.md](QUICKSTART.md) for the development setup flow, which also applies to bare metal production with appropriate hardening.
+```bash
+# Enable EPEL and install system packages
+sudo dnf install -y epel-release
+sudo dnf install -y python3.14 python3.14-devel nginx postgresql-server postgresql-contrib
+
+# Initialize and start PostgreSQL
+sudo postgresql-setup --initdb
+sudo systemctl enable --now postgresql
+
+# Create the database and user
+sudo -u postgres createuser mytracks
+sudo -u postgres createdb -O mytracks mytracks
+sudo -u postgres psql -c "ALTER USER mytracks WITH PASSWORD 'your-secure-password';"
+
+# Install uv (Python package manager)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source $HOME/.local/bin/env
+
+# Install Node.js (for frontend build)
+sudo dnf module enable -y nodejs:22
+sudo dnf install -y nodejs
+
+# Open firewall ports
+sudo firewall-cmd --permanent --add-service=http
+sudo firewall-cmd --permanent --add-service=https
+sudo firewall-cmd --permanent --add-port=8883/tcp
+sudo firewall-cmd --reload
+```
+
+### Ubuntu 22.04+ / Debian 12+
+
+```bash
+# Install system packages
+sudo apt update
+sudo apt install -y python3.14 python3.14-dev python3.14-venv \
+  nginx postgresql postgresql-contrib
+
+# Start PostgreSQL
+sudo systemctl enable --now postgresql
+
+# Create the database and user
+sudo -u postgres createuser mytracks
+sudo -u postgres createdb -O mytracks mytracks
+sudo -u postgres psql -c "ALTER USER mytracks WITH PASSWORD 'your-secure-password';"
+
+# Install uv (Python package manager)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source $HOME/.local/bin/env
+
+# Install Node.js 22 (for frontend build)
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt install -y nodejs
+
+# Open firewall ports (if using ufw)
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw allow 8883/tcp
+```
+
+### Application Setup (Both Distros)
+
+```bash
+# Clone and enter the project
+git clone https://github.com/the-hcma/my-tracks.git
+cd my-tracks
+
+# Install Python dependencies
+uv sync
+
+# Install frontend dependencies and build
+npm ci
+npm run build
+
+# Configure environment
+cp .env.production.example .env
+# Edit .env — set SECRET_KEY, DATABASE_URL, ALLOWED_HOSTS, etc.
+# DATABASE_URL=postgresql://mytracks:your-secure-password@localhost:5432/mytracks
+
+# Run migrations
+uv run python manage.py migrate
+
+# Collect static files
+uv run python manage.py collectstatic --noinput
+
+# Create an admin user
+uv run python manage.py createsuperuser
+```
+
+### Nginx Configuration
+
+Copy the bundled nginx config as a starting point:
+
+```bash
+sudo cp nginx/nginx.conf /etc/nginx/conf.d/my-tracks.conf
+```
+
+Edit `/etc/nginx/conf.d/my-tracks.conf`:
+- Replace `proxy_pass http://app` with `proxy_pass http://127.0.0.1:8080`
+- Update `ssl_certificate` and `ssl_certificate_key` paths to your certs
+- Copy `nginx/proxy_params` to `/etc/nginx/proxy_params`
+
+```bash
+sudo cp nginx/proxy_params /etc/nginx/proxy_params
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+### Systemd Service
+
+Create `/etc/systemd/system/my-tracks.service`:
+
+```ini
+[Unit]
+Description=My Tracks OwnTracks Backend
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=mytracks
+Group=mytracks
+WorkingDirectory=/opt/my-tracks
+ExecStart=/opt/my-tracks/my-tracks-server --log-level warning
+Restart=always
+RestartSec=5
+Environment=DJANGO_SETTINGS_MODULE=config.settings
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now my-tracks
+sudo systemctl status my-tracks
+```
+
+### Verify
+
+```bash
+# Check the health endpoint
+curl -k https://localhost/api/health/
+
+# Check service status
+sudo systemctl status my-tracks
+sudo journalctl -u my-tracks -f
+```
+
+See [QUICKSTART.md](QUICKSTART.md) for the development setup flow, which also applies to bare metal with appropriate hardening.
