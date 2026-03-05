@@ -4,7 +4,6 @@ import logging
 import socket
 from datetime import timedelta
 
-import netifaces
 from django.conf import settings
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.decorators import login_required, user_passes_test
@@ -45,6 +44,10 @@ def get_all_local_ips() -> list[str]:
     Returns:
         Sorted list of IPv4 address strings (e.g., ['10.0.1.5', '192.168.1.10'])
     """
+    try:
+        import netifaces
+    except ImportError:
+        return []
     ips: list[str] = []
     for iface in netifaces.interfaces():
         addrs = netifaces.ifaddresses(iface)
