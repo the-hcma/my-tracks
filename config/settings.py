@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Any
 
 import dj_database_url
-import netifaces
 from decouple import config
 from django.core.exceptions import ImproperlyConfigured
 
@@ -48,13 +47,19 @@ ALLOWED_HOSTS: list[str] = [
 if DEBUG:
     # Auto-discover and add all local network IPs to ALLOWED_HOSTS in development.
     # Only includes broadcast-capable interfaces (excludes VPN/tunnel adapters).
-    for iface in netifaces.interfaces():
-        addrs = netifaces.ifaddresses(iface)
-        for addr_info in addrs.get(netifaces.AF_INET, []):
-            ip = addr_info.get('addr', '')
-            has_broadcast = bool(addr_info.get('broadcast'))
-            if ip and not ip.startswith('127.') and has_broadcast and ip not in ALLOWED_HOSTS:
-                ALLOWED_HOSTS.append(ip)
+    # netifaces requires a C compiler to build, so it's optional and only loaded here.
+    try:
+        import netifaces
+
+        for iface in netifaces.interfaces():
+            addrs = netifaces.ifaddresses(iface)
+            for addr_info in addrs.get(netifaces.AF_INET, []):
+                ip = addr_info.get('addr', '')
+                has_broadcast = bool(addr_info.get('broadcast'))
+                if ip and not ip.startswith('127.') and has_broadcast and ip not in ALLOWED_HOSTS:
+                    ALLOWED_HOSTS.append(ip)
+    except ImportError:
+        pass
 
 
 # Application definition

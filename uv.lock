@@ -5,7 +5,7 @@ requires-python = ">=3.14"
 [[package]]
 name = "amqtt"
 version = "0.11.3"
-source = { git = "https://github.com/Yakifo/amqtt.git#2994d36158163ed2dd98fb425003580dc62d7ede" }
+source = { registry = "https://pkgs.shopify.io/basic/data/python/simple/" }
 dependencies = [
     { name = "dacite" },
     { name = "passlib" },
@@ -14,6 +14,10 @@ dependencies = [
     { name = "transitions" },
     { name = "typer" },
     { name = "websockets" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/3c/52/329c655644b6ffc36fb15a49bd245dec31bb45a91f1c8291c84b84fa1695/amqtt-0.11.3.tar.gz", hash = "sha256:8818bc3037ac027368228098852007c0a77e367fc11389c1405169618d4c8b8b", size = 88136, upload-time = "2025-08-12T13:46:14.871Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/93/95/d484a1bcb22868247bbbb3c3a61c7f4dd6713e92052e862ac2b6873ca3b0/amqtt-0.11.3-py3-none-any.whl", hash = "sha256:c774eb68087fe8cda17b7e9d40a8016ea782ba637c272d97df86bf1cd23c658d", size = 118712, upload-time = "2025-08-12T13:46:13.607Z" },
 ]
 
 [[package]]
@@ -525,7 +529,6 @@ dependencies = [
     { name = "django" },
     { name = "djangorestframework" },
     { name = "gunicorn" },
-    { name = "netifaces" },
     { name = "psycopg2-binary" },
     { name = "python-decouple" },
     { name = "typer" },
@@ -538,6 +541,7 @@ dev = [
     { name = "flake8" },
     { name = "isort" },
     { name = "mypy" },
+    { name = "netifaces" },
     { name = "pyright" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -555,7 +559,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "amqtt", git = "https://github.com/Yakifo/amqtt.git" },
+    { name = "amqtt" },
     { name = "black", marker = "extra == 'dev'", specifier = ">=23.7.0" },
     { name = "channels", specifier = ">=4.0.0" },
     { name = "cryptography", specifier = ">=46.0.4" },
@@ -567,7 +571,7 @@ requires-dist = [
     { name = "gunicorn", specifier = ">=21.2.0" },
     { name = "isort", marker = "extra == 'dev'", specifier = ">=5.12.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.5.0" },
-    { name = "netifaces", specifier = ">=0.11.0" },
+    { name = "netifaces", marker = "extra == 'dev'", specifier = ">=0.11.0" },
     { name = "psycopg2-binary", specifier = ">=2.9.9" },
     { name = "pyright", marker = "extra == 'dev'", specifier = ">=1.1.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.0" },

@@ -165,8 +165,8 @@ class TestNetworkDiscovery:
         }
 
         with (
-            patch('web_ui.views.netifaces.interfaces', return_value=list(mock_interfaces.keys())),
-            patch('web_ui.views.netifaces.ifaddresses', side_effect=lambda iface: mock_interfaces[iface]),
+            patch('netifaces.interfaces', return_value=list(mock_interfaces.keys())),
+            patch('netifaces.ifaddresses', side_effect=lambda iface: mock_interfaces[iface]),
         ):
             ips = get_all_local_ips()
             assert_that(ips, equal_to(['192.168.1.10']))

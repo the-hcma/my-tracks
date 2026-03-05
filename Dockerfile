@@ -11,7 +11,7 @@ COPY web_ui/static/web_ui/ts/ web_ui/static/web_ui/ts/
 RUN npm run build
 
 # ── Stage 2: Python build ───────────────────────────────────────────────────
-FROM ghcr.io/astral-sh/uv:0.7-python3.14-bookworm-slim AS python-build
+FROM ghcr.io/astral-sh/uv:python3.14-bookworm-slim AS python-build
 
 WORKDIR /app
 

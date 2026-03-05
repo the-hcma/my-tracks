@@ -53,15 +53,14 @@ class TestAllowedHostsAutoDetect:
         assert_that(found_netifaces_in_debug_block, is_(True))
 
     def test_netifaces_not_called_when_debug_false(self) -> None:
-        with patch("config.settings.netifaces") as mock_netifaces:
+        with patch("netifaces.interfaces") as mock_interfaces:
             _simulate_allowed_hosts(debug=False)
-        mock_netifaces.interfaces.assert_not_called()
+        mock_interfaces.assert_not_called()
 
     def test_netifaces_called_when_debug_true(self) -> None:
-        with patch("config.settings.netifaces") as mock_netifaces:
-            mock_netifaces.interfaces.return_value = []
+        with patch("netifaces.interfaces", return_value=[]) as mock_interfaces:
             _simulate_allowed_hosts(debug=True)
-        mock_netifaces.interfaces.assert_called_once()
+        mock_interfaces.assert_called_once()
 
 
 class TestProductionSecuritySettings:
@@ -113,12 +112,13 @@ def _simulate_secret_key_check(*, debug: bool, secret_key: str) -> str:
 
 def _simulate_allowed_hosts(*, debug: bool) -> list[str]:
     """Reproduce the ALLOWED_HOSTS logic from settings.py."""
-    import config.settings as settings_module
+    import netifaces
+
     hosts = ["localhost", "127.0.0.1"]
     if debug:
-        for iface in settings_module.netifaces.interfaces():
-            addrs = settings_module.netifaces.ifaddresses(iface)
-            for addr_info in addrs.get(settings_module.netifaces.AF_INET, []):
+        for iface in netifaces.interfaces():
+            addrs = netifaces.ifaddresses(iface)
+            for addr_info in addrs.get(netifaces.AF_INET, []):
                 ip = addr_info.get("addr", "")
                 has_broadcast = bool(addr_info.get("broadcast"))
                 if ip and not ip.startswith("127.") and has_broadcast and ip not in hosts:
