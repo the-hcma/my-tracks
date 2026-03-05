@@ -1,6 +1,6 @@
 # My Tracks — Implementation Plan
 
-**Last Updated**: March 3, 2026
+**Last Updated**: March 5, 2026
 
 ## Overview
 
@@ -363,6 +363,43 @@ Package the application as a production-ready container image deployable on a Ce
     - Replaced `_activate_venv()` pattern with `_ensure_uv()` in `release`, `generate-tail`, `verify-setup`
     - Updated AGENTS.md Python CLI convention to use `uv run` instead of virtualenv
 
+28. **Local Production Container Manager** ✅ (PR #365)
+    - `production-testing/my-tracks-production-container-manager` script for macOS local testing
+    - `--start` builds and launches the full Docker Compose stack (nginx + app + postgres)
+    - `--stop` tears down all containers
+    - `--freshen-up` regenerates `.env.production` and self-signed TLS certs
+    - `--import-sqlite` imports a local SQLite database into PostgreSQL (preserves `SECRET_KEY` for PKI, `ALLOWED_HOSTS` for domain)
+    - Transient database warning with `psql` connect command
+    - Support for external PostgreSQL (skips containerized postgres)
+    - Prerequisite checks for `docker`, `docker compose`, `curl`, `openssl`, `python3`, `uv`
+
+29. **Fix uv Docker Image Tag** ✅ (PR #366)
+    - Updated Dockerfile from `ghcr.io/astral-sh/uv:0.7-python3.14-bookworm-slim` to working tag
+    - Previous tag was removed from the registry
+
+30. **Container-Aware About Page** ✅ (PR #367)
+    - `get_server_info()` helper derives hostname, port, scheme from `HttpRequest` instead of `socket.gethostname()`
+    - Reads `HTTPS_PORT` / `HTTP_PORT` env vars for correct external port display behind Docker/Nginx
+    - Filters loopback addresses from "Also accessible via" when a real domain is primary
+    - Splits `docker-compose.yml` into base + optional `docker-compose.postgres.yml`
+    - Renamed script from `my-tracks-production-container-tester` to `my-tracks-production-container-manager`
+
+31. **Fix Pyright Type Errors & Hide Non-TLS MQTT in Production** ✅ (PR #368)
+    - Resolved 8 pre-existing pyright type errors in `web_ui/views.py`
+    - Wrapped `QueryDict.get()` calls with `str()`, `ValidationError.messages` with `str()` generator
+    - `_is_staff()` returns `bool(user.is_staff)` instead of BooleanField descriptor
+    - Non-TLS MQTT section hidden on About page when running behind proxy (`HTTPS_PORT` env var)
+
+32. **Local Testing Docs & Bare Metal Guide** ✅ (PR #369)
+    - New "Local Testing (macOS)" section in DEPLOYMENT.md recommending Colima
+    - Container manager usage, default ports, SQLite import, database modes, cleanup
+    - Expanded "Bare Metal (Alternative)" with distro-specific instructions for CentOS/RHEL and Ubuntu/Debian
+    - Includes `uv` installation, PostgreSQL setup, Nginx config, systemd service
+
+33. **Log User Creation Events** ✅ (PR #370)
+    - Webservice logs new user creation events
+    - Separate stack (independent of production containerization work)
+
 ### Phase 8: TLS Hot-Reload
 
 - **TLS certificate hot-reload**
@@ -389,8 +426,8 @@ my_tracks/mqtt/
 
 ## Test Coverage
 
-- 897+ Python tests + 87 TypeScript tests passing
-- 97% code coverage (target: 90%)
+- 900+ Python tests + 87 TypeScript tests passing
+- 97%+ code coverage (target: 90%)
 - Tests run in parallel via pytest-xdist with accurate coverage merging
 - All pyright checks pass (0 errors, 0 warnings)
 - All imports sorted (isort clean)
