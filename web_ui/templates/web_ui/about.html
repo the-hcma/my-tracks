@@ -94,6 +94,7 @@
             {% endif %}
         </div>
 
+        {% if not behind_proxy %}
         <h2>📶 MQTT Broker</h2>
         {% if mqtt_enabled %}
         <div class="endpoint">
@@ -107,6 +108,7 @@
             <p><strong>Status:</strong> <span style="color: var(--text-muted, #888);">○ Disabled</span></p>
             <p style="font-size: 11px; color: var(--text-muted);">Start server with <code>--mqtt-port 1883</code> to enable</p>
         </div>
+        {% endif %}
         {% endif %}
 
         <h2>🔒 MQTT TLS</h2>
@@ -131,15 +133,16 @@
             <p>Fingerprint: <code>{{ active_sc.issuing_ca.fingerprint }}</code></p>
             <p>Expires: <code>{{ active_sc.issuing_ca.not_valid_after|date:"Y-m-d" }}</code></p>
         </div>
-        {% elif mqtt_enabled %}
-        <div class="endpoint">
-            <p><strong>Status:</strong> <span style="color: var(--text-muted, #888);">○ Disabled</span></p>
-            <p style="font-size: 11px; color: var(--text-muted);">Generate a server certificate in the <a href="{% url 'web_ui:admin_panel' %}">Admin Panel</a> to enable MQTT TLS</p>
-        </div>
         {% else %}
         <div class="endpoint">
             <p><strong>Status:</strong> <span style="color: var(--text-muted, #888);">○ Disabled</span></p>
+            {% if behind_proxy %}
+            <p style="font-size: 11px; color: var(--text-muted);">Generate a server certificate in the <a href="{% url 'web_ui:admin_panel' %}">Admin Panel</a> to enable MQTT TLS</p>
+            {% elif mqtt_enabled %}
+            <p style="font-size: 11px; color: var(--text-muted);">Generate a server certificate in the <a href="{% url 'web_ui:admin_panel' %}">Admin Panel</a> to enable MQTT TLS</p>
+            {% else %}
             <p style="font-size: 11px; color: var(--text-muted);">Enable MQTT first with <code>--mqtt-port 1883</code></p>
+            {% endif %}
         </div>
         {% endif %}
 
@@ -171,16 +174,13 @@
             <p><strong>2. Open Preferences</strong></p>
             <p>Tap ☰ menu → Preferences → Connection</p>
         </div>
-        {% if mqtt_enabled %}
+        {% if mqtt_tls_enabled %}
         <div class="endpoint">
             <p><strong>3. Choose Connection Mode</strong></p>
-            {% if mqtt_tls_enabled %}
             <p><strong>MQTT TLS (Recommended):</strong> Encrypted, client certificate authentication, best security</p>
-            {% endif %}
-            <p><strong>MQTT:</strong> Better battery life, real-time updates</p>
+            {% if mqtt_enabled %}<p><strong>MQTT:</strong> Better battery life, real-time updates</p>{% endif %}
             <p><strong>HTTP:</strong> Simpler setup, works without persistent connection</p>
         </div>
-        {% if mqtt_tls_enabled %}
         <div class="endpoint">
             <p><strong>4a. For MQTT TLS Mode (Recommended):</strong></p>
             <p>Mode: <code>MQTT</code></p>
@@ -190,6 +190,7 @@
             <p>Authentication: <code>ON</code> (use your server username/password)</p>
             <p style="margin-top: 0.5rem;">Import the CA certificate and your client certificate (.p12) onto your device. See your <a href="{% url 'web_ui:profile' %}">Profile</a> to download them.</p>
         </div>
+        {% if mqtt_enabled %}
         <div class="endpoint">
             <p><strong>4b. For MQTT Mode (no TLS):</strong></p>
             <p>Mode: <code>MQTT</code></p>
@@ -198,12 +199,18 @@
             <p>TLS: <code>OFF</code></p>
             <p>Authentication: <code>ON</code> (use your server username/password)</p>
         </div>
+        {% endif %}
         <div class="endpoint">
-            <p><strong>4c. For HTTP Mode:</strong></p>
+            <p><strong>4{{ mqtt_enabled|yesno:"c,b" }}. For HTTP Mode:</strong></p>
             <p>Mode: <code>HTTP</code></p>
             <p>URL: <code>{{ server_url }}/api/locations/</code></p>
         </div>
-        {% else %}
+        {% elif mqtt_enabled %}
+        <div class="endpoint">
+            <p><strong>3. Choose Connection Mode</strong></p>
+            <p><strong>MQTT:</strong> Better battery life, real-time updates</p>
+            <p><strong>HTTP:</strong> Simpler setup, works without persistent connection</p>
+        </div>
         <div class="endpoint">
             <p><strong>4a. For MQTT Mode:</strong></p>
             <p>Mode: <code>MQTT</code></p>
@@ -217,7 +224,6 @@
             <p>Mode: <code>HTTP</code></p>
             <p>URL: <code>{{ server_url }}/api/locations/</code></p>
         </div>
-        {% endif %}
         {% else %}
         <div class="endpoint">
             <p><strong>3. Set Mode to HTTP</strong></p>
