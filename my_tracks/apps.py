@@ -173,8 +173,8 @@ def _run_mqtt_broker(mqtt_port: int, mqtt_tls_port: int = -1) -> None:
         mqtt_port=mqtt_port,
         mqtt_tls_port=mqtt_tls_port,
         tls_config=tls_config,
-        allow_anonymous=True,
-        use_django_auth=False,
+        allow_anonymous=False,
+        use_django_auth=True,
     )
 
     async def _start_and_run() -> None:
