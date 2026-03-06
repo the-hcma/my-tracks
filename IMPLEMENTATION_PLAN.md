@@ -414,6 +414,19 @@ Package the application as a production-ready container image deployable on a Ce
     - Client revocation: CRL rebuilt and loaded → revoked clients rejected immediately
     - 19 new tests (11 broker reload + 4 signal + 4 trigger function)
 
+### Phase 8b: MQTT TLS Hardening
+
+35. **MQTT TLS Hardening (nginx + logging)** ✅ (PR #380)
+    - Nginx stream `limit_conn_zone` + `limit_conn mqtt 10` per IP on port 8883
+    - MQTT auth failure logs elevated from DEBUG to WARNING for security monitoring
+    - `_CRLBroker` docstring updated to reference cpython#83375 (TLS 1.3 bug)
+    - New tests: SSL context configuration (mTLS + TLS 1.2 cap), auth failure log levels, nginx rate limiting
+
+**Remaining hardening (future PRs)**:
+- **Enable Django auth on MQTT TLS** — Set `use_django_auth=True`, `allow_anonymous=False` so `DjangoAuthPlugin` enforces username/password and topic ACLs on the TLS listener (currently anonymous + no ACLs)
+- **Bind MQTT identity to cert CN** — Enforce that the MQTT username matches the client certificate's Common Name, preventing a valid cert from impersonating other users
+- **TLS 1.3 support** — Blocked by [cpython#83375](https://github.com/python/cpython/issues/83375) (open since Jan 2020, unassigned). When `asyncio.start_server` uses TLS 1.3 with `ssl.CERT_REQUIRED`, client certificate verification happens post-handshake; asyncio does not propagate the rejection, so invalid/expired/revoked certs silently get a dead connection instead of a handshake error. The workaround is `ctx.maximum_version = ssl.TLSVersion.TLSv1_2`. TLS 1.2 remains secure and is standard for MQTT/IoT. Monitor the CPython issue for a fix; when resolved, remove the `maximum_version` cap in `_CRLBroker._create_ssl_context()` and update the `test_caps_at_tls_1_2` test.
+
 ### Phase 9: Advanced Integration
 1. **Transition events** — Handle region enter/exit events, store transition history
 2. **Waypoints sync** — Connect waypoint storage to command API, allow UI to send waypoints to devices
@@ -433,7 +446,7 @@ my_tracks/mqtt/
 
 ## Test Coverage
 
-- 1089+ Python tests + 87 TypeScript tests passing
+- 1096+ Python tests + 87 TypeScript tests passing
 - 97%+ code coverage (target: 90%)
 - Tests run in parallel via pytest-xdist with accurate coverage merging
 - All pyright checks pass (0 errors, 0 warnings)
@@ -451,3 +464,4 @@ my_tracks/mqtt/
 ## Future Enhancements
 
 - **ACME / Let's Encrypt** — Optional integration for publicly trusted server certificates instead of self-signed CA
+- **TLS 1.3 for MQTT** — Waiting on [cpython#83375](https://github.com/python/cpython/issues/83375) fix (see Phase 8b notes)
