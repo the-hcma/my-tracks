@@ -86,9 +86,16 @@ class _CRLBroker(Broker):
     """Broker subclass that enforces mutual TLS with optional CRL checking.
 
     amqtt's ``_create_ssl_context`` hardcodes ``CERT_OPTIONAL``, which
-    with TLS 1.3 silently accepts invalid client certificates.  This
-    override switches to ``CERT_REQUIRED`` so that bad, expired, or
-    untrusted client certs cause an immediate handshake failure.
+    silently accepts connections without a client certificate.  This
+    override switches to ``CERT_REQUIRED`` so that missing, invalid,
+    expired, or untrusted client certs cause an immediate handshake
+    failure.
+
+    TLS 1.3 is intentionally excluded: it defers client certificate
+    verification to a post-handshake exchange that ``asyncio.start_server``
+    does not propagate reliably, allowing invalid/expired/revoked certs
+    through (cpython#83375, open since 2020).  TLS 1.2 remains the
+    ceiling until Python/asyncio fixes this.
 
     When ``_crl_pem`` is set, the override also enables leaf-level CRL
     revocation checking so that revoked certs are rejected.
@@ -102,11 +109,6 @@ class _CRLBroker(Broker):
     def _create_ssl_context(listener: Any) -> ssl.SSLContext:
         ctx = Broker._create_ssl_context(listener)
         ctx.verify_mode = ssl.CERT_REQUIRED
-        # TLS 1.3 defers client cert verification to post-handshake,
-        # which asyncio.start_server does not propagate reliably.
-        # Cap at TLS 1.2 so CERT_REQUIRED is enforced during the
-        # initial handshake.  TLS 1.2 remains secure and is the
-        # norm for MQTT / IoT devices.
         ctx.maximum_version = ssl.TLSVersion.TLSv1_2
         if _CRLBroker._crl_pem is not None:
             ctx.verify_flags |= ssl.VERIFY_CRL_CHECK_LEAF

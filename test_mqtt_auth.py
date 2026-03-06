@@ -1,12 +1,14 @@
 """Tests for MQTT authentication with Django integration."""
 
+import logging
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from django.contrib.auth import get_user_model
-from hamcrest import assert_that, equal_to, is_
+from hamcrest import assert_that, contains_string, equal_to, has_length, is_
 
+from my_tracks.mqtt import auth as auth_module
 from my_tracks.mqtt.auth import (DjangoAuthPlugin, authenticate_user,
                                  check_topic_access, get_auth_config)
 from my_tracks.mqtt.broker import get_default_config
@@ -129,6 +131,43 @@ class TestCheckTopicAccess:
         """User should access event subtopics."""
         result = check_topic_access("testuser", "owntracks/testuser/phone/event", "publish")
         assert_that(result, is_(True))
+
+
+class TestAuthFailureLogging:
+    """Auth failures must be logged at WARNING for security monitoring."""
+
+    def test_nonexistent_user_logs_warning(self, db: Any) -> None:
+        """Failed auth for unknown user should log at WARNING."""
+        with patch.object(auth_module.logger, "warning") as mock_warn:
+            authenticate_user("ghost", "pass")
+        mock_warn.assert_called_once()
+        assert_that(mock_warn.call_args[0][1], equal_to("ghost"))
+
+    def test_invalid_password_logs_warning(self, test_user: Any) -> None:
+        """Failed auth for wrong password should log at WARNING."""
+        with patch.object(auth_module.logger, "warning") as mock_warn:
+            authenticate_user("testuser", "wrong")
+        mock_warn.assert_called_once()
+        assert_that(mock_warn.call_args[0][1], equal_to("testuser"))
+
+    def test_inactive_user_logs_warning(self, inactive_user: Any) -> None:
+        """Failed auth for inactive user should log at WARNING."""
+        with patch.object(auth_module.logger, "warning") as mock_warn:
+            authenticate_user("inactive", "pass123")
+        mock_warn.assert_called_once()
+        assert_that(mock_warn.call_args[0][1], equal_to("inactive"))
+
+    @pytest.mark.asyncio
+    async def test_missing_credentials_logs_warning(
+        self, db: Any, mock_plugin_context: MagicMock,
+    ) -> None:
+        """Missing username/password should log at WARNING."""
+        plugin = DjangoAuthPlugin(context=mock_plugin_context)
+        with patch.object(auth_module.logger, "warning") as mock_warn:
+            await plugin.authenticate(session=None, username=None, password=None)
+        mock_warn.assert_called_once()
+        msg = mock_warn.call_args[0][0]
+        assert_that(msg, contains_string("missing"))
 
 
 class TestGetAuthConfig:

@@ -57,15 +57,15 @@ def authenticate_user(username: str, password: str) -> bool:
     """
     user = get_django_user(username)
     if user is None:
-        logger.debug("MQTT auth failed: user '%s' not found", username)
+        logger.warning("[mqtt] Auth failed: user '%s' not found", username)
         return False
 
     if not user.is_active:
-        logger.debug("MQTT auth failed: user '%s' is inactive", username)
+        logger.warning("[mqtt] Auth failed: user '%s' is inactive", username)
         return False
 
     if not user.check_password(password):
-        logger.debug("MQTT auth failed: invalid password for user '%s'", username)
+        logger.warning("[mqtt] Auth failed: invalid password for user '%s'", username)
         return False
 
     logger.info("MQTT auth successful for user '%s'", username)
@@ -175,7 +175,7 @@ class DjangoAuthPlugin(BaseAuthPlugin):
             True if authentication succeeds, False otherwise
         """
         if username is None or password is None:
-            logger.debug("MQTT auth failed: missing username or password")
+            logger.warning("[mqtt] Auth failed: missing username or password")
             return False
 
         # Use sync_to_async for Django ORM operations

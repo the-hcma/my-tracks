@@ -4,6 +4,7 @@ import asyncio
 import ipaddress
 import logging
 import os
+import ssl
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -784,6 +785,32 @@ class TestTLSConfig:
             )
 
         mock_warn.assert_not_called()
+
+
+class TestCRLBrokerSSLContext:
+    """Tests for _CRLBroker SSL context configuration."""
+
+    def test_enforces_cert_required(self) -> None:
+        """SSL context must require client certificates (mTLS)."""
+        mock_listener = MagicMock()
+        mock_listener.__getitem__ = MagicMock(side_effect={"cafile": "/tmp/ca.pem"}.get)
+        with patch.object(
+            _CRLBroker.__bases__[0], "_create_ssl_context",
+            return_value=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER),
+        ):
+            ctx = _CRLBroker._create_ssl_context(mock_listener)
+        assert_that(ctx.verify_mode, equal_to(ssl.CERT_REQUIRED))
+
+    def test_caps_at_tls_1_2(self) -> None:
+        """SSL context must cap at TLS 1.2 (cpython#83375 workaround)."""
+        mock_listener = MagicMock()
+        mock_listener.__getitem__ = MagicMock(side_effect={"cafile": "/tmp/ca.pem"}.get)
+        with patch.object(
+            _CRLBroker.__bases__[0], "_create_ssl_context",
+            return_value=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER),
+        ):
+            ctx = _CRLBroker._create_ssl_context(mock_listener)
+        assert_that(ctx.maximum_version, equal_to(ssl.TLSVersion.TLSv1_2))
 
 
 class TestReloadTLS:

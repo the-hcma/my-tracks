@@ -144,6 +144,11 @@ class TestNginxConfig:
         assert_that(source, contains_string("TLSv1.2"))
         assert_that(source, contains_string("TLSv1.3"))
 
+    def test_mqtt_stream_rate_limiting(self) -> None:
+        source = _read("nginx/nginx.conf")
+        assert_that(source, contains_string("limit_conn_zone"))
+        assert_that(source, contains_string("limit_conn mqtt"))
+
 
 class TestEnvProductionExample:
     """Validate the production environment template."""
