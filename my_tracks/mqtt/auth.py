@@ -5,23 +5,44 @@ This module provides authentication and authorization for the MQTT broker
 using Django's user authentication system.
 
 Features:
-- Username/password authentication against Django users
+- Mutual TLS (mTLS) authentication: client cert CN maps to Django user
+- Username/password fallback for non-TLS connections
 - Topic-based access control (users can only access their own topics)
 - Support for OwnTracks topic format: owntracks/{user}/{device}
 """
 
 import logging
 import re
+import ssl
 from typing import Any
 
 from amqtt.plugins.authentication import BaseAuthPlugin
 from asgiref.sync import sync_to_async
+from cryptography import x509
 from django.contrib.auth import get_user_model
 
 logger = logging.getLogger(__name__)
 
 # OwnTracks topic pattern: owntracks/{user}/{device}[/{subtopic}]
 OWNTRACKS_TOPIC_PATTERN = re.compile(r"^owntracks/([^/]+)/([^/]+)(/.*)?$")
+
+
+def _extract_cert_cn(ssl_object: ssl.SSLObject) -> str | None:
+    """Extract the Common Name from a TLS peer certificate.
+
+    Returns None if no peer cert is present or the CN cannot be read.
+    """
+    der_cert = ssl_object.getpeercert(binary_form=True)
+    if der_cert is None:
+        return None
+    try:
+        cert = x509.load_der_x509_certificate(der_cert)
+        cn_attrs = cert.subject.get_attributes_for_oid(
+            x509.oid.NameOID.COMMON_NAME,
+        )
+        return str(cn_attrs[0].value) if cn_attrs else None
+    except Exception:
+        return None
 
 
 def get_django_user(username: str) -> Any:
@@ -68,7 +89,41 @@ def authenticate_user(username: str, password: str) -> bool:
         logger.warning("[mqtt] Auth failed: invalid password for user '%s'", username)
         return False
 
-    logger.info("MQTT auth successful for user '%s'", username)
+    logger.info("[mqtt] Auth successful for user '%s'", username)
+    return True
+
+
+def authenticate_by_cert(cert_cn: str, mqtt_username: str | None) -> bool:
+    """Authenticate a TLS client by matching the certificate CN to a Django user.
+
+    If the MQTT CONNECT packet includes a username, it must match the cert CN.
+    If no username was sent, the CN is used as the identity.
+
+    Returns True if the CN corresponds to an active Django user.
+    """
+    if mqtt_username and mqtt_username != cert_cn:
+        logger.warning(
+            "[mqtt-tls] Auth failed: username '%s' does not match cert CN '%s'",
+            mqtt_username, cert_cn,
+        )
+        return False
+
+    user = get_django_user(cert_cn)
+    if user is None:
+        logger.warning(
+            "[mqtt-tls] Auth failed: cert CN '%s' has no matching Django user",
+            cert_cn,
+        )
+        return False
+
+    if not user.is_active:
+        logger.warning(
+            "[mqtt-tls] Auth failed: user '%s' (from cert CN) is inactive",
+            cert_cn,
+        )
+        return False
+
+    logger.info("[mqtt-tls] Auth successful for user '%s' (cert CN)", cert_cn)
     return True
 
 
@@ -133,21 +188,20 @@ def check_topic_access(username: str, topic: str, action: str) -> bool:
 
 
 class DjangoAuthPlugin(BaseAuthPlugin):
-    """
-    MQTT authentication plugin using Django's user system.
+    """MQTT authentication plugin using Django's user system.
 
-    This plugin integrates with Django's authentication to:
-    - Validate username/password credentials
-    - Enforce topic-based access control
-    - Allow superusers to access all topics
+    Supports two authentication modes depending on the transport:
 
-    Configuration in broker config:
-        {
-            "auth": {
-                "allow-anonymous": False,
-                "plugins": ["my_tracks.mqtt.auth.DjangoAuthPlugin"],
-            }
-        }
+    **TLS connections** (mTLS): The client certificate CN is the identity.
+    No password is required.  If the MQTT CONNECT packet includes a
+    username it must match the cert CN; otherwise the CN is used directly.
+    The CN must correspond to an active Django user.
+
+    **Plain TCP connections**: Standard username/password authentication
+    against Django's auth backend.
+
+    Topic ACLs are enforced identically for both modes based on the
+    resolved username.
     """
 
     def __init__(self, context: Any) -> None:
@@ -155,30 +209,45 @@ class DjangoAuthPlugin(BaseAuthPlugin):
         super().__init__(context)
         logger.info("DjangoAuthPlugin initialized")
 
-    async def authenticate(
-        self,
-        session: Any = None,
-        username: str | None = None,
-        password: str | None = None,
-        **kwargs: Any,
+    async def authenticate(self, *, session: Any, **kwargs: Any) -> bool:
+        """Authenticate a client connection.
+
+        amqtt calls this via ``map_plugin_auth(session=session)`` so the
+        session is the only argument.  Username, password, and TLS info
+        are read from session attributes.
+        """
+        ssl_object = getattr(session, "ssl_object", None)
+
+        if ssl_object is not None:
+            return await self._authenticate_tls(session, ssl_object)
+        return await self._authenticate_password(session)
+
+    async def _authenticate_tls(
+        self, session: Any, ssl_object: ssl.SSLObject,
     ) -> bool:
-        """
-        Authenticate a client connection.
+        """Authenticate via client certificate CN."""
+        cert_cn = _extract_cert_cn(ssl_object)
+        if cert_cn is None:
+            logger.warning("[mqtt-tls] Auth failed: no peer certificate CN")
+            return False
 
-        Args:
-            session: The MQTT session (unused but required by interface)
-            username: The username from CONNECT packet
-            password: The password from CONNECT packet
-            **kwargs: Additional arguments (unused)
+        mqtt_username: str | None = getattr(session, "username", None)
+        result = await sync_to_async(authenticate_by_cert)(cert_cn, mqtt_username)
 
-        Returns:
-            True if authentication succeeds, False otherwise
-        """
+        if result and not mqtt_username:
+            session.username = cert_cn
+
+        return result
+
+    async def _authenticate_password(self, session: Any) -> bool:
+        """Authenticate via username/password (non-TLS fallback)."""
+        username: str | None = getattr(session, "username", None)
+        password: str | None = getattr(session, "password", None)
+
         if username is None or password is None:
             logger.warning("[mqtt] Auth failed: missing username or password")
             return False
 
-        # Use sync_to_async for Django ORM operations
         return await sync_to_async(authenticate_user)(username, password)
 
     async def on_broker_client_subscribed(
@@ -188,22 +257,15 @@ class DjangoAuthPlugin(BaseAuthPlugin):
         qos: int,
         **kwargs: Any,
     ) -> bool:
-        """
-        Check if a client can subscribe to a topic.
-
-        Note: This is called after subscribe. For pre-subscribe checks,
-        we'd need to use topic_filtering hook.
-        """
-        # Get the session to find the username
+        """Check if a client can subscribe to a topic."""
         session = kwargs.get("session")
         if session is None:
-            return True  # Can't check without session
+            return True
 
         username = getattr(session, "username", None)
         if username is None:
-            return True  # Anonymous - let allow-anonymous setting handle it
+            return True
 
-        # Use sync_to_async for Django ORM operations in check_topic_access
         return await sync_to_async(check_topic_access)(username, topic, "subscribe")
 
     async def on_broker_message_received(
@@ -212,27 +274,16 @@ class DjangoAuthPlugin(BaseAuthPlugin):
         message: Any,
         **kwargs: Any,
     ) -> bool:
-        """
-        Check if a client can publish to a topic.
-
-        Args:
-            client_id: The client identifier
-            message: The MQTT message with topic
-            **kwargs: Additional arguments including session
-
-        Returns:
-            True if publish is allowed, False otherwise
-        """
+        """Check if a client can publish to a topic."""
         session = kwargs.get("session")
         if session is None:
             return True
 
         username = getattr(session, "username", None)
         if username is None:
-            return True  # Anonymous
+            return True
 
         topic = message.topic if hasattr(message, "topic") else str(message)
-        # Use sync_to_async for Django ORM operations in check_topic_access
         return await sync_to_async(check_topic_access)(username, topic, "publish")
 
 

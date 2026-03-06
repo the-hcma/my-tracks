@@ -9,8 +9,9 @@ from django.contrib.auth import get_user_model
 from hamcrest import assert_that, contains_string, equal_to, has_length, is_
 
 from my_tracks.mqtt import auth as auth_module
-from my_tracks.mqtt.auth import (DjangoAuthPlugin, authenticate_user,
-                                 check_topic_access, get_auth_config)
+from my_tracks.mqtt.auth import (DjangoAuthPlugin, authenticate_by_cert,
+                                 authenticate_user, check_topic_access,
+                                 get_auth_config)
 from my_tracks.mqtt.broker import get_default_config
 
 User = get_user_model()
@@ -55,6 +56,45 @@ def mock_plugin_context() -> MagicMock:
     return context
 
 
+def _make_session(
+    *,
+    username: str | None = None,
+    password: str | None = None,
+    ssl_object: Any = None,
+) -> MagicMock:
+    """Build a mock amqtt Session with the given attributes."""
+    session = MagicMock()
+    session.username = username
+    session.password = password
+    session.ssl_object = ssl_object
+    return session
+
+
+def _make_ssl_object(cn: str) -> MagicMock:
+    """Build a mock ssl.SSLObject whose peer cert has the given CN."""
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from datetime import UTC, datetime, timedelta
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(x509.Name([x509.NameAttribute(x509.oid.NameOID.COMMON_NAME, cn)]))
+        .issuer_name(x509.Name([x509.NameAttribute(x509.oid.NameOID.COMMON_NAME, "TestCA")]))
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(datetime.now(UTC))
+        .not_valid_after(datetime.now(UTC) + timedelta(days=1))
+        .sign(key, hashes.SHA256())
+    )
+    der_bytes = cert.public_bytes(serialization.Encoding.DER)
+
+    ssl_obj = MagicMock()
+    ssl_obj.getpeercert.return_value = der_bytes
+    return ssl_obj
+
+
 class TestAuthenticateUser:
     """Tests for authenticate_user function."""
 
@@ -82,6 +122,34 @@ class TestAuthenticateUser:
         """Superuser should be able to authenticate."""
         result = authenticate_user("admin", "adminpass123")
         assert_that(result, is_(True))
+
+
+class TestAuthenticateByCert:
+    """Tests for authenticate_by_cert function."""
+
+    def test_cn_matches_username_active_user(self, test_user: Any) -> None:
+        """Active user with matching CN and username should pass."""
+        assert_that(authenticate_by_cert("testuser", "testuser"), is_(True))
+
+    def test_cn_without_username_none(self, test_user: Any) -> None:
+        """Valid CN with None username should pass."""
+        assert_that(authenticate_by_cert("testuser", None), is_(True))
+
+    def test_cn_without_username_empty(self, test_user: Any) -> None:
+        """Valid CN with empty-string username should pass (OwnTracks sends '')."""
+        assert_that(authenticate_by_cert("testuser", ""), is_(True))
+
+    def test_cn_username_mismatch_rejected(self, test_user: Any) -> None:
+        """Username that doesn't match cert CN should be rejected."""
+        assert_that(authenticate_by_cert("testuser", "otheruser"), is_(False))
+
+    def test_cn_no_django_user(self, db: Any) -> None:
+        """CN with no corresponding Django user should be rejected."""
+        assert_that(authenticate_by_cert("unknown", None), is_(False))
+
+    def test_cn_inactive_user(self, inactive_user: Any) -> None:
+        """CN mapping to an inactive Django user should be rejected."""
+        assert_that(authenticate_by_cert("inactive", None), is_(False))
 
 
 class TestCheckTopicAccess:
@@ -161,13 +229,33 @@ class TestAuthFailureLogging:
     async def test_missing_credentials_logs_warning(
         self, db: Any, mock_plugin_context: MagicMock,
     ) -> None:
-        """Missing username/password should log at WARNING."""
+        """Missing username/password on non-TLS should log at WARNING."""
         plugin = DjangoAuthPlugin(context=mock_plugin_context)
+        session = _make_session()
         with patch.object(auth_module.logger, "warning") as mock_warn:
-            await plugin.authenticate(session=None, username=None, password=None)
+            await plugin.authenticate(session=session)
         mock_warn.assert_called_once()
         msg = mock_warn.call_args[0][0]
         assert_that(msg, contains_string("missing"))
+
+    def test_cert_cn_mismatch_logs_warning(self, test_user: Any) -> None:
+        """Username != cert CN should log at WARNING with [mqtt-tls] tag."""
+        with patch.object(auth_module.logger, "warning") as mock_warn:
+            authenticate_by_cert("testuser", "impersonator")
+        mock_warn.assert_called_once()
+        fmt = mock_warn.call_args[0][0] % mock_warn.call_args[0][1:]
+        assert_that(fmt, contains_string("[mqtt-tls]"))
+        assert_that(fmt, contains_string("impersonator"))
+        assert_that(fmt, contains_string("testuser"))
+
+    def test_cert_cn_no_user_logs_warning(self, db: Any) -> None:
+        """Cert CN with no Django user should log at WARNING."""
+        with patch.object(auth_module.logger, "warning") as mock_warn:
+            authenticate_by_cert("nobody", None)
+        mock_warn.assert_called_once()
+        fmt = mock_warn.call_args[0][0] % mock_warn.call_args[0][1:]
+        assert_that(fmt, contains_string("[mqtt-tls]"))
+        assert_that(fmt, contains_string("nobody"))
 
 
 class TestGetAuthConfig:
@@ -210,74 +298,166 @@ class TestGetDefaultConfigWithAuth:
         assert_that("amqtt.plugins.authentication.AnonymousAuthPlugin" in config["plugins"], is_(False))
 
 
-class TestDjangoAuthPlugin:
-    """Tests for DjangoAuthPlugin class."""
+class TestDjangoAuthPluginPasswordAuth:
+    """Tests for DjangoAuthPlugin password-based authentication (non-TLS)."""
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
     async def test_authenticate_valid_user(
-        self, test_user: Any, mock_plugin_context: MagicMock
+        self, test_user: Any, mock_plugin_context: MagicMock,
     ) -> None:
-        """Should authenticate valid user."""
+        """Should authenticate valid user via password on plain TCP."""
         plugin = DjangoAuthPlugin(context=mock_plugin_context)
-        result = await plugin.authenticate(
-            session=None,
-            username="testuser",
-            password="testpass123",
-        )
+        session = _make_session(username="testuser", password="testpass123")
+        result = await plugin.authenticate(session=session)
         assert_that(result, is_(True))
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
     async def test_authenticate_invalid_user(
-        self, db: Any, mock_plugin_context: MagicMock
+        self, db: Any, mock_plugin_context: MagicMock,
     ) -> None:
         """Should reject invalid user."""
         plugin = DjangoAuthPlugin(context=mock_plugin_context)
-        result = await plugin.authenticate(
-            session=None,
-            username="nonexistent",
-            password="anypass",
-        )
+        session = _make_session(username="nonexistent", password="anypass")
+        result = await plugin.authenticate(session=session)
         assert_that(result, is_(False))
 
     @pytest.mark.asyncio
     async def test_authenticate_missing_username(
-        self, db: Any, mock_plugin_context: MagicMock
+        self, db: Any, mock_plugin_context: MagicMock,
     ) -> None:
         """Should reject missing username."""
         plugin = DjangoAuthPlugin(context=mock_plugin_context)
-        result = await plugin.authenticate(
-            session=None,
-            username=None,
-            password="somepass",
-        )
+        session = _make_session(password="somepass")
+        result = await plugin.authenticate(session=session)
         assert_that(result, is_(False))
 
     @pytest.mark.asyncio
     async def test_authenticate_missing_password(
-        self, test_user: Any, mock_plugin_context: MagicMock
+        self, test_user: Any, mock_plugin_context: MagicMock,
     ) -> None:
         """Should reject missing password."""
         plugin = DjangoAuthPlugin(context=mock_plugin_context)
-        result = await plugin.authenticate(
-            session=None,
-            username="testuser",
-            password=None,
-        )
+        session = _make_session(username="testuser")
+        result = await plugin.authenticate(session=session)
+        assert_that(result, is_(False))
+
+
+class TestDjangoAuthPluginCertAuth:
+    """Tests for DjangoAuthPlugin cert-based authentication (mTLS)."""
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.asyncio
+    async def test_tls_valid_cert_matching_username(
+        self, test_user: Any, mock_plugin_context: MagicMock,
+    ) -> None:
+        """TLS client with valid cert and matching username should authenticate."""
+        plugin = DjangoAuthPlugin(context=mock_plugin_context)
+        ssl_obj = _make_ssl_object("testuser")
+        session = _make_session(username="testuser", ssl_object=ssl_obj)
+        result = await plugin.authenticate(session=session)
+        assert_that(result, is_(True))
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.asyncio
+    async def test_tls_valid_cert_no_username(
+        self, test_user: Any, mock_plugin_context: MagicMock,
+    ) -> None:
+        """TLS client with valid cert and no username should use CN as identity."""
+        plugin = DjangoAuthPlugin(context=mock_plugin_context)
+        ssl_obj = _make_ssl_object("testuser")
+        session = _make_session(ssl_object=ssl_obj)
+        result = await plugin.authenticate(session=session)
+        assert_that(result, is_(True))
+        assert_that(session.username, equal_to("testuser"))
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.asyncio
+    async def test_tls_valid_cert_empty_username(
+        self, test_user: Any, mock_plugin_context: MagicMock,
+    ) -> None:
+        """TLS client with valid cert and empty username should use CN as identity."""
+        plugin = DjangoAuthPlugin(context=mock_plugin_context)
+        ssl_obj = _make_ssl_object("testuser")
+        session = _make_session(username="", ssl_object=ssl_obj)
+        result = await plugin.authenticate(session=session)
+        assert_that(result, is_(True))
+        assert_that(session.username, equal_to("testuser"))
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.asyncio
+    async def test_tls_cert_cn_username_mismatch(
+        self, test_user: Any, mock_plugin_context: MagicMock,
+    ) -> None:
+        """TLS client whose username doesn't match cert CN should be rejected."""
+        plugin = DjangoAuthPlugin(context=mock_plugin_context)
+        ssl_obj = _make_ssl_object("testuser")
+        session = _make_session(username="impersonator", ssl_object=ssl_obj)
+        result = await plugin.authenticate(session=session)
+        assert_that(result, is_(False))
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.asyncio
+    async def test_tls_cert_cn_no_django_user(
+        self, db: Any, mock_plugin_context: MagicMock,
+    ) -> None:
+        """TLS client with cert CN that has no Django user should be rejected."""
+        plugin = DjangoAuthPlugin(context=mock_plugin_context)
+        ssl_obj = _make_ssl_object("unknown_cn")
+        session = _make_session(ssl_object=ssl_obj)
+        result = await plugin.authenticate(session=session)
+        assert_that(result, is_(False))
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.asyncio
+    async def test_tls_cert_cn_inactive_user(
+        self, inactive_user: Any, mock_plugin_context: MagicMock,
+    ) -> None:
+        """TLS client with cert CN mapping to inactive user should be rejected."""
+        plugin = DjangoAuthPlugin(context=mock_plugin_context)
+        ssl_obj = _make_ssl_object("inactive")
+        session = _make_session(ssl_object=ssl_obj)
+        result = await plugin.authenticate(session=session)
         assert_that(result, is_(False))
 
     @pytest.mark.asyncio
+    async def test_tls_no_peer_cert(
+        self, db: Any, mock_plugin_context: MagicMock,
+    ) -> None:
+        """TLS connection with no peer cert should be rejected."""
+        plugin = DjangoAuthPlugin(context=mock_plugin_context)
+        ssl_obj = MagicMock()
+        ssl_obj.getpeercert.return_value = None
+        session = _make_session(ssl_object=ssl_obj)
+        result = await plugin.authenticate(session=session)
+        assert_that(result, is_(False))
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.asyncio
+    async def test_tls_no_password_needed(
+        self, test_user: Any, mock_plugin_context: MagicMock,
+    ) -> None:
+        """TLS auth should succeed even with no password (cert is the credential)."""
+        plugin = DjangoAuthPlugin(context=mock_plugin_context)
+        ssl_obj = _make_ssl_object("testuser")
+        session = _make_session(username="testuser", ssl_object=ssl_obj)
+        assert_that(session.password, is_(None))
+        result = await plugin.authenticate(session=session)
+        assert_that(result, is_(True))
+
+
+class TestDjangoAuthPluginTopicACLs:
+    """Tests for topic ACL enforcement via DjangoAuthPlugin."""
+
+    @pytest.mark.asyncio
     async def test_on_broker_client_subscribed_allowed(
-        self, test_user: Any, mock_plugin_context: MagicMock
+        self, test_user: Any, mock_plugin_context: MagicMock,
     ) -> None:
         """Should allow subscription to own topic."""
         plugin = DjangoAuthPlugin(context=mock_plugin_context)
-
-        # Create a mock session with username
         session = MagicMock()
         session.username = "testuser"
-
         result = await plugin.on_broker_client_subscribed(
             client_id="client1",
             topic="owntracks/testuser/phone",
@@ -289,14 +469,12 @@ class TestDjangoAuthPlugin:
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
     async def test_on_broker_client_subscribed_denied(
-        self, test_user: Any, mock_plugin_context: MagicMock
+        self, test_user: Any, mock_plugin_context: MagicMock,
     ) -> None:
         """Should deny subscription to other user's topic."""
         plugin = DjangoAuthPlugin(context=mock_plugin_context)
-
         session = MagicMock()
         session.username = "testuser"
-
         result = await plugin.on_broker_client_subscribed(
             client_id="client1",
             topic="owntracks/otheruser/phone",
@@ -307,17 +485,14 @@ class TestDjangoAuthPlugin:
 
     @pytest.mark.asyncio
     async def test_on_broker_message_received_allowed(
-        self, test_user: Any, mock_plugin_context: MagicMock
+        self, test_user: Any, mock_plugin_context: MagicMock,
     ) -> None:
         """Should allow publish to own topic."""
         plugin = DjangoAuthPlugin(context=mock_plugin_context)
-
         session = MagicMock()
         session.username = "testuser"
-
         message = MagicMock()
         message.topic = "owntracks/testuser/phone"
-
         result = await plugin.on_broker_message_received(
             client_id="client1",
             message=message,
@@ -328,17 +503,14 @@ class TestDjangoAuthPlugin:
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
     async def test_on_broker_message_received_denied(
-        self, test_user: Any, mock_plugin_context: MagicMock
+        self, test_user: Any, mock_plugin_context: MagicMock,
     ) -> None:
         """Should deny publish to other user's topic."""
         plugin = DjangoAuthPlugin(context=mock_plugin_context)
-
         session = MagicMock()
         session.username = "testuser"
-
         message = MagicMock()
         message.topic = "owntracks/otheruser/phone"
-
         result = await plugin.on_broker_message_received(
             client_id="client1",
             message=message,
@@ -348,15 +520,13 @@ class TestDjangoAuthPlugin:
 
     @pytest.mark.asyncio
     async def test_no_session_allows_access(
-        self, db: Any, mock_plugin_context: MagicMock
+        self, db: Any, mock_plugin_context: MagicMock,
     ) -> None:
         """Should allow access when no session provided (let broker config handle)."""
         plugin = DjangoAuthPlugin(context=mock_plugin_context)
-
         result = await plugin.on_broker_client_subscribed(
             client_id="client1",
             topic="owntracks/anyuser/phone",
             qos=0,
-            # No session kwarg
         )
         assert_that(result, is_(True))
