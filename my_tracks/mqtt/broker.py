@@ -308,6 +308,7 @@ class MQTTBroker:
         self._running = False
         self._actual_mqtt_port: int | None = None
         self._actual_tls_port: int | None = None
+        self._reload_lock = asyncio.Lock()
 
     def _setup_tls_files(self, tls_config: TLSConfig) -> None:
         """Write TLS certificates to temporary files for amqtt.
@@ -477,6 +478,68 @@ class MQTTBroker:
         self._running = True
 
         logger.info("MQTT broker started successfully")
+
+    async def reload_tls(
+        self,
+        tls_config: TLSConfig | None,
+        mqtt_tls_port: int = -1,
+        reason: str = "configuration changed",
+    ) -> None:
+        """Hot-reload TLS configuration by restarting the internal amqtt broker.
+
+        The MQTTBroker wrapper stays alive (``_running`` remains True)
+        so the polling loop in ``apps._start_and_run`` is not interrupted.
+        Only the inner amqtt ``Broker`` instance is stopped and recreated
+        with the new certificate material.
+
+        Args:
+            tls_config: New TLS certificates, or None to disable TLS.
+            mqtt_tls_port: Port for the TLS listener (-1 = disabled).
+            reason: Human-readable reason for the reload (included in logs).
+        """
+        async with self._reload_lock:
+            logger.info("TLS hot-reload triggered — reason: %s", reason)
+
+            if self._broker is not None:
+                logger.info("Stopping current MQTT broker for TLS reload")
+                await self._broker.shutdown()
+                self._broker = None
+
+            self._cleanup_tls_files()
+            _CRLBroker._crl_pem = None
+
+            self.tls_config = tls_config
+            self.mqtt_tls_port = mqtt_tls_port
+            self._tls_certfile = None
+            self._tls_keyfile = None
+            self._tls_cafile = None
+
+            if tls_config and mqtt_tls_port >= 0:
+                self._setup_tls_files(tls_config)
+
+            self._config = get_default_config(
+                mqtt_port=self.mqtt_port,
+                mqtt_tls_port=mqtt_tls_port,
+                tls_certfile=self._tls_certfile,
+                tls_keyfile=self._tls_keyfile,
+                tls_cafile=self._tls_cafile,
+                allow_anonymous=self.allow_anonymous,
+                use_django_auth=self.use_django_auth,
+                use_owntracks_handler=self.use_owntracks_handler,
+            )
+
+            if tls_config:
+                _CRLBroker._crl_pem = tls_config.crl_pem
+                self._broker = _CRLBroker(self._config)
+            else:
+                self._broker = Broker(self._config)
+
+            await self._broker.start()
+            self._actual_mqtt_port = None
+            self._actual_tls_port = None
+
+            tls_status = f"TLS on port {mqtt_tls_port}" if mqtt_tls_port >= 0 else "TLS disabled"
+            logger.info("TLS hot-reload complete — %s", tls_status)
 
     async def stop(self) -> None:
         """

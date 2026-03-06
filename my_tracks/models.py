@@ -459,3 +459,33 @@ def create_user_profile(
         logger.info("New user created: '%s' (role=%s, email='%s')",
                      instance.username, role, instance.email or "")
         UserProfile.objects.create(user=instance)
+
+
+@receiver(post_save, sender=ServerCertificate)
+def reload_tls_on_server_cert(
+    sender: type[ServerCertificate],
+    instance: ServerCertificate,
+    **kwargs: Any,
+) -> None:
+    """Hot-reload MQTT TLS when a new server certificate is activated."""
+    if not instance.is_active:
+        return
+    from my_tracks.apps import trigger_tls_reload
+    trigger_tls_reload(
+        reason=f"new server certificate activated (CN={instance.common_name}, fingerprint={instance.fingerprint})"
+    )
+
+
+@receiver(post_save, sender=ClientCertificate)
+def reload_tls_on_client_cert_revoked(
+    sender: type[ClientCertificate],
+    instance: ClientCertificate,
+    **kwargs: Any,
+) -> None:
+    """Hot-reload MQTT TLS when a client certificate is revoked (CRL update)."""
+    if not instance.revoked:
+        return
+    from my_tracks.apps import trigger_tls_reload
+    trigger_tls_reload(
+        reason=f"client certificate revoked (CN={instance.common_name}, serial={instance.serial_number})"
+    )
