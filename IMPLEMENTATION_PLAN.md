@@ -1,6 +1,6 @@
 # My Tracks — Implementation Plan
 
-**Last Updated**: March 5, 2026
+**Last Updated**: March 6, 2026
 
 ## Overview
 
@@ -400,12 +400,19 @@ Package the application as a production-ready container image deployable on a Ce
     - Webservice logs new user creation events
     - Separate stack (independent of production containerization work)
 
-### Phase 8: TLS Hot-Reload
+### Phase 8: TLS Hot-Reload ✅
 
-- **TLS certificate hot-reload**
-  - When a new CA or server certificate is generated via the admin panel, the MQTT broker should detect the change and reload its TLS context automatically — currently requires a full server restart
-  - Options: file watcher on temp cert files, database change signal, or explicit "reload TLS" admin action
-  - CRL refresh on revocation should also be automatic
+34. **TLS Hot-Reload** ✅ (PR #376)
+    - `MQTTBroker.reload_tls()` method restarts the inner amqtt broker with new certificate material
+    - `trigger_tls_reload()` in `apps.py` — thread-safe, fire-and-forget scheduler for the broker's event loop
+    - Django `post_save` signals on `ServerCertificate` (when activated) and `ClientCertificate` (when revoked)
+    - Reason propagated through entire reload chain for clear logging (cert CN, fingerprint, serial)
+    - Server cert serial number included in `_log_cert_info()` to disambiguate rotations with same CN
+    - `asyncio.Lock` prevents concurrent reloads
+    - Fresh install flow: broker starts without TLS → admin creates cert → TLS listener starts automatically
+    - Cert rotation: new server cert → broker reloads with updated cert (no server restart)
+    - Client revocation: CRL rebuilt and loaded → revoked clients rejected immediately
+    - 19 new tests (11 broker reload + 4 signal + 4 trigger function)
 
 ### Phase 9: Advanced Integration
 1. **Transition events** — Handle region enter/exit events, store transition history
@@ -426,7 +433,7 @@ my_tracks/mqtt/
 
 ## Test Coverage
 
-- 900+ Python tests + 87 TypeScript tests passing
+- 1089+ Python tests + 87 TypeScript tests passing
 - 97%+ code coverage (target: 90%)
 - Tests run in parallel via pytest-xdist with accurate coverage merging
 - All pyright checks pass (0 errors, 0 warnings)
