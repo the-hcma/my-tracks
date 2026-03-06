@@ -2,6 +2,7 @@
 
 import asyncio
 import atexit
+import concurrent.futures
 import logging
 import os
 import sys
@@ -64,16 +65,18 @@ def _log_cert_info(server_cert_pem: bytes, ca_cert_pem: bytes) -> None:
 
     from my_tracks.pki import (get_certificate_expiry,
                                get_certificate_fingerprint,
+                               get_certificate_serial_number,
                                get_certificate_subject)
 
     cn = get_certificate_subject(server_cert_pem)
     fingerprint = get_certificate_fingerprint(server_cert_pem)
+    serial = get_certificate_serial_number(server_cert_pem)
     expiry = get_certificate_expiry(server_cert_pem)
     ca_cn = get_certificate_subject(ca_cert_pem)
 
     logger.info(
-        "TLS server certificate: CN=%s  CA=%s  expires=%s  fingerprint=%s",
-        cn, ca_cn, expiry.strftime("%Y-%m-%d %H:%M UTC"), fingerprint,
+        "TLS server certificate: CN=%s  serial=%s  CA=%s  expires=%s  fingerprint=%s",
+        cn, format(serial, 'X'), ca_cn, expiry.strftime("%Y-%m-%d %H:%M UTC"), fingerprint,
     )
 
     days_remaining = (expiry - datetime.now(UTC)).days
@@ -235,6 +238,44 @@ def get_mqtt_broker() -> "MQTTBroker | None":
 def get_mqtt_event_loop() -> "asyncio.AbstractEventLoop | None":
     """Return the event loop used by the MQTT broker thread."""
     return _state.loop
+
+
+def trigger_tls_reload(reason: str = "configuration changed") -> None:
+    """Schedule a TLS hot-reload on the running MQTT broker.
+
+    Loads fresh certificates from the database and restarts the
+    broker's TLS listener.  Safe to call from any Django thread
+    (e.g. a ``post_save`` signal handler); the actual reload runs
+    asynchronously on the broker's event loop.
+
+    Args:
+        reason: Human-readable reason for the reload (included in logs).
+    """
+    if _state.broker is None or _state.loop is None:
+        logger.debug("TLS reload requested but MQTT broker is not running (reason: %s)", reason)
+        return
+
+    if _state.loop.is_closed():
+        logger.debug("TLS reload requested but broker event loop is closed (reason: %s)", reason)
+        return
+
+    tls_config = _load_tls_config()
+    mqtt_tls_port = get_mqtt_tls_port()
+
+    future = asyncio.run_coroutine_threadsafe(
+        _state.broker.reload_tls(tls_config, mqtt_tls_port, reason=reason),
+        _state.loop,
+    )
+
+    def _on_done(f: concurrent.futures.Future[Any]) -> None:
+        try:
+            f.result()
+            if tls_config:
+                _log_cert_info(tls_config.server_cert_pem, tls_config.ca_cert_pem)
+        except Exception:
+            logger.exception("Failed to hot-reload MQTT TLS configuration")
+
+    future.add_done_callback(_on_done)
 
 
 _ASGI_SERVER_BINARIES = {'daphne', 'uvicorn'}

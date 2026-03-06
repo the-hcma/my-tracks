@@ -1272,3 +1272,237 @@ class TestLogCertInfo:
 
         mock_log.info.assert_called_once()
         mock_log.warning.assert_not_called()
+
+
+class TestTriggerTlsReload:
+    """Tests for trigger_tls_reload function."""
+
+    def test_noop_when_broker_is_none(self) -> None:
+        """Does nothing when MQTT broker is not running."""
+        import my_tracks.apps as apps_module
+
+        with (
+            patch.object(apps_module._state, "broker", None),
+            patch.object(apps_module._state, "loop", None),
+            patch.object(apps_module, "_load_tls_config") as mock_load,
+        ):
+            apps_module.trigger_tls_reload()
+
+        mock_load.assert_not_called()
+
+    def test_noop_when_loop_is_none(self) -> None:
+        """Does nothing when event loop is None."""
+        import my_tracks.apps as apps_module
+
+        with (
+            patch.object(apps_module._state, "broker", MagicMock()),
+            patch.object(apps_module._state, "loop", None),
+            patch.object(apps_module, "_load_tls_config") as mock_load,
+        ):
+            apps_module.trigger_tls_reload()
+
+        mock_load.assert_not_called()
+
+    def test_noop_when_loop_is_closed(self) -> None:
+        """Does nothing when event loop is closed."""
+        import my_tracks.apps as apps_module
+
+        mock_loop = MagicMock()
+        mock_loop.is_closed.return_value = True
+
+        with (
+            patch.object(apps_module._state, "broker", MagicMock()),
+            patch.object(apps_module._state, "loop", mock_loop),
+            patch.object(apps_module, "_load_tls_config") as mock_load,
+        ):
+            apps_module.trigger_tls_reload()
+
+        mock_load.assert_not_called()
+
+    def test_loads_config_and_schedules_reload(self) -> None:
+        """Loads TLS config from DB and schedules reload on broker loop."""
+        import my_tracks.apps as apps_module
+
+        mock_broker = MagicMock()
+        mock_loop = MagicMock()
+        mock_loop.is_closed.return_value = False
+        mock_future = MagicMock()
+        mock_tls_config = MagicMock()
+
+        import asyncio
+        with (
+            patch.object(apps_module._state, "broker", mock_broker),
+            patch.object(apps_module._state, "loop", mock_loop),
+            patch.object(apps_module, "_load_tls_config", return_value=mock_tls_config),
+            patch.object(apps_module, "get_mqtt_tls_port", return_value=8883),
+            patch("asyncio.run_coroutine_threadsafe", return_value=mock_future) as mock_schedule,
+        ):
+            apps_module.trigger_tls_reload()
+
+        mock_schedule.assert_called_once()
+        call_args = mock_schedule.call_args
+        assert_that(call_args[0][1], is_(mock_loop))
+        mock_future.add_done_callback.assert_called_once()
+
+
+@pytest.mark.django_db(transaction=True)
+class TestTlsReloadSignals:
+    """Tests for post_save signals that trigger TLS reload."""
+
+    @staticmethod
+    def _create_ca(name: str = "Signal CA") -> tuple[Any, Any, bytes, bytes]:
+        """Create a CA model instance, returning (ca_obj, ca_pem, ca_key)."""
+        from my_tracks.models import CertificateAuthority
+        from my_tracks.pki import (encrypt_private_key,
+                                   generate_ca_certificate,
+                                   get_certificate_expiry,
+                                   get_certificate_fingerprint)
+
+        ca_pem, ca_key = generate_ca_certificate(
+            common_name=name, key_size=2048,
+        )
+        ca = CertificateAuthority.objects.create(
+            certificate_pem=ca_pem.decode(),
+            encrypted_private_key=encrypt_private_key(ca_key),
+            common_name=name,
+            fingerprint=get_certificate_fingerprint(ca_pem),
+            not_valid_before=get_certificate_expiry(ca_pem),
+            not_valid_after=get_certificate_expiry(ca_pem),
+            key_size=2048,
+            is_active=True,
+        )
+        return ca, ca_pem, ca_key
+
+    def test_server_cert_active_triggers_reload(self) -> None:
+        """Creating an active ServerCertificate triggers TLS reload."""
+        from my_tracks.models import ServerCertificate
+        from my_tracks.pki import (encrypt_private_key,
+                                   generate_server_certificate,
+                                   get_certificate_expiry,
+                                   get_certificate_fingerprint)
+
+        ca, ca_pem, ca_key = self._create_ca("Signal CA")
+
+        srv_pem, srv_key = generate_server_certificate(
+            ca_pem, ca_key, common_name="signal-srv",
+            san_entries=["signal-srv"], key_size=2048,
+        )
+
+        with patch("my_tracks.apps.trigger_tls_reload") as mock_reload:
+            ServerCertificate.objects.create(
+                issuing_ca=ca,
+                certificate_pem=srv_pem.decode(),
+                encrypted_private_key=encrypt_private_key(srv_key),
+                common_name="signal-srv",
+                fingerprint=get_certificate_fingerprint(srv_pem),
+                not_valid_before=get_certificate_expiry(srv_pem),
+                not_valid_after=get_certificate_expiry(srv_pem),
+                key_size=2048,
+                is_active=True,
+            )
+
+        mock_reload.assert_called_once()
+
+    def test_server_cert_inactive_does_not_trigger(self) -> None:
+        """Creating an inactive ServerCertificate does not trigger reload."""
+        from my_tracks.models import ServerCertificate
+        from my_tracks.pki import (encrypt_private_key,
+                                   generate_server_certificate,
+                                   get_certificate_expiry,
+                                   get_certificate_fingerprint)
+
+        ca, ca_pem, ca_key = self._create_ca("Signal CA2")
+
+        srv_pem, srv_key = generate_server_certificate(
+            ca_pem, ca_key, common_name="inactive-srv",
+            san_entries=["inactive-srv"], key_size=2048,
+        )
+
+        with patch("my_tracks.apps.trigger_tls_reload") as mock_reload:
+            ServerCertificate.objects.create(
+                issuing_ca=ca,
+                certificate_pem=srv_pem.decode(),
+                encrypted_private_key=encrypt_private_key(srv_key),
+                common_name="inactive-srv",
+                fingerprint=get_certificate_fingerprint(srv_pem),
+                not_valid_before=get_certificate_expiry(srv_pem),
+                not_valid_after=get_certificate_expiry(srv_pem),
+                key_size=2048,
+                is_active=False,
+            )
+
+        mock_reload.assert_not_called()
+
+    def test_client_cert_revoked_triggers_reload(self) -> None:
+        """Revoking a ClientCertificate triggers TLS reload for CRL update."""
+        from django.contrib.auth.models import User
+        from django.utils import timezone
+
+        from my_tracks.models import ClientCertificate
+        from my_tracks.pki import (encrypt_private_key,
+                                   generate_client_certificate,
+                                   get_certificate_expiry,
+                                   get_certificate_fingerprint)
+
+        ca, ca_pem, ca_key = self._create_ca("Revoke CA")
+        user = User.objects.create_user(username="revoketest", password="pass123")
+
+        cert_pem, cert_key = generate_client_certificate(
+            ca_pem, ca_key, username="revoketest", key_size=2048,
+        )
+
+        cc = ClientCertificate.objects.create(
+            user=user,
+            issuing_ca=ca,
+            certificate_pem=cert_pem.decode(),
+            encrypted_private_key=encrypt_private_key(cert_key),
+            common_name="revoketest",
+            fingerprint=get_certificate_fingerprint(cert_pem),
+            serial_number="01",
+            not_valid_before=get_certificate_expiry(cert_pem),
+            not_valid_after=get_certificate_expiry(cert_pem),
+            key_size=2048,
+            is_active=True,
+        )
+
+        with patch("my_tracks.apps.trigger_tls_reload") as mock_reload:
+            cc.revoked = True
+            cc.revoked_at = timezone.now()
+            cc.is_active = False
+            cc.save()
+
+        mock_reload.assert_called_once()
+
+    def test_client_cert_not_revoked_does_not_trigger(self) -> None:
+        """Saving a non-revoked ClientCertificate does not trigger reload."""
+        from django.contrib.auth.models import User
+
+        from my_tracks.models import ClientCertificate
+        from my_tracks.pki import (encrypt_private_key,
+                                   generate_client_certificate,
+                                   get_certificate_expiry,
+                                   get_certificate_fingerprint)
+
+        ca, ca_pem, ca_key = self._create_ca("NoRevoke CA")
+        user = User.objects.create_user(username="norevoketest", password="pass123")
+
+        cert_pem, cert_key = generate_client_certificate(
+            ca_pem, ca_key, username="norevoketest", key_size=2048,
+        )
+
+        with patch("my_tracks.apps.trigger_tls_reload") as mock_reload:
+            ClientCertificate.objects.create(
+                user=user,
+                issuing_ca=ca,
+                certificate_pem=cert_pem.decode(),
+                encrypted_private_key=encrypt_private_key(cert_key),
+                common_name="norevoketest",
+                fingerprint=get_certificate_fingerprint(cert_pem),
+                serial_number="02",
+                not_valid_before=get_certificate_expiry(cert_pem),
+                not_valid_after=get_certificate_expiry(cert_pem),
+                key_size=2048,
+                is_active=True,
+            )
+
+        mock_reload.assert_not_called()

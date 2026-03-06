@@ -784,3 +784,210 @@ class TestTLSConfig:
             )
 
         mock_warn.assert_not_called()
+
+
+class TestReloadTLS:
+    """Tests for MQTTBroker.reload_tls hot-reload."""
+
+    def _make_tls_config(self, label: str = "fake") -> TLSConfig:
+        return TLSConfig(
+            server_cert_pem=f"-----BEGIN CERTIFICATE-----\n{label}\n-----END CERTIFICATE-----".encode(),
+            server_key_pem=f"-----BEGIN PRIVATE KEY-----\n{label}\n-----END PRIVATE KEY-----".encode(),
+            ca_cert_pem=f"-----BEGIN CERTIFICATE-----\n{label}-ca\n-----END CERTIFICATE-----".encode(),
+        )
+
+    @pytest.mark.asyncio
+    async def test_reload_restarts_inner_broker(self) -> None:
+        """reload_tls shuts down old amqtt broker and starts a new one."""
+        broker = MQTTBroker(mqtt_port=0, use_owntracks_handler=False)
+        mock_inner = AsyncMock()
+        broker._broker = mock_inner
+        broker._running = True
+
+        new_inner = AsyncMock()
+        with patch("my_tracks.mqtt.broker.Broker", return_value=new_inner):
+            await broker.reload_tls(None, mqtt_tls_port=-1)
+
+        mock_inner.shutdown.assert_awaited_once()
+        new_inner.start.assert_awaited_once()
+        assert_that(broker._broker, is_(new_inner))
+
+    @pytest.mark.asyncio
+    async def test_reload_keeps_running_true(self) -> None:
+        """_running stays True throughout reload so polling loop continues."""
+        broker = MQTTBroker(mqtt_port=0, use_owntracks_handler=False)
+        broker._running = True
+        broker._broker = AsyncMock()
+
+        with patch("my_tracks.mqtt.broker.Broker", return_value=AsyncMock()):
+            await broker.reload_tls(None, mqtt_tls_port=-1)
+
+        assert_that(broker._running, is_(True))
+
+    @pytest.mark.asyncio
+    async def test_reload_enables_tls_from_disabled(self) -> None:
+        """reload_tls can add TLS to a broker that started without it."""
+        broker = MQTTBroker(mqtt_port=0, mqtt_tls_port=-1, use_owntracks_handler=False)
+        broker._running = True
+        broker._broker = AsyncMock()
+
+        tls_config = self._make_tls_config("new")
+
+        with patch("my_tracks.mqtt.broker._CRLBroker", return_value=AsyncMock()) as mock_cls:
+            await broker.reload_tls(tls_config, mqtt_tls_port=8883)
+
+        assert_that(broker.mqtt_tls_port, equal_to(8883))
+        assert_that(broker.tls_config, is_(tls_config))
+        mock_cls.assert_called_once()
+        assert_that(broker._tls_certfile, is_(not_none()))
+
+        broker._cleanup_tls_files()
+
+    @pytest.mark.asyncio
+    async def test_reload_disables_tls(self) -> None:
+        """reload_tls with None config and -1 port disables TLS."""
+        tls_config = self._make_tls_config()
+        broker = MQTTBroker(
+            mqtt_port=0, mqtt_tls_port=8883, tls_config=tls_config,
+            use_owntracks_handler=False,
+        )
+        broker._running = True
+        broker._broker = AsyncMock()
+
+        with patch("my_tracks.mqtt.broker.Broker", return_value=AsyncMock()):
+            await broker.reload_tls(None, mqtt_tls_port=-1)
+
+        assert_that(broker.mqtt_tls_port, equal_to(-1))
+        assert_that(broker.tls_config, is_(none()))
+        assert_that(broker._tls_certfile, is_(none()))
+
+    @pytest.mark.asyncio
+    async def test_reload_cleans_up_old_temp_files(self) -> None:
+        """Old TLS temp files are removed on reload."""
+        tls_config = self._make_tls_config()
+        broker = MQTTBroker(
+            mqtt_port=0, mqtt_tls_port=8883, tls_config=tls_config,
+            use_owntracks_handler=False,
+        )
+        old_certfile = broker._tls_certfile
+        assert_that(os.path.exists(old_certfile), is_(True))
+
+        broker._running = True
+        broker._broker = AsyncMock()
+
+        with patch("my_tracks.mqtt.broker.Broker", return_value=AsyncMock()):
+            await broker.reload_tls(None, mqtt_tls_port=-1)
+
+        assert_that(os.path.exists(old_certfile), is_(False))
+
+    @pytest.mark.asyncio
+    async def test_reload_updates_config(self) -> None:
+        """Config is rebuilt with new TLS parameters after reload."""
+        broker = MQTTBroker(mqtt_port=0, mqtt_tls_port=-1, use_owntracks_handler=False)
+        broker._running = True
+        broker._broker = AsyncMock()
+
+        assert_that("mqtt-tls" in broker.config.get("listeners", {}), is_(False))
+
+        tls_config = self._make_tls_config("new")
+        with patch("my_tracks.mqtt.broker._CRLBroker", return_value=AsyncMock()):
+            await broker.reload_tls(tls_config, mqtt_tls_port=8883)
+
+        assert_that(broker.config["listeners"], has_key("mqtt-tls"))
+        assert_that(
+            broker.config["listeners"]["mqtt-tls"]["bind"],
+            equal_to("0.0.0.0:8883"),
+        )
+
+        broker._cleanup_tls_files()
+
+    @pytest.mark.asyncio
+    async def test_reload_sets_crl_on_crl_broker(self) -> None:
+        """When TLS config has a CRL, _CRLBroker._crl_pem is set."""
+        broker = MQTTBroker(mqtt_port=0, use_owntracks_handler=False)
+        broker._running = True
+        broker._broker = AsyncMock()
+
+        tls_config = TLSConfig(
+            server_cert_pem=b"cert", server_key_pem=b"key",
+            ca_cert_pem=b"ca", crl_pem=b"crl-data",
+        )
+
+        with (
+            patch.object(_CRLBroker, "__init__", return_value=None),
+            patch.object(_CRLBroker, "start", new_callable=AsyncMock),
+        ):
+            await broker.reload_tls(tls_config, mqtt_tls_port=8883)
+
+        assert_that(_CRLBroker._crl_pem, equal_to(b"crl-data"))
+
+        _CRLBroker._crl_pem = None
+        broker._cleanup_tls_files()
+
+    @pytest.mark.asyncio
+    async def test_reload_clears_crl_when_no_tls(self) -> None:
+        """_CRLBroker._crl_pem is cleared when reloading without TLS."""
+        _CRLBroker._crl_pem = b"old-crl"
+        broker = MQTTBroker(mqtt_port=0, use_owntracks_handler=False)
+        broker._running = True
+        broker._broker = AsyncMock()
+
+        with patch("my_tracks.mqtt.broker.Broker", return_value=AsyncMock()):
+            await broker.reload_tls(None, mqtt_tls_port=-1)
+
+        assert_that(_CRLBroker._crl_pem, is_(none()))
+
+    @pytest.mark.asyncio
+    async def test_reload_resets_port_cache(self) -> None:
+        """Port cache is cleared so next access re-discovers."""
+        broker = MQTTBroker(mqtt_port=0, use_owntracks_handler=False)
+        broker._running = True
+        broker._broker = AsyncMock()
+        broker._actual_mqtt_port = 12345
+        broker._actual_tls_port = 8883
+
+        with patch("my_tracks.mqtt.broker.Broker", return_value=AsyncMock()):
+            await broker.reload_tls(None, mqtt_tls_port=-1)
+
+        assert_that(broker._actual_mqtt_port, is_(none()))
+        assert_that(broker._actual_tls_port, is_(none()))
+
+    @pytest.mark.asyncio
+    async def test_reload_handles_no_prior_broker(self) -> None:
+        """reload_tls works when _broker is None (first-time TLS enable)."""
+        broker = MQTTBroker(mqtt_port=0, use_owntracks_handler=False)
+        broker._running = True
+        broker._broker = None
+
+        with patch("my_tracks.mqtt.broker.Broker", return_value=AsyncMock()) as mock_cls:
+            await broker.reload_tls(None, mqtt_tls_port=-1)
+
+        mock_cls.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_reload_serialized_by_lock(self) -> None:
+        """Concurrent reload calls are serialized by the lock."""
+        broker = MQTTBroker(mqtt_port=0, use_owntracks_handler=False)
+        broker._running = True
+        broker._broker = AsyncMock()
+
+        call_order: list[str] = []
+
+        original_shutdown = broker._broker.shutdown
+
+        async def slow_shutdown() -> None:
+            call_order.append("shutdown_start")
+            await asyncio.sleep(0.05)
+            call_order.append("shutdown_end")
+            await original_shutdown()
+
+        broker._broker.shutdown = slow_shutdown
+
+        with patch("my_tracks.mqtt.broker.Broker", return_value=AsyncMock()):
+            await asyncio.gather(
+                broker.reload_tls(None, mqtt_tls_port=-1),
+                broker.reload_tls(None, mqtt_tls_port=-1),
+            )
+
+        shutdown_starts = [e for e in call_order if e == "shutdown_start"]
+        assert_that(shutdown_starts, has_length(1))
