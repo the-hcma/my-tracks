@@ -28,7 +28,7 @@ readonly SCRIPT_DIR
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 readonly PROJECT_DIR
 readonly ENV_FILE="$PROJECT_DIR/.env.production"
-readonly CERTS_DIR="$PROJECT_DIR/certs"
+CERTS_DIR="$PROJECT_DIR/certs"
 
 readonly DEFAULT_HTTPS_PORT=8443
 readonly DEFAULT_HTTP_PORT=8080
@@ -40,13 +40,61 @@ die() { echo "Error: $1" >&2; exit 1; }
 
 info() { echo "==> $1"; }
 
+install_hint() {
+    # Return OS-appropriate install command for a given logical package name.
+    # Maps logical names to distro-specific package names.
+    # Usage: install_hint <logical_name>
+    local logical="$1"
+    local pkg
+
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        case "$logical" in
+            docker)              pkg="docker" ;;
+            docker-buildx)       pkg="docker-buildx" ;;
+            docker-compose)      pkg="docker-compose" ;;
+            *)                   pkg="$logical" ;;
+        esac
+        echo "brew install $pkg"
+    elif command -v apt-get >/dev/null 2>&1; then
+        case "$logical" in
+            docker)              pkg="docker.io" ;;
+            docker-buildx)       pkg="docker-buildx" ;;
+            docker-compose)      pkg="docker-compose-v2" ;;
+            python3)             pkg="python3" ;;
+            *)                   pkg="$logical" ;;
+        esac
+        echo "sudo apt-get install $pkg"
+    elif command -v dnf >/dev/null 2>&1; then
+        case "$logical" in
+            docker)              pkg="docker-ce" ;;
+            docker-buildx)       pkg="docker-buildx-plugin" ;;
+            docker-compose)      pkg="docker-compose-plugin" ;;
+            python3)             pkg="python3" ;;
+            *)                   pkg="$logical" ;;
+        esac
+        echo "sudo dnf install $pkg"
+    elif command -v pacman >/dev/null 2>&1; then
+        case "$logical" in
+            docker)              pkg="docker" ;;
+            docker-buildx)       pkg="docker-buildx" ;;
+            docker-compose)      pkg="docker-compose" ;;
+            python3)             pkg="python" ;;
+            *)                   pkg="$logical" ;;
+        esac
+        echo "sudo pacman -S $pkg"
+    else
+        echo "your package manager to install $logical"
+    fi
+}
+
 detect_compose_cmd() {
     if docker compose version >/dev/null 2>&1; then
         echo "docker compose"
     elif command -v docker-compose >/dev/null 2>&1; then
         echo "docker-compose"
     else
-        die "Neither 'docker compose' (plugin) nor 'docker-compose' (standalone) found"
+        die "Neither 'docker compose' (plugin) nor 'docker-compose' (standalone) found.
+  Install with:  $(install_hint docker-compose)"
     fi
 }
 
@@ -60,32 +108,111 @@ COMPOSE_CMD=""
 COMPOSE_FILES=()
 
 check_prerequisites() {
-    command -v docker >/dev/null 2>&1 || die "Docker is not installed.
-  Install with:  brew install docker"
+    local missing=()
 
-    if ! docker info >/dev/null 2>&1; then
-        die "Docker daemon is not running.
-  If you use Colima:         colima start
-  If you use Docker Desktop: open -a Docker
-  Install a runtime:         brew install colima && colima start"
+    # ── Docker CLI ───────────────────────────────────────────────────────
+    if ! command -v docker >/dev/null 2>&1; then
+        missing+=("  • Docker is not installed.
+      Install with:  $(install_hint docker)")
+    else
+        # ── Docker daemon reachable? ─────────────────────────────────────
+        local docker_err docker_tail
+        docker_err="$(docker info 2>&1)" || true
+        docker_tail="$(echo "$docker_err" | tail -5)"
+        if echo "$docker_err" | grep -qi "error\|cannot connect\|permission denied\|not allowed\|refused"; then
+            if [[ "$(uname -s)" == "Darwin" ]]; then
+                missing+=("  • Docker daemon is not reachable.
+      If you use Colima:         colima start
+      If you use Docker Desktop: open -a Docker
+      Install a runtime:         brew install colima && colima start
+      docker info says:
+$docker_tail")
+            elif echo "$docker_err" | grep -qi "permission denied\|not allowed"; then
+                missing+=("  • Docker daemon is running but your user lacks permission.
+      Fix with:      sudo usermod -aG docker \$USER
+      Then:          newgrp docker   (or log out and back in)
+      docker info says:
+$docker_tail")
+            elif command -v systemctl >/dev/null 2>&1; then
+                if systemctl is-active docker >/dev/null 2>&1; then
+                    missing+=("  • Docker service is active but 'docker info' fails.
+      Your user may need to be in the 'docker' group:
+        sudo usermod -aG docker \$USER
+        newgrp docker   (or log out and back in)
+      Or check the socket:
+        ls -la /var/run/docker.sock
+      docker info says:
+$docker_tail")
+                elif systemctl list-unit-files docker.service 2>/dev/null | grep -q docker; then
+                    missing+=("  • Docker daemon is not running.
+      Start with:    sudo systemctl start docker
+      Enable on boot: sudo systemctl enable docker
+      docker info says:
+$docker_tail")
+                else
+                    missing+=("  • Docker CLI is installed but the Docker Engine service is missing.
+      Install the full Docker Engine:
+        $(install_hint docker)
+      Then:          sudo systemctl enable --now docker
+      docker info says:
+$docker_tail")
+                fi
+            else
+                missing+=("  • Docker daemon is not reachable.
+      Start with:    sudo dockerd &
+      Or check your init system's service manager.
+      docker info says:
+$docker_tail")
+            fi
+        else
+            # Docker daemon is OK — check buildx and compose
+            if ! docker buildx version >/dev/null 2>&1; then
+                if [[ "$(uname -s)" == "Darwin" ]]; then
+                    missing+=("  • Docker buildx plugin is not installed.
+      Install with:  brew install docker-buildx
+      Then link:     mkdir -p ~/.docker/cli-plugins && ln -sfn \$(brew --prefix)/bin/docker-buildx ~/.docker/cli-plugins/docker-buildx")
+                else
+                    missing+=("  • Docker buildx plugin is not installed.
+      Install with:  $(install_hint docker-buildx)")
+                fi
+            fi
+
+            if ! docker compose version >/dev/null 2>&1 && ! command -v docker-compose >/dev/null 2>&1; then
+                missing+=("  • Docker Compose is not installed.
+      Install with:  $(install_hint docker-compose)")
+            else
+                COMPOSE_CMD="$(detect_compose_cmd)"
+            fi
+        fi
     fi
 
-    if ! docker buildx version >/dev/null 2>&1; then
-        die "Docker buildx plugin is required but not installed.
-  Install with:  brew install docker-buildx
-  Then link:     mkdir -p ~/.docker/cli-plugins && ln -sfn \$(brew --prefix)/bin/docker-buildx ~/.docker/cli-plugins/docker-buildx"
+    # ── Other tools ──────────────────────────────────────────────────────
+    if ! command -v curl >/dev/null 2>&1; then
+        missing+=("  • curl is not installed (required for health checks).
+      Install with:  $(install_hint curl)")
     fi
 
-    COMPOSE_CMD="$(detect_compose_cmd)"
+    if ! command -v openssl >/dev/null 2>&1; then
+        missing+=("  • openssl is not installed (required for TLS certificate generation).
+      Install with:  $(install_hint openssl)")
+    fi
 
-    command -v curl >/dev/null 2>&1 || die "curl is not installed (required for health checks).
-  Install with:  brew install curl"
+    if ! command -v python3 >/dev/null 2>&1; then
+        missing+=("  • python3 is not installed (required for secret generation).
+      Install with:  $(install_hint python3)")
+    fi
 
-    command -v openssl >/dev/null 2>&1 || die "openssl is not installed (required for TLS certificate generation).
-  Install with:  brew install openssl"
+    # ── Report all issues at once ────────────────────────────────────────
+    if [ ${#missing[@]} -gt 0 ]; then
+        local msg="Missing prerequisites:
 
-    command -v python3 >/dev/null 2>&1 || die "python3 is not installed (required for secret generation).
-  Install with:  brew install python"
+"
+        for item in "${missing[@]}"; do
+            msg+="$item
+"
+        done
+        die "$msg"
+    fi
 }
 
 env_get() {
@@ -511,6 +638,26 @@ print_external_db_banner() {
     echo ""
 }
 
+stage_bind_mounts() {
+    # Copy nginx config and certs to a tmp staging directory that Docker
+    # can always access, even when the repo is inside a restricted home dir.
+    local stage_dir="/tmp/my-tracks-staging"
+    mkdir -p "$stage_dir/nginx" "$stage_dir/certs"
+
+    cp "$PROJECT_DIR/nginx/nginx.conf" "$stage_dir/nginx/nginx.conf"
+    cp "$PROJECT_DIR/nginx/proxy_params" "$stage_dir/nginx/proxy_params"
+    cp "$CERTS_DIR/fullchain.pem" "$stage_dir/certs/fullchain.pem"
+    cp "$CERTS_DIR/privkey.pem" "$stage_dir/certs/privkey.pem"
+
+    chmod -R a+rX "$stage_dir"
+
+    # Point docker-compose at the staged copies via env vars.
+    export NGINX_CONF_DIR="$stage_dir/nginx"
+    export CERTS_DIR="$stage_dir/certs"
+
+    info "Staged bind-mount files in $stage_dir"
+}
+
 # ── Commands ─────────────────────────────────────────────────────────────────
 
 cmd_start() {
@@ -562,6 +709,11 @@ cmd_start() {
     else
         info "Reusing existing certs in $CERTS_DIR/"
     fi
+
+    # Stage bind-mount files to a Docker-accessible directory.
+    # When the repo lives under a restricted home directory (e.g., 0700),
+    # Docker cannot traverse the path to bind-mount files directly.
+    stage_bind_mounts
 
     info "Building container image"
     compose build
@@ -638,6 +790,7 @@ cmd_stop() {
 
     info "Stopping stack and removing volumes"
     compose down -v
+    rm -rf /tmp/my-tracks-staging
     info "Stack stopped. .env.production and certs/ are preserved for next run."
 }
 

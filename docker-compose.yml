@@ -19,8 +19,8 @@ services:
       - "${HTTP_PORT:-80}:80"
       - "${MQTT_TLS_PORT:-8883}:8883"
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/proxy_params:/etc/nginx/proxy_params:ro
+      - ${NGINX_CONF_DIR:-./nginx}/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ${NGINX_CONF_DIR:-./nginx}/proxy_params:/etc/nginx/proxy_params:ro
       - ${CERTS_DIR:-./certs}:/etc/nginx/certs:ro
       - certbot-www:/var/www/certbot:ro
     depends_on:
