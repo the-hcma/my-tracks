@@ -62,6 +62,7 @@ coverage/
 .env.production
 certs/
 backups/
+.run/
 
 # IDE
 .cursor/
