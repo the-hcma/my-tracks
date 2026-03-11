@@ -3,8 +3,11 @@ services:
     build: .
     image: ghcr.io/the-hcma/my-tracks:latest
     env_file: .env.production
+    environment:
+      - LOG_FILE=/app/logs/my-tracks.log
     volumes:
       - app-data:/app/data
+      - app-logs:/app/logs
     restart: unless-stopped
     # Ports are internal — nginx handles external access.
     # MQTT TLS (8883) is exposed directly via nginx stream passthrough.
@@ -44,5 +47,6 @@ services:
 
 volumes:
   app-data:
+  app-logs:
   letsencrypt:
   certbot-www:

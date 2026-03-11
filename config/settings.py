@@ -289,6 +289,33 @@ class LocalTimeFormatter(logging.Formatter):
 
     converter = time.localtime  # Use local time instead of gmtime
 
+# Optional file logging: set LOG_FILE env var to enable (e.g., /app/logs/my-tracks.log)
+LOG_FILE: str = str(config('LOG_FILE', default=''))
+
+_handlers: dict[str, dict[str, Any]] = {
+    'console': {
+        'class': 'logging.StreamHandler',
+        'formatter': 'verbose',
+        'filters': ['health_check_filter'],
+    },
+}
+
+_all_handlers = ['console']
+
+if LOG_FILE:
+    log_dir = Path(LOG_FILE).parent
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    _handlers['file'] = {
+        'class': 'logging.handlers.RotatingFileHandler',
+        'filename': LOG_FILE,
+        'maxBytes': 10 * 1024 * 1024,  # 10 MB
+        'backupCount': 5,
+        'formatter': 'verbose',
+        'filters': ['health_check_filter'],
+    }
+    _all_handlers.append('file')
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -310,42 +337,36 @@ LOGGING = {
             'datefmt': '%Y%m%d-%H:%M:%S',
         },
     },
-    'handlers': {
-        'console': {
-            'class': 'logging.StreamHandler',
-            'formatter': 'verbose',
-            'filters': ['health_check_filter'],
-        },
-    },
+    'handlers': _handlers,
     'root': {
-        'handlers': ['console'],
+        'handlers': _all_handlers,
         'level': 'INFO',
     },
     'loggers': {
         'my_tracks': {
-            'handlers': ['console'],
+            'handlers': _all_handlers,
             'level': 'INFO',
             'propagate': False,
         },
         'django.server': {
-            'handlers': ['console'],
+            'handlers': _all_handlers,
             'level': TRACE_LEVEL,
             'propagate': False,
         },
         'daphne.server': {
-            'handlers': ['console'],
+            'handlers': _all_handlers,
             'level': 'INFO',
             'filters': ['daphne_port_zero_filter'],
             'propagate': False,
         },
         'amqtt.broker': {
-            'handlers': ['console'],
+            'handlers': _all_handlers,
             'level': 'INFO',
             'filters': ['amqtt_connection_filter'],
             'propagate': False,
         },
         'transitions.core': {
-            'handlers': ['console'],
+            'handlers': _all_handlers,
             'level': 'WARNING',
             'propagate': False,
         },
