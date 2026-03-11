@@ -116,53 +116,53 @@ check_prerequisites() {
       Install with:  $(install_hint docker)")
     else
         # ── Docker daemon reachable? ─────────────────────────────────────
-        local docker_err docker_tail
+        local docker_err docker_reason
         docker_err="$(docker info 2>&1)" || true
-        docker_tail="$(echo "$docker_err" | tail -5)"
-        if echo "$docker_err" | grep -qi "error\|cannot connect\|permission denied\|not allowed\|refused"; then
+        docker_reason="$(echo "$docker_err" | grep -i "error\|cannot connect\|failed to connect\|permission denied\|not allowed\|refused" | head -1 | sed 's/^[[:space:]]*//')" || true
+        if [ -n "$docker_reason" ]; then
             if [[ "$(uname -s)" == "Darwin" ]]; then
                 missing+=("  • Docker daemon is not reachable.
+      $docker_reason
+
       If you use Colima:         colima start
       If you use Docker Desktop: open -a Docker
-      Install a runtime:         brew install colima && colima start
-      docker info says:
-$docker_tail")
+      Install a runtime:         brew install colima && colima start")
             elif echo "$docker_err" | grep -qi "permission denied\|not allowed"; then
                 missing+=("  • Docker daemon is running but your user lacks permission.
+      $docker_reason
+
       Fix with:      sudo usermod -aG docker \$USER
-      Then:          newgrp docker   (or log out and back in)
-      docker info says:
-$docker_tail")
+      Then:          newgrp docker   (or log out and back in)")
             elif command -v systemctl >/dev/null 2>&1; then
                 if systemctl is-active docker >/dev/null 2>&1; then
                     missing+=("  • Docker service is active but 'docker info' fails.
+      $docker_reason
+
       Your user may need to be in the 'docker' group:
         sudo usermod -aG docker \$USER
         newgrp docker   (or log out and back in)
       Or check the socket:
-        ls -la /var/run/docker.sock
-      docker info says:
-$docker_tail")
+        ls -la /var/run/docker.sock")
                 elif systemctl list-unit-files docker.service 2>/dev/null | grep -q docker; then
                     missing+=("  • Docker daemon is not running.
+      $docker_reason
+
       Start with:    sudo systemctl start docker
-      Enable on boot: sudo systemctl enable docker
-      docker info says:
-$docker_tail")
+      Enable on boot: sudo systemctl enable docker")
                 else
                     missing+=("  • Docker CLI is installed but the Docker Engine service is missing.
+      $docker_reason
+
       Install the full Docker Engine:
         $(install_hint docker)
-      Then:          sudo systemctl enable --now docker
-      docker info says:
-$docker_tail")
+      Then:          sudo systemctl enable --now docker")
                 fi
             else
                 missing+=("  • Docker daemon is not reachable.
+      $docker_reason
+
       Start with:    sudo dockerd &
-      Or check your init system's service manager.
-      docker info says:
-$docker_tail")
+      Or check your init system's service manager.")
             fi
         else
             # Docker daemon is OK — check buildx and compose
@@ -336,22 +336,25 @@ extract_source_env_value() {
 }
 
 extract_source_secret_key() {
-    # Try .env file first, then fall back to Django settings.
+    # Resolve the SECRET_KEY that Django actually uses (what decouple.config()
+    # returns), which accounts for env vars, .env, and settings.py defaults.
+    # Falls back to reading .env directly if Django resolution fails.
     # Prints the key to stdout; prints the source location to stderr.
     local key
-    key="$(extract_source_env_value "SECRET_KEY")"
-    if [ -n "$key" ]; then
-        info "Found SECRET_KEY in $PROJECT_DIR/.env"
-        echo "$key"
-        return
-    fi
 
     key="$(DJANGO_SETTINGS_MODULE=config.settings \
         DATABASE_URL="sqlite:///dev-null" \
         uv run --directory "$PROJECT_DIR" python -c \
             "from django.conf import settings; print(settings.SECRET_KEY)" 2>/dev/null || true)"
     if [ -n "$key" ]; then
-        info "Found SECRET_KEY via Django settings (config/settings.py)"
+        info "Found SECRET_KEY via Django settings (resolves .env + defaults)"
+        echo "$key"
+        return
+    fi
+
+    key="$(extract_source_env_value "SECRET_KEY")"
+    if [ -n "$key" ]; then
+        info "Found SECRET_KEY in $PROJECT_DIR/.env"
         echo "$key"
         return
     fi
@@ -541,14 +544,38 @@ import_sqlite_to_postgres() {
 
     if [ -n "$old_secret_key" ]; then
         info "Re-encrypting PKI private keys with the new production SECRET_KEY..."
-        compose run --rm --entrypoint "" -T my-tracks \
-            python manage.py reencrypt_pki --old-secret-key "$old_secret_key" \
-            || die "Failed to re-encrypt PKI keys"
-        echo ""
-        echo "  ✔ PKI private keys re-encrypted with the new production SECRET_KEY."
-        echo "    CA, server, and client certificate keys are now secured with"
-        echo "    the strong key in $ENV_FILE."
-        echo ""
+        local reencrypt_ok="false"
+
+        if compose run --rm --entrypoint "" -T my-tracks \
+            python manage.py reencrypt_pki --old-secret-key "$old_secret_key" 2>&1; then
+            reencrypt_ok="true"
+        else
+            echo ""
+            echo "  ⚠  Primary key didn't work. Trying Django's default insecure key..."
+            local fallback_key="django-insecure-change-me-in-production"
+            if compose run --rm --entrypoint "" -T my-tracks \
+                python manage.py reencrypt_pki --old-secret-key "$fallback_key" 2>&1; then
+                reencrypt_ok="true"
+            fi
+        fi
+
+        if [ "$reencrypt_ok" = "true" ]; then
+            echo ""
+            echo "  ✔ PKI private keys re-encrypted with the new production SECRET_KEY."
+            echo "    CA, server, and client certificate keys are now secured with"
+            echo "    the strong key in $ENV_FILE."
+            echo ""
+        else
+            echo ""
+            echo "  ✘ Could not re-encrypt PKI keys — neither the extracted key nor"
+            echo "    the Django default matched. PKI certificates will need new keys."
+            echo ""
+            echo "    To fix manually after the stack is running:"
+            echo "      1. Find the original SECRET_KEY"
+            echo "      2. Run: $COMPOSE_CMD --env-file $ENV_FILE exec my-tracks \\"
+            echo "           python manage.py reencrypt_pki --old-secret-key YOUR_OLD_KEY"
+            echo ""
+        fi
     fi
 }
 
@@ -592,15 +619,20 @@ print_banner() {
         print_external_db_banner
     fi
 
+    echo "  ── Local files ───────────────────────────────────────────"
+    echo "  Nginx config:  $SCRIPT_DIR/.run/nginx/"
+    echo "  TLS certs:     $SCRIPT_DIR/.run/certs/"
+    echo "  App logs:      $SCRIPT_DIR/.run/logs/"
+    echo ""
     echo "  ── Commands ──────────────────────────────────────────────"
     echo "  Create admin user:"
     echo "    $compose_manual${compose_files_display} exec my-tracks python manage.py createsuperuser"
     echo ""
-    echo "  View logs:"
+    echo "  View container logs:"
     echo "    $compose_manual${compose_files_display} logs -f my-tracks"
     echo ""
-    echo "  Tail log file:"
-    echo "    $compose_manual${compose_files_display} exec my-tracks tail -f /app/logs/my-tracks.log"
+    echo "  Tail application log:"
+    echo "    tail -f $SCRIPT_DIR/.run/logs/my-tracks.log"
     echo ""
     echo "  Stop (destroys volumes):"
     echo "    $SCRIPT_DIR/my-tracks-production-container-manager --stop"
@@ -653,23 +685,25 @@ print_external_db_banner() {
 }
 
 stage_bind_mounts() {
-    # Copy nginx config and certs to a tmp staging directory that Docker
-    # can always access, even when the repo is inside a restricted home dir.
-    local stage_dir="/tmp/my-tracks-staging"
-    mkdir -p "$stage_dir/nginx" "$stage_dir/certs"
+    # Stage all host-visible files under .run/ next to the container manager.
+    # Colima shares ~/ via virtiofs, so this path is accessible from both
+    # the macOS host and the Docker VM.
+    local run_dir="$SCRIPT_DIR/.run"
+    mkdir -p "$run_dir/nginx" "$run_dir/certs" "$run_dir/logs"
 
-    cp "$PROJECT_DIR/nginx/nginx.conf" "$stage_dir/nginx/nginx.conf"
-    cp "$PROJECT_DIR/nginx/proxy_params" "$stage_dir/nginx/proxy_params"
-    cp "$CERTS_DIR/fullchain.pem" "$stage_dir/certs/fullchain.pem"
-    cp "$CERTS_DIR/privkey.pem" "$stage_dir/certs/privkey.pem"
+    cp "$PROJECT_DIR/nginx/nginx.conf" "$run_dir/nginx/nginx.conf"
+    cp "$PROJECT_DIR/nginx/proxy_params" "$run_dir/nginx/proxy_params"
+    cp "$CERTS_DIR/fullchain.pem" "$run_dir/certs/fullchain.pem"
+    cp "$CERTS_DIR/privkey.pem" "$run_dir/certs/privkey.pem"
 
-    chmod -R a+rX "$stage_dir"
+    chmod -R a+rX "$run_dir"
+    chmod a+rwx "$run_dir/logs"
 
-    # Point docker-compose at the staged copies via env vars.
-    export NGINX_CONF_DIR="$stage_dir/nginx"
-    export CERTS_DIR="$stage_dir/certs"
+    export NGINX_CONF_DIR="$run_dir/nginx"
+    export CERTS_DIR="$run_dir/certs"
+    export APP_LOGS_DIR="$run_dir/logs"
 
-    info "Staged bind-mount files in $stage_dir"
+    info "Staged files in $run_dir"
 }
 
 # ── Commands ─────────────────────────────────────────────────────────────────
@@ -804,7 +838,7 @@ cmd_stop() {
 
     info "Stopping stack and removing volumes"
     compose down -v
-    rm -rf /tmp/my-tracks-staging
+    rm -rf "$SCRIPT_DIR/.run"
     info "Stack stopped. .env.production and certs/ are preserved for next run."
 }
 
