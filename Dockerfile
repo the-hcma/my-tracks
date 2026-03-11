@@ -47,6 +47,8 @@ COPY --from=python-build --chown=app:app /app/manage.py manage.py
 COPY --from=python-build --chown=app:app /app/staticfiles staticfiles/
 COPY --from=python-build --chown=app:app /app/docker-entrypoint docker-entrypoint
 
+RUN mkdir -p /app/logs && chown app:app /app/logs
+
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
