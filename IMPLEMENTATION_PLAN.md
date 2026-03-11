@@ -1,6 +1,6 @@
 # My Tracks — Implementation Plan
 
-**Last Updated**: March 6, 2026
+**Last Updated**: March 11, 2026
 
 ## Overview
 
@@ -422,10 +422,51 @@ Package the application as a production-ready container image deployable on a Ce
     - `_CRLBroker` docstring updated to reference cpython#83375 (TLS 1.3 bug)
     - New tests: SSL context configuration (mTLS + TLS 1.2 cap), auth failure log levels, nginx rate limiting
 
+36. **Cert-Based MQTT Auth — CN Identity, Topic ACLs, Django Auth** ✅ (PR #383)
+    - `DjangoAuthPlugin` now enforces username/password and topic ACLs on the TLS listener
+    - MQTT username must match client certificate's Common Name (prevents cert-based impersonation)
+    - `use_django_auth=True`, `allow_anonymous=False` on TLS listener config
+    - TLS peer CN extracted and validated against authenticated MQTT username
+    - Tests for CN mismatch rejection, topic ACL enforcement, anonymous rejection
+
+37. **Cross-Platform Install Hints in Container Manager** ✅ (PR #387)
+    - `install_hint()` helper provides OS-appropriate package install commands (brew on macOS, apt/dnf on Linux)
+    - Prerequisite error messages now include platform-specific install instructions
+
 **Remaining hardening (future PRs)**:
-- **Enable Django auth on MQTT TLS** — Set `use_django_auth=True`, `allow_anonymous=False` so `DjangoAuthPlugin` enforces username/password and topic ACLs on the TLS listener (currently anonymous + no ACLs)
-- **Bind MQTT identity to cert CN** — Enforce that the MQTT username matches the client certificate's Common Name, preventing a valid cert from impersonating other users
 - **TLS 1.3 support** — Blocked by [cpython#83375](https://github.com/python/cpython/issues/83375) (open since Jan 2020, unassigned). When `asyncio.start_server` uses TLS 1.3 with `ssl.CERT_REQUIRED`, client certificate verification happens post-handshake; asyncio does not propagate the rejection, so invalid/expired/revoked certs silently get a dead connection instead of a handshake error. The workaround is `ctx.maximum_version = ssl.TLSVersion.TLSv1_2`. TLS 1.2 remains secure and is standard for MQTT/IoT. Monitor the CPython issue for a fix; when resolved, remove the `maximum_version` cap in `_CRLBroker._create_ssl_context()` and update the `test_caps_at_tls_1_2` test.
+
+### Phase 7b: Production Hardening (In Progress)
+
+38. **Squash 15 Migrations into Single Initial** (PR #389)
+    - Consolidate migration history into clean `0001_initial` for fresh production deploys
+    - Reduces `migrate` runtime and simplifies deployment
+
+39. **Re-encrypt PKI Keys with Production SECRET_KEY During SQLite Import** (PR #390)
+    - Container manager extracts source `SECRET_KEY` (Django-resolved, not raw `.env`)
+    - `reencrypt_pki` management command re-encrypts CA, server, and client certificate private keys
+    - Ensures PKI keys remain decryptable after migrating from dev SQLite to production PostgreSQL
+
+40. **Container Log Volume for Tailable Logs** (PR #391)
+    - Named `app-logs` Docker volume for persistent application logs
+    - `RotatingFileHandler` writes to `/app/logs/my-tracks.log` inside container
+
+41. **Improve Docker Daemon Error Detection with Actionable Recovery Hints** (PR #392)
+    - `check_prerequisites()` in `deploy` script runs `docker info` and detects connectivity failures
+    - Catches Docker 29+ `"failed to connect"` error pattern
+    - Platform-specific recovery hints: Colima/Docker Desktop on macOS, systemctl on Linux
+
+42. **Host-Accessible .run/ Directory for Container Manager Staging and Logs** (PR #393)
+    - Staging directory moved from `/tmp/` to `production-testing/.run/` (inside repo, gitignored)
+    - Fixes Colima bind mount failures (macOS `/tmp` → `/private/tmp` outside virtiofs share)
+    - `APP_LOGS_DIR` env var parameterizes log volume: bind mount for local testing, named volume for production
+    - Banner shows host-accessible paths for nginx config, TLS certs, and app logs
+    - `tail -f .run/logs/my-tracks.log` replaces long `docker-compose exec` command
+
+43. **Catch PKI Re-encryption Key Mismatch with Actionable Error Message** (PR #394)
+    - `_probe_key()` test-decrypts a single PKI key before bulk re-encryption
+    - On mismatch: `CommandError` with common causes (placeholder .env key, Django default, key rotation)
+    - Container manager tries Django's default insecure key as fallback
 
 ### Phase 9: Advanced Integration
 1. **Transition events** — Handle region enter/exit events, store transition history
@@ -446,7 +487,7 @@ my_tracks/mqtt/
 
 ## Test Coverage
 
-- 1096+ Python tests + 87 TypeScript tests passing
+- 1120+ Python tests + 87 TypeScript tests passing
 - 97%+ code coverage (target: 90%)
 - Tests run in parallel via pytest-xdist with accurate coverage merging
 - All pyright checks pass (0 errors, 0 warnings)
