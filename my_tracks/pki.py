@@ -21,10 +21,15 @@ from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 from django.conf import settings
 
 
+def _derive_fernet_key_from(secret_key: str) -> bytes:
+    """Derive a Fernet-compatible key from an arbitrary secret string."""
+    digest = hashlib.sha256(secret_key.encode()).digest()
+    return base64.urlsafe_b64encode(digest)
+
+
 def _derive_fernet_key() -> bytes:
     """Derive a Fernet-compatible key from Django's SECRET_KEY."""
-    digest = hashlib.sha256(settings.SECRET_KEY.encode()).digest()
-    return base64.urlsafe_b64encode(digest)
+    return _derive_fernet_key_from(settings.SECRET_KEY)
 
 
 def encrypt_private_key(pem_data: bytes) -> bytes:
@@ -37,6 +42,14 @@ def decrypt_private_key(encrypted_data: bytes) -> bytes:
     """Decrypt a PEM-encoded private key from storage."""
     fernet = Fernet(_derive_fernet_key())
     return fernet.decrypt(encrypted_data)
+
+
+def reencrypt_private_key(encrypted_data: bytes, old_secret_key: str) -> bytes:
+    """Decrypt with old_secret_key and re-encrypt with the current SECRET_KEY."""
+    old_fernet = Fernet(_derive_fernet_key_from(old_secret_key))
+    pem_data = old_fernet.decrypt(encrypted_data)
+    new_fernet = Fernet(_derive_fernet_key())
+    return new_fernet.encrypt(pem_data)
 
 
 ALLOWED_KEY_SIZES = (2048, 3072, 4096)

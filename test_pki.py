@@ -1,13 +1,17 @@
 """Tests for PKI (Certificate Authority, Server Certificate, Client Certificate) functionality."""
 from datetime import UTC, datetime
+from io import StringIO
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from cryptography import x509
+from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.serialization import pkcs12
 from cryptography.x509.oid import ExtendedKeyUsageOID
 from django.contrib.auth.models import User
+from django.core.management import call_command
 from hamcrest import (assert_that, contains_string, equal_to, greater_than,
                       has_item, has_key, has_length, instance_of, is_, is_not,
                       not_none, starts_with)
@@ -17,14 +21,15 @@ from rest_framework.test import APIClient
 from my_tracks.models import (CertificateAuthority, ClientCertificate,
                               ServerCertificate)
 from my_tracks.pki import (ALLOWED_KEY_SIZES, DEFAULT_CERT_VALIDITY_DAYS,
-                           VALIDITY_PRESETS, decrypt_private_key,
-                           encrypt_private_key, generate_ca_certificate,
+                           VALIDITY_PRESETS, _derive_fernet_key_from,
+                           decrypt_private_key, encrypt_private_key,
+                           generate_ca_certificate,
                            generate_client_certificate, generate_crl,
                            generate_pkcs12, generate_server_certificate,
                            get_certificate_expiry, get_certificate_fingerprint,
                            get_certificate_metadata, get_certificate_sans,
                            get_certificate_serial_number,
-                           get_certificate_subject)
+                           get_certificate_subject, reencrypt_private_key)
 
 
 @pytest.mark.django_db
@@ -116,6 +121,34 @@ class TestPKICryptoUtilities:
         cert_pem, _ = generate_ca_certificate(validity_days=365)
         expiry = get_certificate_expiry(cert_pem)
         assert_that(expiry, is_(not_none()))
+
+    def test_reencrypt_private_key_roundtrip(self) -> None:
+        """Test re-encrypting a key from one secret to another."""
+        _, key_pem = generate_ca_certificate()
+        old_secret = "old-dev-secret-key"
+        new_secret = "new-prod-secret-key"
+
+        # Encrypt with the old key manually.
+        old_fernet = Fernet(_derive_fernet_key_from(old_secret))
+        encrypted_with_old = old_fernet.encrypt(key_pem)
+
+        # Re-encrypt: old → current SECRET_KEY (which is new_secret here).
+        with patch("my_tracks.pki.settings") as mock_settings:
+            mock_settings.SECRET_KEY = new_secret
+            re_encrypted = reencrypt_private_key(encrypted_with_old, old_secret)
+
+        # Verify the re-encrypted data can be decrypted with the new key.
+        new_fernet = Fernet(_derive_fernet_key_from(new_secret))
+        decrypted = new_fernet.decrypt(re_encrypted)
+        assert_that(decrypted, equal_to(key_pem))
+
+    def test_reencrypt_with_wrong_old_key_fails(self) -> None:
+        """Test that re-encryption fails if the old key is wrong."""
+        _, key_pem = generate_ca_certificate()
+        encrypted = encrypt_private_key(key_pem)
+
+        with pytest.raises(InvalidToken):
+            reencrypt_private_key(encrypted, "wrong-key")
 
 
 @pytest.mark.django_db
@@ -2007,3 +2040,61 @@ class TestCRLViewSetAPI:
         assert_that(
             response.content.decode(), contains_string('BEGIN X509 CRL')
         )
+
+
+@pytest.mark.django_db
+class TestReencryptPkiCommand:
+    """Test the reencrypt_pki management command."""
+
+    def test_reencrypt_ca_key(self) -> None:
+        """Test that the command re-encrypts CA private keys."""
+        old_secret = "old-dev-key-for-test"
+        new_secret = "new-prod-key-for-test"
+
+        # Generate CA cert and encrypt the key with the old secret.
+        cert_pem, key_pem = generate_ca_certificate()
+        old_fernet = Fernet(_derive_fernet_key_from(old_secret))
+        encrypted_with_old = old_fernet.encrypt(key_pem)
+
+        ca = CertificateAuthority.objects.create(
+            certificate_pem=cert_pem.decode(),
+            encrypted_private_key=encrypted_with_old,
+            common_name="Test CA",
+            fingerprint="AA:BB",
+            not_valid_before=datetime.now(UTC),
+            not_valid_after=datetime(2030, 1, 1, tzinfo=UTC),
+            is_active=True,
+        )
+
+        with patch("my_tracks.pki.settings") as mock_settings:
+            mock_settings.SECRET_KEY = new_secret
+            call_command("reencrypt_pki", old_secret_key=old_secret)
+
+        ca.refresh_from_db()
+        new_fernet = Fernet(_derive_fernet_key_from(new_secret))
+        decrypted = new_fernet.decrypt(bytes(ca.encrypted_private_key))
+        assert_that(decrypted, equal_to(key_pem))
+
+    def test_reencrypt_no_keys(self) -> None:
+        """Test graceful handling when no PKI objects exist."""
+        out = StringIO()
+        call_command("reencrypt_pki", old_secret_key="unused", stdout=out)
+        assert_that(out.getvalue(), contains_string("No PKI private keys found"))
+
+    def test_reencrypt_wrong_old_key_fails(self) -> None:
+        """Test that wrong old key raises an error."""
+        cert_pem, key_pem = generate_ca_certificate()
+        encrypted = encrypt_private_key(key_pem)
+
+        CertificateAuthority.objects.create(
+            certificate_pem=cert_pem.decode(),
+            encrypted_private_key=encrypted,
+            common_name="Test CA",
+            fingerprint="CC:DD",
+            not_valid_before=datetime.now(UTC),
+            not_valid_after=datetime(2030, 1, 1, tzinfo=UTC),
+            is_active=True,
+        )
+
+        with pytest.raises(Exception):
+            call_command("reencrypt_pki", old_secret_key="wrong-key")
