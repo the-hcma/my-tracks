@@ -336,16 +336,25 @@ extract_source_env_value() {
 }
 
 extract_source_secret_key() {
+    # Try .env file first, then fall back to Django settings.
+    # Prints the key to stdout; prints the source location to stderr.
     local key
     key="$(extract_source_env_value "SECRET_KEY")"
     if [ -n "$key" ]; then
+        info "Found SECRET_KEY in $PROJECT_DIR/.env"
         echo "$key"
         return
     fi
-    DJANGO_SETTINGS_MODULE=config.settings \
+
+    key="$(DJANGO_SETTINGS_MODULE=config.settings \
         DATABASE_URL="sqlite:///dev-null" \
         uv run --directory "$PROJECT_DIR" python -c \
-            "from django.conf import settings; print(settings.SECRET_KEY)" 2>/dev/null || true
+            "from django.conf import settings; print(settings.SECRET_KEY)" 2>/dev/null || true)"
+    if [ -n "$key" ]; then
+        info "Found SECRET_KEY via Django settings (config/settings.py)"
+        echo "$key"
+        return
+    fi
 }
 
 build_csrf_origins() {
@@ -368,8 +377,7 @@ build_csrf_origins() {
 }
 
 create_env_file() {
-    local override_secret_key="${1:-}"
-    local override_allowed_hosts="${2:-}"
+    local override_allowed_hosts="${1:-}"
 
     info "Generating .env.production"
 
@@ -377,17 +385,7 @@ create_env_file() {
     db_result="$(choose_database_mode)"
 
     local secret_key
-    if [ -n "$override_secret_key" ]; then
-        secret_key="$override_secret_key"
-        echo ""
-        echo "  ⚠  SECRET_KEY preserved from source environment for PKI compatibility."
-        echo "     This key was NOT generated for production use. Do NOT deploy this"
-        echo "     configuration to a publicly accessible server. For real production,"
-        echo "     re-generate all PKI certificates after switching to a strong SECRET_KEY."
-        echo ""
-    else
-        secret_key="$(generate_secret)"
-    fi
+    secret_key="$(generate_secret)"
 
     local allowed_hosts
     if [ -n "$override_allowed_hosts" ]; then
@@ -507,6 +505,7 @@ load_config_from_env() {
 
 import_sqlite_to_postgres() {
     local sqlite_path="$1"
+    local old_secret_key="${2:-}"
 
     if [ ! -f "$sqlite_path" ]; then
         die "SQLite database not found: $sqlite_path"
@@ -539,6 +538,18 @@ import_sqlite_to_postgres() {
 
     rm -f "$dump_file"
     info "Successfully imported $record_count records into PostgreSQL"
+
+    if [ -n "$old_secret_key" ]; then
+        info "Re-encrypting PKI private keys with the new production SECRET_KEY..."
+        compose run --rm --entrypoint "" -T my-tracks \
+            python manage.py reencrypt_pki --old-secret-key "$old_secret_key" \
+            || die "Failed to re-encrypt PKI keys"
+        echo ""
+        echo "  ✔ PKI private keys re-encrypted with the new production SECRET_KEY."
+        echo "    CA, server, and client certificate keys are now secured with"
+        echo "    the strong key in $ENV_FILE."
+        echo ""
+    fi
 }
 
 create_self_signed_certs() {
@@ -684,14 +695,14 @@ cmd_start() {
                 echo "     tied to SECRET_KEY. Without the original key, imported PKI"
                 echo "     private keys will be unreadable."
                 echo ""
-                printf "  Source SECRET_KEY (leave empty to generate new): " >&2
+                printf "  Source SECRET_KEY (leave empty to skip re-encryption): " >&2
                 read -r source_secret_key
             fi
         fi
-        create_env_file "$source_secret_key" "$source_allowed_hosts"
+        create_env_file "$source_allowed_hosts"
     elif [ ! -f "$ENV_FILE" ]; then
         info "No .env.production found — creating one"
-        create_env_file "" ""
+        create_env_file ""
     else
         info "Reusing existing $ENV_FILE (use --freshen-up to regenerate)"
     fi
@@ -751,7 +762,7 @@ cmd_start() {
             python manage.py migrate --noinput \
             || die "Failed to run migrations"
 
-        import_sqlite_to_postgres "$import_sqlite"
+        import_sqlite_to_postgres "$import_sqlite" "$source_secret_key"
     fi
 
     info "Starting stack"
