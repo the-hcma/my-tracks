@@ -430,7 +430,13 @@ Package the application as a production-ready container image deployable on a Ce
 ### Phase 9: Advanced Integration
 1. **Transition events** — Handle region enter/exit events, store transition history
 2. **Waypoints sync** — Connect waypoint storage to command API, allow UI to send waypoints to devices
-3. **Friends feature** — Handle card messages (`_type: "card"`), friend relationship model, filtered location broadcasts, friend list API, WebSocket permission filtering
+3. **Friends feature** — Refine as a phased, backward-compatible sharing model:
+   - Add explicit ownership and sharing entities (`Device.owner`, `FriendRequest`, `FriendConnection` with per-direction share toggles)
+   - Keep OwnTracks ingestion (`POST /api/locations/`) behavior unchanged, but enforce visibility on read paths (`/api/locations/`, `/api/devices/`, device locations)
+   - Add friend APIs (send/list/accept/decline/remove requests + share preference updates)
+   - Extend MQTT ACL rules so subscribe access supports approved friend visibility while preserving own-topic publish constraints
+   - Replace global WebSocket fan-out with visibility-aware delivery (only owner + authorized friends receive updates)
+   - Cover with dedicated tests for model constraints, API filtering, MQTT ACL, and WebSocket visibility behavior
 
 ## Key Files
 
