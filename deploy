@@ -62,9 +62,131 @@ compose() {
         "$@"
 }
 
+install_hint() {
+    local logical="$1"
+    local pkg
+
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        case "$logical" in
+            docker)              pkg="docker" ;;
+            docker-buildx)       pkg="docker-buildx" ;;
+            docker-compose)      pkg="docker-compose" ;;
+            *)                   pkg="$logical" ;;
+        esac
+        echo "brew install $pkg"
+    elif command -v apt-get >/dev/null 2>&1; then
+        case "$logical" in
+            docker)              pkg="docker.io" ;;
+            docker-buildx)       pkg="docker-buildx" ;;
+            docker-compose)      pkg="docker-compose-v2" ;;
+            *)                   pkg="$logical" ;;
+        esac
+        echo "sudo apt-get install $pkg"
+    elif command -v dnf >/dev/null 2>&1; then
+        case "$logical" in
+            docker)              pkg="docker-ce" ;;
+            docker-buildx)       pkg="docker-buildx-plugin" ;;
+            docker-compose)      pkg="docker-compose-plugin" ;;
+            *)                   pkg="$logical" ;;
+        esac
+        echo "sudo dnf install $pkg"
+    elif command -v pacman >/dev/null 2>&1; then
+        case "$logical" in
+            docker)              pkg="docker" ;;
+            docker-buildx)       pkg="docker-buildx" ;;
+            docker-compose)      pkg="docker-compose" ;;
+            *)                   pkg="$logical" ;;
+        esac
+        echo "sudo pacman -S $pkg"
+    else
+        echo "your package manager to install $logical"
+    fi
+}
+
 check_prerequisites() {
-    command -v docker >/dev/null 2>&1 || die "Docker is not installed"
-    $COMPOSE_CMD version >/dev/null 2>&1 || die "Docker Compose is not available"
+    local missing=()
+
+    if ! command -v docker >/dev/null 2>&1; then
+        missing+=("  • Docker is not installed.
+      Install with:  $(install_hint docker)")
+    else
+        local docker_err docker_reason
+        docker_err="$(docker info 2>&1)" || true
+        docker_reason="$(echo "$docker_err" | grep -i "error\|cannot connect\|failed to connect\|permission denied\|not allowed\|refused" | head -1 | sed 's/^[[:space:]]*//')" || true
+        if [ -n "$docker_reason" ]; then
+            if [[ "$(uname -s)" == "Darwin" ]]; then
+                missing+=("  • Docker daemon is not reachable.
+      $docker_reason
+
+      If you use Colima:         colima start
+      If you use Docker Desktop: open -a Docker
+      Install a runtime:         brew install colima && colima start")
+            elif echo "$docker_err" | grep -qi "permission denied\|not allowed"; then
+                missing+=("  • Docker daemon is running but your user lacks permission.
+      $docker_reason
+
+      Fix with:      sudo usermod -aG docker \$USER
+      Then:          newgrp docker   (or log out and back in)")
+            elif command -v systemctl >/dev/null 2>&1; then
+                if systemctl is-active docker >/dev/null 2>&1; then
+                    missing+=("  • Docker service is active but 'docker info' fails.
+      $docker_reason
+
+      Your user may need to be in the 'docker' group:
+        sudo usermod -aG docker \$USER
+        newgrp docker   (or log out and back in)
+      Or check the socket:
+        ls -la /var/run/docker.sock")
+                elif systemctl list-unit-files docker.service 2>/dev/null | grep -q docker; then
+                    missing+=("  • Docker daemon is not running.
+      $docker_reason
+
+      Start with:    sudo systemctl start docker
+      Enable on boot: sudo systemctl enable docker")
+                else
+                    missing+=("  • Docker CLI is installed but the Docker Engine service is missing.
+      $docker_reason
+
+      Install the full Docker Engine:
+        $(install_hint docker)
+      Then:          sudo systemctl enable --now docker")
+                fi
+            else
+                missing+=("  • Docker daemon is not reachable.
+      $docker_reason
+
+      Start with:    sudo dockerd &
+      Or check your init system's service manager.")
+            fi
+        else
+            if ! docker buildx version >/dev/null 2>&1; then
+                if [[ "$(uname -s)" == "Darwin" ]]; then
+                    missing+=("  • Docker buildx plugin is not installed.
+      Install with:  brew install docker-buildx
+      Then link:     mkdir -p ~/.docker/cli-plugins && ln -sfn \$(brew --prefix)/bin/docker-buildx ~/.docker/cli-plugins/docker-buildx")
+                else
+                    missing+=("  • Docker buildx plugin is not installed.
+      Install with:  $(install_hint docker-buildx)")
+                fi
+            fi
+
+            if ! $COMPOSE_CMD version >/dev/null 2>&1; then
+                missing+=("  • Docker Compose is not installed.
+      Install with:  $(install_hint docker-compose)")
+            fi
+        fi
+    fi
+
+    if [ ${#missing[@]} -gt 0 ]; then
+        local msg="Missing prerequisites:
+
+"
+        for item in "${missing[@]}"; do
+            msg+="$item
+"
+        done
+        die "$msg"
+    fi
 }
 
 # ── Commands ─────────────────────────────────────────────────────────────────

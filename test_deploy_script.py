@@ -106,6 +106,20 @@ class TestDeploySetupFeatures:
         assert_that(_read_deploy(), contains_string("check_prerequisites"))
         assert_that(_read_deploy(), contains_string("Docker is not installed"))
 
+    def test_checks_docker_daemon_reachability(self) -> None:
+        content = _read_deploy()
+        assert_that(content, contains_string("docker info"))
+        assert_that(content, contains_string("Docker daemon is not reachable"))
+
+    def test_suggests_colima_on_macos(self) -> None:
+        content = _read_deploy()
+        assert_that(content, contains_string("colima start"))
+        assert_that(content, contains_string("open -a Docker"))
+
+    def test_suggests_systemctl_on_linux(self) -> None:
+        content = _read_deploy()
+        assert_that(content, contains_string("sudo systemctl start docker"))
+
 
 class TestDeployBackup:
     """Validate backup functionality."""
