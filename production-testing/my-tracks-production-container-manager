@@ -69,6 +69,8 @@ install_hint() {
             docker)              pkg="docker-ce" ;;
             docker-buildx)       pkg="docker-buildx-plugin" ;;
             docker-compose)      pkg="docker-compose-plugin" ;;
+            podman)              pkg="podman" ;;
+            podman-compose)      pkg="podman-compose" ;;
             python3)             pkg="python3" ;;
             *)                   pkg="$logical" ;;
         esac
@@ -88,13 +90,25 @@ install_hint() {
 }
 
 detect_compose_cmd() {
-    if docker compose version >/dev/null 2>&1; then
-        echo "docker compose"
-    elif command -v docker-compose >/dev/null 2>&1; then
-        echo "docker-compose"
+    local engine="${1:-docker}"
+    if [ "$engine" = "podman" ]; then
+        if podman compose version >/dev/null 2>&1; then
+            echo "podman compose"
+        elif command -v podman-compose >/dev/null 2>&1; then
+            echo "podman-compose"
+        else
+            die "Neither 'podman compose' nor 'podman-compose' found.
+  Install with:  $(install_hint podman-compose)"
+        fi
     else
-        die "Neither 'docker compose' (plugin) nor 'docker-compose' (standalone) found.
+        if docker compose version >/dev/null 2>&1; then
+            echo "docker compose"
+        elif command -v docker-compose >/dev/null 2>&1; then
+            echo "docker-compose"
+        else
+            die "Neither 'docker compose' (plugin) nor 'docker-compose' (standalone) found.
   Install with:  $(install_hint docker-compose)"
+        fi
     fi
 }
 
@@ -106,16 +120,16 @@ generate_secret() {
 
 COMPOSE_CMD=""
 COMPOSE_FILES=()
+CONTAINER_ENGINE=""  # "docker" or "podman"
 
 check_prerequisites() {
     local missing=()
 
-    # ── Docker CLI ───────────────────────────────────────────────────────
-    if ! command -v docker >/dev/null 2>&1; then
-        missing+=("  • Docker is not installed.
-      Install with:  $(install_hint docker)")
-    else
-        # ── Docker daemon reachable? ─────────────────────────────────────
+    # ── Container engine (Docker preferred, Podman as fallback) ──────────
+    if command -v docker >/dev/null 2>&1; then
+        CONTAINER_ENGINE="docker"
+
+        # ── Docker daemon reachable? ──────────────────────────────────────
         local docker_err docker_reason
         docker_err="$(docker info 2>&1)" || true
         docker_reason="$(echo "$docker_err" | grep -i "error\|cannot connect\|failed to connect\|permission denied\|not allowed\|refused" | head -1 | sed 's/^[[:space:]]*//')" || true
@@ -181,8 +195,37 @@ check_prerequisites() {
                 missing+=("  • Docker Compose is not installed.
       Install with:  $(install_hint docker-compose)")
             else
-                COMPOSE_CMD="$(detect_compose_cmd)"
+                COMPOSE_CMD="$(detect_compose_cmd docker)"
             fi
+        fi
+
+    elif command -v podman >/dev/null 2>&1; then
+        CONTAINER_ENGINE="podman"
+
+        # Podman is daemonless — no daemon check needed.
+        # Podman has built-in build support — no buildx check needed.
+        if podman compose version >/dev/null 2>&1 || command -v podman-compose >/dev/null 2>&1; then
+            COMPOSE_CMD="$(detect_compose_cmd podman)"
+        else
+            missing+=("  • podman-compose is not installed (required for multi-container stack).
+      Install with:  $(install_hint podman-compose)")
+        fi
+
+    else
+        # Neither Docker nor Podman found
+        if command -v dnf >/dev/null 2>&1; then
+            missing+=("  • Neither Docker nor Podman is installed.
+      Podman (available in default repos):
+        sudo dnf install -y podman podman-compose
+      Or Docker Engine:
+        sudo dnf install -y yum-utils
+        sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+        sudo dnf install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+        sudo systemctl enable --now docker")
+        else
+            missing+=("  • Neither Docker nor Podman is installed.
+      Install Docker with:  $(install_hint docker)
+      Or Podman with:       $(install_hint podman)")
         fi
     fi
 
@@ -713,6 +756,7 @@ cmd_start() {
     local import_sqlite="$2"
 
     check_prerequisites
+    info "Container engine: $CONTAINER_ENGINE (compose: $COMPOSE_CMD)"
 
     if [ "$freshen_up" = "true" ]; then
         info "Freshen-up: tearing down existing stack and volumes"
