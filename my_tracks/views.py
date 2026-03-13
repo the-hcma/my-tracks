@@ -12,6 +12,7 @@ from typing import Any
 
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.http import HttpResponse as DjangoHttpResponse
 from django.utils import timezone
@@ -1012,8 +1013,12 @@ class ServerCertificateViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Only add the request hostname if it is already in ALLOWED_HOSTS.
+        # request.get_host() reflects the Host header, which is attacker-controlled;
+        # without this check an admin could be tricked into signing a cert that
+        # includes an arbitrary domain in its SAN list.
         request_host = request.get_host().split(":")[0]
-        if request_host and request_host not in san_list:
+        if request_host and request_host in settings.ALLOWED_HOSTS and request_host not in san_list:
             san_list.append(request_host)
             logger.info(
                 "Auto-included request hostname '%s' in server certificate SANs",
