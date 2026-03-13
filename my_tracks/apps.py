@@ -35,6 +35,7 @@ class _MqttBrokerState:
         self.loop: asyncio.AbstractEventLoop | None = None
         self.thread: threading.Thread | None = None
         self.shutting_down: threading.Event = threading.Event()
+        self.degraded: bool = False
 
 
 _state = _MqttBrokerState()
@@ -208,6 +209,7 @@ def _run_mqtt_broker(mqtt_port: int, mqtt_tls_port: int = -1) -> None:
             logger.debug("MQTT broker event loop stopped (normal shutdown)")
         else:
             logger.exception("MQTT broker runtime error")
+            _state.degraded = True
     except BrokerError as exc:
         cause = exc.__cause__
         if isinstance(cause, OSError) and cause.errno in (48, 98):
@@ -221,11 +223,27 @@ def _run_mqtt_broker(mqtt_port: int, mqtt_tls_port: int = -1) -> None:
             logger.critical("MQTT broker failed to start: %s", exc)
         # Fatal: bring down the entire server — a half-running server
         # (HTTP up, MQTT down) would silently drop all location updates.
+        # Clean up temp TLS key files before hard exit so they don't linger
+        # in /tmp across a container restart.
+        if _state.broker is not None:
+            _state.broker._cleanup_tls_files()
         os._exit(1)
     except Exception:
         logger.critical("MQTT broker startup failed unexpectedly")
         logger.exception("Details:")
+        if _state.broker is not None:
+            _state.broker._cleanup_tls_files()
         os._exit(1)
+    else:
+        # _start_and_run() returned normally.  If shutdown was not requested,
+        # the broker stopped on its own — flag as degraded so the health check
+        # reflects the loss of MQTT service.
+        if not _state.shutting_down.is_set():
+            logger.warning(
+                "MQTT broker stopped unexpectedly without a shutdown signal; "
+                "health check will return 503 until the process is restarted"
+            )
+            _state.degraded = True
     finally:
         _state.loop.close()
 
@@ -233,6 +251,16 @@ def _run_mqtt_broker(mqtt_port: int, mqtt_tls_port: int = -1) -> None:
 def get_mqtt_broker() -> "MQTTBroker | None":
     """Return the running MQTTBroker instance, or None if not started."""
     return _state.broker
+
+
+def is_mqtt_degraded() -> bool:
+    """Return True if the MQTT broker stopped unexpectedly after a successful startup.
+
+    When True the health endpoint returns 503 so container orchestrators
+    restart the service rather than continuing to route traffic to a
+    half-running instance.
+    """
+    return _state.degraded
 
 
 def get_mqtt_event_loop() -> "asyncio.AbstractEventLoop | None":

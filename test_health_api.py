@@ -1,10 +1,11 @@
 """Tests for the /api/health/ endpoint and docker-entrypoint script."""
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
-from hamcrest import (assert_that, contains_string, equal_to, has_key, is_,
-                      not_none)
+from hamcrest import (assert_that, contains_string, equal_to, has_entry,
+                      has_key, is_, not_none)
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -42,6 +43,16 @@ class TestApiHealthEndpoint:
         client = APIClient()
         response = client.get("/api/health")
         assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+
+    @pytest.mark.django_db
+    def test_returns_503_when_mqtt_degraded(self) -> None:
+        """Health endpoint returns 503 when the MQTT broker stopped unexpectedly."""
+        client = APIClient()
+        with patch("my_tracks.views.is_mqtt_degraded", return_value=True):
+            response = client.get("/api/health/")
+        assert_that(response.status_code, equal_to(status.HTTP_503_SERVICE_UNAVAILABLE))
+        assert_that(response.json(), has_entry("status", "degraded"))
+        assert_that(response.json(), has_entry("mqtt", "down"))
 
 
 class TestDockerEntrypoint:
