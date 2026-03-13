@@ -24,7 +24,7 @@ from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from .apps import get_mqtt_broker, get_mqtt_event_loop
+from .apps import get_mqtt_broker, get_mqtt_event_loop, is_mqtt_degraded
 from .auth import CommandApiKeyAuthentication, get_command_api_key
 from .models import (CertificateAuthority, ClientCertificate, Device, Location,
                      OwnTracksMessage, ServerCertificate, UserProfile)
@@ -1379,6 +1379,11 @@ class HealthViewSet(viewsets.ViewSet):
             app_version = get_package_version("my-tracks")
         except PackageNotFoundError:
             app_version = "unknown"
+        if is_mqtt_degraded():
+            return Response(
+                {"status": "degraded", "version": app_version, "mqtt": "down"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         return Response(
             {"status": "ok", "version": app_version},
             status=status.HTTP_200_OK,
