@@ -1163,7 +1163,9 @@ async function fetchAndDisplayTrail(): Promise<void> {
                     // Add numbered waypoint markers (using collapsed locations)
                     collapsedLocations.forEach((loc, index) => {
                         const waypointNumber = index + 1;
-                        const latLng: [number, number] = [parseFloat(String(loc.latitude)), parseFloat(String(loc.longitude))];
+                        const latLng: [number, number] = [
+                            parseFloat(String(loc.latitude)), parseFloat(String(loc.longitude))
+                        ];
                         const collapsedCount = loc._collapsedCount || 1;
 
                         // Create custom numbered icon with device-specific color

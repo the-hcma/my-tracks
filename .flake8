@@ -1,0 +1,7 @@
+[flake8]
+max-line-length = 120
+extend-select = F401,F841
+per-file-ignores =
+    # settings.py intentionally places imports and class/function defs
+    # inline with configuration (Django pattern); suppress style violations
+    config/settings.py: E302,E305,E402

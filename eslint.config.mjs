@@ -33,6 +33,7 @@ export default tseslint.config(
       "no-console": "off", // Allow console for debugging
       "prefer-const": "error",
       "no-var": "error",
+      "max-len": ["error", { code: 120, ignoreUrls: true, ignoreStrings: true, ignoreTemplateLiterals: true }],
     },
   },
   {

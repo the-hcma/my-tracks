@@ -72,7 +72,7 @@ This document defines the four specialized agents for the My Tracks project.
 ```bash
 uv run pyright                                      # type errors
 uv run isort --check-only --diff my_tracks config   # import order
-uv run flake8 --select=F401 my_tracks config        # unused imports
+uv run flake8 my_tracks config                      # PEP 8 + unused imports/vars
 uv run pytest --cov=my_tracks --cov-fail-under=90   # tests + coverage
 ```
 Do not open a PR if any of these fail. Fix first, then submit.
