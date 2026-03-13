@@ -352,6 +352,7 @@ This document defines the four specialized agents for the My Tracks project.
 - [ ] No dead code (unused methods, variables, imports, or parameters)
 - [ ] **No module-level mutable state** (use holder classes, no `global` keyword)
 - [ ] **Transport labels in log messages** (client activity uses `[mqtt]`, `[mqtt-tls]`, `[http]`, `[ws]`)
+- [ ] **Shell variable naming** (lowercase for all non-exported variables; UPPERCASE only for `export`ed variables passed to subprocesses)
 - [ ] **Empty lines have no whitespace** (run `find . -name "*.py" -type f -exec sed -i '' 's/^[[:space:]]*$//' {} +`)
 - [ ] **Imports are sorted** (run `isort .` to fix)
 - [ ] **No local imports** (all imports at module level — no lazy imports inside functions/methods)
@@ -387,6 +388,7 @@ This document defines the four specialized agents for the My Tracks project.
 - Look for dead code (unused methods, setup fixtures that never run, unreachable code)
 - **No module-level mutable state** — related state must be grouped into holder classes (no `global` keyword)
 - **Transport labels in log messages** — client activity must use `[mqtt]`, `[mqtt-tls]`, `[http]`, `[ws]` tags
+- **Shell variable naming** — lowercase for all non-exported variables; UPPERCASE only for `export`ed variables
 - Error message quality: ensure exceptions provide context with expected vs actual values
 - **Verify empty lines have no whitespace** (check for trailing spaces)
 - **Verify imports are sorted** (should follow PEP 8 ordering)
