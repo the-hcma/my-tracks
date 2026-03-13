@@ -205,23 +205,26 @@ check_prerequisites() {
         # Podman is daemonless — no daemon check needed.
         # Podman has built-in build support — no buildx check needed.
 
-        # Verify rootless user namespaces work (required for image builds).
-        # Common failure on CentOS/RHEL: /etc/subuid and /etc/subgid not configured.
-        local ns_err
-        if ! ns_err="$(podman unshare true 2>&1)"; then
-            if echo "$ns_err" | grep -qi "subuid\|subgid\|user.namespace\|invalid argument"; then
-                local cur_user
-                cur_user="$(id -un)"
-                missing+=("  • Podman user namespaces are not configured (required to build images).
+        # Verify rootless user namespace subordinate ID ranges are configured.
+        # Required for image builds: layer extraction maps container UIDs (e.g. uid 42
+        # for /etc/gshadow) through the host subuid/subgid range.  podman unshare is
+        # too shallow a test — it passes even when the range is absent or too narrow.
+        local cur_user
+        cur_user="$(id -un)"
+        local subuid_count subgid_count
+        subuid_count="$(grep -E "^${cur_user}:" /etc/subuid 2>/dev/null | head -1 | cut -d: -f3)"
+        subgid_count="$(grep -E "^${cur_user}:" /etc/subgid 2>/dev/null | head -1 | cut -d: -f3)"
+        if [ -z "$subuid_count" ] || [ "$subuid_count" -lt 65536 ] \
+        || [ -z "$subgid_count" ] || [ "$subgid_count" -lt 65536 ]; then
+            missing+=("  • Podman subordinate UID/GID ranges not configured (required to build images).
+      Current /etc/subuid entry for ${cur_user}: ${subuid_count:-(none)}
+      Current /etc/subgid entry for ${cur_user}: ${subgid_count:-(none)}
+
       Fix:
         echo \"${cur_user}:100000:65536\" | sudo tee -a /etc/subuid
         echo \"${cur_user}:100000:65536\" | sudo tee -a /etc/subgid
         podman system migrate
       Then re-run this script.")
-            else
-                missing+=("  • Podman is installed but not functional.
-      $ns_err")
-            fi
         fi
 
         if podman compose version >/dev/null 2>&1 || command -v podman-compose >/dev/null 2>&1; then
