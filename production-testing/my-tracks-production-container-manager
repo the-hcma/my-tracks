@@ -212,8 +212,8 @@ check_prerequisites() {
         local cur_user
         cur_user="$(id -un)"
         local subuid_count subgid_count
-        subuid_count="$(grep -E "^${cur_user}:" /etc/subuid 2>/dev/null | head -1 | cut -d: -f3)"
-        subgid_count="$(grep -E "^${cur_user}:" /etc/subgid 2>/dev/null | head -1 | cut -d: -f3)"
+        subuid_count="$(grep -E "^${cur_user}:" /etc/subuid 2>/dev/null | head -1 | cut -d: -f3 || true)"
+        subgid_count="$(grep -E "^${cur_user}:" /etc/subgid 2>/dev/null | head -1 | cut -d: -f3 || true)"
         if [ -z "$subuid_count" ] || [ "$subuid_count" -lt 65536 ] \
         || [ -z "$subgid_count" ] || [ "$subgid_count" -lt 65536 ]; then
             missing+=("  • Podman subordinate UID/GID ranges not configured (required to build images).
