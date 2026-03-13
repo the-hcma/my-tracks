@@ -204,6 +204,26 @@ check_prerequisites() {
 
         # Podman is daemonless — no daemon check needed.
         # Podman has built-in build support — no buildx check needed.
+
+        # Verify rootless user namespaces work (required for image builds).
+        # Common failure on CentOS/RHEL: /etc/subuid and /etc/subgid not configured.
+        local ns_err
+        if ! ns_err="$(podman unshare true 2>&1)"; then
+            if echo "$ns_err" | grep -qi "subuid\|subgid\|user.namespace\|invalid argument"; then
+                local cur_user
+                cur_user="$(id -un)"
+                missing+=("  • Podman user namespaces are not configured (required to build images).
+      Fix:
+        echo \"${cur_user}:100000:65536\" | sudo tee -a /etc/subuid
+        echo \"${cur_user}:100000:65536\" | sudo tee -a /etc/subgid
+        podman system migrate
+      Then re-run this script.")
+            else
+                missing+=("  • Podman is installed but not functional.
+      $ns_err")
+            fi
+        fi
+
         if podman compose version >/dev/null 2>&1 || command -v podman-compose >/dev/null 2>&1; then
             compose_cmd="$(detect_compose_cmd podman)"
         else
@@ -817,6 +837,17 @@ cmd_start() {
 
     info "Building container image"
     compose build
+
+    # podman-compose ≤1.0.6 does not propagate podman build exit codes; the
+    # outer command exits 0 even when the inner build fails.  Verify the image
+    # actually exists before proceeding so we fail fast with a clear message.
+    if [ "$container_engine" = "podman" ]; then
+        local app_image
+        app_image="$(grep -E '^\s+image:' "$project_dir/docker-compose.yml" | grep -v '^#' | head -1 | sed 's/.*image: *//' | tr -d ' ')"
+        if [ -n "$app_image" ] && ! podman image exists "$app_image" 2>/dev/null; then
+            die "Image build failed — '$app_image' was not created. See build errors above."
+        fi
+    fi
 
     local compose_manual="$compose_cmd --env-file $env_file"
     local compose_files_display=""
