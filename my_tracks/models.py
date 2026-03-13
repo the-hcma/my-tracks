@@ -456,7 +456,7 @@ def create_user_profile(
     if created:
         role = "admin" if instance.is_staff else "user"
         logger.info("New user created: '%s' (role=%s, email='%s')",
-                     instance.username, role, instance.email or "")
+                    instance.username, role, instance.email or "")
         UserProfile.objects.create(user=instance)
 
 
