@@ -23,16 +23,16 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly SCRIPT_DIR
-PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-readonly PROJECT_DIR
-readonly ENV_FILE="$PROJECT_DIR/.env.production"
-CERTS_DIR="$PROJECT_DIR/certs"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly script_dir
+project_dir="$(cd "$script_dir/.." && pwd)"
+readonly project_dir
+readonly env_file="$project_dir/.env.production"
+CERTS_DIR="$project_dir/certs"
 
-readonly DEFAULT_HTTPS_PORT=8443
-readonly DEFAULT_HTTP_PORT=8080
-readonly DEFAULT_MQTT_TLS_PORT=8883
+readonly default_https_port=8443
+readonly default_http_port=8080
+readonly default_mqtt_tls_port=8883
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -118,16 +118,16 @@ generate_secret() {
         || die "Cannot generate secret — install Python 3 or OpenSSL"
 }
 
-COMPOSE_CMD=""
-COMPOSE_FILES=()
-CONTAINER_ENGINE=""  # "docker" or "podman"
+compose_cmd=""
+compose_files=()
+container_engine=""  # "docker" or "podman"
 
 check_prerequisites() {
     local missing=()
 
     # ── Container engine (Docker preferred, Podman as fallback) ──────────
     if command -v docker >/dev/null 2>&1; then
-        CONTAINER_ENGINE="docker"
+        container_engine="docker"
 
         # ── Docker daemon reachable? ──────────────────────────────────────
         local docker_err docker_reason
@@ -195,17 +195,17 @@ check_prerequisites() {
                 missing+=("  • Docker Compose is not installed.
       Install with:  $(install_hint docker-compose)")
             else
-                COMPOSE_CMD="$(detect_compose_cmd docker)"
+                compose_cmd="$(detect_compose_cmd docker)"
             fi
         fi
 
     elif command -v podman >/dev/null 2>&1; then
-        CONTAINER_ENGINE="podman"
+        container_engine="podman"
 
         # Podman is daemonless — no daemon check needed.
         # Podman has built-in build support — no buildx check needed.
         if podman compose version >/dev/null 2>&1 || command -v podman-compose >/dev/null 2>&1; then
-            COMPOSE_CMD="$(detect_compose_cmd podman)"
+            compose_cmd="$(detect_compose_cmd podman)"
         else
             missing+=("  • podman-compose is not installed (required for multi-container stack).
       Install with:  $(install_hint podman-compose)")
@@ -260,8 +260,8 @@ check_prerequisites() {
 
 env_get() {
     local key="$1"
-    if [ -f "$ENV_FILE" ]; then
-        grep -E "^${key}=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2-
+    if [ -f "$env_file" ]; then
+        grep -E "^${key}=" "$env_file" 2>/dev/null | head -1 | cut -d= -f2-
     fi
 }
 
@@ -272,23 +272,23 @@ is_internal_db() {
 }
 
 setup_compose_files() {
-    COMPOSE_FILES=("-f" "$PROJECT_DIR/docker-compose.yml")
+    compose_files=("-f" "$project_dir/docker-compose.yml")
     if is_internal_db; then
-        COMPOSE_FILES+=("-f" "$PROJECT_DIR/docker-compose.postgres.yml")
+        compose_files+=("-f" "$project_dir/docker-compose.postgres.yml")
     fi
 }
 
 compose() {
     # podman-compose does not support --project-directory; it uses the compose
     # file's own directory as the base (correct since we pass absolute -f paths).
-    if [ "$CONTAINER_ENGINE" = "podman" ]; then
-        $COMPOSE_CMD --env-file "$ENV_FILE" \
-            "${COMPOSE_FILES[@]}" \
+    if [ "$container_engine" = "podman" ]; then
+        $compose_cmd --env-file "$env_file" \
+            "${compose_files[@]}" \
             "$@"
     else
-        $COMPOSE_CMD --env-file "$ENV_FILE" \
-            "${COMPOSE_FILES[@]}" \
-            --project-directory "$PROJECT_DIR" \
+        $compose_cmd --env-file "$env_file" \
+            "${compose_files[@]}" \
+            --project-directory "$project_dir" \
             "$@"
     fi
 }
@@ -311,9 +311,9 @@ Options:
   -h, --help             Show this help message
 
 Default ports (chosen to avoid conflicts with dev server):
-  HTTPS:    ${DEFAULT_HTTPS_PORT}  →  https://localhost:${DEFAULT_HTTPS_PORT}
-  HTTP:     ${DEFAULT_HTTP_PORT}  →  redirects to HTTPS
-  MQTT TLS: ${DEFAULT_MQTT_TLS_PORT}
+  HTTPS:    ${default_https_port}  →  https://localhost:${default_https_port}
+  HTTP:     ${default_http_port}  →  redirects to HTTPS
+  MQTT TLS: ${default_mqtt_tls_port}
 
 Database:
   By default, a containerized PostgreSQL is started (transient, data in Docker volume).
@@ -324,17 +324,17 @@ EOF
 
 # ── Environment & Certs ─────────────────────────────────────────────────────
 
-ENV_SPEC=(
+readonly env_spec=(
     "SECRET_KEY|auto|Django secret key"
     "DEBUG|False|Debug mode"
     "ALLOWED_HOSTS|localhost,127.0.0.1|Allowed hostnames"
-    "CSRF_TRUSTED_ORIGINS|https://localhost:${DEFAULT_HTTPS_PORT}|Trusted CSRF origins"
-    "HTTPS_PORT|${DEFAULT_HTTPS_PORT}|Host HTTPS port"
-    "HTTP_PORT|${DEFAULT_HTTP_PORT}|Host HTTP port"
-    "MQTT_TLS_PORT|${DEFAULT_MQTT_TLS_PORT}|Host MQTT TLS port"
+    "CSRF_TRUSTED_ORIGINS|https://localhost:${default_https_port}|Trusted CSRF origins"
+    "HTTPS_PORT|${default_https_port}|Host HTTPS port"
+    "HTTP_PORT|${default_http_port}|Host HTTP port"
+    "MQTT_TLS_PORT|${default_mqtt_tls_port}|Host MQTT TLS port"
 )
 
-INTERNAL_DB_SPEC=(
+readonly internal_db_spec=(
     "POSTGRES_USER|mytracks|PostgreSQL username"
     "POSTGRES_PASSWORD|auto|PostgreSQL password"
     "POSTGRES_DB|mytracks|PostgreSQL database name"
@@ -383,7 +383,7 @@ choose_database_mode() {
 
 extract_source_env_value() {
     local var_name="$1"
-    grep -E "^${var_name}=" "$PROJECT_DIR/.env" 2>/dev/null | head -1 | cut -d= -f2-
+    grep -E "^${var_name}=" "$project_dir/.env" 2>/dev/null | head -1 | cut -d= -f2-
 }
 
 extract_source_secret_key() {
@@ -395,7 +395,7 @@ extract_source_secret_key() {
 
     key="$(DJANGO_SETTINGS_MODULE=config.settings \
         DATABASE_URL="sqlite:///dev-null" \
-        uv run --directory "$PROJECT_DIR" python -c \
+        uv run --directory "$project_dir" python -c \
             "from django.conf import settings; print(settings.SECRET_KEY)" 2>/dev/null || true)"
     if [ -n "$key" ]; then
         info "Found SECRET_KEY via Django settings (resolves .env + defaults)"
@@ -405,7 +405,7 @@ extract_source_secret_key() {
 
     key="$(extract_source_env_value "SECRET_KEY")"
     if [ -n "$key" ]; then
-        info "Found SECRET_KEY in $PROJECT_DIR/.env"
+        info "Found SECRET_KEY in $project_dir/.env"
         echo "$key"
         return
     fi
@@ -450,13 +450,13 @@ create_env_file() {
     fi
 
     local csrf_origins
-    csrf_origins="$(build_csrf_origins "$allowed_hosts" "$DEFAULT_HTTPS_PORT")"
+    csrf_origins="$(build_csrf_origins "$allowed_hosts" "$default_https_port")"
 
     if [ "$db_result" = "internal" ]; then
         local pg_password
         pg_password="$(generate_secret)"
 
-        cat > "$ENV_FILE" <<ENVEOF
+        cat > "$env_file" <<ENVEOF
 SECRET_KEY=${secret_key}
 DEBUG=False
 ALLOWED_HOSTS=${allowed_hosts}
@@ -465,29 +465,29 @@ POSTGRES_USER=mytracks
 POSTGRES_PASSWORD=${pg_password}
 POSTGRES_DB=mytracks
 DATABASE_URL=postgresql://mytracks:${pg_password}@postgres:5432/mytracks
-HTTPS_PORT=${DEFAULT_HTTPS_PORT}
-HTTP_PORT=${DEFAULT_HTTP_PORT}
-MQTT_TLS_PORT=${DEFAULT_MQTT_TLS_PORT}
+HTTPS_PORT=${default_https_port}
+HTTP_PORT=${default_http_port}
+MQTT_TLS_PORT=${default_mqtt_tls_port}
 ENVEOF
     else
-        cat > "$ENV_FILE" <<ENVEOF
+        cat > "$env_file" <<ENVEOF
 SECRET_KEY=${secret_key}
 DEBUG=False
 ALLOWED_HOSTS=${allowed_hosts}
 CSRF_TRUSTED_ORIGINS=${csrf_origins}
 DATABASE_URL=${db_result}
-HTTPS_PORT=${DEFAULT_HTTPS_PORT}
-HTTP_PORT=${DEFAULT_HTTP_PORT}
-MQTT_TLS_PORT=${DEFAULT_MQTT_TLS_PORT}
+HTTPS_PORT=${default_https_port}
+HTTP_PORT=${default_http_port}
+MQTT_TLS_PORT=${default_mqtt_tls_port}
 ENVEOF
     fi
 
-    info "Created $ENV_FILE"
+    info "Created $env_file"
 }
 
 validate_and_repair_env() {
     local missing=() var_name default description
-    for spec in "${ENV_SPEC[@]}"; do
+    for spec in "${env_spec[@]}"; do
         IFS='|' read -r var_name default description <<< "$spec"
         if [ -z "$(env_get "$var_name")" ]; then
             missing+=("$spec")
@@ -505,16 +505,16 @@ validate_and_repair_env() {
                 echo "POSTGRES_PASSWORD=${pg_password}"
                 echo "POSTGRES_DB=mytracks"
                 echo "DATABASE_URL=postgresql://mytracks:${pg_password}@postgres:5432/mytracks"
-            } >> "$ENV_FILE"
-            info "Added internal database configuration to $ENV_FILE"
+            } >> "$env_file"
+            info "Added internal database configuration to $env_file"
         else
-            echo "DATABASE_URL=${db_result}" >> "$ENV_FILE"
-            info "Added external DATABASE_URL to $ENV_FILE"
+            echo "DATABASE_URL=${db_result}" >> "$env_file"
+            info "Added external DATABASE_URL to $env_file"
         fi
     fi
 
     if is_internal_db; then
-        for spec in "${INTERNAL_DB_SPEC[@]}"; do
+        for spec in "${internal_db_spec[@]}"; do
             IFS='|' read -r var_name default description <<< "$spec"
             if [ -z "$(env_get "$var_name")" ]; then
                 missing+=("$spec")
@@ -527,34 +527,34 @@ validate_and_repair_env() {
     fi
 
     echo ""
-    info "Missing variables in $ENV_FILE — filling in:"
+    info "Missing variables in $env_file — filling in:"
     echo ""
 
     for spec in "${missing[@]}"; do
         IFS='|' read -r var_name default description <<< "$spec"
         local value
         value="$(prompt_value "$var_name" "$default" "$description")"
-        echo "${var_name}=${value}" >> "$ENV_FILE"
+        echo "${var_name}=${value}" >> "$env_file"
     done
 
     echo ""
-    info "Updated $ENV_FILE with missing values"
+    info "Updated $env_file with missing values"
 }
 
 load_config_from_env() {
-    ACTIVE_HTTPS_PORT="$(env_get "HTTPS_PORT")"
-    ACTIVE_HTTPS_PORT="${ACTIVE_HTTPS_PORT:-$DEFAULT_HTTPS_PORT}"
-    ACTIVE_HTTP_PORT="$(env_get "HTTP_PORT")"
-    ACTIVE_HTTP_PORT="${ACTIVE_HTTP_PORT:-$DEFAULT_HTTP_PORT}"
-    ACTIVE_MQTT_TLS_PORT="$(env_get "MQTT_TLS_PORT")"
-    ACTIVE_MQTT_TLS_PORT="${ACTIVE_MQTT_TLS_PORT:-$DEFAULT_MQTT_TLS_PORT}"
-    HEALTH_URL="https://localhost:${ACTIVE_HTTPS_PORT}/api/health/"
+    active_https_port="$(env_get "HTTPS_PORT")"
+    active_https_port="${active_https_port:-$default_https_port}"
+    active_http_port="$(env_get "HTTP_PORT")"
+    active_http_port="${active_http_port:-$default_http_port}"
+    active_mqtt_tls_port="$(env_get "MQTT_TLS_PORT")"
+    active_mqtt_tls_port="${active_mqtt_tls_port:-$default_mqtt_tls_port}"
+    health_url="https://localhost:${active_https_port}/api/health/"
 
-    DB_USER="$(env_get "POSTGRES_USER")"
-    DB_USER="${DB_USER:-mytracks}"
-    DB_NAME="$(env_get "POSTGRES_DB")"
-    DB_NAME="${DB_NAME:-mytracks}"
-    DATABASE_URL="$(env_get "DATABASE_URL")"
+    db_user="$(env_get "POSTGRES_USER")"
+    db_user="${db_user:-mytracks}"
+    db_name="$(env_get "POSTGRES_DB")"
+    db_name="${db_name:-mytracks}"
+    database_url="$(env_get "DATABASE_URL")"
 }
 
 import_sqlite_to_postgres() {
@@ -573,7 +573,7 @@ import_sqlite_to_postgres() {
 
     DJANGO_SETTINGS_MODULE=config.settings \
         DATABASE_URL="sqlite:///$sqlite_path" \
-        uv run --directory "$PROJECT_DIR" python manage.py dumpdata \
+        uv run --directory "$project_dir" python manage.py dumpdata \
             --natural-foreign --natural-primary \
             --exclude contenttypes --exclude auth.permission \
             --exclude admin.logentry --exclude sessions \
@@ -614,7 +614,7 @@ import_sqlite_to_postgres() {
             echo ""
             echo "  ✔ PKI private keys re-encrypted with the new production SECRET_KEY."
             echo "    CA, server, and client certificate keys are now secured with"
-            echo "    the strong key in $ENV_FILE."
+            echo "    the strong key in $env_file."
             echo ""
         else
             echo ""
@@ -623,7 +623,7 @@ import_sqlite_to_postgres() {
             echo ""
             echo "    To fix manually after the stack is running:"
             echo "      1. Find the original SECRET_KEY"
-            echo "      2. Run: $COMPOSE_CMD --env-file $ENV_FILE exec my-tracks \\"
+            echo "      2. Run: $compose_cmd --env-file $env_file exec my-tracks \\"
             echo "           python manage.py reencrypt_pki --old-secret-key YOUR_OLD_KEY"
             echo ""
         fi
@@ -644,14 +644,14 @@ create_self_signed_certs() {
 # ── Banner ───────────────────────────────────────────────────────────────────
 
 print_banner() {
-    local compose_manual="$COMPOSE_CMD --env-file $ENV_FILE"
+    local compose_manual="$compose_cmd --env-file $env_file"
     local compose_files_display=""
-    for f in "${COMPOSE_FILES[@]}"; do
+    for f in "${compose_files[@]}"; do
         compose_files_display="$compose_files_display $f"
     done
 
     local health_response
-    health_response="$(curl -sk "$HEALTH_URL" 2>/dev/null)"
+    health_response="$(curl -sk "$health_url" 2>/dev/null)"
 
     echo ""
     echo "╔══════════════════════════════════════════════════════════════╗"
@@ -659,9 +659,9 @@ print_banner() {
     echo "╚══════════════════════════════════════════════════════════════╝"
     echo ""
     echo "  Health:    $health_response"
-    echo "  Web UI:    https://localhost:${ACTIVE_HTTPS_PORT}"
-    echo "  API:       https://localhost:${ACTIVE_HTTPS_PORT}/api/"
-    echo "  MQTT TLS:  0.0.0.0:${ACTIVE_MQTT_TLS_PORT}  (all interfaces)"
+    echo "  Web UI:    https://localhost:${active_https_port}"
+    echo "  API:       https://localhost:${active_https_port}/api/"
+    echo "  MQTT TLS:  0.0.0.0:${active_mqtt_tls_port}  (all interfaces)"
     echo ""
 
     if is_internal_db; then
@@ -671,9 +671,9 @@ print_banner() {
     fi
 
     echo "  ── Local files ───────────────────────────────────────────"
-    echo "  Nginx config:  $SCRIPT_DIR/.run/nginx/"
-    echo "  TLS certs:     $SCRIPT_DIR/.run/certs/"
-    echo "  App logs:      $SCRIPT_DIR/.run/logs/"
+    echo "  Nginx config:  $script_dir/.run/nginx/"
+    echo "  TLS certs:     $script_dir/.run/certs/"
+    echo "  App logs:      $script_dir/.run/logs/"
     echo ""
     echo "  ── Commands ──────────────────────────────────────────────"
     echo "  Create admin user:"
@@ -683,10 +683,10 @@ print_banner() {
     echo "    $compose_manual${compose_files_display} logs -f my-tracks"
     echo ""
     echo "  Tail application log:"
-    echo "    tail -f $SCRIPT_DIR/.run/logs/my-tracks.log"
+    echo "    tail -f $script_dir/.run/logs/my-tracks.log"
     echo ""
     echo "  Stop (destroys volumes):"
-    echo "    $SCRIPT_DIR/my-tracks-production-container-manager --stop"
+    echo "    $script_dir/my-tracks-production-container-manager --stop"
     echo ""
     echo "  Stop (preserves data):"
     echo "    $compose_manual${compose_files_display} down"
@@ -696,15 +696,15 @@ print_banner() {
 print_internal_db_banner() {
     local compose_manual="$1"
     local compose_files_display=""
-    for f in "${COMPOSE_FILES[@]}"; do
+    for f in "${compose_files[@]}"; do
         compose_files_display="$compose_files_display $f"
     done
 
     echo "  ── Database (containerized) ────────────────────────────────"
     echo "  Engine:    PostgreSQL 17 (container: postgres)"
     echo "  Host:      localhost (internal to Docker network)"
-    echo "  Database:  ${DB_NAME}"
-    echo "  User:      ${DB_USER}"
+    echo "  Database:  ${db_name}"
+    echo "  User:      ${db_user}"
     echo ""
     echo "  ⚠  DATABASE IS TRANSIENT: Data lives in a Docker volume."
     echo "     Running --stop destroys the volume and ALL data."
@@ -712,7 +712,7 @@ print_internal_db_banner() {
     echo "       $compose_manual${compose_files_display} down  (without -v)"
     echo ""
     echo "  Browse data:"
-    echo "    $compose_manual${compose_files_display} exec postgres psql -U ${DB_USER} ${DB_NAME}"
+    echo "    $compose_manual${compose_files_display} exec postgres psql -U ${db_user} ${db_name}"
     echo ""
     echo "     For persistent storage, use an external PostgreSQL instead:"
     echo "       1. Set DATABASE_URL in .env.production"
@@ -726,7 +726,7 @@ print_internal_db_banner() {
 
 print_external_db_banner() {
     local masked_url
-    masked_url="$(mask_password_in_url "$DATABASE_URL")"
+    masked_url="$(mask_password_in_url "$database_url")"
 
     echo "  ── Database (external) ─────────────────────────────────────"
     echo "  URL:       $masked_url"
@@ -739,11 +739,11 @@ stage_bind_mounts() {
     # Stage all host-visible files under .run/ next to the container manager.
     # Colima shares ~/ via virtiofs, so this path is accessible from both
     # the macOS host and the Docker VM.
-    local run_dir="$SCRIPT_DIR/.run"
+    local run_dir="$script_dir/.run"
     mkdir -p "$run_dir/nginx" "$run_dir/certs" "$run_dir/logs"
 
-    cp "$PROJECT_DIR/nginx/nginx.conf" "$run_dir/nginx/nginx.conf"
-    cp "$PROJECT_DIR/nginx/proxy_params" "$run_dir/nginx/proxy_params"
+    cp "$project_dir/nginx/nginx.conf" "$run_dir/nginx/nginx.conf"
+    cp "$project_dir/nginx/proxy_params" "$run_dir/nginx/proxy_params"
     cp "$CERTS_DIR/fullchain.pem" "$run_dir/certs/fullchain.pem"
     cp "$CERTS_DIR/privkey.pem" "$run_dir/certs/privkey.pem"
 
@@ -764,11 +764,11 @@ cmd_start() {
     local import_sqlite="$2"
 
     check_prerequisites
-    info "Container engine: $CONTAINER_ENGINE (compose: $COMPOSE_CMD)"
+    info "Container engine: $container_engine (compose: $compose_cmd)"
 
     if [ "$freshen_up" = "true" ]; then
         info "Freshen-up: tearing down existing stack and volumes"
-        if [ -f "$ENV_FILE" ]; then
+        if [ -f "$env_file" ]; then
             setup_compose_files
             compose down -v 2>/dev/null || true
         fi
@@ -789,16 +789,16 @@ cmd_start() {
             fi
         fi
         create_env_file "$source_allowed_hosts"
-    elif [ ! -f "$ENV_FILE" ]; then
+    elif [ ! -f "$env_file" ]; then
         info "No .env.production found — creating one"
         create_env_file ""
     else
-        info "Reusing existing $ENV_FILE (use --freshen-up to regenerate)"
+        info "Reusing existing $env_file (use --freshen-up to regenerate)"
     fi
     validate_and_repair_env
     load_config_from_env
     setup_compose_files
-    info "Using env file: $ENV_FILE"
+    info "Using env file: $env_file"
 
     if ! is_internal_db; then
         info "External database detected — containerized postgres will NOT be started"
@@ -818,9 +818,9 @@ cmd_start() {
     info "Building container image"
     compose build
 
-    local compose_manual="$COMPOSE_CMD --env-file $ENV_FILE"
+    local compose_manual="$compose_cmd --env-file $env_file"
     local compose_files_display=""
-    for f in "${COMPOSE_FILES[@]}"; do
+    for f in "${compose_files[@]}"; do
         compose_files_display="$compose_files_display $f"
     done
     local log_hint="$compose_manual${compose_files_display} logs -f my-tracks"
@@ -838,7 +838,7 @@ cmd_start() {
         info "Waiting for postgres to be healthy..."
         local pg_attempts=0
         while [ $pg_attempts -lt 30 ]; do
-            if compose exec -T postgres pg_isready -U "$DB_USER" >/dev/null 2>&1; then
+            if compose exec -T postgres pg_isready -U "$db_user" >/dev/null 2>&1; then
                 break
             fi
             pg_attempts=$((pg_attempts + 1))
@@ -857,11 +857,11 @@ cmd_start() {
     info "Starting stack"
     compose up -d
 
-    info "Waiting for health check (${HEALTH_URL})..."
+    info "Waiting for health check (${health_url})..."
     local attempts=0
     local max_attempts=30
     while [ $attempts -lt $max_attempts ]; do
-        if curl -sk "$HEALTH_URL" 2>/dev/null | grep -q '"status"'; then
+        if curl -sk "$health_url" 2>/dev/null | grep -q '"status"'; then
             break
         fi
         attempts=$((attempts + 1))
@@ -881,16 +881,16 @@ cmd_start() {
 cmd_stop() {
     check_prerequisites
 
-    if [ -f "$ENV_FILE" ]; then
+    if [ -f "$env_file" ]; then
         load_config_from_env
         setup_compose_files
     else
-        COMPOSE_FILES=("-f" "$PROJECT_DIR/docker-compose.yml")
+        compose_files=("-f" "$project_dir/docker-compose.yml")
     fi
 
     info "Stopping stack and removing volumes"
     compose down -v
-    rm -rf "$SCRIPT_DIR/.run"
+    rm -rf "$script_dir/.run"
     info "Stack stopped. .env.production and certs/ are preserved for next run."
 }
 
@@ -916,7 +916,7 @@ main() {
                     fi
                     shift
                 else
-                    import_sqlite="$PROJECT_DIR/db.sqlite3"
+                    import_sqlite="$project_dir/db.sqlite3"
                 fi
                 [ -f "$import_sqlite" ] || die "SQLite database not found: $import_sqlite"
                 ;;
