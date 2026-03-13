@@ -68,7 +68,14 @@ This document defines the four specialized agents for the My Tracks project.
 - Run cleanup after merging PRs or when branch list becomes cluttered
 - Rationale: Keeps repository clean, avoids confusion from old branches
 
-**Pre-PR Quality Gates** (all must pass):
+**Pre-PR Quality Gates** — run ALL of these locally before `gt submit`, in this order:
+```bash
+uv run pyright                                      # type errors
+uv run isort --check-only --diff my_tracks config   # import order
+uv run pytest --cov=my_tracks --cov-fail-under=90   # tests + coverage
+```
+Do not open a PR if any of these fail. Fix first, then submit.
+
 - ✅ All tests passing
 - ✅ **90% minimum code coverage** (`uv run pytest --cov=my_tracks --cov-fail-under=90`)
 - ✅ **Pyright type checking passes** (`uv run pyright`) - enforced by CI/CD
