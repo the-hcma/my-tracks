@@ -1,9 +1,12 @@
 name: PR Validation
 
 on:
+  # Run on every PR (including Graphite merge queue staging branches, which also
+  # open as pull_request events).  We intentionally omit `push: main` because
+  # the merge queue already validates the integrated state before landing; a
+  # second run after the merge would duplicate work without adding any new
+  # signal.
   pull_request:
-  push:
-    branches: [ main ]
 
 jobs:
   frontend:
