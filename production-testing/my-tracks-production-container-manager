@@ -279,10 +279,18 @@ setup_compose_files() {
 }
 
 compose() {
-    $COMPOSE_CMD --env-file "$ENV_FILE" \
-        "${COMPOSE_FILES[@]}" \
-        --project-directory "$PROJECT_DIR" \
-        "$@"
+    # podman-compose does not support --project-directory; it uses the compose
+    # file's own directory as the base (correct since we pass absolute -f paths).
+    if [ "$CONTAINER_ENGINE" = "podman" ]; then
+        $COMPOSE_CMD --env-file "$ENV_FILE" \
+            "${COMPOSE_FILES[@]}" \
+            "$@"
+    else
+        $COMPOSE_CMD --env-file "$ENV_FILE" \
+            "${COMPOSE_FILES[@]}" \
+            --project-directory "$PROJECT_DIR" \
+            "$@"
+    fi
 }
 
 mask_password_in_url() {
