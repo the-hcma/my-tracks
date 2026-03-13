@@ -24,10 +24,10 @@ from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from .apps import get_mqtt_broker, get_mqtt_event_loop, is_mqtt_degraded
+from .apps import get_mqtt_broker, is_mqtt_degraded
 from .auth import CommandApiKeyAuthentication, get_command_api_key
 from .models import (CertificateAuthority, ClientCertificate, Device, Location,
-                     OwnTracksMessage, ServerCertificate, UserProfile)
+                     OwnTracksMessage, ServerCertificate)
 from .mqtt.commands import Command, CommandPublisher
 from .pki import (ALLOWED_KEY_SIZES, decrypt_private_key, encrypt_private_key,
                   generate_ca_certificate, generate_client_certificate,
