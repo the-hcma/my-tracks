@@ -17,14 +17,14 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly SCRIPT_DIR
-readonly ENV_FILE="$SCRIPT_DIR/.env.production"
-readonly CERTS_DIR="$SCRIPT_DIR/certs"
-readonly BACKUP_DIR="$SCRIPT_DIR/backups"
-readonly COMPOSE_CMD="docker compose"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly script_dir
+readonly env_file="$script_dir/.env.production"
+readonly certs_dir="$script_dir/certs"
+readonly backup_dir="$script_dir/backups"
+readonly compose_cmd="docker compose"
 
-COMPOSE_FILES=()
+compose_files=()
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -38,8 +38,8 @@ generate_secret() {
 
 env_get() {
     local key="$1"
-    if [ -f "$ENV_FILE" ]; then
-        grep -E "^${key}=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2-
+    if [ -f "$env_file" ]; then
+        grep -E "^${key}=" "$env_file" 2>/dev/null | head -1 | cut -d= -f2-
     fi
 }
 
@@ -50,15 +50,15 @@ is_internal_db() {
 }
 
 setup_compose_files() {
-    COMPOSE_FILES=("-f" "$SCRIPT_DIR/docker-compose.yml")
+    compose_files=("-f" "$script_dir/docker-compose.yml")
     if is_internal_db; then
-        COMPOSE_FILES+=("-f" "$SCRIPT_DIR/docker-compose.postgres.yml")
+        compose_files+=("-f" "$script_dir/docker-compose.postgres.yml")
     fi
 }
 
 compose() {
-    $COMPOSE_CMD --env-file "$ENV_FILE" \
-        "${COMPOSE_FILES[@]}" \
+    $compose_cmd --env-file "$env_file" \
+        "${compose_files[@]}" \
         "$@"
 }
 
@@ -170,7 +170,7 @@ check_prerequisites() {
                 fi
             fi
 
-            if ! $COMPOSE_CMD version >/dev/null 2>&1; then
+            if ! $compose_cmd version >/dev/null 2>&1; then
                 missing+=("  • Docker Compose is not installed.
       Install with:  $(install_hint docker-compose)")
             fi
@@ -194,8 +194,8 @@ check_prerequisites() {
 cmd_setup() {
     check_prerequisites
 
-    if [ -f "$ENV_FILE" ]; then
-        echo "Found existing $ENV_FILE"
+    if [ -f "$env_file" ]; then
+        echo "Found existing $env_file"
         read -r -p "Re-run setup? This will overwrite existing config. [y/N] " response
         case "$response" in
             [yY][eE][sS]|[yY]) ;;
@@ -273,14 +273,14 @@ cmd_setup() {
         echo "HTTPS_PORT=$https_port"
         echo "HTTP_PORT=$http_port"
         echo "MQTT_TLS_PORT=$mqtt_tls_port"
-        echo "CERTS_DIR=./certs"
+        echo "certs_dir=./certs"
         if [ -n "$command_api_key" ]; then
             echo "COMMAND_API_KEY=$command_api_key"
         fi
-    } > "$ENV_FILE"
+    } > "$env_file"
 
     echo ""
-    echo "Wrote $ENV_FILE"
+    echo "Wrote $env_file"
 
     # TLS certificates
     setup_tls_certs
@@ -318,29 +318,29 @@ cmd_setup() {
         echo "  API key:    $command_api_key"
     fi
     echo ""
-    echo "  Config:     $ENV_FILE"
-    echo "  Certs:      $CERTS_DIR/"
+    echo "  Config:     $env_file"
+    echo "  Certs:      $certs_dir/"
     if is_internal_db; then
         echo "  Database:   Containerized PostgreSQL (managed by Docker Compose)"
     else
-        echo "  Database:   External (see DATABASE_URL in $ENV_FILE)"
+        echo "  Database:   External (see DATABASE_URL in $env_file)"
     fi
     echo ""
     echo "Next steps:"
     echo "  1. Set admin password: https://$hostname:$https_port/admin/"
     echo "  2. Replace self-signed certs with Let's Encrypt:"
-    echo "     $COMPOSE_CMD --profile certbot run --rm certbot certonly \\"
+    echo "     $compose_cmd --profile certbot run --rm certbot certonly \\"
     echo "       --webroot -w /var/www/certbot -d $hostname"
-    echo "     cp /path/to/letsencrypt/live/$hostname/{fullchain,privkey}.pem $CERTS_DIR/"
-    echo "     $COMPOSE_CMD exec nginx nginx -s reload"
+    echo "     cp /path/to/letsencrypt/live/$hostname/{fullchain,privkey}.pem $certs_dir/"
+    echo "     $compose_cmd exec nginx nginx -s reload"
 }
 
 setup_tls_certs() {
-    mkdir -p "$CERTS_DIR"
+    mkdir -p "$certs_dir"
 
-    if [ -f "$CERTS_DIR/fullchain.pem" ] && [ -f "$CERTS_DIR/privkey.pem" ]; then
+    if [ -f "$certs_dir/fullchain.pem" ] && [ -f "$certs_dir/privkey.pem" ]; then
         echo ""
-        echo "TLS certificates already exist in $CERTS_DIR/"
+        echo "TLS certificates already exist in $certs_dir/"
         read -r -p "Replace with new self-signed certificate? [y/N] " response
         case "$response" in
             [yY][eE][sS]|[yY]) ;;
@@ -359,8 +359,8 @@ setup_tls_certs() {
         1)
             echo "Generating self-signed certificate for $hostname..."
             openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-                -keyout "$CERTS_DIR/privkey.pem" \
-                -out "$CERTS_DIR/fullchain.pem" \
+                -keyout "$certs_dir/privkey.pem" \
+                -out "$certs_dir/fullchain.pem" \
                 -subj "/CN=$hostname" \
                 -addext "subjectAltName=DNS:$hostname" \
                 2>/dev/null
@@ -369,13 +369,13 @@ setup_tls_certs() {
             ;;
         2)
             echo ""
-            echo "Place your certificates in $CERTS_DIR/:"
+            echo "Place your certificates in $certs_dir/:"
             echo "  - fullchain.pem (certificate + intermediates)"
             echo "  - privkey.pem   (private key)"
             echo ""
             read -r -p "Press Enter when certificates are in place..."
-            [ -f "$CERTS_DIR/fullchain.pem" ] || die "fullchain.pem not found in $CERTS_DIR/"
-            [ -f "$CERTS_DIR/privkey.pem" ] || die "privkey.pem not found in $CERTS_DIR/"
+            [ -f "$certs_dir/fullchain.pem" ] || die "fullchain.pem not found in $certs_dir/"
+            [ -f "$certs_dir/privkey.pem" ] || die "privkey.pem not found in $certs_dir/"
             echo "Certificates found."
             ;;
         *)
@@ -386,7 +386,7 @@ setup_tls_certs() {
 
 cmd_update() {
     check_prerequisites
-    [ -f "$ENV_FILE" ] || die "No $ENV_FILE found. Run ./deploy first."
+    [ -f "$env_file" ] || die "No $env_file found. Run ./deploy first."
     setup_compose_files
 
     echo "Pulling latest images..."
@@ -403,7 +403,7 @@ cmd_update() {
 
 cmd_backup() {
     check_prerequisites
-    [ -f "$ENV_FILE" ] || die "No $ENV_FILE found. Run ./deploy first."
+    [ -f "$env_file" ] || die "No $env_file found. Run ./deploy first."
     setup_compose_files
 
     if ! is_internal_db; then
@@ -411,12 +411,12 @@ cmd_backup() {
   For external databases, use your database provider's backup tools."
     fi
 
-    mkdir -p "$BACKUP_DIR"
+    mkdir -p "$backup_dir"
     # shellcheck source=/dev/null
-    source "$ENV_FILE"
+    source "$env_file"
     local timestamp
     timestamp=$(date +"%Y%m%d-%H%M%S")
-    local backup_file="$BACKUP_DIR/mytracks-$timestamp.sql.gz"
+    local backup_file="$backup_dir/mytracks-$timestamp.sql.gz"
 
     echo "Backing up database..."
     compose exec -T postgres pg_dump -U "${POSTGRES_USER:-mytracks}" "${POSTGRES_DB:-mytracks}" \
@@ -428,20 +428,20 @@ cmd_backup() {
 
 cmd_status() {
     check_prerequisites
-    if [ -f "$ENV_FILE" ]; then
+    if [ -f "$env_file" ]; then
         setup_compose_files
         compose ps 2>/dev/null || echo "Stack is not running."
     else
-        echo "No $ENV_FILE found. Run ./deploy first."
+        echo "No $env_file found. Run ./deploy first."
     fi
 }
 
 cmd_stop() {
     check_prerequisites
-    if [ -f "$ENV_FILE" ]; then
+    if [ -f "$env_file" ]; then
         setup_compose_files
     else
-        COMPOSE_FILES=("-f" "$SCRIPT_DIR/docker-compose.yml")
+        compose_files=("-f" "$script_dir/docker-compose.yml")
     fi
     compose down
     echo "Stack stopped."
@@ -449,7 +449,7 @@ cmd_stop() {
 
 cmd_logs() {
     check_prerequisites
-    [ -f "$ENV_FILE" ] || die "No $ENV_FILE found. Run ./deploy first."
+    [ -f "$env_file" ] || die "No $env_file found. Run ./deploy first."
     setup_compose_files
     compose logs -f
 }

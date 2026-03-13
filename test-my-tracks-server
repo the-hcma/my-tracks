@@ -11,58 +11,58 @@
 # Don't exit on error - we want to run all tests
 set +e
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR" || exit 1
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$script_dir" || exit 1
 
-SCRIPT="./my-tracks-server"
-TESTS_PASSED=0
-TESTS_FAILED=0
+script="./my-tracks-server"
+tests_passed=0
+tests_failed=0
 
 # Colors for output
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-NC='\033[0m' # No Color
+green='\033[0;32m'
+red='\033[0;31m'
+nc='\033[0m' # No Color
 
 # Use port 0 to let the OS allocate an ephemeral port
 # This avoids conflicts with production server and between tests
-TEST_PORT=0
+test_port=0
 # Disable TLS to skip cert check; use OS-allocated ports to avoid conflicts
-TEST_COMMON_FLAGS="--http-port $TEST_PORT --mqtt-port 0 --mqtt-tls-port -1"
+test_common_flags="--http-port $test_port --mqtt-port 0 --mqtt-tls-port -1"
 
 test_help_message() {
     echo -n "Test: Help message displays... "
-    if $SCRIPT --help > /dev/null 2>&1; then
-        echo -e "${GREEN}✓ PASS${NC}"
-        ((TESTS_PASSED++))
+    if $script --help > /dev/null 2>&1; then
+        echo -e "${green}✓ PASS${nc}"
+        ((tests_passed++))
     else
-        echo -e "${RED}✗ FAIL${NC}"
-        ((TESTS_FAILED++))
+        echo -e "${red}✗ FAIL${nc}"
+        ((tests_failed++))
     fi
 }
 
 test_invalid_log_level() {
     echo -n "Test: Invalid log level rejected... "
-    if $SCRIPT --log-level invalid 2>&1 | grep -qi "Invalid log level"; then
-        echo -e "${GREEN}✓ PASS${NC}"
-        ((TESTS_PASSED++))
+    if $script --log-level invalid 2>&1 | grep -qi "Invalid log level"; then
+        echo -e "${green}✓ PASS${nc}"
+        ((tests_passed++))
     else
-        echo -e "${RED}✗ FAIL${NC}"
+        echo -e "${red}✗ FAIL${nc}"
         echo "  Expected: 'Invalid log level' message"
-        echo "  Got: $($SCRIPT --log-level invalid 2>&1)"
-        ((TESTS_FAILED++))
+        echo "  Got: $($script --log-level invalid 2>&1)"
+        ((tests_failed++))
     fi
 }
 
 test_invalid_argument() {
     echo -n "Test: Invalid argument rejected... "
-    if $SCRIPT --invalid-flag 2>&1 | grep -qi "Unknown option"; then
-        echo -e "${GREEN}✓ PASS${NC}"
-        ((TESTS_PASSED++))
+    if $script --invalid-flag 2>&1 | grep -qi "Unknown option"; then
+        echo -e "${green}✓ PASS${nc}"
+        ((tests_passed++))
     else
-        echo -e "${RED}✗ FAIL${NC}"
+        echo -e "${red}✗ FAIL${nc}"
         echo "  Expected: 'Unknown option' message"
-        echo "  Got: $($SCRIPT --invalid-flag 2>&1)"
-        ((TESTS_FAILED++))
+        echo "  Got: $($script --invalid-flag 2>&1)"
+        ((tests_failed++))
     fi
 }
 
@@ -74,68 +74,68 @@ test_valid_log_levels() {
         # Validation happens before npm build / collectstatic, so 2s is plenty.
         # We check that the script does NOT reject the level (fast negative test).
         # shellcheck disable=SC2086
-        if timeout 2 $SCRIPT $TEST_COMMON_FLAGS --log-level "$level" 2>&1 | grep -q "Error: Invalid log level"; then
+        if timeout 2 $script $test_common_flags --log-level "$level" 2>&1 | grep -q "Error: Invalid log level"; then
             all_valid=false
             break
         fi
     done
     
     if [ "$all_valid" = true ]; then
-        echo -e "${GREEN}✓ PASS${NC}"
-        ((TESTS_PASSED++))
+        echo -e "${green}✓ PASS${nc}"
+        ((tests_passed++))
     else
-        echo -e "${RED}✗ FAIL${NC}"
-        ((TESTS_FAILED++))
+        echo -e "${red}✗ FAIL${nc}"
+        ((tests_failed++))
     fi
 }
 
 test_console_flag() {
     echo -n "Test: Console flag works... "
     # shellcheck disable=SC2086
-    if timeout 5 $SCRIPT $TEST_COMMON_FLAGS --console 2>&1 | grep -q "Logging to: console + logs/my-tracks.log"; then
-        echo -e "${GREEN}✓ PASS${NC}"
-        ((TESTS_PASSED++))
+    if timeout 5 $script $test_common_flags --console 2>&1 | grep -q "Logging to: console + logs/my-tracks.log"; then
+        echo -e "${green}✓ PASS${nc}"
+        ((tests_passed++))
     else
-        echo -e "${RED}✗ FAIL${NC}"
-        ((TESTS_FAILED++))
+        echo -e "${red}✗ FAIL${nc}"
+        ((tests_failed++))
     fi
 }
 
 test_console_default_log_level() {
     echo -n "Test: Console defaults to INFO log level... "
     # shellcheck disable=SC2086
-    if timeout 5 $SCRIPT $TEST_COMMON_FLAGS --console 2>&1 | grep -q "Log level: INFO"; then
-        echo -e "${GREEN}✓ PASS${NC}"
-        ((TESTS_PASSED++))
+    if timeout 5 $script $test_common_flags --console 2>&1 | grep -q "Log level: INFO"; then
+        echo -e "${green}✓ PASS${nc}"
+        ((tests_passed++))
     else
-        echo -e "${RED}✗ FAIL${NC}"
+        echo -e "${red}✗ FAIL${nc}"
         echo "  Expected: 'Log level: INFO' in output"
-        ((TESTS_FAILED++))
+        ((tests_failed++))
     fi
 }
 
 test_console_explicit_log_level_override() {
     echo -n "Test: Console with explicit --log-level overrides default... "
     # shellcheck disable=SC2086
-    if timeout 5 $SCRIPT $TEST_COMMON_FLAGS --console --log-level warning 2>&1 | grep -q "Log level: WARNING"; then
-        echo -e "${GREEN}✓ PASS${NC}"
-        ((TESTS_PASSED++))
+    if timeout 5 $script $test_common_flags --console --log-level warning 2>&1 | grep -q "Log level: WARNING"; then
+        echo -e "${green}✓ PASS${nc}"
+        ((tests_passed++))
     else
-        echo -e "${RED}✗ FAIL${NC}"
+        echo -e "${red}✗ FAIL${nc}"
         echo "  Expected: 'Log level: WARNING' in output"
-        ((TESTS_FAILED++))
+        ((tests_failed++))
     fi
 }
 
 test_file_logging() {
     echo -n "Test: File logging uses fixed log name... "
     # shellcheck disable=SC2086
-    if timeout 5 $SCRIPT $TEST_COMMON_FLAGS 2>&1 | grep -q "Logging to: logs/my-tracks.log"; then
-        echo -e "${GREEN}✓ PASS${NC}"
-        ((TESTS_PASSED++))
+    if timeout 5 $script $test_common_flags 2>&1 | grep -q "Logging to: logs/my-tracks.log"; then
+        echo -e "${green}✓ PASS${nc}"
+        ((tests_passed++))
     else
-        echo -e "${RED}✗ FAIL${NC}"
-        ((TESTS_FAILED++))
+        echo -e "${red}✗ FAIL${nc}"
+        ((tests_failed++))
     fi
 }
 
@@ -152,16 +152,16 @@ test_log_rotation() {
     # Start server briefly to trigger rotation
     # Use 8 seconds to allow for collectstatic and server startup
     # shellcheck disable=SC2086
-    timeout 8 $SCRIPT $TEST_COMMON_FLAGS > /dev/null 2>&1 || true
+    timeout 8 $script $test_common_flags > /dev/null 2>&1 || true
     
     # Check that old log was rotated to .1
     # The new my-tracks.log may or may not exist depending on whether daphne started logging
     if [ -f "logs/my-tracks.log.1" ]; then
-        echo -e "${GREEN}✓ PASS${NC}"
-        ((TESTS_PASSED++))
+        echo -e "${green}✓ PASS${nc}"
+        ((tests_passed++))
     else
-        echo -e "${RED}✗ FAIL${NC}"
-        ((TESTS_FAILED++))
+        echo -e "${red}✗ FAIL${nc}"
+        ((tests_failed++))
     fi
     
     # Clean up test logs
@@ -172,38 +172,38 @@ test_custom_port() {
     echo -n "Test: Port 0 (OS-allocated) accepted... "
     # Need --console to see daphne's output which shows the actual bound port
     # shellcheck disable=SC2086
-    if timeout 5 $SCRIPT $TEST_COMMON_FLAGS --console 2>&1 | grep -q "Listening on TCP address"; then
-        echo -e "${GREEN}✓ PASS${NC}"
-        ((TESTS_PASSED++))
+    if timeout 5 $script $test_common_flags --console 2>&1 | grep -q "Listening on TCP address"; then
+        echo -e "${green}✓ PASS${nc}"
+        ((tests_passed++))
     else
-        echo -e "${RED}✗ FAIL${NC}"
-        ((TESTS_FAILED++))
+        echo -e "${red}✗ FAIL${nc}"
+        ((tests_failed++))
     fi
 }
 
 test_invalid_port() {
     echo -n "Test: Invalid port rejected... "
-    if $SCRIPT --http-port 999999 2>&1 | grep -qi "Invalid port"; then
-        echo -e "${GREEN}✓ PASS${NC}"
-        ((TESTS_PASSED++))
+    if $script --http-port 999999 2>&1 | grep -qi "Invalid port"; then
+        echo -e "${green}✓ PASS${nc}"
+        ((tests_passed++))
     else
-        echo -e "${RED}✗ FAIL${NC}"
+        echo -e "${red}✗ FAIL${nc}"
         echo "  Expected: 'Invalid port' message"
-        echo "  Got: $($SCRIPT --http-port 999999 2>&1)"
-        ((TESTS_FAILED++))
+        echo "  Got: $($script --http-port 999999 2>&1)"
+        ((tests_failed++))
     fi
 }
 
 test_non_numeric_port() {
     echo -n "Test: Non-numeric port rejected... "
-    if $SCRIPT --http-port abc 2>&1 | grep -qi "Invalid port"; then
-        echo -e "${GREEN}✓ PASS${NC}"
-        ((TESTS_PASSED++))
+    if $script --http-port abc 2>&1 | grep -qi "Invalid port"; then
+        echo -e "${green}✓ PASS${nc}"
+        ((tests_passed++))
     else
-        echo -e "${RED}✗ FAIL${NC}"
+        echo -e "${red}✗ FAIL${nc}"
         echo "  Expected: 'Invalid port' message"
-        echo "  Got: $($SCRIPT --http-port abc 2>&1)"
-        ((TESTS_FAILED++))
+        echo "  Got: $($script --http-port abc 2>&1)"
+        ((tests_failed++))
     fi
 }
 
@@ -220,30 +220,31 @@ test_shellcheck_passes() {
             if brew install shellcheck; then
                 echo "✅ Successfully installed shellcheck via brew"
             else
-                echo -e "${RED}✗ FAIL - Could not install shellcheck via brew${NC}"
-                ((TESTS_FAILED++))
+                echo -e "${red}✗ FAIL - Could not install shellcheck via brew${nc}"
+                ((tests_failed++))
                 return
             fi
         else
-            echo -e "${RED}✗ FAIL - brew not found, cannot install shellcheck${NC}"
+            echo -e "${red}✗ FAIL - brew not found, cannot install shellcheck${nc}"
             echo "Please install shellcheck manually: https://www.shellcheck.net/"
-            ((TESTS_FAILED++))
+            ((tests_failed++))
             return
         fi
     fi
     
     # Run shellcheck (only fail on errors and warnings, not info messages)
-    if shellcheck -S error "$SCRIPT" && shellcheck -S warning "$SCRIPT"; then
-        echo -e "${GREEN}✓ PASS${NC}"
-        ((TESTS_PASSED++))
+    if shellcheck -S error "$script" && shellcheck -S warning "$script"; then
+        echo -e "${green}✓ PASS${nc}"
+        ((tests_passed++))
     else
-        echo -e "${RED}✗ FAIL${NC}"
-        shellcheck "$SCRIPT" || true
-        ((TESTS_FAILED++))
+        echo -e "${red}✗ FAIL${nc}"
+        shellcheck "$script" || true
+        ((tests_failed++))
     fi
 }
 
 # Ensure runtime config from server starts is always cleaned up
+# shellcheck disable=SC2329  # called via trap
 test_cleanup() {
     rm -f config/.runtime-config.json
 }
@@ -271,11 +272,11 @@ test_shellcheck_passes
 
 echo ""
 echo "========================================"
-echo "Test Results: ${TESTS_PASSED} passed, ${TESTS_FAILED} failed"
+echo "Test Results: ${tests_passed} passed, ${tests_failed} failed"
 echo "========================================"
 
 # Exit with error code if any tests failed
-if [ $TESTS_FAILED -gt 0 ]; then
+if [ $tests_failed -gt 0 ]; then
     exit 1
 fi
 
