@@ -62,7 +62,7 @@ def _stop_mqtt_broker() -> None:
 
 def _log_cert_info(server_cert_pem: bytes, ca_cert_pem: bytes) -> None:
     """Log server certificate details and warn if expiry is near."""
-    from datetime import UTC, datetime, timedelta
+    from datetime import UTC, datetime
 
     from my_tracks.pki import (get_certificate_expiry,
                                get_certificate_fingerprint,

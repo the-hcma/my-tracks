@@ -71,6 +71,9 @@ jobs:
     - name: Check import sorting with isort
       run: uv run isort --check-only --diff my_tracks config
 
+    - name: Check for unused imports with flake8
+      run: uv run flake8 --select=F401 my_tracks config
+
     - name: Check type annotations with Pyright
       run: |
         uv run pyright
