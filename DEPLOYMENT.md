@@ -1,6 +1,6 @@
 # Production Deployment Guide
 
-Deploy My Tracks as a containerized stack on any Docker-capable host (tested on CentOS 8+, Debian 12, Ubuntu 22.04+).
+Deploy My Tracks as a containerized stack using Docker or Podman (tested on CentOS 8+, Debian 12, Ubuntu 22.04+; macOS via Colima or Docker Desktop).
 
 ## Architecture
 
@@ -23,9 +23,19 @@ Internet
 
 ## Prerequisites
 
-- Docker Engine 24+ with Compose plugin (`docker compose`)
+- **Docker Engine 24+** with Compose plugin (`docker compose`), **or Podman 4+** with `podman-compose`
 - A domain name pointing to the host (for Let's Encrypt)
 - Ports 80, 443, and 8883 open in the host firewall
+
+### Container Engine Support
+
+| Platform      | Supported engines                              | Notes                                      |
+|---------------|------------------------------------------------|--------------------------------------------|
+| Linux (RHEL/CentOS) | **Podman** (default) or Docker Engine  | Podman ships in default repos; Docker requires adding the Docker CE repo |
+| Linux (Debian/Ubuntu) | Docker Engine or Podman               | `apt-get install docker.io` or `apt-get install podman podman-compose` |
+| macOS         | Docker via **Colima** or Docker Desktop        | Podman Desktop also works                  |
+
+The `my-tracks-production-container-manager` script auto-detects whichever engine is installed (Docker is preferred when both are present).
 
 ## Quick Start
 
@@ -402,13 +412,15 @@ rm .env.production
 ./deploy                  # fresh start
 ```
 
-## Local Testing (macOS)
+## Local Testing
 
 You can run the full production stack locally to verify everything works before deploying to a real server. This is especially useful for testing MQTT TLS, PKI certificate flows, and the nginx reverse proxy setup.
 
-### Prerequisites
+### Prerequisites by Platform
 
-Install [Colima](https://github.com/abiosoft/colima) — a lightweight Docker runtime for macOS that doesn't require Docker Desktop:
+#### macOS
+
+Install [Colima](https://github.com/abiosoft/colima) — a lightweight Docker runtime that doesn't require Docker Desktop:
 
 ```bash
 brew install colima docker docker-compose docker-buildx
@@ -422,17 +434,56 @@ docker info
 docker buildx version
 ```
 
-You'll also need these tools (the container manager checks for them on startup):
+| Tool             | Install                              | Purpose                        |
+|------------------|--------------------------------------|--------------------------------|
+| `colima`         | `brew install colima`                | Docker runtime (macOS)         |
+| `docker`         | `brew install docker`                | Container engine CLI           |
+| `docker-compose` | `brew install docker-compose`        | Multi-container orchestration  |
+| `docker-buildx`  | `brew install docker-buildx`         | Image building                 |
+| `curl`           | pre-installed on macOS               | Health check verification      |
+| `openssl`        | pre-installed on macOS               | Self-signed certificate generation |
+| `uv`             | `curl -LsSf https://astral.sh/uv/install.sh \| sh` | Required only for `--import-sqlite` |
 
-| Tool       | Install                              | Purpose                        |
-|------------|--------------------------------------|--------------------------------|
-| `colima`   | `brew install colima`                | Docker runtime (macOS)         |
-| `docker`   | `brew install docker`                | Container engine CLI           |
-| `docker-compose` | `brew install docker-compose`  | Multi-container orchestration  |
-| `docker-buildx` | `brew install docker-buildx`    | Image building                 |
-| `curl`     | pre-installed on macOS               | Health check verification      |
-| `openssl`  | pre-installed on macOS               | Self-signed certificate generation |
-| `uv`       | `curl -LsSf https://astral.sh/uv/install.sh \| sh` | Required only for `--import-sqlite` |
+#### Linux — RHEL / CentOS / Fedora (Podman)
+
+Podman is available in the default repos — no extra repository setup needed:
+
+```bash
+sudo dnf install -y podman podman-compose
+```
+
+Verify Podman is working:
+
+```bash
+podman info
+podman compose version
+```
+
+| Tool             | Install                              | Purpose                        |
+|------------------|--------------------------------------|--------------------------------|
+| `podman`         | `sudo dnf install -y podman`         | Container engine (daemonless)  |
+| `podman-compose` | `sudo dnf install -y podman-compose` | Multi-container orchestration  |
+| `curl`           | `sudo dnf install -y curl`           | Health check verification      |
+| `openssl`        | `sudo dnf install -y openssl`        | Self-signed certificate generation |
+| `uv`             | `curl -LsSf https://astral.sh/uv/install.sh \| sh` | Required only for `--import-sqlite` |
+
+> **Note**: Podman is rootless by default. If you see permission errors accessing the Docker socket, you don't need to fix that — Podman doesn't use a socket.
+
+#### Linux — Debian / Ubuntu (Docker)
+
+```bash
+sudo apt-get install -y docker.io docker-compose-v2
+sudo systemctl enable --now docker
+sudo usermod -aG docker $USER && newgrp docker
+```
+
+| Tool             | Install                                 | Purpose                        |
+|------------------|-----------------------------------------|--------------------------------|
+| `docker`         | `sudo apt-get install -y docker.io`     | Container engine CLI           |
+| `docker-compose` | `sudo apt-get install -y docker-compose-v2` | Multi-container orchestration |
+| `curl`           | pre-installed on most systems           | Health check verification      |
+| `openssl`        | pre-installed on most systems           | Self-signed certificate generation |
+| `uv`             | `curl -LsSf https://astral.sh/uv/install.sh \| sh` | Required only for `--import-sqlite` |
 
 ### Container Manager
 
@@ -454,7 +505,7 @@ The `production-testing/my-tracks-production-container-manager` script automates
 
 ### What `--start` Does
 
-1. **Checks prerequisites** — Docker daemon, `buildx`, `compose`, `curl`, `openssl`
+1. **Checks prerequisites** — detects Docker or Podman, checks compose, `curl`, `openssl`
 2. **Creates `.env.production`** (if missing or `--freshen-up`) — generates `SECRET_KEY`, sets ports, prompts for database mode (containerized or external PostgreSQL)
 3. **Generates self-signed TLS certs** for nginx HTTPS
 4. **Builds the container image** from the local source
@@ -493,16 +544,21 @@ This will:
 
 When creating `.env.production`, the script prompts you to choose:
 
-1. **Containerized PostgreSQL** (default) — runs inside Docker, data lives in a Docker volume. If you destroy the container (`--stop`), the data is gone. Good for testing.
+1. **Containerized PostgreSQL** (default) — runs inside a container, data lives in a container volume. If you destroy the volume (`--stop`), the data is gone. Good for testing.
 
 2. **External PostgreSQL** — provide a `DATABASE_URL` to an existing PostgreSQL instance. The script won't start a postgres container. Use this when testing against a persistent database.
 
 ### Accessing the Database (Containerized)
 
-When using the containerized PostgreSQL, the banner shows a `psql` command to connect:
+When using the containerized PostgreSQL, the banner shows a `psql` command to connect. The exact command depends on your container engine — the banner prints the right command for your setup:
 
 ```bash
+# Docker
 docker compose --env-file .env.production -f docker-compose.yml -f docker-compose.postgres.yml \
+  exec postgres psql -U mytracks mytracks
+
+# Podman
+podman compose --env-file .env.production -f docker-compose.yml -f docker-compose.postgres.yml \
   exec postgres psql -U mytracks mytracks
 ```
 
@@ -515,13 +571,13 @@ docker compose --env-file .env.production -f docker-compose.yml -f docker-compos
 # Optionally remove generated files
 rm -rf .env.production certs/
 
-# Stop Colima when done
+# macOS only: stop Colima when done
 colima stop
 ```
 
 ## Bare Metal (Alternative)
 
-If you prefer not to use Docker, the application can be deployed directly on the host.
+If you prefer not to use containers at all, the application can be deployed directly on the host.
 
 ### CentOS 8+ / RHEL 8+
 
