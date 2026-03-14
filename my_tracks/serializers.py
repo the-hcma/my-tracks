@@ -140,7 +140,8 @@ class LocationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Location
         fields = [
-            'id', 'device', 'device_id', 'tid', 'topic', 'device_name', 'device_id_display', 'tid_display', 'timestamp_unix',
+            'id', 'device', 'device_id', 'tid', 'topic',
+            'device_name', 'device_id_display', 'tid_display', 'timestamp_unix',
             'latitude', 'longitude', 'timestamp',
             'lat', 'lon', 'long', 'tst',
             'accuracy', 'altitude', 'velocity', 'battery_level', 'connection_type',

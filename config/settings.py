@@ -214,18 +214,21 @@ SESSION_COOKIE_AGE = 604800  # 7 days in seconds
 SESSION_SAVE_EVERY_REQUEST = True  # Reset expiry on each request (sliding window)
 
 # Logging configuration
-import logging
-import time
+import logging  # noqa: E402
+import time  # noqa: E402
 
 # Add custom TRACE level (below DEBUG)
 TRACE_LEVEL = 5
 logging.addLevelName(TRACE_LEVEL, 'TRACE')
 
+
 def trace(self: logging.Logger, message: str, *args: object, **kwargs: Any) -> None:
     if self.isEnabledFor(TRACE_LEVEL):
         self._log(TRACE_LEVEL, message, args, **kwargs)
 
+
 logging.Logger.trace = trace  # type: ignore[attr-defined]
+
 
 # Custom filter to set health check requests to TRACE level
 class HealthCheckFilter(logging.Filter):
@@ -288,6 +291,7 @@ class LocalTimeFormatter(logging.Formatter):
         return s
 
     converter = time.localtime  # Use local time instead of gmtime
+
 
 # Optional file logging: set LOG_FILE env var to enable (e.g., /app/logs/my-tracks.log)
 LOG_FILE: str = str(config('LOG_FILE', default=''))
@@ -373,10 +377,12 @@ LOGGING = {
     },
 }
 
+
 # CSRF exemption for OwnTracks endpoints (they use device authentication)
 def _parse_csrf_origins(value: str) -> list[str]:
     """Parse comma-separated CSRF origins from environment."""
     return [s.strip() for s in value.split(',') if s.strip()]
+
 
 CSRF_TRUSTED_ORIGINS: list[str] = _parse_csrf_origins(
     str(config('CSRF_TRUSTED_ORIGINS', default=''))

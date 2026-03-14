@@ -662,7 +662,7 @@ class AdminUserViewSet(viewsets.ViewSet):
 
         role = "admin" if is_staff else "user"
         logger.info("[http] User '%s' created '%s' (role=%s) via API",
-                     request.user.username, username, role)
+                    request.user.username, username, role)
 
         return Response(
             UserSerializer(user).data,
@@ -1388,4 +1388,3 @@ class HealthViewSet(viewsets.ViewSet):
             {"status": "ok", "version": app_version},
             status=status.HTTP_200_OK,
         )
-

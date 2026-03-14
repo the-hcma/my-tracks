@@ -200,7 +200,7 @@ def _run_mqtt_broker(mqtt_port: int, mqtt_tls_port: int = -1) -> None:
 
     try:
         _state.loop.run_until_complete(_start_and_run())
-    except RuntimeError as exc:
+    except RuntimeError:
         # _stop_mqtt_broker() sets _state.shutting_down before stopping the
         # loop, which causes run_until_complete() to raise:
         #   RuntimeError: Event loop stopped before Future completed.
