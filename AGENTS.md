@@ -350,12 +350,26 @@ Do not open a PR if any of these fail. Fix first, then submit.
 - Variable names should be self-documenting
 - Avoid generic suffixes like `_map`, `_dict` when more specific names are available
 
+**Security Guidelines**:
+
+Passwords must never appear in shell command arguments — they end up in bash history (`~/.bash_history`) and in process listings (`ps aux`).
+
+- **In scripts**: pass passwords via environment variables scoped to the subprocess:
+  - ✅ `PGPASSWORD="$pw" psql -h host -U user -d db -c "SELECT 1"`
+  - ❌ `psql "postgresql://user:password@host/db" -c "SELECT 1"`
+- **In user-facing instructions**: use interactive prompts that don't record the password:
+  - ✅ `psql -c '\password username'` — prompts interactively, nothing stored
+  - ❌ `psql -c "ALTER USER username PASSWORD 'plaintext';"`
+- **In manual test commands shown to the user**: use `-W` to force an interactive password prompt, or `PGPASSWORD=...` with a note that the variable is not logged by bash
+  - ✅ `PGPASSWORD=yourpassword psql -h localhost -U user -d db -c "SELECT 1"` (env var only, not a command arg)
+  - ❌ `psql "postgresql://user:yourpassword@localhost/db"` (password in URL ends up in history)
+
 **Review Checklist**:
 - [ ] Algorithm correctness verified
 - [ ] All edge cases properly handled
 - [ ] Type hints complete and accurate
 - [ ] Docstrings clear and comprehensive
-- [ ] No security vulnerabilities
+- [ ] No security vulnerabilities — including **no passwords in command-line arguments** (see Security Guidelines above)
 - [ ] Error messages are informative (include both expected and actual values)
 - [ ] Naming conventions followed (values, descriptive mappings)
 - [ ] No dead code (unused methods, variables, imports, or parameters)

@@ -413,8 +413,19 @@ probe_db_connection() {
             echo "     Create it with:" >&2
             _pg_admin_cmd "createdb -O $pg_user $pg_db" >&2
         elif echo "$psql_out" | grep -qi "password authentication failed\|authentication failed"; then
-            echo "  ✘  Wrong password for user '$pg_user'." >&2
-            echo "     Reset it (you will be prompted for the new password):" >&2
+            echo "  ✘  Authentication failed for user '$pg_user'." >&2
+            echo "     This is either a wrong password or a mismatch between pg_hba.conf" >&2
+            echo "     auth method and the password hash stored in PostgreSQL." >&2
+            echo "" >&2
+            echo "     Step 1 — check the password encryption setting:" >&2
+            _pg_admin_cmd "psql -c 'SHOW password_encryption;'" >&2
+            echo "" >&2
+            echo "     Step 2 — ensure pg_hba.conf uses the same method (e.g. 'md5' or" >&2
+            echo "     'scram-sha-256') for host connections, then reload:" >&2
+            _pg_admin_cmd "psql -c 'SELECT pg_reload_conf();'" >&2
+            echo "" >&2
+            echo "     Step 3 — reset the password so it is stored with the current method" >&2
+            echo "     (you will be prompted):" >&2
             _pg_admin_cmd "psql -c '\\password $pg_user'" >&2
         elif echo "$psql_out" | grep -qi "peer authentication failed\|ident authentication failed"; then
             echo "  ✘  pg_hba.conf does not allow password auth for local TCP connections." >&2
@@ -524,12 +535,15 @@ prompt_db_url() {
 
     while ! probe_db_connection "$db_url"; do
         echo "" >&2
-        echo "  Run the commands above to fix the issue, then press Enter to retry." >&2
-        echo "  To use a different URL, enter it now (Ctrl+C to abort)." >&2
-        printf "  DATABASE_URL [keep current]: " >&2
-        local new_url
-        read -r new_url
-        [ -n "$new_url" ] && db_url="$new_url"
+        printf "  Press Enter to retry, or type 'edit' to enter a different URL (Ctrl+C to abort): " >&2
+        local retry_input
+        read -r retry_input
+        if [ "$retry_input" = "edit" ]; then
+            printf "  DATABASE_URL: " >&2
+            local new_url
+            read -r new_url
+            [ -n "$new_url" ] && db_url="$new_url"
+        fi
     done
 
     warn_if_localhost_url "$db_url"
@@ -560,17 +574,20 @@ prompt_local_db_url() {
 
     while ! probe_db_connection "$db_url"; do
         echo "" >&2
-        echo "  Run the commands above to fix the issue, then press Enter to retry." >&2
-        echo "  To change connection settings, enter new values (Ctrl+C to abort)." >&2
-        printf "  Host [%s]: " "$host" >&2; read -r h; host="${h:-$host}"
-        printf "  Port [%s]: " "$port" >&2; read -r p; port="${p:-$port}"
-        printf "  Database name [%s]: " "$dbname" >&2; read -r d; dbname="${d:-$dbname}"
-        printf "  Username [%s]: " "$user" >&2; read -r u; user="${u:-$user}"
-        printf "  Password [keep current]: " >&2; IFS= read -rs new_password; echo "" >&2
-        [ -n "$new_password" ] && password="$new_password"
-        enc_user="$(urlencode "$user")"
-        enc_password="$(urlencode "$password")"
-        db_url="postgresql://${enc_user}:${enc_password}@${host}:${port}/${dbname}"
+        printf "  Press Enter to retry, or type 'edit' to change connection settings (Ctrl+C to abort): " >&2
+        local retry_input
+        read -r retry_input
+        if [ "$retry_input" = "edit" ]; then
+            printf "  Host [%s]: " "$host" >&2; read -r h; host="${h:-$host}"
+            printf "  Port [%s]: " "$port" >&2; read -r p; port="${p:-$port}"
+            printf "  Database name [%s]: " "$dbname" >&2; read -r d; dbname="${d:-$dbname}"
+            printf "  Username [%s]: " "$user" >&2; read -r u; user="${u:-$user}"
+            printf "  Password [keep current]: " >&2; IFS= read -rs new_password; echo "" >&2
+            [ -n "$new_password" ] && password="$new_password"
+            enc_user="$(urlencode "$user")"
+            enc_password="$(urlencode "$password")"
+            db_url="postgresql://${enc_user}:${enc_password}@${host}:${port}/${dbname}"
+        fi
     done
 
     # Rewrite localhost/127.0.0.1 → host.docker.internal so the URL resolves
