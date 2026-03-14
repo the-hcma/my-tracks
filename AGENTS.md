@@ -57,6 +57,7 @@ This document defines the four specialized agents for the My Tracks project.
 - ❌ **NEVER** commit directly to main
 - ❌ **NEVER** push directly to main
 - ❌ **NEVER** use interactive gt commands (always add `--no-interactive` or use explicit flags)
+- ❌ **NEVER** add `Co-Authored-By: Claude` (or any AI attribution) to commit messages or PR descriptions
 - Rationale: Graphite enables clean PR stacking, better code review, consistent workflow. Non-interactive mode prevents terminal hangs in automated environments. `--publish` belongs on `gt submit`, not `gt create`.
 
 **Branch Cleanup**:
@@ -68,14 +69,42 @@ This document defines the four specialized agents for the My Tracks project.
 - Run cleanup after merging PRs or when branch list becomes cluttered
 - Rationale: Keeps repository clean, avoids confusion from old branches
 
-**Pre-PR Quality Gates** — run ALL of these locally before `gt submit`, in this order:
+**Pre-PR Quality Gates** — complete ALL steps in order before considering a PR ready:
+
+**Step 1 — Local checks** (catch issues before pushing):
 ```bash
 uv run pyright                                      # type errors
 uv run isort --check-only --diff my_tracks config   # import order
 uv run flake8 my_tracks config                      # PEP 8 + unused imports/vars
 uv run pytest --cov=my_tracks --cov-fail-under=90   # tests + coverage
 ```
-Do not open a PR if any of these fail. Fix first, then submit.
+Do not proceed if any of these fail. Fix first.
+
+**Step 2 — Submit via Graphite** (pushes branches and updates PRs):
+```bash
+GRAPHITE_PROFILE=thehcma gt submit --no-interactive --publish
+```
+
+**Step 3 — Verify stack health locally**:
+```bash
+GRAPHITE_PROFILE=thehcma gt log short
+```
+Check: correct parent order, no "needs restack", no diverged branch warnings for branches you touched.
+
+**Step 4 — Verify each PR on GitHub**:
+```bash
+gh pr view <number> --json number,title,baseRefName,mergeable,mergeStateStatus,files \
+  --jq '{number,title,base:.baseRefName,mergeable,mergeStateStatus,files:[.files[].path]}'
+```
+Check: `mergeable` is `MERGEABLE`, `mergeStateStatus` is `CLEAN` or `BLOCKED` (not `DIRTY` or `CONFLICTING`), base ref is correct, files changed are exactly what you expect.
+
+**Step 5 — Verify PR titles and descriptions match actual content**:
+After any branch reorganization, rebase, or restack, review each PR's title and description against its actual diff. Titles and descriptions written before a reorg will be stale. Update them via:
+```bash
+gh api repos/{owner}/{repo}/pulls/{pr} --method PATCH --field title="..." --field body="..."
+```
+
+Do not declare a PR ready until Steps 3, 4, and 5 all pass.
 
 - ✅ All tests passing
 - ✅ **90% minimum code coverage** (`uv run pytest --cov=my_tracks --cov-fail-under=90`)
