@@ -57,6 +57,7 @@ This document defines the four specialized agents for the My Tracks project.
 - ❌ **NEVER** commit directly to main
 - ❌ **NEVER** push directly to main
 - ❌ **NEVER** use interactive gt commands (always add `--no-interactive` or use explicit flags)
+- ❌ **NEVER** add `Co-Authored-By: Claude` (or any AI attribution) to commit messages or PR descriptions
 - Rationale: Graphite enables clean PR stacking, better code review, consistent workflow. Non-interactive mode prevents terminal hangs in automated environments. `--publish` belongs on `gt submit`, not `gt create`.
 
 **Branch Cleanup**:
