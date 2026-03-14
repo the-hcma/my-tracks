@@ -5,6 +5,8 @@ services:
     env_file: .env.production
     environment:
       - LOG_FILE=/app/logs/my-tracks.log
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - app-data:/app/data
       - ${APP_LOGS_DIR:-app-logs}:/app/logs
