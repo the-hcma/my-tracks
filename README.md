@@ -6,7 +6,7 @@ A self-hosted location tracking backend for the [OwnTracks](https://owntracks.or
 
 ```bash
 # One-command setup
-bash setup
+bash scripts/setup
 
 # Start server
 ./scripts/my-tracks-server
@@ -59,7 +59,7 @@ git clone <repository-url>
 cd my-tracks
 
 # Run setup script
-bash setup
+bash scripts/setup
 ```
 
 This will:
@@ -81,12 +81,7 @@ This will:
    cd my-tracks
    ```
 
-3. **Extract project files**:
-   ```bash
-   ./install
-   ```
-
-4. **Create virtual environment and install dependencies**:
+3. **Create virtual environment and install dependencies**:
    ```bash
    uv sync
    ```
@@ -215,7 +210,8 @@ my-tracks/
 ├── manage.py                 # Management script
 ├── pyproject.toml            # Python dependencies (uv)
 ├── package.json              # Frontend dependencies (npm)
-├── my-tracks-server          # Server startup script
+├── scripts/
+│   └── my-tracks-server      # Server startup script
 ├── config/                   # Project configuration directory
 │   ├── __init__.py
 │   ├── settings.py          # Project settings
@@ -269,7 +265,7 @@ uv run pyright
 uv run isort my_tracks config web_ui
 
 # Shell script linting
-shellcheck my-tracks-server
+shellcheck scripts/my-tracks-server
 ```
 
 ## Production Deployment

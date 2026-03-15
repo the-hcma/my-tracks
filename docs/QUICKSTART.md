@@ -16,7 +16,7 @@ Get up and running with My Tracks in 5 minutes.
 ### Option 1: One-Command Setup
 
 ```bash
-bash setup
+bash scripts/setup
 ```
 
 This will:
@@ -33,10 +33,7 @@ This will:
 # 1. Install uv (if not already installed)
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# 2. Run the installation script
-./install
-
-# 3. Create virtual environment and install dependencies
+# 2. Create virtual environment and install dependencies
 uv sync
 # Note: With uv run, you don't need to manually activate the venv
 

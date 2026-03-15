@@ -75,7 +75,7 @@ This document defines the four specialized agents for the My Tracks project.
 **Step 1 — Local checks** (catch issues before pushing):
 ```bash
 uv run pyright                                      # type errors
-uv run isort --check-only --diff my_tracks config   # import order
+uv run isort --check-only --diff my_tracks config web_ui   # import order
 uv run flake8 --config dev-tooling/.flake8 my_tracks config  # PEP 8 + unused imports/vars
 uv run pytest --cov=my_tracks --cov-fail-under=90   # tests + coverage
 ```
@@ -111,7 +111,7 @@ Do not declare a PR ready until Steps 3, 4, and 5 all pass.
 - ✅ **90% minimum code coverage** (`uv run pytest --cov=my_tracks --cov-fail-under=90`)
 - ✅ **Pyright type checking passes** (`uv run pyright`) - enforced by CI/CD
 - ✅ **All functions have complete type signatures** (parameters and return types) - enforced by Pyright
-- ✅ **Imports sorted with isort** (`uv run isort --check-only my_tracks config`)
+- ✅ **Imports sorted with isort** (`uv run isort --check-only my_tracks config web_ui`)
 - ✅ No pytest warnings
 - ✅ VS Code Problems panel clear
 - ✅ **All test assertions use PyHamcrest** (`assert_that()` — no naked `assert` statements)

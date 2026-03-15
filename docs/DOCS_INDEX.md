@@ -20,10 +20,10 @@ Comprehensive overview of the project architecture, features, and status.
 ### [QUICKSTART.md](QUICKSTART.md)
 Quick 5-minute setup guide with automated and manual options.
 
-### [setup](setup)
-Automated setup script - run `bash setup` to set up everything.
+### [scripts/setup](../scripts/setup)
+Automated setup script - run `bash scripts/setup` to set up everything.
 
-### [verify-setup](verify-setup)
+### [scripts/verify-setup](../scripts/verify-setup)
 Verification script to check if installation is complete and correct.
 
 ## 📚 API & Usage
@@ -44,7 +44,7 @@ Uses Daphne ASGI server for WebSocket support. See [WEBSOCKET.md](WEBSOCKET.md).
 
 ## 🧪 Testing
 
-### [test_tracker.py](../tests/python/test_tracker.py)
+### [tests/python/test_tracker.py](../tests/python/test_tracker.py)
 Comprehensive pytest test suite for models, API, and OwnTracks compatibility.
 
 ### Running Tests
@@ -77,7 +77,8 @@ Git ignore patterns for Python and development files.
 ```
 my-tracks/
 ├── manage.py                 # Management script
-├── my-tracks-server          # Server startup script
+├── scripts/
+│   └── my-tracks-server      # Server startup script
 ├── config/                   # Project configuration package
 │   ├── __init__.py
 │   ├── settings.py          # Project settings with type hints
@@ -124,7 +125,7 @@ See [AGENTS.md](AGENTS.md) for the development workflow and agent responsibiliti
 → [PROJECT_SUMMARY.md](PROJECT_SUMMARY.md)
 
 **Run tests**
-→ [test_tracker.py](../tests/python/test_tracker.py) + `pytest`
+→ [tests/python/test_tracker.py](../tests/python/test_tracker.py) + `pytest`
 
 **Configure OwnTracks app**
 → [QUICKSTART.md](QUICKSTART.md#configure-owntracks-app)
@@ -151,9 +152,9 @@ See [AGENTS.md](AGENTS.md) for the development workflow and agent responsibiliti
 | AGENTS.md | Development workflow | Contributors |
 | pyproject.toml | Package config | Build tools |
 | manage.py | CLI | Developers |
-| setup | Auto setup | New users |
-| verify-setup | Setup verification | Everyone |
-| test_tracker.py | Test suite | Developers/QA |
+| scripts/setup | Auto setup | New users |
+| scripts/verify-setup | Setup verification | Everyone |
+| tests/python/test_tracker.py | Test suite | Developers/QA |
 
 ## 🎯 Getting Help
 

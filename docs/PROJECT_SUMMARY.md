@@ -68,9 +68,13 @@ my-tracks/
 ├── pyproject.toml             # Python dependencies (uv)
 ├── package.json               # Frontend dependencies (npm)
 ├── manage.py                  # Management script
-├── my-tracks-server           # Server startup script
-├── setup                      # Automated setup script
-├── test_tracker.py            # Python test suite
+├── scripts/
+│   ├── my-tracks-server       # Server startup script
+│   ├── setup                  # Automated setup script
+│   └── verify-setup           # Setup verification script
+├── tests/
+│   └── python/
+│       └── test_tracker.py    # Python test suite
 ├── examples/                  # Example configuration files
 │   └── .env.example           # Environment template
 ├── config/                    # Project configuration
@@ -267,10 +271,10 @@ uv run pytest
 uv run pytest --cov=my_tracks --cov-report=html
 
 # Run specific test file
-uv run pytest test_tracker.py
+uv run pytest tests/python/test_tracker.py
 
 # Run specific test
-uv run pytest test_tracker.py::TestLocationAPI::test_create_location_owntracks_format
+uv run pytest tests/python/test_tracker.py::TestLocationAPI::test_create_location_owntracks_format
 ```
 
 ## Code Quality

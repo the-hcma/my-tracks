@@ -10,10 +10,9 @@ Quick reference for all commonly used commands.
 
 ```bash
 # Automated setup (recommended)
-bash setup
+bash scripts/setup
 
 # Manual setup
-./install
 uv sync
 ```
 
@@ -197,13 +196,13 @@ uv run python manage.py sqlmigrate my_tracks 0001
 uv run pytest
 
 # Run specific test file
-uv run pytest test_tracker.py
+uv run pytest tests/python/test_tracker.py
 
 # Run specific test class
-uv run pytest test_tracker.py::TestLocationAPI
+uv run pytest tests/python/test_tracker.py::TestLocationAPI
 
 # Run specific test
-uv run pytest test_tracker.py::TestLocationAPI::test_create_location_owntracks_format
+uv run pytest tests/python/test_tracker.py::TestLocationAPI::test_create_location_owntracks_format
 
 # Run with verbose output
 uv run pytest -v

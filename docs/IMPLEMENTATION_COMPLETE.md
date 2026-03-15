@@ -23,7 +23,7 @@ My Tracks — a self-hosted location tracking backend for OwnTracks — has been
    - `wsgi.py` - WSGI application
    - `asgi.py` - ASGI application
 
-3. **Tracker App** (`tracker/`)
+3. **Tracker App** (`my_tracks/`)
    - `__init__.py` - App package initialization
    - `models.py` - Device & Location models with full type hints
    - `serializers.py` - DRF serializers for OwnTracks format
@@ -34,12 +34,11 @@ My Tracks — a self-hosted location tracking backend for OwnTracks — has been
    - `migrations/__init__.py` - Migrations package
 
 4. **Testing**
-   - `test_tracker.py` - Comprehensive pytest test suite (40+ tests)
+   - `tests/python/test_tracker.py` - Comprehensive pytest test suite (40+ tests)
 
 5. **Setup & Configuration**
-   - `setup` - Automated setup script (no .sh extension)
-   - `install` - File extraction utility (Typer CLI)
-   - `verify-setup` - Setup verification script (Typer CLI)
+   - `scripts/setup` - Automated setup script (no .sh extension)
+   - `scripts/verify-setup` - Setup verification script
    - `examples/.env.example` - Environment template
    - `.gitignore` - Git exclusions
    - `LICENSE` - PolyForm Noncommercial License 1.0.0
@@ -144,7 +143,7 @@ My Tracks — a self-hosted location tracking backend for OwnTracks — has been
 
 ```bash
 # 1. Run setup
-bash setup
+bash scripts/setup
 
 # 2. Start server
 ./scripts/my-tracks-server
@@ -187,8 +186,9 @@ my-tracks/
 │   ├── .gitignore
 │   └── LICENSE
 ├── Scripts (2 files)
-│   ├── setup
-│   └── scripts/verify-setup
+│   └── scripts/
+│       ├── setup
+│       └── verify-setup
 ├── Project Configuration (1 file + 5 in config/)
 │   ├── manage.py
 │   └── config/
@@ -197,8 +197,8 @@ my-tracks/
 │       ├── urls.py
 │       ├── wsgi.py
 │       └── asgi.py
-├── Tracker App (8 files in tracker/)
-│   └── tracker/
+├── Tracker App (8 files in my_tracks/)
+│   └── my_tracks/
 │       ├── __init__.py
 │       ├── models.py
 │       ├── serializers.py
@@ -208,7 +208,7 @@ my-tracks/
 │       ├── apps.py
 │       └── migrations/__init__.py
 └── Testing (1 file)
-    └── test_tracker.py
+    └── tests/python/test_tracker.py
 ```
 
 ## 🎓 Key Design Decisions
@@ -242,7 +242,7 @@ my-tracks/
 ## 📈 Next Steps for Users
 
 ### Development
-1. Run `./scripts/setup`
+1. Run `bash scripts/setup`
 2. Start server: `./scripts/my-tracks-server`
 3. Configure OwnTracks app
 4. Test the integration
