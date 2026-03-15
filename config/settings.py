@@ -382,6 +382,11 @@ CSRF_TRUSTED_ORIGINS: list[str] = _parse_csrf_origins(
     str(config('CSRF_TRUSTED_ORIGINS', default=''))
 )
 
+# Allow cross-origin requests (e.g. OpenStreetMap tile servers) to receive the
+# origin as Referer. Django's SecurityMiddleware defaults to "same-origin" which
+# strips the Referer entirely for cross-origin requests, causing OSM 403s.
+SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
+
 # Production security settings (only active when DEBUG=False)
 if not DEBUG:
     SECURE_PROXY_SSL_HEADER: tuple[str, str] = ('HTTP_X_FORWARDED_PROTO', 'https')
