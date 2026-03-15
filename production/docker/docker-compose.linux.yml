@@ -1,0 +1,10 @@
+# Linux-only overlay: adds host.docker.internal → host-gateway so app
+# containers can reach a PostgreSQL instance running on the host.
+# Docker Desktop (macOS/Windows) provides host.docker.internal natively;
+# Podman uses host.containers.internal (natively available, no extra_hosts needed).
+# This file is appended to the compose file list by the container manager
+# only when running Docker on Linux.
+services:
+  my-tracks:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

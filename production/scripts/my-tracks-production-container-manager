@@ -133,6 +133,7 @@ generate_secret() {
 compose_cmd=""
 compose_files=()
 container_engine=""  # "docker" or "podman"
+host_internal=""     # hostname containers use to reach the host (set by check_prerequisites)
 
 check_prerequisites() {
     local missing=()
@@ -275,6 +276,15 @@ check_prerequisites() {
       Install with:  $(install_hint openssl)")
     fi
 
+    # Set host_internal: the hostname containers use to reach the host machine.
+    # Podman provides host.containers.internal natively; Docker uses host.docker.internal
+    # (natively on macOS/Windows Desktop, or via extra_hosts on Linux).
+    if [ "$container_engine" = "podman" ]; then
+        host_internal="host.containers.internal"
+    else
+        host_internal="host.docker.internal"
+    fi
+
     # ── Report all issues at once ────────────────────────────────────────
     if [ ${#missing[@]} -gt 0 ]; then
         local msg="Missing prerequisites:
@@ -364,6 +374,11 @@ setup_compose_files() {
         fi
     elif [ -n "$(env_get "PG_SOCKET_DIR")" ]; then
         compose_files+=("-f" "$project_dir/production/docker/docker-compose.socket.yml")
+    fi
+    # On Linux with Docker, inject host.docker.internal via host-gateway.
+    # Docker Desktop (macOS/Windows) and Podman provide their equivalent natively.
+    if [ "$container_engine" = "docker" ] && [[ "$(uname -s)" != "Darwin" ]]; then
+        compose_files+=("-f" "$project_dir/production/docker/docker-compose.linux.yml")
     fi
 }
 
@@ -637,7 +652,7 @@ _docker_psql() {
 # Uses pg_isready for a fast network check, then psql for a full auth test.
 # Captures psql stderr to diagnose specific failures (missing user, missing
 # database, wrong password, pg_hba rejection) and prints targeted fix commands.
-# host.docker.internal is rewritten to localhost since the probe runs on the host.
+# The container host alias is rewritten to localhost since the probe runs on the host.
 # For Unix socket URLs (empty hostname, ?host=/socket/path), accepts an optional
 # second argument with the host-side socket directory to use for the probe.
 # All output goes to stderr so this function is safe inside $() subshells.
@@ -650,8 +665,8 @@ probe_db_connection() {
     local masked; masked="$(mask_password_in_url "$url")"
     echo "==> Probing database: $masked" >&2
 
-    # host.docker.internal only resolves inside a container; probe uses localhost.
-    local probe_url="${url/host.docker.internal/localhost}"
+    # The internal host alias only resolves inside a container; probe uses localhost.
+    local probe_url="${url/$host_internal/localhost}"
 
     # Extract connection fields for targeted error messages and the docker probe.
     # Pure bash URL parsing — no Python required.
@@ -699,8 +714,8 @@ probe_db_connection() {
         if [[ "$(uname -s)" == "Linux" ]]; then
             docker_flags+=("--network" "host")
         else
-            # macOS Docker Desktop: 'localhost' inside a container is the container itself.
-            psql_host="host.docker.internal"
+            # macOS: 'localhost' inside a container is the container itself; use host alias.
+            psql_host="$host_internal"
         fi
     fi
 
@@ -814,7 +829,7 @@ warn_if_localhost_url() {
         echo "" >&2
         echo "  ⚠  The DATABASE_URL uses 'localhost', which inside Docker resolves to" >&2
         echo "     the container itself — not this host machine." >&2
-        echo "     Use 'host.docker.internal' instead of 'localhost' to reach a" >&2
+        echo "     Use '$host_internal' instead of 'localhost' to reach a" >&2
         echo "     database running on this host." >&2
         echo "" >&2
     fi
@@ -930,8 +945,8 @@ prompt_db_url() {
 # Probes connectivity; retries on failure.
 # Outputs the validated URL to stdout; all interaction goes to stderr.
 # The user enters a normal hostname (default: localhost). After a successful probe
-# the URL is rewritten to use host.docker.internal so it resolves from inside the
-# containers on both Linux (via extra_hosts) and Docker Desktop (macOS).
+# the URL is rewritten to use the container host alias (host.docker.internal for
+# Docker, host.containers.internal for Podman) so it resolves from inside containers.
 prompt_local_db_url() {
     local host port dbname user password db_url enc_user enc_password
     local h p d u
@@ -966,10 +981,10 @@ prompt_local_db_url() {
         fi
     done
 
-    # Rewrite localhost/127.0.0.1 → host.docker.internal so the URL resolves
-    # from inside Docker containers (which can't reach the host via localhost).
-    db_url="${db_url/@localhost:/@host.docker.internal:}"
-    db_url="${db_url/@127.0.0.1:/@host.docker.internal:}"
+    # Rewrite localhost/127.0.0.1 → container host alias so the URL resolves
+    # from inside containers (which can't reach the host via localhost).
+    db_url="${db_url/@localhost:/@${host_internal}:}"
+    db_url="${db_url/@127.0.0.1:/@${host_internal}:}"
 
     warn_if_localhost_url "$db_url"
     echo "$db_url"
@@ -1093,7 +1108,7 @@ setup_external_database() {
 
 # Inform user of internal DB or probe external DB for connectivity.
 # Takes the DATABASE_URL as an argument so there is no implicit global dependency.
-# When the URL targets host.docker.internal, also verifies that postgres is
+# When the URL targets the container host alias, also verifies that postgres is
 # listening on an address the container can actually reach (not just localhost).
 # If it isn't, offers to migrate the env file to use a Unix socket.
 verify_database_connectivity() {
@@ -1110,10 +1125,10 @@ verify_database_connectivity() {
     if probe_db_connection "$url"; then
         echo "  ✔  External database is reachable."
         warn_if_localhost_url "$url"
-        # The probe above substitutes host.docker.internal → localhost, so it
+        # The probe above substitutes the host alias → localhost, so it
         # succeeds even when postgres is not listening on the host's LAN IP.
         # Verify containers can actually reach it; offer socket migration if not.
-        if [[ "$url" == *"host.docker.internal"* ]]; then
+        if [[ "$url" == *"$host_internal"* ]]; then
             _check_container_reachability "$url"
         fi
         echo ""
@@ -1125,17 +1140,17 @@ verify_database_connectivity() {
     fi
 }
 
-# Called when DATABASE_URL uses host.docker.internal.
+# Called when DATABASE_URL uses the container host alias.
 # Queries postgres listen_addresses to determine whether the host's LAN interface
 # is actually exposed. If postgres only listens on localhost, the container will
-# fail to connect via host.docker.internal (which resolves to the LAN IP).
+# fail to connect via the host alias (which resolves to the LAN IP).
 # Offers to migrate the env file to use a Unix socket if one is available.
 # Falls back silently (best-effort) when psql is unavailable or query fails.
 _check_container_reachability() {
     local url="$1"
     command -v psql >/dev/null 2>&1 || return 0
 
-    local probe_url="${url/host.docker.internal/localhost}"
+    local probe_url="${url/$host_internal/localhost}"
     local pg_user pg_password pg_db probe_port
     parse_db_url "$probe_url"
     pg_user="$_db_user"
@@ -1160,8 +1175,8 @@ _check_container_reachability() {
 
     echo "" >&2
     echo "  ⚠  PostgreSQL listen_addresses='${listen_addrs}' — it only accepts" >&2
-    echo "     loopback connections. Docker containers cannot reach it via" >&2
-    echo "     host.docker.internal (which resolves to the host's LAN IP)." >&2
+    echo "     loopback connections. Containers cannot reach it via" >&2
+    echo "     $host_internal (which resolves to the host's LAN IP)." >&2
 
     local sock_dir
     if sock_dir="$(detect_pg_socket_dir)"; then
@@ -1180,7 +1195,7 @@ _check_container_reachability() {
     echo "  To allow container access without a socket, configure PostgreSQL:" >&2
     _pg_admin_cmd "psql -c \"ALTER SYSTEM SET listen_addresses = '*'; SELECT pg_reload_conf();\"" >&2
     echo "  Also add a host entry in pg_hba.conf for the Docker subnet." >&2
-    die "PostgreSQL is not reachable from Docker containers via host.docker.internal."
+    die "PostgreSQL is not reachable from containers via $host_internal."
 }
 
 # Rewrites DATABASE_URL in .env.production to use a Unix socket and adds
@@ -1863,7 +1878,7 @@ cmd_start() {
     # actually exists before proceeding so we fail fast with a clear message.
     if [ "$container_engine" = "podman" ]; then
         local app_image
-        app_image="$(grep -E '^\s+image:' "$project_dir/docker-compose.yml" | grep -v '^#' | head -1 | sed 's/.*image: *//' | tr -d ' ')"
+        app_image="$(grep -E '^\s+image:' "$project_dir/production/docker/docker-compose.yml" | grep -v '^#' | head -1 | sed 's/.*image: *//' | tr -d ' ')"
         if [ -n "$app_image" ] && ! podman image exists "$app_image" 2>/dev/null; then
             die "Image build failed — '$app_image' was not created. See build errors above."
         fi
@@ -2031,7 +2046,7 @@ cmd_stop() {
         load_config_from_env
         setup_compose_files
     else
-        compose_files=("-f" "$project_dir/docker-compose.yml")
+        compose_files=("-f" "$project_dir/production/docker/docker-compose.yml")
     fi
 
     _removal_errors=()
