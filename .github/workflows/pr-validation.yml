@@ -7,6 +7,11 @@ on:
   # second run after the merge would duplicate work without adding any new
   # signal.
   pull_request:
+  schedule:
+    # Weekly full suite — catches new CVEs and regressions between PRs.
+    # Thursday 07:00 UTC (offset from Monday docker scout scan to spread alerts).
+    - cron: '0 7 * * 4'
+  workflow_dispatch:
 
 jobs:
   frontend:
@@ -82,6 +87,9 @@ jobs:
     - name: Check for pending migrations
       run: uv run python manage.py makemigrations --check --dry-run
 
+    - name: Audit Python dependencies for CVEs
+      run: uv run pip-audit
+
   backend-test:
     name: Backend Tests
     runs-on: ubuntu-latest
@@ -118,6 +126,43 @@ jobs:
 
     - name: Run tests with coverage
       run: uv run pytest --cov=my_tracks --cov-fail-under=90 --cov-report=term-missing
+
+    - name: Django deployment hardening check
+      run: uv run python manage.py check --deploy
+      env:
+        DEBUG: "False"
+        SECRET_KEY: "ci-placeholder-not-a-real-secret-but-long-enough-for-django"
+        ALLOWED_HOSTS: "example.com"
+        SECURE_SSL_REDIRECT: "True"
+        SESSION_COOKIE_SECURE: "True"
+        CSRF_COOKIE_SECURE: "True"
+
+  secret-scan:
+    name: Secret Scan
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+    - name: Install gitleaks
+      run: |
+        ARCH=$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/')
+        VERSION=$(curl -s https://api.github.com/repos/gitleaks/gitleaks/releases/latest | grep '"tag_name"' | cut -d'"' -f4 | tr -d 'v')
+        curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_${ARCH}.tar.gz" \
+          | tar -xz gitleaks
+        sudo mv gitleaks /usr/local/bin/
+
+    - name: Scan for leaked secrets
+      run: |
+        BASE="${{ github.event.pull_request.base.sha }}"
+        HEAD="${{ github.event.pull_request.head.sha }}"
+        if [ -n "$BASE" ] && [ -n "$HEAD" ]; then
+          gitleaks detect --source . --log-opts "${BASE}..${HEAD}"
+        else
+          gitleaks detect --source .
+        fi
 
   shell-test:
     name: Shell Script Tests
