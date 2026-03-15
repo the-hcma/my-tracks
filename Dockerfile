@@ -6,7 +6,8 @@ FROM node:22-slim AS frontend
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts
-COPY esbuild.config.mjs tsconfig.json ./
+COPY tsconfig.json ./
+COPY dev-tooling/esbuild.config.mjs dev-tooling/
 COPY web_ui/static/web_ui/ts/ web_ui/static/web_ui/ts/
 RUN npm run build
 
