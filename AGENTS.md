@@ -267,6 +267,18 @@ Do not declare a PR ready until Steps 3, 4, and 5 all pass.
 - Run tests before committing: `./test-script-name`
 - Rationale: Catches common shell scripting errors, ensures reliability, consistent tooling across environments
 
+**No Python in Infrastructure Shell Scripts**:
+- Infrastructure bash scripts MUST NOT invoke `python3` for utility operations (URL parsing, secret generation, encoding, etc.)
+- Python may be absent, in a broken venv, or pointing to the wrong interpreter on the target machine — the script would silently fail or require debug knowledge to fix
+- Use pure bash built-ins and standard POSIX tools instead:
+  - ✅ Pure bash URL parsing (`parse_db_url()` with `${var%%:*}` / `${var#*:}` patterns)
+  - ✅ `openssl rand -base64 48` for secret generation (falls back to `/dev/urandom` + `tr`)
+  - ✅ `printf '%b'` for `\xHH` decoding (URL percent-decode)
+  - ✅ `printf '%%%02X'` for percent-encoding single characters
+  - ❌ `python3 -c "import urllib.parse; urllib.parse.quote(...)"`
+  - ❌ `python3 -c "import secrets; secrets.token_urlsafe(48)"`
+- Rationale: Infrastructure scripts run before the project venv is guaranteed to exist; bash + standard tools are always present
+
 **Python CLI Tools**:
 - **MUST use Typer** for command-line argument parsing instead of argparse
 - Use `Annotated` types with `typer.Option()` and `typer.Argument()` for clean, type-safe CLIs
@@ -382,16 +394,28 @@ Do not declare a PR ready until Steps 3, 4, and 5 all pass.
 
 **Security Guidelines**:
 
-Passwords must never appear in shell command arguments — they end up in bash history (`~/.bash_history`) and in process listings (`ps aux`).
+Passwords must never appear in shell command arguments — they end up in bash history (`~/.bash_history`) and in process listings (`ps aux`). Environment variables like `PGPASSWORD` are safer than argv but still visible to any process that can read `/proc/<pid>/environ` on Linux.
 
-- **In scripts**: pass passwords via environment variables scoped to the subprocess:
-  - ✅ `PGPASSWORD="$pw" psql -h host -U user -d db -c "SELECT 1"`
-  - ❌ `psql "postgresql://user:password@host/db" -c "SELECT 1"`
+- **In scripts (psql calls)**: use a temporary `.pgpass` file scoped to the call — never `PGPASSWORD`:
+  ```bash
+  _run_psql() {
+      local password="$1"; shift
+      local pgpass_file
+      pgpass_file="$(mktemp)"
+      chmod 0600 "$pgpass_file"
+      printf '*:*:*:*:%s\n' "$password" > "$pgpass_file"
+      PGPASSFILE="$pgpass_file" PGCONNECT_TIMEOUT=5 psql "$@"
+      local rc=$?; rm -f "$pgpass_file"; return $rc
+  }
+  ```
+  - ✅ `_run_psql "$pw" -h host -U user -d db -c "SELECT 1"`
+  - ❌ `PGPASSWORD="$pw" psql -h host -U user -d db -c "SELECT 1"` (visible in `/proc/<pid>/environ`)
+  - ❌ `psql "postgresql://user:password@host/db" -c "SELECT 1"` (visible in `ps aux`)
 - **In user-facing instructions**: use interactive prompts that don't record the password:
   - ✅ `psql -c '\password username'` — prompts interactively, nothing stored
   - ❌ `psql -c "ALTER USER username PASSWORD 'plaintext';"`
-- **In manual test commands shown to the user**: use `-W` to force an interactive password prompt, or `PGPASSWORD=...` with a note that the variable is not logged by bash
-  - ✅ `PGPASSWORD=yourpassword psql -h localhost -U user -d db -c "SELECT 1"` (env var only, not a command arg)
+- **In manual test commands shown to the user**: use `-W` to force an interactive password prompt
+  - ✅ `psql -h localhost -U user -d db -W -c "SELECT 1"` (prompts for password interactively)
   - ❌ `psql "postgresql://user:yourpassword@localhost/db"` (password in URL ends up in history)
 
 **Review Checklist**:
@@ -399,7 +423,8 @@ Passwords must never appear in shell command arguments — they end up in bash h
 - [ ] All edge cases properly handled
 - [ ] Type hints complete and accurate
 - [ ] Docstrings clear and comprehensive
-- [ ] No security vulnerabilities — including **no passwords in command-line arguments** (see Security Guidelines above)
+- [ ] No security vulnerabilities — including **no passwords in command-line arguments or `PGPASSWORD` env var** (use `_run_psql` / `.pgpass` temp files — see Security Guidelines above)
+- [ ] **No `python3` invocations in infrastructure bash scripts** (use pure bash + `openssl`/`tr`/`printf` — see No Python in Infrastructure Shell Scripts above)
 - [ ] Error messages are informative (include both expected and actual values)
 - [ ] Naming conventions followed (values, descriptive mappings)
 - [ ] No dead code (unused methods, variables, imports, or parameters)
