@@ -55,35 +55,72 @@ class TestDockerCompose:
         assert_that(_read("docker-compose.yml"), contains_string(".env.production"))
 
 
-class TestDockerComposePostgres:
-    """Validate docker-compose.postgres.yml (optional internal DB)."""
+class TestDockerComposePostgresTesting:
+    """Validate docker-compose.postgres-testing.yml (transient internal DB)."""
 
     def test_postgres_compose_file_exists(self) -> None:
-        assert_that((_ROOT / "docker-compose.postgres.yml").exists(), is_(True))
+        assert_that((_ROOT / "docker-compose.postgres-testing.yml").exists(), is_(True))
 
     def test_defines_postgres_service(self) -> None:
         assert_that(
-            _read("docker-compose.postgres.yml"), contains_string("postgres:")
+            _read("docker-compose.postgres-testing.yml"), contains_string("postgres:")
         )
 
     def test_postgres_has_healthcheck(self) -> None:
         assert_that(
-            _read("docker-compose.postgres.yml"), contains_string("pg_isready")
+            _read("docker-compose.postgres-testing.yml"), contains_string("pg_isready")
         )
 
     def test_my_tracks_depends_on_postgres(self) -> None:
         assert_that(
-            _read("docker-compose.postgres.yml"), contains_string("service_healthy")
+            _read("docker-compose.postgres-testing.yml"), contains_string("service_healthy")
         )
 
     def test_postgres_data_volume_defined(self) -> None:
         assert_that(
-            _read("docker-compose.postgres.yml"), contains_string("postgres-data:")
+            _read("docker-compose.postgres-testing.yml"), contains_string("postgres-data:")
         )
 
-    def test_database_url_uses_postgres(self) -> None:
+    def test_my_tracks_waits_for_healthy_postgres(self) -> None:
+        # DATABASE_URL comes from .env.production (env_file); the overlay only
+        # needs to declare the dependency so my-tracks starts after postgres is ready.
         assert_that(
-            _read("docker-compose.postgres.yml"), contains_string("postgresql://")
+            _read("docker-compose.postgres-testing.yml"), contains_string("service_healthy")
+        )
+
+
+class TestDockerComposePostgresProduction:
+    """Validate docker-compose.postgres-production.yml (persistent internal DB)."""
+
+    def test_postgres_compose_file_exists(self) -> None:
+        assert_that((_ROOT / "docker-compose.postgres-production.yml").exists(), is_(True))
+
+    def test_defines_postgres_service(self) -> None:
+        assert_that(
+            _read("docker-compose.postgres-production.yml"), contains_string("postgres:")
+        )
+
+    def test_postgres_has_healthcheck(self) -> None:
+        assert_that(
+            _read("docker-compose.postgres-production.yml"), contains_string("pg_isready")
+        )
+
+    def test_my_tracks_depends_on_postgres(self) -> None:
+        assert_that(
+            _read("docker-compose.postgres-production.yml"), contains_string("service_healthy")
+        )
+
+    def test_postgres_data_uses_bind_mount(self) -> None:
+        assert_that(
+            _read("docker-compose.postgres-production.yml"),
+            contains_string("POSTGRES_DATA_DIR"),
+        )
+
+    def test_my_tracks_waits_for_healthy_postgres(self) -> None:
+        # DATABASE_URL comes from .env.production (env_file); the overlay only
+        # needs to declare the dependency so my-tracks starts after postgres is ready.
+        assert_that(
+            _read("docker-compose.postgres-production.yml"), contains_string("service_healthy")
         )
 
 
