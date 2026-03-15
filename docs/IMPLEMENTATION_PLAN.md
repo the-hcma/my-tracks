@@ -638,61 +638,79 @@ Package the application as a production-ready container image deployable on a Ce
     - `docs/DEPLOYMENT.md`: document `--update-certs`, cert import flow, nightly cron
       setup, SMTP configuration, and `check_cert_expiry`
 
-47. **Pre-Internet Security Scan**
+47. **Automated Security Scanning in CI + Pre-Internet Gate**
 
-    **Problem**: Before opening port 443 to the internet, there should be a documented
-    checklist and an automated scan to catch obvious vulnerabilities in the codebase and
-    container configuration.
+    **Priority**: implement immediately after the documentation audit (see note below).
 
-    **Goal**: A single command (or short sequence) that any operator can run to get a
-    confidence signal that the stack is reasonably hardened before going public.
+    **Problem**: No automated security scanning exists anywhere in the project today —
+    not in CI, not locally, not at deploy time. Dependency CVEs, credential leaks, and
+    Django misconfiguration can go undetected indefinitely.
+
+    **Goal**: Catch security issues continuously (per-PR via CI) and provide a pre-launch
+    gate before the service is exposed on port 443.
+
+    **Note**: all scan integrations below are **new** — none exist in the current
+    `pr-validation.yml` or anywhere else in the project.
 
     ---
 
-    **Scan categories**:
+    **Per-PR CI additions** (new steps in `pr-validation.yml`):
 
-    1. **Python dependency audit** — `uv run pip-audit` (or `safety check`) flags packages
-       with known CVEs. Add `pip-audit` as a dev dependency.
+    1. **Python dependency CVE audit** — new step in `backend-lint` job:
+       ```yaml
+       - name: Audit Python dependencies for CVEs
+         run: uv run pip-audit
+       ```
+       `pip-audit` is a new dev dependency (`pyproject.toml`). Exits non-zero on any
+       known CVE, blocking the PR. Fast — typically under 10 seconds.
 
-    2. **Container image scan** — `docker scout cves ghcr.io/the-hcma/my-tracks:latest`
-       (Docker Scout is bundled with Docker Desktop and Docker Engine ≥ 24). Reports CVEs
-       in the base image and installed packages. Run after `compose build` but before
-       going live.
+    2. **Django deployment hardening check** — new step in `backend-test` job, run after
+       migrations and collectstatic (Django process already running in that job):
+       ```yaml
+       - name: Django deployment check
+         run: uv run python manage.py check --deploy
+         env:
+           DEBUG: "False"
+           SECRET_KEY: "ci-placeholder-not-a-real-secret"
+           ALLOWED_HOSTS: "example.com"
+       ```
+       Verifies `DEBUG=False`, `ALLOWED_HOSTS`, `SECRET_KEY` strength,
+       `SECURE_SSL_REDIRECT`, `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`,
+       HSTS headers, etc. Already enforced by Django — just needs to be wired in.
 
-    3. **Django deployment checklist** — `python manage.py check --deploy` is Django's
-       built-in hardening check. Verifies `DEBUG=False`, `ALLOWED_HOSTS` set, `SECRET_KEY`
-       strength, `SECURE_SSL_REDIRECT`, `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`,
-       `HSTS` headers, etc. Fails non-zero on any finding — can be run inside the container
-       via `docker compose exec my-tracks python manage.py check --deploy`.
+    3. **Secret / credential leak scan** — new dedicated job `secret-scan`:
+       ```yaml
+       - name: Scan for leaked secrets
+         uses: gitleaks/gitleaks-action@v2
+       ```
+       Scans the full git history on every PR. Blocks if any credentials, API keys, or
+       tokens are found committed anywhere in the tree.
 
-    4. **Shell script static analysis** — `shellcheck` on all scripts under `scripts/` and
-       `production/scripts/` (already run in CI; ensure it covers new scripts added in
-       step 46).
+    **Scheduled weekly CI** (new `security-scan.yml` workflow, runs `0 6 * * 1`):
 
-    5. **Secret / credential leak scan** — `trufflehog filesystem .` or `gitleaks detect`
-       to confirm no secrets are accidentally committed. Add as a one-time pre-launch step.
+    4. **Container image CVE scan** — `docker scout cves ghcr.io/the-hcma/my-tracks:latest`
+       run against the published image. Catches newly-disclosed CVEs in base image packages
+       between code changes. Not per-PR (would require building the image each time);
+       weekly is sufficient and keeps CI fast.
 
-    **Container manager integration**:
-    - New `--security-check` command that runs items 1–3 (pip-audit, docker scout, manage.py
-      check --deploy) in sequence and prints a summary. Exits non-zero if any scan finds
-      high/critical issues, so it can gate a deployment script.
-    - Printed in the `--start` banner as a recommended pre-launch step:
+    **Container manager pre-launch gate** (new `--security-check` command):
+    - Runs pip-audit, `manage.py check --deploy`, and `docker scout cves` against the
+      locally-built image in sequence. Exits non-zero on any high/critical finding.
+    - Printed in the `--start` banner when a real domain cert is detected:
       ```
       ── Before opening port 443 ──
         Run: ./production/scripts/my-tracks-production-container-manager --security-check
       ```
-
-    **CI integration**:
-    - Add `pip-audit` to the `backend-lint` job in `pr-validation.yml` so dependency CVEs
-      are caught per-PR, not just at deploy time.
-    - `manage.py check --deploy` runs in the `backend-test` job (already has a running
-      Django process) with a production-like env (`DEBUG=False`, dummy `SECRET_KEY`, etc.).
+    - Gives the operator a single pre-flight command that covers what CI can't: the
+      actual built image and the real deployment config (`ALLOWED_HOSTS`, `SECRET_KEY`).
 
     **Files changed**:
-    - `production/scripts/my-tracks-production-container-manager`: add `cmd_security_check`
     - `.github/workflows/pr-validation.yml`: add `pip-audit` step to `backend-lint` job;
-      add `manage.py check --deploy` step to `backend-test` job
+      add `manage.py check --deploy` step to `backend-test` job; add `secret-scan` job
+    - `.github/workflows/security-scan.yml`: new weekly scheduled workflow for
+      `docker scout cves`
     - `pyproject.toml`: add `pip-audit` to dev dependencies
+    - `production/scripts/my-tracks-production-container-manager`: add `cmd_security_check`
     - `docs/DEPLOYMENT.md`: pre-launch security checklist section
 
 ### Phase 9: Advanced Integration
