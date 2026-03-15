@@ -480,6 +480,221 @@ Package the application as a production-ready container image deployable on a Ce
     - Update documentation and operational examples to use the new script paths
     - Update configuration/workflow references that point to legacy script locations
 
+46. **Let's Encrypt Certificate Support in Production Container Manager**
+
+    **Problem**: The container manager currently generates self-signed certs for every `--start`, which means every browser session shows a TLS warning. Users who already hold Let's Encrypt (or other CA-issued) certs for their domain can't use them cleanly — the manager ignores them and overwrites with self-signed.
+
+    **Goal**: When real certs are present the stack starts with a fully browser-trusted HTTPS endpoint. When no certs exist, the manager guides the user through supplying them before starting.
+
+    ---
+
+    **Domain detection** (happens early in `cmd_start`, before env is written):
+
+    1. If `production/var/certs/fullchain.pem` exists, extract the domain automatically:
+       ```bash
+       # Prefer SAN (RFC-correct); fall back to CN
+       domain=$(openssl x509 -noout -ext subjectAltName \
+                   -in "$CERTS_DIR/fullchain.pem" 2>/dev/null \
+               | grep -oE 'DNS:[^,]+' | head -1 | sed 's/DNS://')
+       [ -z "$domain" ] && domain=$(openssl x509 -noout -subject \
+                   -in "$CERTS_DIR/fullchain.pem" \
+               | sed -n 's/.*CN\s*=\s*//p' | xargs)
+       ```
+    2. Validate the cert/key pair match (compare public-key fingerprints of cert and key).
+    3. Check expiry: error if already expired; warn (but continue) if expiring within 30 days.
+    4. Print the detected domain so the user can confirm: `info "Detected domain from cert: $domain"`.
+
+    **No-cert flow** (certs absent and `--freshen-up` not passed):
+
+    Present a choice instead of silently self-signing:
+    ```
+    ── TLS Certificate Setup ──
+      No certificates found in production/var/certs/
+
+      a) Import Let's Encrypt certs  — copy from certbot or a custom path (browser-trusted)
+      b) Generate self-signed cert   — fast start; browser will show a security warning
+    ```
+    - **Option a — import**:
+      1. Probe the certbot default path: `/etc/letsencrypt/live/<domain>/` (if the user already
+         has a domain in mind, or skip probing and ask first).
+      2. Prompt: `Domain name (e.g. mytracks.example.com):` — used to find
+         `/etc/letsencrypt/live/<domain>/{fullchain,privkey}.pem`.
+      3. If certbot path not found, prompt: `Path to fullchain.pem:` / `Path to privkey.pem:`.
+      4. Validate the pair, then copy to `production/var/certs/`.
+      5. Domain is now known from the imported cert (step 1 of detection above).
+    - **Option b — self-signed**: existing `create_self_signed_certs` behaviour; domain stays
+      `localhost`, self-signed for `localhost` (unchanged behaviour).
+
+    **`--freshen-up` behaviour change**:
+    - Currently always regenerates self-signed. After this change:
+      - If `production/var/certs/` already has a real CA cert, `--freshen-up` preserves it
+        and only wipes env/db/logs (not certs). Add `--freshen-up --reset-certs` to explicitly
+        replace certs as well.
+      - If certs are absent, runs the no-cert flow above (import or self-sign).
+
+    **New `--update-certs` command**:
+    ```
+    ./production/scripts/my-tracks-production-container-manager --update-certs
+    ```
+    - Prompts for the new cert source (certbot path or custom paths).
+    - Validates the new cert/key pair.
+    - Copies to `production/var/certs/`, replacing existing files.
+    - Re-stages bind-mount files (`stage_bind_mounts`) and sends `nginx -s reload` to the
+      running nginx container so the new cert takes effect without a full restart.
+    - Displays new expiry date on completion.
+
+    **Django environment (`ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS`)**:
+    - When domain is a real hostname (not `localhost`/`127.0.0.1`):
+      - `ALLOWED_HOSTS=<domain>` (no localhost in production mode; add 127.0.0.1 only if
+        POSTGRES_MODE=transient so health-checks still work)
+      - `CSRF_TRUSTED_ORIGINS=https://<domain>`
+    - When domain is `localhost` (self-signed path):
+      - Current defaults unchanged: `ALLOWED_HOSTS=localhost,127.0.0.1`
+      - `CSRF_TRUSTED_ORIGINS=https://localhost:<HTTPS_PORT>`
+
+    **nginx `server_name` patch**:
+    - After staging nginx config to `production/run/nginx/nginx.conf`, apply a `sed` substitution:
+      `server_name _;` → `server_name <domain>;`
+    - This enables proper SNI matching and is required for correct ACME renewal probes.
+    - The source file `production/nginx/nginx.conf` keeps `server_name _;` as the generic
+      default; the patch is applied only to the staged copy.
+
+    **Port defaults when a real domain is used**:
+    - Currently the manager uses non-standard ports (8443/8080/8883) to avoid local conflicts.
+    - When a real Let's Encrypt domain is detected, default to standard ports (443/80/8883)
+      and note in the banner that standard ports are in use.
+    - Allow override with `--https-port`, `--http-port`, `--mqtt-tls-port` as before.
+
+    **Start banner addition**:
+    ```
+    TLS:   Let's Encrypt  (expires 2025-09-14, 87 days)   [or: Self-signed (localhost)]
+    ```
+
+    **Cert expiry reminder on every `--start`**:
+    - If a real cert is present and expires within 30 days, print a prominent warning:
+      ```
+      ⚠  TLS cert expires in 23 days (2025-04-07). Run --update-certs to renew.
+      ```
+
+    **Automated nginx cert reload (nightly cron)**:
+    - nginx is the TLS termination layer; Django/Daphne sit behind it over plain HTTP and
+      never touch certs directly. Only nginx needs to reload when certs change on disk.
+    - `nginx -s reload` performs a graceful in-place reload (zero downtime, drains existing
+      connections before workers restart with the new cert).
+    - Assume an external process (any renewal tool — certbot, acme.sh, manual copy, etc.)
+      places new `fullchain.pem` / `privkey.pem` into `production/var/certs/` on the host.
+    - The container manager's `--start` banner prints the host cron line to add:
+      ```
+      ── Automated cert reload ──
+        Add this cron entry to pick up renewed certs within 24 hours (zero downtime):
+          0 3 * * * cd /path/to/repo && docker compose -f production/docker/docker-compose.yml exec nginx nginx -s reload
+      ```
+    - The 24-hour maximum lag is acceptable: renewals typically happen 30+ days before
+      expiry, so the window between cert-on-disk and nginx-picks-it-up is inconsequential.
+    - `--update-certs` continues to reload nginx immediately after copying new certs, for
+      cases where the operator wants instant pickup without waiting for the nightly cron.
+
+    **Cert expiry email notification (Django management command)**:
+    - A new management command `check_cert_expiry` checks `fullchain.pem` expiry using
+      Python's `ssl` module and sends an email warning if ≤ 10 days remain.
+    - Django needs read access to the cert: mount `production/var/certs/` read-only into
+      the Django container (in addition to the existing nginx mount):
+      ```yaml
+      # in docker-compose.yml my-tracks service
+      volumes:
+        - ${CERTS_DIR}/fullchain.pem:/app/certs/fullchain.pem:ro
+      ```
+    - The cert path is exposed via `TLS_CERT_PATH=/app/certs/fullchain.pem` in the
+      container environment (set from `CERTS_DIR` in the compose file).
+    - The management command reads `TLS_CERT_PATH`, skips gracefully if unset or file absent
+      (so dev environments without certs are unaffected).
+    - Email is sent via Django's standard mail backend to all addresses in `ADMINS`.
+    - Run daily from a host cron (printed in the `--start` banner alongside the nginx cron):
+      ```
+      30 3 * * * cd /path/to/repo && docker compose -f production/docker/docker-compose.yml exec my-tracks python manage.py check_cert_expiry
+      ```
+
+    **SMTP configuration**:
+    - New Django settings (read from environment):
+      `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`,
+      `EMAIL_USE_TLS`, `DEFAULT_FROM_EMAIL`, `SERVER_EMAIL`, `ADMINS`
+    - Added to `examples/.env.production.example` with commented-out placeholders and a
+      note that `check_cert_expiry` and any future alert emails require these to be set.
+    - The container manager prompts for SMTP settings during `--start` setup (optional,
+      skippable — if left blank the command logs to stdout and skips sending).
+
+    **Files changed**:
+    - `production/scripts/my-tracks-production-container-manager`:
+      - New functions: `detect_domain_from_cert`, `validate_cert_key_pair`, `check_cert_expiry`,
+        `import_letsencrypt_certs`, `patch_nginx_server_name`, `cmd_update_certs`
+      - Modified: `cmd_start` (domain detection before env write, port defaults, banner,
+        cron hint lines), `cmd_freshen_up` (preserve real certs unless `--reset-certs`),
+        `env_spec` (add SMTP vars as optional)
+    - `production/docker/docker-compose.yml`: mount cert read-only into Django container;
+      pass `TLS_CERT_PATH` env var
+    - `my_tracks/management/commands/check_cert_expiry.py`: new management command
+    - `config/settings.py`: add `EMAIL_*` and `ADMINS` settings from environment
+    - `examples/.env.production.example`: add commented SMTP block
+    - `docs/DEPLOYMENT.md`: document `--update-certs`, cert import flow, nightly cron
+      setup, SMTP configuration, and `check_cert_expiry`
+
+47. **Pre-Internet Security Scan**
+
+    **Problem**: Before opening port 443 to the internet, there should be a documented
+    checklist and an automated scan to catch obvious vulnerabilities in the codebase and
+    container configuration.
+
+    **Goal**: A single command (or short sequence) that any operator can run to get a
+    confidence signal that the stack is reasonably hardened before going public.
+
+    ---
+
+    **Scan categories**:
+
+    1. **Python dependency audit** — `uv run pip-audit` (or `safety check`) flags packages
+       with known CVEs. Add `pip-audit` as a dev dependency.
+
+    2. **Container image scan** — `docker scout cves ghcr.io/the-hcma/my-tracks:latest`
+       (Docker Scout is bundled with Docker Desktop and Docker Engine ≥ 24). Reports CVEs
+       in the base image and installed packages. Run after `compose build` but before
+       going live.
+
+    3. **Django deployment checklist** — `python manage.py check --deploy` is Django's
+       built-in hardening check. Verifies `DEBUG=False`, `ALLOWED_HOSTS` set, `SECRET_KEY`
+       strength, `SECURE_SSL_REDIRECT`, `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`,
+       `HSTS` headers, etc. Fails non-zero on any finding — can be run inside the container
+       via `docker compose exec my-tracks python manage.py check --deploy`.
+
+    4. **Shell script static analysis** — `shellcheck` on all scripts under `scripts/` and
+       `production/scripts/` (already run in CI; ensure it covers new scripts added in
+       step 46).
+
+    5. **Secret / credential leak scan** — `trufflehog filesystem .` or `gitleaks detect`
+       to confirm no secrets are accidentally committed. Add as a one-time pre-launch step.
+
+    **Container manager integration**:
+    - New `--security-check` command that runs items 1–3 (pip-audit, docker scout, manage.py
+      check --deploy) in sequence and prints a summary. Exits non-zero if any scan finds
+      high/critical issues, so it can gate a deployment script.
+    - Printed in the `--start` banner as a recommended pre-launch step:
+      ```
+      ── Before opening port 443 ──
+        Run: ./production/scripts/my-tracks-production-container-manager --security-check
+      ```
+
+    **CI integration**:
+    - Add `pip-audit` to the `backend-lint` job in `pr-validation.yml` so dependency CVEs
+      are caught per-PR, not just at deploy time.
+    - `manage.py check --deploy` runs in the `backend-test` job (already has a running
+      Django process) with a production-like env (`DEBUG=False`, dummy `SECRET_KEY`, etc.).
+
+    **Files changed**:
+    - `production/scripts/my-tracks-production-container-manager`: add `cmd_security_check`
+    - `.github/workflows/pr-validation.yml`: add `pip-audit` step to `backend-lint` job;
+      add `manage.py check --deploy` step to `backend-test` job
+    - `pyproject.toml`: add `pip-audit` to dev dependencies
+    - `docs/DEPLOYMENT.md`: pre-launch security checklist section
+
 ### Phase 9: Advanced Integration
 1. **Transition events** — Handle region enter/exit events, store transition history
 2. **Waypoints sync** — Connect waypoint storage to command API, allow UI to send waypoints to devices
