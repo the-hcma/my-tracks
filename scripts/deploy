@@ -19,9 +19,11 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly script_dir
-readonly env_file="$script_dir/.env.production"
-readonly certs_dir="$script_dir/certs"
-readonly backup_dir="$script_dir/backups"
+project_dir="$(cd "$script_dir/.." && pwd)"
+readonly project_dir
+readonly env_file="$project_dir/.env.production"
+readonly certs_dir="$project_dir/certs"
+readonly backup_dir="$project_dir/backups"
 readonly compose_cmd="docker compose"
 
 compose_files=()
@@ -50,9 +52,9 @@ is_internal_db() {
 }
 
 setup_compose_files() {
-    compose_files=("-f" "$script_dir/docker-compose.yml")
+    compose_files=("-f" "$project_dir/docker-compose.yml")
     if is_internal_db; then
-        compose_files+=("-f" "$script_dir/docker-compose.postgres.yml")
+        compose_files+=("-f" "$project_dir/docker-compose.postgres.yml")
     fi
 }
 
@@ -441,7 +443,7 @@ cmd_stop() {
     if [ -f "$env_file" ]; then
         setup_compose_files
     else
-        compose_files=("-f" "$script_dir/docker-compose.yml")
+        compose_files=("-f" "$project_dir/docker-compose.yml")
     fi
     compose down
     echo "Stack stopped."

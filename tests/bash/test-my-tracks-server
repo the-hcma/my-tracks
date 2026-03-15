@@ -12,9 +12,10 @@
 set +e
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$script_dir" || exit 1
+project_dir="$(cd "$script_dir/../.." && pwd)"
+cd "$project_dir" || exit 1
 
-script="./my-tracks-server"
+script="./scripts/my-tracks-server"
 tests_passed=0
 tests_failed=0
 

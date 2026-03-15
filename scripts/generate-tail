@@ -60,7 +60,7 @@ app = typer.Typer(
 )
 
 # Runtime config file path (written by my-tracks-server)
-RUNTIME_CONFIG = Path(__file__).resolve().parent / "config" / ".runtime-config.json"
+RUNTIME_CONFIG = Path(__file__).resolve().parent.parent / "config" / ".runtime-config.json"
 
 
 def read_mqtt_port_from_config() -> int | None:

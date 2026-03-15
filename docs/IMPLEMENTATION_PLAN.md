@@ -326,16 +326,16 @@ Package the application as a production-ready container image deployable on a Ce
 - `.env.production.example` template with all configuration variables
 
 **Step 5: Deployment Script** ✅ (PR #359)
-- `./deploy` interactive first-time setup (secret generation, TLS certs, admin user)
-- `./deploy --update` pulls latest image, migrates, restarts
-- `./deploy --backup` timestamped gzipped `pg_dump`
-- `./deploy --status`, `--stop`, `--logs` convenience commands
+- `./scripts/deploy` interactive first-time setup (secret generation, TLS certs, admin user)
+- `./scripts/deploy --update` pulls latest image, migrates, restarts
+- `./scripts/deploy --backup` timestamped gzipped `pg_dump`
+- `./scripts/deploy --status`, `--stop`, `--logs` convenience commands
 
 **Step 6: Semantic Versioning** ✅ (PR #354)
 - `pyproject.toml` is single source of truth for version
 - `get_version()` utility in `my_tracks/utils.py` via `importlib.metadata`
 - Version displayed on About page and `/api/health/` endpoint
-- `./release patch|minor|major` script (Typer CLI): bumps version, commits, tags, pushes
+- `./scripts/release patch|minor|major` script (Typer CLI): bumps version, commits, tags, pushes
 - Supports `--dry-run` and `--skip-push`
 
 **Step 7: Container Registry & CI/CD Publish** ← NEXT

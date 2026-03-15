@@ -200,9 +200,9 @@ case $log_level in
         ;;
 esac
 
-# Get the directory where this script is located
+# Get the project root (parent of the scripts/ directory)
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$script_dir"
+cd "$script_dir/.."
 
 # Generic port conflict check.
 # Usage: check_port_conflict PORT LABEL

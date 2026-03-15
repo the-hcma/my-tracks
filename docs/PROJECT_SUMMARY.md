@@ -180,10 +180,10 @@ my-tracks/
 
 ```bash
 # Run automated setup
-./setup
+./scripts/setup
 
 # Start server
-./my-tracks-server
+./scripts/my-tracks-server
 
 # Test API
 curl -X POST http://localhost:8080/api/locations/ \
@@ -211,7 +211,7 @@ cp .env.example .env
 uv run python manage.py migrate
 
 # 5. Run server
-./my-tracks-server
+./scripts/my-tracks-server
 ```
 
 ## API Examples

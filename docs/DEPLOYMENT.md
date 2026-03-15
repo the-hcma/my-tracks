@@ -42,7 +42,7 @@ The `my-tracks-production-container-manager` script auto-detects whichever engin
 ```bash
 git clone https://github.com/the-hcma/my-tracks.git
 cd my-tracks
-./deploy
+./scripts/deploy
 ```
 
 The interactive setup will:
@@ -103,7 +103,7 @@ The containerized postgres is defined in `docker-compose.postgres-testing.yml` a
 
 ### External PostgreSQL (Recommended for Production)
 
-For persistent, production-grade storage, use an external PostgreSQL instance (managed database, separate server, etc.). During `./deploy` setup, choose option 2 and provide your `DATABASE_URL`:
+For persistent, production-grade storage, use an external PostgreSQL instance (managed database, separate server, etc.). During `./scripts/deploy` setup, choose option 2 and provide your `DATABASE_URL`:
 
 ```
 DATABASE_URL=postgresql://myuser:mypassword@db.example.com:5432/mytracks
@@ -113,12 +113,12 @@ When using an external database:
 - The containerized postgres service is **not started**
 - `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` variables are not needed
 - Backups must be managed through your database provider's tools
-- The `./deploy --backup` command is not available
+- The `./scripts/deploy --backup` command is not available
 
 ### Database Backup (Containerized Only)
 
 ```bash
-./deploy --backup
+./scripts/deploy --backup
 ```
 
 Creates a timestamped dump in `backups/`. For external databases, use your provider's backup tools (e.g., `pg_dump`, RDS snapshots, etc.).
@@ -147,7 +147,7 @@ The stack includes an optional Certbot service. To issue a certificate:
 1. **Ensure DNS** points your domain to the host's public IP
 2. **Start nginx** with self-signed certs first (so port 80 is listening):
    ```bash
-   ./deploy
+   ./scripts/deploy
    ```
 3. **Issue the certificate:**
    ```bash
@@ -184,7 +184,7 @@ docker compose exec nginx nginx -s reload
 ### Update to Latest Version
 
 ```bash
-./deploy --update
+./scripts/deploy --update
 ```
 
 This pulls the latest container image, runs database migrations, and restarts the stack.
@@ -192,7 +192,7 @@ This pulls the latest container image, runs database migrations, and restarts th
 ### Database Backup
 
 ```bash
-./deploy --backup
+./scripts/deploy --backup
 ```
 
 Creates a timestamped, gzipped dump in `backups/`:
@@ -211,7 +211,7 @@ gunzip -c backups/my-tracks-20260223-143000.sql.gz | \
 ### View Logs
 
 ```bash
-./deploy --logs           # tail all services
+./scripts/deploy --logs           # tail all services
 docker compose logs -f my-tracks   # single service
 docker compose logs -f nginx       # nginx only
 ```
@@ -219,13 +219,13 @@ docker compose logs -f nginx       # nginx only
 ### Check Status
 
 ```bash
-./deploy --status
+./scripts/deploy --status
 ```
 
 ### Stop / Start
 
 ```bash
-./deploy --stop
+./scripts/deploy --stop
 docker compose up -d      # start again
 ```
 
@@ -234,9 +234,9 @@ docker compose up -d      # start again
 My Tracks uses semantic versioning. The `release` script bumps the version in `pyproject.toml`, commits, and tags:
 
 ```bash
-./release patch    # 0.1.0 → 0.1.1
-./release minor    # 0.1.0 → 0.2.0
-./release major    # 0.1.0 → 1.0.0
+./scripts/release patch    # 0.1.0 → 0.1.1
+./scripts/release minor    # 0.1.0 → 0.2.0
+./scripts/release major    # 0.1.0 → 1.0.0
 ```
 
 Options:
@@ -406,10 +406,10 @@ openssl s_client -connect your.host:443 -servername your.host </dev/null
 ### Reset Everything
 
 ```bash
-./deploy --stop
+./scripts/deploy --stop
 docker compose down -v    # WARNING: deletes database volume!
 rm .env.production
-./deploy                  # fresh start
+./scripts/deploy                  # fresh start
 ```
 
 ## Local Testing

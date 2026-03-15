@@ -45,7 +45,7 @@ COPY --from=python-build --chown=app:app /app/my_tracks my_tracks/
 COPY --from=python-build --chown=app:app /app/web_ui web_ui/
 COPY --from=python-build --chown=app:app /app/manage.py manage.py
 COPY --from=python-build --chown=app:app /app/staticfiles staticfiles/
-COPY --from=python-build --chown=app:app /app/docker-entrypoint docker-entrypoint
+COPY --from=python-build --chown=app:app /app/scripts/docker-entrypoint docker-entrypoint
 
 RUN mkdir -p /app/logs && chown app:app /app/logs
 

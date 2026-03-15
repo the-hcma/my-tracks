@@ -44,7 +44,7 @@ Uses Daphne ASGI server for WebSocket support. See [WEBSOCKET.md](WEBSOCKET.md).
 
 ## 🧪 Testing
 
-### [test_tracker.py](test_tracker.py)
+### [test_tracker.py](../tests/python/test_tracker.py)
 Comprehensive pytest test suite for models, API, and OwnTracks compatibility.
 
 ### Running Tests
@@ -124,7 +124,7 @@ See [AGENTS.md](AGENTS.md) for the development workflow and agent responsibiliti
 → [PROJECT_SUMMARY.md](PROJECT_SUMMARY.md)
 
 **Run tests**
-→ [test_tracker.py](test_tracker.py) + `pytest`
+→ [test_tracker.py](../tests/python/test_tracker.py) + `pytest`
 
 **Configure OwnTracks app**
 → [QUICKSTART.md](QUICKSTART.md#configure-owntracks-app)
@@ -159,7 +159,7 @@ See [AGENTS.md](AGENTS.md) for the development workflow and agent responsibiliti
 
 1. **Quick questions**: Check [COMMANDS.md](COMMANDS.md)
 2. **API usage**: See [API.md](API.md)
-3. **Setup issues**: Run `./verify-setup`
+3. **Setup issues**: Run `./scripts/verify-setup`
 4. **Deployment questions**: Read [DEPLOYMENT.md](DEPLOYMENT.md)
 5. **OwnTracks questions**: Visit https://owntracks.org/booklet/
 
@@ -177,7 +177,7 @@ All documentation follows these principles:
 When making changes:
 1. Update relevant documentation files
 2. Update this index if adding new docs
-3. Run verification: `./verify-setup`
+3. Run verification: `./scripts/verify-setup`
 4. Test any code examples in docs
 5. Update PROJECT_SUMMARY.md if architecture changes
 

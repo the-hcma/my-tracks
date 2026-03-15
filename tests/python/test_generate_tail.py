@@ -20,13 +20,13 @@ from hamcrest import (assert_that, calling, close_to, contains_string, equal_to,
 
 # Import generate-tail as a module (it has a hyphen in the name and no .py extension)
 _loader = importlib.machinery.SourceFileLoader(
-    "generate_tail", str(Path(__file__).parent / "generate-tail")
+    "generate_tail", str(Path(__file__).parent.parent.parent / "scripts" / "generate-tail")
 )
 spec = importlib.util.spec_from_loader("generate_tail", _loader)
 assert_that(spec, is_(not_none()))
 generate_tail = importlib.util.module_from_spec(spec)
 # Prevent auto-venv activation during test import
-with patch.object(sys, "executable", str(Path(__file__).parent / ".venv" / "bin" / "python")):
+with patch.object(sys, "executable", str(Path(__file__).parent.parent.parent / ".venv" / "bin" / "python")):
     _loader.exec_module(generate_tail)
 
 # Import the functions we want to test

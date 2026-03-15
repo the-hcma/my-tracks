@@ -52,7 +52,7 @@ uv run python manage.py migrate
 ### 1. Start the Server
 
 ```bash
-./my-tracks-server
+./scripts/my-tracks-server
 ```
 
 The server will start at `http://localhost:8080/`
@@ -64,7 +64,7 @@ Options:
 
 Example with options:
 ```bash
-./my-tracks-server --log-level debug --console
+./scripts/my-tracks-server --log-level debug --console
 ```
 
 ### 2. Test the API
@@ -171,10 +171,10 @@ From here you can:
 
 ```bash
 # Start development server
-./my-tracks-server
+./scripts/my-tracks-server
 
 # Start with debug logging to console (dual mode)
-./my-tracks-server --log-level debug --console
+./scripts/my-tracks-server --log-level debug --console
 
 # Run migrations
 uv run python manage.py migrate
@@ -213,7 +213,7 @@ npm run build
 
 ```bash
 # Use a different port
-./my-tracks-server --port 18080
+./scripts/my-tracks-server --port 18080
 ```
 
 ### Database Locked

@@ -5,7 +5,7 @@ from pathlib import Path
 from hamcrest import (assert_that, contains_string, equal_to, has_item,
                       has_key, is_, is_not)
 
-_ROOT = Path(__file__).resolve().parent
+_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 def _read(name: str) -> str:
