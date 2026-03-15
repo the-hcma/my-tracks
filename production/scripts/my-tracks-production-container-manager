@@ -20,6 +20,10 @@
 # --import-sqlite [path]  (with --start) Import a local SQLite database into the
 #           containerized PostgreSQL. Defaults to ./db.sqlite3 if no path given.
 #           Requires --freshen-up or a fresh start (empty database).
+#
+# --security-check  Run pre-launch security checks: pip-audit (dependency CVEs),
+#           manage.py check --deploy (Django hardening), docker scout cves (image CVEs).
+#           Exit non-zero on any critical/high finding. Run before opening port 443.
 
 set -euo pipefail
 
@@ -1217,6 +1221,8 @@ Options:
   --start --import-sqlite [path]
                          Import local SQLite db into PostgreSQL (default: ./db.sqlite3)
   --stop                 Stop the stack and remove volumes
+  --security-check       Run pre-launch security checks (pip-audit, Django deploy check,
+                         container image CVE scan). Exit non-zero on any high/critical finding.
   -h, --help             Show this help message
 
 Default ports (chosen to avoid conflicts with dev server):
@@ -2048,6 +2054,64 @@ cmd_stop() {
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
+cmd_security_check() {
+    local failed=0
+
+    info "── Security check 1/3: Python dependency CVE audit ──"
+    if command -v uv >/dev/null 2>&1; then
+        if uv run pip-audit; then
+            info "✅ No known CVEs in Python dependencies"
+        else
+            echo "❌ pip-audit found vulnerabilities — resolve before going live" >&2
+            failed=1
+        fi
+    else
+        echo "⚠  uv not found — skipping pip-audit (install uv to enable this check)" >&2
+    fi
+
+    echo ""
+    info "── Security check 2/3: Django deployment hardening ──"
+    if command -v uv >/dev/null 2>&1 && [ -f "$env_file" ]; then
+        local domain
+        domain="$(grep -E '^ALLOWED_HOSTS=' "$env_file" | cut -d= -f2- | tr -d ' ' | cut -d, -f1)"
+        domain="${domain:-example.com}"
+        if DEBUG=False SECRET_KEY="check-placeholder-not-a-real-secret-but-long-enough" \
+              ALLOWED_HOSTS="$domain" \
+              SECURE_SSL_REDIRECT=True SESSION_COOKIE_SECURE=True CSRF_COOKIE_SECURE=True \
+              uv run python "$project_dir/manage.py" check --deploy 2>&1; then
+            info "✅ Django deployment hardening check passed"
+        else
+            echo "❌ Django deployment check failed — fix reported issues before going live" >&2
+            failed=1
+        fi
+    else
+        echo "⚠  Skipping Django deploy check (uv or $env_file not found)" >&2
+    fi
+
+    echo ""
+    info "── Security check 3/3: Container image CVE scan ──"
+    if [ "$container_engine" = "docker" ] && docker scout version >/dev/null 2>&1; then
+        local image_tag="my-tracks-production-my-tracks:latest"
+        if docker scout cves "$image_tag" --only-severity critical,high --exit-code 2>&1; then
+            info "✅ No critical/high CVEs in container image"
+        else
+            echo "❌ docker scout found critical/high CVEs — review before going live" >&2
+            failed=1
+        fi
+    else
+        echo "⚠  docker scout not available — skipping container image CVE scan" >&2
+        echo "   Install Docker Desktop or 'docker scout' plugin to enable this check" >&2
+    fi
+
+    echo ""
+    if [ "$failed" -eq 0 ]; then
+        info "✅ All security checks passed — safe to open port 443"
+    else
+        echo "❌ One or more security checks failed — resolve before exposing to the internet" >&2
+        return 1
+    fi
+}
+
 main() {
     local action=""
     local freshen_up="false"
@@ -2055,9 +2119,10 @@ main() {
 
     while [ $# -gt 0 ]; do
         case "$1" in
-            --start)      action="start"; shift ;;
-            --stop)       action="stop"; shift ;;
-            --freshen-up) freshen_up="true"; shift ;;
+            --start)           action="start"; shift ;;
+            --stop)            action="stop"; shift ;;
+            --security-check)  action="security-check"; shift ;;
+            --freshen-up)      freshen_up="true"; shift ;;
             --import-sqlite)
                 shift
                 if [ $# -gt 0 ] && [[ "$1" != --* ]]; then
@@ -2088,9 +2153,10 @@ main() {
     fi
 
     case "$action" in
-        start)      cmd_start "$freshen_up" "$import_sqlite" ;;
-        stop)       cmd_stop ;;
-        freshen-up) cmd_freshen_up ;;
+        start)           cmd_start "$freshen_up" "$import_sqlite" ;;
+        stop)            cmd_stop ;;
+        freshen-up)      cmd_freshen_up ;;
+        security-check)  check_prerequisites && cmd_security_check ;;
     esac
 }
 
