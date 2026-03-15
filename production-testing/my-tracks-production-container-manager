@@ -65,7 +65,6 @@ install_hint() {
             docker)              pkg="docker.io" ;;
             docker-buildx)       pkg="docker-buildx" ;;
             docker-compose)      pkg="docker-compose-v2" ;;
-            python3)             pkg="python3" ;;
             *)                   pkg="$logical" ;;
         esac
         echo "sudo apt-get install $pkg"
@@ -76,7 +75,6 @@ install_hint() {
             docker-compose)      pkg="docker-compose-plugin" ;;
             podman)              pkg="podman" ;;
             podman-compose)      pkg="podman-compose" ;;
-            python3)             pkg="python3" ;;
             *)                   pkg="$logical" ;;
         esac
         echo "sudo dnf install $pkg"
@@ -85,7 +83,6 @@ install_hint() {
             docker)              pkg="docker" ;;
             docker-buildx)       pkg="docker-buildx" ;;
             docker-compose)      pkg="docker-compose" ;;
-            python3)             pkg="python" ;;
             *)                   pkg="$logical" ;;
         esac
         echo "sudo pacman -S $pkg"
@@ -118,9 +115,10 @@ detect_compose_cmd() {
 }
 
 generate_secret() {
-    python3 -c "import secrets; print(secrets.token_urlsafe(50))" 2>/dev/null \
-        || openssl rand -base64 48 2>/dev/null \
-        || die "Cannot generate secret — install Python 3 or OpenSSL"
+    # No Python required — openssl is standard on macOS and most Linux distros.
+    openssl rand -base64 48 2>/dev/null \
+        || LC_ALL=C tr -dc 'A-Za-z0-9_-' < /dev/urandom 2>/dev/null | head -c 67 \
+        || die "Cannot generate secret — install OpenSSL or ensure /dev/urandom is available"
 }
 
 compose_cmd=""
@@ -268,11 +266,6 @@ check_prerequisites() {
       Install with:  $(install_hint openssl)")
     fi
 
-    if ! command -v python3 >/dev/null 2>&1; then
-        missing+=("  • python3 is not installed (required for secret generation).
-      Install with:  $(install_hint python3)")
-    fi
-
     # ── Report all issues at once ────────────────────────────────────────
     if [ ${#missing[@]} -gt 0 ]; then
         local msg="Missing prerequisites:
@@ -329,8 +322,83 @@ mask_password_in_url() {
 }
 
 # Percent-encode a string for safe embedding in a URL (e.g. password with @/:).
+# Pure bash — no Python required.
 urlencode() {
-    python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$1"
+    local string="$1" encoded="" i char
+    for (( i=0; i<${#string}; i++ )); do
+        char="${string:i:1}"
+        case "$char" in
+            [A-Za-z0-9._~-]) encoded+="$char" ;;
+            *) printf -v char '%%%02X' "'$char"; encoded+="$char" ;;
+        esac
+    done
+    printf '%s\n' "$encoded"
+}
+
+# Percent-decode a URL-encoded string.
+# Pure bash — no Python required.
+urldecode() {
+    printf '%b\n' "${1//%/\\x}"
+}
+
+# Parse a postgresql:// or postgres:// URL into named variables.
+# Sets: _db_user _db_password _db_host _db_port _db_name _db_socket
+# All values are percent-decoded. _db_socket is set from the ?host= query param
+# (used for Unix socket URLs). Pure bash — no Python required.
+parse_db_url() {
+    local url="$1"
+    local rest="${url#postgresql://}"
+    rest="${rest#postgres://}"
+
+    # Extract userinfo (everything before the last @ before the host)
+    local userinfo=""
+    if [[ "$rest" == *"@"* ]]; then
+        userinfo="${rest%%@*}"
+        rest="${rest#*@}"
+    fi
+
+    # Extract dbname + optional query string (everything after the first /)
+    local dbpart=""
+    if [[ "$rest" == *"/"* ]]; then
+        dbpart="${rest#*/}"
+        rest="${rest%%/*}"
+    fi
+    local hostpart="$rest"
+
+    # Parse user and password from userinfo
+    if [[ "$userinfo" == *":"* ]]; then
+        _db_user="$(urldecode "${userinfo%%:*}")"
+        _db_password="$(urldecode "${userinfo#*:}")"
+    else
+        _db_user="$(urldecode "$userinfo")"
+        _db_password=""
+    fi
+
+    # Parse host and port
+    if [[ "$hostpart" == *":"* ]]; then
+        _db_host="${hostpart%%:*}"
+        _db_port="${hostpart#*:}"
+    else
+        _db_host="$hostpart"
+        _db_port="5432"
+    fi
+    _db_port="${_db_port:-5432}"
+
+    # Separate dbname from query string
+    local querystring=""
+    if [[ "$dbpart" == *"?"* ]]; then
+        querystring="${dbpart#*\?}"
+        dbpart="${dbpart%%\?*}"
+    fi
+    _db_name="$(urldecode "$dbpart")"
+
+    # Extract socket path from ?host= query param (Unix socket URLs)
+    _db_socket=""
+    if [[ "$querystring" == *"host="* ]]; then
+        local hostval="${querystring#*host=}"
+        hostval="${hostval%%&*}"
+        _db_socket="$(urldecode "$hostval")"
+    fi
 }
 
 # Print the shell prefix needed to run a postgres admin command on this platform.
@@ -471,22 +539,14 @@ probe_db_connection() {
     local probe_url="${url/host.docker.internal/localhost}"
 
     # Extract connection fields for pg_isready, psql, and targeted error messages.
+    # Pure bash URL parsing — no Python required.
     local probe_host probe_port pg_user pg_password pg_db
-    probe_host="$(URL_TO_PARSE="$probe_url" python3 -c \
-        "import os; from urllib.parse import urlparse; u=urlparse(os.environ['URL_TO_PARSE']); print(u.hostname or '')" \
-        2>/dev/null || echo "")"
-    probe_port="$(URL_TO_PARSE="$probe_url" python3 -c \
-        "import os; from urllib.parse import urlparse; u=urlparse(os.environ['URL_TO_PARSE']); print(u.port or 5432)" \
-        2>/dev/null || echo "5432")"
-    pg_user="$(URL_TO_PARSE="$probe_url" python3 -c \
-        "import os; from urllib.parse import urlparse; u=urlparse(os.environ['URL_TO_PARSE']); print(u.username or '')" \
-        2>/dev/null || echo "")"
-    pg_password="$(URL_TO_PARSE="$probe_url" python3 -c \
-        "import os; from urllib.parse import urlparse; u=urlparse(os.environ['URL_TO_PARSE']); print(u.password or '')" \
-        2>/dev/null || echo "")"
-    pg_db="$(URL_TO_PARSE="$probe_url" python3 -c \
-        "import os; from urllib.parse import urlparse; u=urlparse(os.environ['URL_TO_PARSE']); print((u.path or '/').lstrip('/'))" \
-        2>/dev/null || echo "")"
+    parse_db_url "$probe_url"
+    probe_host="$_db_host"
+    probe_port="$_db_port"
+    pg_user="$_db_user"
+    pg_password="$_db_password"
+    pg_db="$_db_name"
 
     # Detect Unix socket URLs: hostname is empty and ?host= query param names socket dir.
     # probe_host is set to the host-side socket directory for pg_isready/psql.
@@ -496,14 +556,7 @@ probe_db_connection() {
         if [ -n "$socket_dir_hint" ]; then
             probe_host="$socket_dir_hint"
         else
-            # Extract socket path from ?host= query param (container path),
-            # then fall back to env file or default.
-            local url_socket
-            url_socket="$(URL_TO_PARSE="$probe_url" python3 -c \
-                "import os; from urllib.parse import urlparse, parse_qs; \
-u=urlparse(os.environ['URL_TO_PARSE']); qs=parse_qs(u.query); \
-print(qs.get('host',[''])[0])" 2>/dev/null || echo "")"
-            probe_host="${url_socket:-$(env_get "PG_SOCKET_DIR" 2>/dev/null || true)}"
+            probe_host="${_db_socket:-$(env_get "PG_SOCKET_DIR" 2>/dev/null || true)}"
             probe_host="${probe_host:-/var/run/postgresql}"
         fi
     fi
@@ -963,18 +1016,11 @@ _check_container_reachability() {
 
     local probe_url="${url/host.docker.internal/localhost}"
     local pg_user pg_password pg_db probe_port
-    pg_user="$(URL_TO_PARSE="$probe_url" python3 -c \
-        "import os; from urllib.parse import urlparse; u=urlparse(os.environ['URL_TO_PARSE']); print(u.username or '')" \
-        2>/dev/null || echo "")"
-    pg_password="$(URL_TO_PARSE="$probe_url" python3 -c \
-        "import os; from urllib.parse import urlparse; u=urlparse(os.environ['URL_TO_PARSE']); print(u.password or '')" \
-        2>/dev/null || echo "")"
-    pg_db="$(URL_TO_PARSE="$probe_url" python3 -c \
-        "import os; from urllib.parse import urlparse; u=urlparse(os.environ['URL_TO_PARSE']); print((u.path or '/').lstrip('/'))" \
-        2>/dev/null || echo "")"
-    probe_port="$(URL_TO_PARSE="$probe_url" python3 -c \
-        "import os; from urllib.parse import urlparse; u=urlparse(os.environ['URL_TO_PARSE']); print(u.port or 5432)" \
-        2>/dev/null || echo "5432")"
+    parse_db_url "$probe_url"
+    pg_user="$_db_user"
+    pg_password="$_db_password"
+    pg_db="$_db_name"
+    probe_port="$_db_port"
 
     local listen_addrs
     listen_addrs="$(PGPASSWORD="$pg_password" PGCONNECT_TIMEOUT=5 \
@@ -1339,7 +1385,7 @@ import_sqlite_to_postgres() {
             -o "$dump_file" 2>&1 || die "Failed to dump SQLite data"
 
     local record_count
-    record_count="$(python3 -c "import json; print(len(json.load(open('$dump_file'))))")"
+    record_count="$(awk '/^  \{/{n++} END{print n+0}' "$dump_file" 2>/dev/null || echo "unknown")"
     info "Exported $record_count records from SQLite"
 
     info "Loading data into PostgreSQL (via Django loaddata)..."
