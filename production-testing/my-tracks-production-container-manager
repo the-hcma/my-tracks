@@ -537,6 +537,34 @@ _run_psql() {
     )
 }
 
+# Run psql inside a throwaway postgres:17-alpine container — no local psql needed.
+# Password is passed via a temp .pgpass file mounted read-only into the container.
+# Extra docker flags (e.g. --network host, -v ...) are separated from psql args
+# by a -- sentinel: _docker_psql <password> [<docker-flags...> --] <psql-args...>
+_docker_psql() {
+    local password="$1"; shift
+    local extra_docker_args=()
+    while [[ $# -gt 0 && "$1" != "--" ]]; do
+        extra_docker_args+=("$1"); shift
+    done
+    [[ "${1:-}" == "--" ]] && shift
+    (
+        local pgpass_file
+        pgpass_file="$(mktemp)" || exit 1
+        # shellcheck disable=SC2064
+        trap "rm -f '$pgpass_file'" EXIT
+        chmod 0600 "$pgpass_file"
+        printf '*:*:*:*:%s\n' "$password" > "$pgpass_file"
+        "${container_engine:-docker}" run --rm \
+            -v "$pgpass_file:/tmp/.pgpass:ro" \
+            -e PGPASSFILE=/tmp/.pgpass \
+            -e PGCONNECT_TIMEOUT=5 \
+            "${extra_docker_args[@]}" \
+            docker.io/library/postgres:17-alpine \
+            psql "$@"
+    )
+}
+
 # Probe a PostgreSQL DATABASE_URL for connectivity and authentication.
 # Uses pg_isready for a fast network check, then psql for a full auth test.
 # Captures psql stderr to diagnose specific failures (missing user, missing
@@ -545,8 +573,7 @@ _run_psql() {
 # For Unix socket URLs (empty hostname, ?host=/socket/path), accepts an optional
 # second argument with the host-side socket directory to use for the probe.
 # All output goes to stderr so this function is safe inside $() subshells.
-# Returns 0 on success, 1 on confirmed failure, 0 with a warning when no
-# postgres tools are available (best-effort).
+# Returns 0 on success, 1 on confirmed failure.
 probe_db_connection() {
     local url="$1"
     # Optional: host-side socket directory, used when url contains the container
@@ -558,7 +585,7 @@ probe_db_connection() {
     # host.docker.internal only resolves inside a container; probe uses localhost.
     local probe_url="${url/host.docker.internal/localhost}"
 
-    # Extract connection fields for pg_isready, psql, and targeted error messages.
+    # Extract connection fields for targeted error messages and the docker probe.
     # Pure bash URL parsing — no Python required.
     local probe_host probe_port pg_user pg_password pg_db
     parse_db_url "$probe_url"
@@ -569,7 +596,6 @@ probe_db_connection() {
     pg_db="$_db_name"
 
     # Detect Unix socket URLs: hostname is empty and ?host= query param names socket dir.
-    # probe_host is set to the host-side socket directory for pg_isready/psql.
     local is_socket="false"
     if [ -z "$probe_host" ]; then
         is_socket="true"
@@ -581,51 +607,65 @@ probe_db_connection() {
         fi
     fi
 
-    if command -v pg_isready >/dev/null 2>&1; then
-        if [ "$is_socket" = "true" ]; then
-            if ! pg_isready -h "$probe_host" -t 5 >/dev/null 2>&1; then
-                echo "  ✘  Cannot reach PostgreSQL at socket $probe_host — check that PostgreSQL is running." >&2
-                return 1
-            fi
-        else
-            if ! pg_isready -h "$probe_host" -p "$probe_port" -t 5 >/dev/null 2>&1; then
-                echo "  ✘  Cannot reach PostgreSQL at ${probe_host}:${probe_port} — check host, port, and firewall." >&2
-                return 1
-            fi
+    # Fast connectivity pre-flight — pure bash, no external tools.
+    if [ "$is_socket" = "true" ]; then
+        if [ ! -S "$probe_host/.s.PGSQL.${probe_port:-5432}" ]; then
+            echo "  ✘  Cannot reach PostgreSQL at socket $probe_host — check that PostgreSQL is running." >&2
+            return 1
+        fi
+    else
+        # shellcheck disable=SC2188
+        if ! (>/dev/tcp/"$probe_host"/"$probe_port") 2>/dev/null; then
+            echo "  ✘  Cannot reach PostgreSQL at ${probe_host}:${probe_port} — check host, port, and firewall." >&2
+            return 1
         fi
     fi
 
-    if command -v psql >/dev/null 2>&1; then
-        local psql_out psql_rc
-        # Password stored in a temp .pgpass file — never in argv or environment.
-        if [ "$is_socket" = "true" ]; then
-            psql_out="$(_run_psql "$pg_password" \
-                -h "$probe_host" -U "$pg_user" -d "$pg_db" \
-                -c "SELECT 1" 2>&1)"
+    # Full auth + version check via Docker — no local psql required.
+    # Build docker flags and determine the host psql should connect to.
+    local docker_flags=()
+    local psql_host="$probe_host"
+    if [ "$is_socket" = "true" ]; then
+        docker_flags+=("-v" "$probe_host:$probe_host")
+    elif [[ "$probe_host" == "localhost" || "$probe_host" == "127.0.0.1" || "$probe_host" == "::1" ]]; then
+        if [[ "$(uname -s)" == "Linux" ]]; then
+            docker_flags+=("--network" "host")
         else
-            psql_out="$(_run_psql "$pg_password" \
-                -h "$probe_host" -p "$probe_port" -U "$pg_user" -d "$pg_db" \
-                -c "SELECT 1" 2>&1)"
+            # macOS Docker Desktop: 'localhost' inside a container is the container itself.
+            psql_host="host.docker.internal"
         fi
-        psql_rc=$?
-        if [ "$psql_rc" -eq 0 ]; then
-            # Verify PostgreSQL version — Django 5+ requires PostgreSQL 14 or later.
-            local pg_ver_num pg_ver_display
-            if [ "$is_socket" = "true" ]; then
-                pg_ver_num="$(_run_psql "$pg_password" \
-                    -h "$probe_host" -U "$pg_user" -d "$pg_db" \
-                    -t -c 'SHOW server_version_num;' 2>/dev/null | tr -d ' \n')"
-                pg_ver_display="$(_run_psql "$pg_password" \
-                    -h "$probe_host" -U "$pg_user" -d "$pg_db" \
-                    -t -c 'SHOW server_version;' 2>/dev/null | tr -d ' \n')"
-            else
-                pg_ver_num="$(_run_psql "$pg_password" \
-                    -h "$probe_host" -p "$probe_port" -U "$pg_user" -d "$pg_db" \
-                    -t -c 'SHOW server_version_num;' 2>/dev/null | tr -d ' \n')"
-                pg_ver_display="$(_run_psql "$pg_password" \
-                    -h "$probe_host" -p "$probe_port" -U "$pg_user" -d "$pg_db" \
-                    -t -c 'SHOW server_version;' 2>/dev/null | tr -d ' \n')"
-            fi
+    fi
+
+    local psql_out psql_rc
+    # Password stored in a temp .pgpass file mounted read-only into the container.
+    if [ "$is_socket" = "true" ]; then
+        psql_out="$(_docker_psql "$pg_password" "${docker_flags[@]}" -- \
+            -h "$probe_host" -U "$pg_user" -d "$pg_db" \
+            -c "SELECT 1" 2>&1)"
+    else
+        psql_out="$(_docker_psql "$pg_password" "${docker_flags[@]}" -- \
+            -h "$psql_host" -p "$probe_port" -U "$pg_user" -d "$pg_db" \
+            -c "SELECT 1" 2>&1)"
+    fi
+    psql_rc=$?
+    if [ "$psql_rc" -eq 0 ]; then
+        # Verify PostgreSQL version — Django 5+ requires PostgreSQL 14 or later.
+        local pg_ver_num pg_ver_display
+        if [ "$is_socket" = "true" ]; then
+            pg_ver_num="$(_docker_psql "$pg_password" "${docker_flags[@]}" -- \
+                -h "$probe_host" -U "$pg_user" -d "$pg_db" \
+                -t -c 'SHOW server_version_num;' 2>/dev/null | tr -d ' \n')"
+            pg_ver_display="$(_docker_psql "$pg_password" "${docker_flags[@]}" -- \
+                -h "$probe_host" -U "$pg_user" -d "$pg_db" \
+                -t -c 'SHOW server_version;' 2>/dev/null | tr -d ' \n')"
+        else
+            pg_ver_num="$(_docker_psql "$pg_password" "${docker_flags[@]}" -- \
+                -h "$psql_host" -p "$probe_port" -U "$pg_user" -d "$pg_db" \
+                -t -c 'SHOW server_version_num;' 2>/dev/null | tr -d ' \n')"
+            pg_ver_display="$(_docker_psql "$pg_password" "${docker_flags[@]}" -- \
+                -h "$psql_host" -p "$probe_port" -U "$pg_user" -d "$pg_db" \
+                -t -c 'SHOW server_version;' 2>/dev/null | tr -d ' \n')"
+        fi
             if [ -n "$pg_ver_num" ] && [ "$pg_ver_num" -lt 140000 ] 2>/dev/null; then
                 echo "  ✘  PostgreSQL ${pg_ver_display} is too old — Django requires PostgreSQL 14 or later." >&2
                 _show_pg_upgrade_instructions >&2
@@ -696,13 +736,6 @@ probe_db_connection() {
             echo "  ✘  Connection failed: $(echo "$psql_out" | grep -i "fatal\|error" | head -1)" >&2
         fi
         return 1
-    fi
-
-    if ! command -v pg_isready >/dev/null 2>&1; then
-        echo "  ⚠  Cannot verify database connectivity (pg_isready and psql not found)." >&2
-        echo "     Proceeding — Docker will surface any connection errors at startup." >&2
-    fi
-    return 0
 }
 
 # Warn if a DATABASE_URL uses localhost/127.0.0.1 — those resolve to the
