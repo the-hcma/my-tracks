@@ -468,6 +468,18 @@ Package the application as a production-ready container image deployable on a Ce
     - On mismatch: `CommandError` with common causes (placeholder .env key, Django default, key rotation)
     - Container manager tries Django's default insecure key as fallback
 
+44. **Reorganize Test Scripts Under Top-Level `tests/`**
+    - Move all test scripts into a top-level `tests/` directory
+    - Organize test scripts by language using subdirectories (for example, `tests/python/`, `tests/bash/`, `tests/typescript/`)
+    - Update test discovery/configuration paths so existing CI and local workflows continue to work
+    - Update project documentation to reflect the new testing layout and commands
+
+45. **Reorganize Bash Scripts Under Top-Level `scripts/`**
+    - Move Bash scripts into a top-level `scripts/` directory
+    - Keep script naming and executable conventions intact while updating all references
+    - Update documentation and operational examples to use the new script paths
+    - Update configuration/workflow references that point to legacy script locations
+
 ### Phase 9: Advanced Integration
 1. **Transition events** — Handle region enter/exit events, store transition history
 2. **Waypoints sync** — Connect waypoint storage to command API, allow UI to send waypoints to devices
