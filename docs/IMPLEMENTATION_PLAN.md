@@ -584,7 +584,7 @@ Package the application as a production-ready container image deployable on a Ce
         `cmd_freshen_up` (preserve real certs unless `--reset-certs`), `env_spec` defaults
     - `docs/DEPLOYMENT.md`: document `--update-certs`, cert import flow, cert expiry warning
 
-47. **Automated Security Scanning in CI + Pre-Internet Gate**
+47. ✅ **Automated Security Scanning in CI + Pre-Internet Gate**
 
     **Priority**: implement as the next step (before opening port 443 to the internet).
 
