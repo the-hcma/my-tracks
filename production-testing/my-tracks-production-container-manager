@@ -34,6 +34,11 @@ readonly default_https_port=8443
 readonly default_http_port=8080
 readonly default_mqtt_tls_port=8883
 
+# Set to the host-side PostgreSQL Unix socket directory when a socket connection
+# is selected during database setup. Used to mount the socket into Docker and to
+# write PG_SOCKET_DIR into .env.production.
+_pg_socket_dir=""
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 die() { echo "Error: $1" >&2; exit 1; }
@@ -284,7 +289,7 @@ check_prerequisites() {
 env_get() {
     local key="$1"
     if [ -f "$env_file" ]; then
-        grep -E "^${key}=" "$env_file" 2>/dev/null | head -1 | cut -d= -f2-
+        grep -E "^${key}=" "$env_file" 2>/dev/null | head -1 | cut -d= -f2- || true
     fi
 }
 
@@ -298,6 +303,8 @@ setup_compose_files() {
     compose_files=("-f" "$project_dir/docker-compose.yml")
     if is_internal_db; then
         compose_files+=("-f" "$project_dir/docker-compose.postgres.yml")
+    elif [ -n "$(env_get "PG_SOCKET_DIR")" ]; then
+        compose_files+=("-f" "$project_dir/docker-compose.socket.yml")
     fi
 }
 
@@ -321,13 +328,729 @@ mask_password_in_url() {
     echo "$url" | sed -E 's|(://[^:]+:)[^@]+(@)|\1***\2|'
 }
 
+# Percent-encode a string for safe embedding in a URL (e.g. password with @/:).
+urlencode() {
+    python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$1"
+}
+
+# Print the shell prefix needed to run a postgres admin command on this platform.
+# macOS (Homebrew): commands run as the current user — no prefix needed.
+# Linux: must switch to the postgres system user.
+_pg_admin_prefix() {
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        echo ""
+    else
+        echo "sudo su - postgres -c "
+    fi
+}
+
+# Print a single postgres admin command formatted for this platform.
+# On Linux wraps it in: sudo su - postgres -c "cmd"
+_pg_admin_cmd() {
+    local cmd="$1"
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        echo "    $cmd"
+    else
+        # Inner double-quotes inside the outer ones need escaping.
+        local escaped="${cmd//\"/\\\"}"
+        echo "    sudo su - postgres -c \"$escaped\""
+    fi
+}
+
+# Print platform-appropriate instructions for upgrading PostgreSQL to a supported
+# version (14+). All output goes to stderr so this is safe inside $() subshells.
+_show_pg_upgrade_instructions() {
+    echo "     Install a supported version (PostgreSQL 14+):" >&2
+    echo "" >&2
+    local os; os="$(uname -s)"
+    if [[ "$os" == "Darwin" ]]; then
+        echo "       brew install postgresql@17" >&2
+        echo "       brew services start postgresql@17" >&2
+    elif command -v apt-get >/dev/null 2>&1; then
+        # Debian/Ubuntu: use the official PGDG apt repository
+        echo "       sudo apt-get install -y curl ca-certificates" >&2
+        echo "       sudo install -d /usr/share/postgresql-common/pgdg" >&2
+        echo "       sudo curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc --fail \\" >&2
+        echo "           https://www.postgresql.org/media/keys/ACCC4CF8.asc" >&2
+        echo "       sudo sh -c 'echo \"deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \\" >&2
+        echo "           https://apt.postgresql.org/pub/repos/apt \$(lsb_release -cs)-pgdg main\" \\" >&2
+        echo "           > /etc/apt/sources.list.d/pgdg.list'" >&2
+        echo "       sudo apt-get update && sudo apt-get install -y postgresql-17" >&2
+        echo "       sudo systemctl enable --now postgresql@17-main" >&2
+    elif command -v dnf >/dev/null 2>&1; then
+        # RHEL/CentOS/Fedora: use the PGDG RPM repository
+        echo "       sudo dnf install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-8-x86_64/pgdg-redhat-repo-latest.noarch.rpm" >&2
+        echo "       sudo dnf -qy module disable postgresql" >&2
+        echo "       sudo dnf install -y postgresql17-server" >&2
+        echo "       sudo /usr/pgsql-17/bin/postgresql-17-setup initdb" >&2
+        echo "       sudo systemctl enable --now postgresql-17" >&2
+    elif command -v pacman >/dev/null 2>&1; then
+        # Arch: official repos always carry the latest version
+        echo "       sudo pacman -S postgresql" >&2
+        echo "       sudo -u postgres initdb -D /var/lib/postgres/data" >&2
+        echo "       sudo systemctl enable --now postgresql" >&2
+    else
+        echo "       Install PostgreSQL 14 or later using your system's package manager." >&2
+        echo "       Official packages: https://www.postgresql.org/download/" >&2
+    fi
+    echo "" >&2
+    echo "     Then re-run this script to set up the database user and connection." >&2
+}
+
+# Check the installed PostgreSQL server version without connecting or authenticating.
+# Tries pg_lsclusters (Debian/Ubuntu), the postgres binary in PATH, and versioned
+# binary paths (RHEL/CentOS). Returns 1 and prints upgrade instructions if version < 14;
+# returns 0 if version is acceptable or cannot be determined without credentials.
+_early_pg_version_check() {
+    local major_ver=""
+
+    # Debian/Ubuntu: pg_lsclusters lists installed clusters with version numbers
+    if command -v pg_lsclusters >/dev/null 2>&1; then
+        major_ver=$(pg_lsclusters -h 2>/dev/null | awk '{print $1}' | sort -n | tail -1)
+    fi
+
+    # postgres binary may be in PATH (macOS Homebrew, Arch, some RHEL configs)
+    if [ -z "$major_ver" ] && command -v postgres >/dev/null 2>&1; then
+        major_ver=$(postgres --version 2>/dev/null | grep -oE '\b[0-9]+\b' | head -1)
+    fi
+
+    # RHEL/CentOS/Fedora: versioned binaries under /usr/pgsql-XX/bin/
+    if [ -z "$major_ver" ]; then
+        local bin
+        for bin in /usr/pgsql-*/bin/postgres; do
+            [ -x "$bin" ] || continue
+            major_ver=$("$bin" --version 2>/dev/null | grep -oE '\b[0-9]+\b' | head -1)
+            break
+        done
+    fi
+
+    [ -z "$major_ver" ] && return 0  # can't determine without connecting — deferred to probe_db_connection
+
+    if [ "$major_ver" -lt 14 ]; then
+        _pg_bad_version="$major_ver"   # exposed for callers that want it in error messages
+        echo "" >&2
+        echo "  ✘  PostgreSQL $major_ver is installed but not supported (Django requires 14+)." >&2
+        _show_pg_upgrade_instructions
+        return 1
+    fi
+    return 0
+}
+
+# Scan common PostgreSQL Unix socket locations for a live .s.PGSQL.5432 socket.
+# Outputs the directory path to stdout; returns 1 if none found.
+detect_pg_socket_dir() {
+    local dir
+    for dir in /var/run/postgresql /run/postgresql /tmp; do
+        if [ -S "${dir}/.s.PGSQL.5432" ]; then
+            echo "$dir"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Probe a PostgreSQL DATABASE_URL for connectivity and authentication.
+# Uses pg_isready for a fast network check, then psql for a full auth test.
+# Captures psql stderr to diagnose specific failures (missing user, missing
+# database, wrong password, pg_hba rejection) and prints targeted fix commands.
+# host.docker.internal is rewritten to localhost since the probe runs on the host.
+# For Unix socket URLs (empty hostname, ?host=/socket/path), accepts an optional
+# second argument with the host-side socket directory to use for the probe.
+# All output goes to stderr so this function is safe inside $() subshells.
+# Returns 0 on success, 1 on confirmed failure, 0 with a warning when no
+# postgres tools are available (best-effort).
+probe_db_connection() {
+    local url="$1"
+    # Optional: host-side socket directory, used when url contains the container
+    # socket path (/var/run/postgresql) but the host socket may be elsewhere.
+    local socket_dir_hint="${2:-}"
+    local masked; masked="$(mask_password_in_url "$url")"
+    echo "==> Probing database: $masked" >&2
+
+    # host.docker.internal only resolves inside a container; probe uses localhost.
+    local probe_url="${url/host.docker.internal/localhost}"
+
+    # Extract connection fields for pg_isready, psql, and targeted error messages.
+    local probe_host probe_port pg_user pg_password pg_db
+    probe_host="$(URL_TO_PARSE="$probe_url" python3 -c \
+        "import os; from urllib.parse import urlparse; u=urlparse(os.environ['URL_TO_PARSE']); print(u.hostname or '')" \
+        2>/dev/null || echo "")"
+    probe_port="$(URL_TO_PARSE="$probe_url" python3 -c \
+        "import os; from urllib.parse import urlparse; u=urlparse(os.environ['URL_TO_PARSE']); print(u.port or 5432)" \
+        2>/dev/null || echo "5432")"
+    pg_user="$(URL_TO_PARSE="$probe_url" python3 -c \
+        "import os; from urllib.parse import urlparse; u=urlparse(os.environ['URL_TO_PARSE']); print(u.username or '')" \
+        2>/dev/null || echo "")"
+    pg_password="$(URL_TO_PARSE="$probe_url" python3 -c \
+        "import os; from urllib.parse import urlparse; u=urlparse(os.environ['URL_TO_PARSE']); print(u.password or '')" \
+        2>/dev/null || echo "")"
+    pg_db="$(URL_TO_PARSE="$probe_url" python3 -c \
+        "import os; from urllib.parse import urlparse; u=urlparse(os.environ['URL_TO_PARSE']); print((u.path or '/').lstrip('/'))" \
+        2>/dev/null || echo "")"
+
+    # Detect Unix socket URLs: hostname is empty and ?host= query param names socket dir.
+    # probe_host is set to the host-side socket directory for pg_isready/psql.
+    local is_socket="false"
+    if [ -z "$probe_host" ]; then
+        is_socket="true"
+        if [ -n "$socket_dir_hint" ]; then
+            probe_host="$socket_dir_hint"
+        else
+            # Extract socket path from ?host= query param (container path),
+            # then fall back to env file or default.
+            local url_socket
+            url_socket="$(URL_TO_PARSE="$probe_url" python3 -c \
+                "import os; from urllib.parse import urlparse, parse_qs; \
+u=urlparse(os.environ['URL_TO_PARSE']); qs=parse_qs(u.query); \
+print(qs.get('host',[''])[0])" 2>/dev/null || echo "")"
+            probe_host="${url_socket:-$(env_get "PG_SOCKET_DIR" 2>/dev/null || true)}"
+            probe_host="${probe_host:-/var/run/postgresql}"
+        fi
+    fi
+
+    if command -v pg_isready >/dev/null 2>&1; then
+        if [ "$is_socket" = "true" ]; then
+            if ! pg_isready -h "$probe_host" -t 5 >/dev/null 2>&1; then
+                echo "  ✘  Cannot reach PostgreSQL at socket $probe_host — check that PostgreSQL is running." >&2
+                return 1
+            fi
+        else
+            if ! pg_isready -h "$probe_host" -p "$probe_port" -t 5 >/dev/null 2>&1; then
+                echo "  ✘  Cannot reach PostgreSQL at ${probe_host}:${probe_port} — check host, port, and firewall." >&2
+                return 1
+            fi
+        fi
+    fi
+
+    if command -v psql >/dev/null 2>&1; then
+        local psql_out psql_rc
+        # Password passed via PGPASSWORD so it never appears in process listings.
+        if [ "$is_socket" = "true" ]; then
+            psql_out="$(PGPASSWORD="$pg_password" PGCONNECT_TIMEOUT=5 \
+                psql -h "$probe_host" -U "$pg_user" -d "$pg_db" \
+                -c "SELECT 1" 2>&1)"
+        else
+            psql_out="$(PGPASSWORD="$pg_password" PGCONNECT_TIMEOUT=5 \
+                psql -h "$probe_host" -p "$probe_port" -U "$pg_user" -d "$pg_db" \
+                -c "SELECT 1" 2>&1)"
+        fi
+        psql_rc=$?
+        if [ "$psql_rc" -eq 0 ]; then
+            # Verify PostgreSQL version — Django 5+ requires PostgreSQL 14 or later.
+            local pg_ver_num pg_ver_display
+            if [ "$is_socket" = "true" ]; then
+                pg_ver_num="$(PGPASSWORD="$pg_password" PGCONNECT_TIMEOUT=5 \
+                    psql -h "$probe_host" -U "$pg_user" -d "$pg_db" \
+                    -t -c 'SHOW server_version_num;' 2>/dev/null | tr -d ' \n')"
+                pg_ver_display="$(PGPASSWORD="$pg_password" PGCONNECT_TIMEOUT=5 \
+                    psql -h "$probe_host" -U "$pg_user" -d "$pg_db" \
+                    -t -c 'SHOW server_version;' 2>/dev/null | tr -d ' \n')"
+            else
+                pg_ver_num="$(PGPASSWORD="$pg_password" PGCONNECT_TIMEOUT=5 \
+                    psql -h "$probe_host" -p "$probe_port" -U "$pg_user" -d "$pg_db" \
+                    -t -c 'SHOW server_version_num;' 2>/dev/null | tr -d ' \n')"
+                pg_ver_display="$(PGPASSWORD="$pg_password" PGCONNECT_TIMEOUT=5 \
+                    psql -h "$probe_host" -p "$probe_port" -U "$pg_user" -d "$pg_db" \
+                    -t -c 'SHOW server_version;' 2>/dev/null | tr -d ' \n')"
+            fi
+            if [ -n "$pg_ver_num" ] && [ "$pg_ver_num" -lt 140000 ] 2>/dev/null; then
+                echo "  ✘  PostgreSQL ${pg_ver_display} is too old — Django requires PostgreSQL 14 or later." >&2
+                _show_pg_upgrade_instructions >&2
+                return 1
+            fi
+            return 0
+        fi
+        # Diagnose the specific failure and show targeted fix commands.
+        # Passwords are never embedded in commands — \password prompts interactively.
+        if echo "$psql_out" | grep -qi "role.*does not exist"; then
+            echo "  ✘  PostgreSQL user '$pg_user' does not exist." >&2
+            echo "     Create it and set a password (you will be prompted):" >&2
+            _pg_admin_cmd "createuser -s $pg_user" >&2
+            _pg_admin_cmd "psql -c '\\password $pg_user'" >&2
+        elif echo "$psql_out" | grep -qi "database.*does not exist"; then
+            echo "  ✘  Database '$pg_db' does not exist." >&2
+            echo "     Create it with:" >&2
+            _pg_admin_cmd "createdb -O $pg_user $pg_db" >&2
+        elif echo "$psql_out" | grep -qi "password authentication failed\|authentication failed"; then
+            echo "  ✘  Authentication failed for user '$pg_user'." >&2
+            echo "     This is either a wrong password or a mismatch between pg_hba.conf" >&2
+            echo "     auth method and the password hash stored in PostgreSQL." >&2
+            echo "" >&2
+            echo "     Step 1 — check the password encryption setting:" >&2
+            _pg_admin_cmd "psql -c 'SHOW password_encryption;'" >&2
+            echo "" >&2
+            if [ "$is_socket" = "true" ]; then
+                echo "     Step 2 — ensure pg_hba.conf has a 'local' entry (Unix socket) whose" >&2
+                echo "     auth method matches the result of Step 1. Add/update for '${pg_db}'" >&2
+                echo "     and '${pg_user}' — use whichever method Step 1 showed:" >&2
+                echo "       local   ${pg_db}   ${pg_user}   scram-sha-256   # if password_encryption=scram-sha-256" >&2
+                echo "       local   ${pg_db}   ${pg_user}   md5             # if password_encryption=md5" >&2
+                echo "     To find pg_hba.conf:" >&2
+                _pg_admin_cmd "psql -c 'SHOW hba_file;'" >&2
+                echo "     Then reload:" >&2
+            else
+                echo "     Step 2 — ensure pg_hba.conf has a 'host' entry whose auth method" >&2
+                echo "     matches the result of Step 1. Add/update for '${pg_db}' and" >&2
+                echo "     '${pg_user}' — use whichever method Step 1 showed:" >&2
+                echo "       host   ${pg_db}   ${pg_user}   127.0.0.1/32   scram-sha-256   # if password_encryption=scram-sha-256" >&2
+                echo "       host   ${pg_db}   ${pg_user}   127.0.0.1/32   md5             # if password_encryption=md5" >&2
+                echo "     To find pg_hba.conf:" >&2
+                _pg_admin_cmd "psql -c 'SHOW hba_file;'" >&2
+                echo "     Then reload:" >&2
+            fi >&2
+            _pg_admin_cmd "psql -c 'SELECT pg_reload_conf();'" >&2
+            echo "" >&2
+            echo "     Step 3 — reset the password so it is stored with the current method" >&2
+            echo "     (you will be prompted):" >&2
+            _pg_admin_cmd "psql -c '\\password $pg_user'" >&2
+        elif echo "$psql_out" | grep -qi "peer authentication failed\|ident authentication failed"; then
+            if [ "$is_socket" = "true" ]; then
+                echo "  ✘  pg_hba.conf does not allow password auth for Unix socket connections." >&2
+                echo "     Edit pg_hba.conf and add or update the 'local' entry for '${pg_db}'" >&2
+                echo "     and '${pg_user}' to use 'scram-sha-256' or 'md5':" >&2
+                echo "       local   ${pg_db}   ${pg_user}   scram-sha-256" >&2
+            else
+                echo "  ✘  pg_hba.conf does not allow password auth for local TCP connections." >&2
+                echo "     Edit pg_hba.conf and set the method to 'scram-sha-256' or 'md5'" >&2
+                echo "     for host connections to '${pg_db}' by '${pg_user}':" >&2
+                echo "       host   ${pg_db}   ${pg_user}   127.0.0.1/32   scram-sha-256" >&2
+            fi >&2
+            echo "     To find pg_hba.conf:" >&2
+            _pg_admin_cmd "psql -c 'SHOW hba_file;'" >&2
+            echo "     Then reload:" >&2
+            _pg_admin_cmd "psql -c 'SELECT pg_reload_conf();'" >&2
+        else
+            echo "  ✘  Connection failed: $(echo "$psql_out" | grep -i "fatal\|error" | head -1)" >&2
+        fi
+        return 1
+    fi
+
+    if ! command -v pg_isready >/dev/null 2>&1; then
+        echo "  ⚠  Cannot verify database connectivity (pg_isready and psql not found)." >&2
+        echo "     Proceeding — Docker will surface any connection errors at startup." >&2
+    fi
+    return 0
+}
+
+# Warn if a DATABASE_URL uses localhost/127.0.0.1 — those resolve to the
+# container itself inside Docker, not the host machine.
+warn_if_localhost_url() {
+    local url="$1"
+    if [[ "$url" == *"@localhost:"* ]] || [[ "$url" == *"@127.0.0.1:"* ]]; then
+        echo "" >&2
+        echo "  ⚠  The DATABASE_URL uses 'localhost', which inside Docker resolves to" >&2
+        echo "     the container itself — not this host machine." >&2
+        echo "     Use 'host.docker.internal' instead of 'localhost' to reach a" >&2
+        echo "     database running on this host." >&2
+        echo "" >&2
+    fi
+}
+
+# Wait until PostgreSQL on the given host is accepting connections.
+# Uses pg_isready when available; falls back to a bash TCP probe otherwise.
+# Always validates — never silently passes.
+wait_for_postgres_ready() {
+    local host="${1:-localhost}"
+    local port="${2:-5432}"
+    echo "" >&2
+    echo "  Checking that PostgreSQL is accepting connections..." >&2
+    if command -v pg_isready >/dev/null 2>&1; then
+        while ! pg_isready -h "$host" -p "$port" -t 1 >/dev/null 2>&1; do
+            echo "  ⚠  Not ready yet. Press Enter to retry (Ctrl+C to abort)." >&2
+            read -r _
+        done
+    else
+        # pg_isready not available — use bash's built-in /dev/tcp to probe the port
+        # shellcheck disable=SC2188
+        while ! (>/dev/tcp/"$host"/"$port") 2>/dev/null; do
+            echo "  ⚠  Not ready yet. Press Enter to retry (Ctrl+C to abort)." >&2
+            read -r _
+        done
+    fi
+    echo "  ✔  PostgreSQL is accepting connections at $host." >&2
+    echo "" >&2
+}
+
+# Print platform-specific instructions for installing PostgreSQL locally.
+# All output goes to stderr so this function is safe inside $() subshells.
+# Note: Linux commands use 'sudo su - postgres' (login shell) so the postgres
+# user starts in its own home directory, avoiding cwd permission errors.
+show_local_postgres_install_instructions() {
+    local os; os="$(uname -s)"
+    echo "" >&2
+    echo "  ── Install PostgreSQL locally ────────────────────────────────────────" >&2
+    echo "  PostgreSQL 14 or later is required (Django 5.x minimum)." >&2
+    echo "  Run the following commands to install a supported version:" >&2
+    echo "" >&2
+    if [[ "$os" == "Darwin" ]]; then
+        echo "    brew install postgresql@17" >&2
+        echo "    brew services start postgresql@17" >&2
+        echo "    createuser -s -P mytracks   # -P prompts for password interactively" >&2
+        echo "    createdb -O mytracks mytracks" >&2
+    elif command -v apt-get >/dev/null 2>&1; then
+        # Use PGDG repo to guarantee a supported version (distro default may be < 14)
+        echo "    sudo apt-get install -y curl ca-certificates" >&2
+        echo "    sudo install -d /usr/share/postgresql-common/pgdg" >&2
+        echo "    sudo curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc --fail \\" >&2
+        echo "        https://www.postgresql.org/media/keys/ACCC4CF8.asc" >&2
+        echo "    sudo sh -c 'echo \"deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \\" >&2
+        echo "        https://apt.postgresql.org/pub/repos/apt \$(lsb_release -cs)-pgdg main\" \\" >&2
+        echo "        > /etc/apt/sources.list.d/pgdg.list'" >&2
+        echo "    sudo apt-get update && sudo apt-get install -y postgresql-17" >&2
+        echo "    sudo systemctl enable --now postgresql@17-main" >&2
+        echo "    sudo su - postgres -c \"createuser -s -P mytracks\"" >&2
+        echo "    sudo su - postgres -c \"createdb -O mytracks mytracks\"" >&2
+    elif command -v dnf >/dev/null 2>&1; then
+        # Use PGDG repo — distro default on RHEL 8/9 is PG 10-13 (unsupported)
+        echo "    sudo dnf install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-8-x86_64/pgdg-redhat-repo-latest.noarch.rpm" >&2
+        echo "    sudo dnf -qy module disable postgresql" >&2
+        echo "    sudo dnf install -y postgresql17-server" >&2
+        echo "    sudo /usr/pgsql-17/bin/postgresql-17-setup initdb" >&2
+        echo "    sudo systemctl enable --now postgresql-17" >&2
+        echo "    sudo su - postgres -c \"createuser -s -P mytracks\"" >&2
+        echo "    sudo su - postgres -c \"createdb -O mytracks mytracks\"" >&2
+    elif command -v pacman >/dev/null 2>&1; then
+        # Arch official repos always carry the latest version (currently 16+)
+        echo "    sudo pacman -S postgresql" >&2
+        echo "    sudo -u postgres initdb -D /var/lib/postgres/data" >&2
+        echo "    sudo systemctl enable --now postgresql" >&2
+        echo "    sudo su - postgres -c \"createuser -s -P mytracks\"" >&2
+        echo "    sudo su - postgres -c \"createdb -O mytracks mytracks\"" >&2
+    else
+        echo "    Install PostgreSQL 14 or later using your system's package manager." >&2
+        echo "    Official packages: https://www.postgresql.org/download/" >&2
+        echo "    Then start the service and create the user and database:" >&2
+        echo "      sudo su - postgres -c \"createuser -s -P mytracks\"" >&2
+        echo "      sudo su - postgres -c \"createdb -O mytracks mytracks\"" >&2
+    fi
+    echo "" >&2
+}
+
+# Prompt for a raw DATABASE_URL and probe it; retries on failure.
+# Outputs the validated URL to stdout; all interaction goes to stderr.
+prompt_db_url() {
+    local db_url
+    echo "" >&2
+    printf "  DATABASE_URL (e.g., postgresql://user:pass@host:5432/dbname): " >&2
+    read -r db_url
+    [ -n "$db_url" ] || die "DATABASE_URL cannot be empty"
+
+    while ! probe_db_connection "$db_url"; do
+        echo "" >&2
+        printf "  Press Enter to retry, or type 'edit' to enter a different URL (Ctrl+C to abort): " >&2
+        local retry_input
+        read -r retry_input
+        if [ "$retry_input" = "edit" ]; then
+            printf "  DATABASE_URL: " >&2
+            local new_url
+            read -r new_url
+            [ -n "$new_url" ] && db_url="$new_url"
+        fi
+    done
+
+    warn_if_localhost_url "$db_url"
+    echo "$db_url"
+}
+
+# Gather individual connection fields for a local postgres and build a DATABASE_URL.
+# Probes connectivity; retries on failure.
+# Outputs the validated URL to stdout; all interaction goes to stderr.
+# The user enters a normal hostname (default: localhost). After a successful probe
+# the URL is rewritten to use host.docker.internal so it resolves from inside the
+# containers on both Linux (via extra_hosts) and Docker Desktop (macOS).
+prompt_local_db_url() {
+    local host port dbname user password db_url enc_user enc_password
+    local h p d u
+    echo "" >&2
+    echo "  ── PostgreSQL connection details ──" >&2
+    echo "  (Press Enter to accept the default shown in brackets)" >&2
+    printf "  Host [localhost]: " >&2; read -r host; host="${host:-localhost}"
+    printf "  Port [5432]: " >&2; read -r port; port="${port:-5432}"
+    printf "  Database name [mytracks]: " >&2; read -r dbname; dbname="${dbname:-mytracks}"
+    printf "  Username [mytracks]: " >&2; read -r user; user="${user:-mytracks}"
+    printf "  Password: " >&2; IFS= read -rs password; echo "" >&2
+    [ -n "$password" ] || die "Password cannot be empty"
+    enc_user="$(urlencode "$user")"
+    enc_password="$(urlencode "$password")"
+    db_url="postgresql://${enc_user}:${enc_password}@${host}:${port}/${dbname}"
+
+    while ! probe_db_connection "$db_url"; do
+        echo "" >&2
+        printf "  Press Enter to retry, or type 'edit' to change connection settings (Ctrl+C to abort): " >&2
+        local retry_input
+        read -r retry_input
+        if [ "$retry_input" = "edit" ]; then
+            printf "  Host [%s]: " "$host" >&2; read -r h; host="${h:-$host}"
+            printf "  Port [%s]: " "$port" >&2; read -r p; port="${p:-$port}"
+            printf "  Database name [%s]: " "$dbname" >&2; read -r d; dbname="${d:-$dbname}"
+            printf "  Username [%s]: " "$user" >&2; read -r u; user="${u:-$user}"
+            printf "  Password [keep current]: " >&2; IFS= read -rs new_password; echo "" >&2
+            [ -n "$new_password" ] && password="$new_password"
+            enc_user="$(urlencode "$user")"
+            enc_password="$(urlencode "$password")"
+            db_url="postgresql://${enc_user}:${enc_password}@${host}:${port}/${dbname}"
+        fi
+    done
+
+    # Rewrite localhost/127.0.0.1 → host.docker.internal so the URL resolves
+    # from inside Docker containers (which can't reach the host via localhost).
+    db_url="${db_url/@localhost:/@host.docker.internal:}"
+    db_url="${db_url/@127.0.0.1:/@host.docker.internal:}"
+
+    warn_if_localhost_url "$db_url"
+    echo "$db_url"
+}
+
+# Gather connection details for a local Unix-socket PostgreSQL and build a DATABASE_URL.
+# $1: host-side socket directory (e.g. /var/run/postgresql).
+# Probes using the host socket path; the stored URL uses the container mount point
+# /var/run/postgresql (docker-compose.socket.yml mounts host dir there).
+# Outputs the validated URL followed by "SOCKET_DIR:<host_socket_dir>" on the next
+# line so callers can extract the host path without a global side-channel.
+# All interaction goes to stderr.
+prompt_socket_db_url() {
+    local host_socket_dir="$1"
+    local dbname user password enc_user enc_password db_url
+    local d u
+    echo "" >&2
+    echo "  ── PostgreSQL Unix socket connection ──" >&2
+    echo "  (Press Enter to accept the default shown in brackets)" >&2
+    printf "  Database name [mytracks]: " >&2; read -r dbname; dbname="${dbname:-mytracks}"
+    printf "  Username [mytracks]: " >&2; read -r user; user="${user:-mytracks}"
+    printf "  Password: " >&2; IFS= read -rs password; echo "" >&2
+    [ -n "$password" ] || die "Password cannot be empty"
+    enc_user="$(urlencode "$user")"
+    enc_password="$(urlencode "$password")"
+    # Container-side socket path is always /var/run/postgresql (mounted from host).
+    db_url="postgresql://${enc_user}:${enc_password}@/${dbname}?host=/var/run/postgresql"
+
+    while ! probe_db_connection "$db_url" "$host_socket_dir"; do
+        echo "" >&2
+        printf "  Press Enter to retry, or type 'edit' to change settings (Ctrl+C to abort): " >&2
+        local retry_input
+        read -r retry_input
+        if [ "$retry_input" = "edit" ]; then
+            printf "  Database name [%s]: " "$dbname" >&2; read -r d; dbname="${d:-$dbname}"
+            printf "  Username [%s]: " "$user" >&2; read -r u; user="${u:-$user}"
+            printf "  Password [keep current]: " >&2; IFS= read -rs new_password; echo "" >&2
+            [ -n "$new_password" ] && password="$new_password"
+            enc_user="$(urlencode "$user")"
+            enc_password="$(urlencode "$password")"
+            db_url="postgresql://${enc_user}:${enc_password}@/${dbname}?host=/var/run/postgresql"
+        fi
+    done
+
+    echo "$db_url"
+    echo "SOCKET_DIR:${host_socket_dir}"
+}
+
+# Guide the user through configuring an external PostgreSQL connection.
+# Detects a locally-running postgres and offers to use it.
+# Outputs the validated DATABASE_URL to stdout; all interaction goes to stderr.
+setup_external_database() {
+    local use_local="false"
+
+    # Detect a locally-running postgres (only possible when pg_isready is available)
+    if command -v pg_isready >/dev/null 2>&1; then
+        if pg_isready -h localhost -t 1 >/dev/null 2>&1; then
+            if ! _early_pg_version_check; then
+                echo "  ⚠  Skipping local PostgreSQL — upgrade first, then re-run." >&2
+                echo "" >&2
+            else
+                echo "" >&2
+                echo "  ✔  Local PostgreSQL detected at localhost." >&2
+                printf "  Use it? [Y/n] (Enter=Y): " >&2
+                local local_choice
+                read -r local_choice
+                local_choice="${local_choice:-y}"
+                if [[ "$local_choice" =~ ^[Yy] ]]; then
+                    use_local="true"
+                fi
+            fi
+        fi
+    fi
+
+    if [ "$use_local" = "true" ]; then
+        # Offer Unix socket if one is available — avoids exposing postgres on the network.
+        local sock_dir
+        if sock_dir="$(detect_pg_socket_dir)"; then
+            echo "" >&2
+            echo "  ✔  Unix socket found at: $sock_dir" >&2
+            echo "     Using a socket avoids exposing PostgreSQL on the network." >&2
+            printf "  Connect via Unix socket? [Y/n] (Enter=Y): " >&2
+            local sock_choice
+            read -r sock_choice
+            sock_choice="${sock_choice:-y}"
+            if [[ "$sock_choice" =~ ^[Yy] ]]; then
+                prompt_socket_db_url "$sock_dir"
+                return
+            fi
+        fi
+        prompt_local_db_url
+        return
+    fi
+
+    echo "" >&2
+    echo "  ── No local PostgreSQL server detected ──" >&2
+    echo "    1) Install and run PostgreSQL on this machine" >&2
+    echo "    2) Connect to a remote PostgreSQL server" >&2
+    echo "" >&2
+    printf "  Choose [1 (default)]: " >&2
+    local pg_choice
+    read -r pg_choice
+    pg_choice="${pg_choice:-1}"
+
+    if [ "$pg_choice" = "1" ]; then
+        show_local_postgres_install_instructions
+        while true; do
+            printf "  Press Enter when done (Ctrl+C to abort)..." >&2
+            read -r _
+            wait_for_postgres_ready localhost
+            _early_pg_version_check && break
+            echo "" >&2
+            echo "  Fix the PostgreSQL version and try again, or press Ctrl+C to abort." >&2
+            echo "" >&2
+        done
+        prompt_local_db_url
+    else
+        prompt_db_url
+    fi
+}
+
+# Inform user of internal DB or probe external DB for connectivity.
+# Takes the DATABASE_URL as an argument so there is no implicit global dependency.
+# When the URL targets host.docker.internal, also verifies that postgres is
+# listening on an address the container can actually reach (not just localhost).
+# If it isn't, offers to migrate the env file to use a Unix socket.
+verify_database_connectivity() {
+    local url="$1"
+    if is_internal_db; then
+        echo ""
+        echo "  ℹ  Database: containerized PostgreSQL (data in Docker volume postgres-data)"
+        echo ""
+        return
+    fi
+
+    echo ""
+    echo "  ── Verifying external database ──────────────────────────────"
+    if probe_db_connection "$url"; then
+        echo "  ✔  External database is reachable."
+        warn_if_localhost_url "$url"
+        # The probe above substitutes host.docker.internal → localhost, so it
+        # succeeds even when postgres is not listening on the host's LAN IP.
+        # Verify containers can actually reach it; offer socket migration if not.
+        if [[ "$url" == *"host.docker.internal"* ]]; then
+            _check_container_reachability "$url"
+        fi
+        echo ""
+    else
+        die "Cannot reach external database: $(mask_password_in_url "$url")
+
+  Ensure the database server is running and accessible from this host.
+  Verify DATABASE_URL in $env_file."
+    fi
+}
+
+# Called when DATABASE_URL uses host.docker.internal.
+# Queries postgres listen_addresses to determine whether the host's LAN interface
+# is actually exposed. If postgres only listens on localhost, the container will
+# fail to connect via host.docker.internal (which resolves to the LAN IP).
+# Offers to migrate the env file to use a Unix socket if one is available.
+# Falls back silently (best-effort) when psql is unavailable or query fails.
+_check_container_reachability() {
+    local url="$1"
+    command -v psql >/dev/null 2>&1 || return 0
+
+    local probe_url="${url/host.docker.internal/localhost}"
+    local pg_user pg_password pg_db probe_port
+    pg_user="$(URL_TO_PARSE="$probe_url" python3 -c \
+        "import os; from urllib.parse import urlparse; u=urlparse(os.environ['URL_TO_PARSE']); print(u.username or '')" \
+        2>/dev/null || echo "")"
+    pg_password="$(URL_TO_PARSE="$probe_url" python3 -c \
+        "import os; from urllib.parse import urlparse; u=urlparse(os.environ['URL_TO_PARSE']); print(u.password or '')" \
+        2>/dev/null || echo "")"
+    pg_db="$(URL_TO_PARSE="$probe_url" python3 -c \
+        "import os; from urllib.parse import urlparse; u=urlparse(os.environ['URL_TO_PARSE']); print((u.path or '/').lstrip('/'))" \
+        2>/dev/null || echo "")"
+    probe_port="$(URL_TO_PARSE="$probe_url" python3 -c \
+        "import os; from urllib.parse import urlparse; u=urlparse(os.environ['URL_TO_PARSE']); print(u.port or 5432)" \
+        2>/dev/null || echo "5432")"
+
+    local listen_addrs
+    listen_addrs="$(PGPASSWORD="$pg_password" PGCONNECT_TIMEOUT=5 \
+        psql -h localhost -p "$probe_port" -U "$pg_user" -d "$pg_db" \
+        -t -c 'SHOW listen_addresses;' 2>/dev/null | tr -d ' \n')"
+
+    # Empty means psql failed — skip silently (best-effort).
+    [ -n "$listen_addrs" ] || return 0
+
+    # If listen_addresses includes '*', '0.0.0.0', or a non-loopback IP, the
+    # container can reach postgres. Only block when it is strictly loopback-only.
+    if [[ "$listen_addrs" != "localhost" && "$listen_addrs" != "127.0.0.1" && \
+          "$listen_addrs" != "::1" ]]; then
+        return 0
+    fi
+
+    echo "" >&2
+    echo "  ⚠  PostgreSQL listen_addresses='${listen_addrs}' — it only accepts" >&2
+    echo "     loopback connections. Docker containers cannot reach it via" >&2
+    echo "     host.docker.internal (which resolves to the host's LAN IP)." >&2
+
+    local sock_dir
+    if sock_dir="$(detect_pg_socket_dir)"; then
+        echo "  ✔  Unix socket found at: $sock_dir" >&2
+        printf "  Migrate DATABASE_URL to Unix socket (recommended)? [Y/n] (Enter=Y): " >&2
+        local choice
+        read -r choice
+        choice="${choice:-y}"
+        if [[ "$choice" =~ ^[Yy] ]]; then
+            _migrate_env_to_socket "$pg_user" "$pg_password" "$pg_db" "$sock_dir"
+            return 0
+        fi
+    fi
+
+    echo "" >&2
+    echo "  To allow container access without a socket, configure PostgreSQL:" >&2
+    _pg_admin_cmd "psql -c \"ALTER SYSTEM SET listen_addresses = '*'; SELECT pg_reload_conf();\"" >&2
+    echo "  Also add a host entry in pg_hba.conf for the Docker subnet." >&2
+    die "PostgreSQL is not reachable from Docker containers via host.docker.internal."
+}
+
+# Rewrites DATABASE_URL in .env.production to use a Unix socket and adds
+# PG_SOCKET_DIR, then reloads config and compose file list.
+_migrate_env_to_socket() {
+    local pg_user="$1" pg_password="$2" pg_db="$3" sock_dir="$4"
+    local enc_user enc_password new_url
+    enc_user="$(urlencode "$pg_user")"
+    enc_password="$(urlencode "$pg_password")"
+    new_url="postgresql://${enc_user}:${enc_password}@/${pg_db}?host=/var/run/postgresql"
+
+    # Rewrite env file atomically: strip old DATABASE_URL / PG_SOCKET_DIR, append new.
+    local tmp_file
+    tmp_file="$(mktemp)"
+    grep -v "^DATABASE_URL=" "$env_file" | grep -v "^PG_SOCKET_DIR=" > "$tmp_file"
+    {
+        echo "DATABASE_URL=${new_url}"
+        echo "PG_SOCKET_DIR=${sock_dir}"
+    } >> "$tmp_file"
+    mv "$tmp_file" "$env_file"
+    chmod 600 "$env_file"
+
+    # Reload config and compose file list so the rest of cmd_start uses the
+    # updated values (socket overlay will be included, database_url refreshed).
+    load_config_from_env
+    setup_compose_files
+    info "Migrated to Unix socket. Updated DATABASE_URL and PG_SOCKET_DIR in $env_file."
+}
+
 usage() {
     cat <<EOF
 Usage: my-tracks-production-container-manager [OPTIONS]
 
 Options:
   --start                Build and start the production container stack
-  --start --freshen-up   Regenerate config and certs before starting
+  --freshen-up           Tear down stack, delete config/certs, and prompt before each deletion
+  --start --freshen-up   Tear down, wipe config/certs, then reconfigure and start immediately
   --start --import-sqlite [path]
                          Import local SQLite db into PostgreSQL (default: ./db.sqlite3)
   --stop                 Stop the stack and remove volumes
@@ -387,17 +1110,16 @@ choose_database_mode() {
     echo "" >&2
     echo "  ── Database configuration ──" >&2
     echo "    1) Containerized PostgreSQL (transient, data in Docker volume)" >&2
-    echo "    2) External PostgreSQL (provide your own DATABASE_URL)" >&2
+    echo "    2) External PostgreSQL (connect to an existing PostgreSQL server)" >&2
     echo "" >&2
-    printf "  Choose [1]: " >&2
+    printf "  Choose [1 (default)]: " >&2
+    local db_choice
     read -r db_choice
     db_choice="${db_choice:-1}"
 
     if [ "$db_choice" = "2" ]; then
-        echo "" >&2
-        printf "  DATABASE_URL (e.g., postgresql://user:pass@host:5432/dbname): " >&2
-        read -r db_url
-        [ -n "$db_url" ] || die "DATABASE_URL cannot be empty"
+        local db_url
+        db_url="$(setup_external_database)" || exit 1
         echo "$db_url"
     else
         echo "internal"
@@ -458,8 +1180,10 @@ create_env_file() {
 
     info "Generating .env.production"
 
-    local db_result
-    db_result="$(choose_database_mode)"
+    local raw_db_result db_result
+    raw_db_result="$(choose_database_mode)" || die "Database setup failed — aborting."
+    _pg_socket_dir="$(echo "$raw_db_result" | grep '^SOCKET_DIR:' | sed 's/^SOCKET_DIR://' || true)"
+    db_result="$(echo "$raw_db_result" | grep -v '^SOCKET_DIR:')"
 
     local secret_key
     secret_key="$(generate_secret)"
@@ -503,8 +1227,12 @@ HTTPS_PORT=${default_https_port}
 HTTP_PORT=${default_http_port}
 MQTT_TLS_PORT=${default_mqtt_tls_port}
 ENVEOF
+        if [ -n "$_pg_socket_dir" ]; then
+            echo "PG_SOCKET_DIR=${_pg_socket_dir}" >> "$env_file"
+        fi
     fi
 
+    chmod 600 "$env_file"
     info "Created $env_file"
 }
 
@@ -518,8 +1246,10 @@ validate_and_repair_env() {
     done
 
     if [ -z "$(env_get "DATABASE_URL")" ]; then
-        local db_result
-        db_result="$(choose_database_mode)"
+        local raw_db_result db_result
+        raw_db_result="$(choose_database_mode)"
+        _pg_socket_dir="$(echo "$raw_db_result" | grep '^SOCKET_DIR:' | sed 's/^SOCKET_DIR://' || true)"
+        db_result="$(echo "$raw_db_result" | grep -v '^SOCKET_DIR:')"
         if [ "$db_result" = "internal" ]; then
             local pg_password
             pg_password="$(generate_secret)"
@@ -532,6 +1262,9 @@ validate_and_repair_env() {
             info "Added internal database configuration to $env_file"
         else
             echo "DATABASE_URL=${db_result}" >> "$env_file"
+            if [ -n "$_pg_socket_dir" ]; then
+                echo "PG_SOCKET_DIR=${_pg_socket_dir}" >> "$env_file"
+            fi
             info "Added external DATABASE_URL to $env_file"
         fi
     fi
@@ -562,6 +1295,7 @@ validate_and_repair_env() {
 
     echo ""
     info "Updated $env_file with missing values"
+    chmod 600 "$env_file"
 }
 
 load_config_from_env() {
@@ -823,9 +1557,7 @@ cmd_start() {
     setup_compose_files
     info "Using env file: $env_file"
 
-    if ! is_internal_db; then
-        info "External database detected — containerized postgres will NOT be started"
-    fi
+    verify_database_connectivity "$database_url"
 
     if [ "$freshen_up" = "true" ] || [ ! -f "$CERTS_DIR/fullchain.pem" ]; then
         create_self_signed_certs
@@ -891,9 +1623,9 @@ cmd_start() {
     info "Starting stack"
     compose up -d
 
-    info "Waiting for health check (${health_url})..."
+    local max_attempts=15
+    info "Waiting for health check (${health_url}, up to $((max_attempts * 2))s)..."
     local attempts=0
-    local max_attempts=30
     while [ $attempts -lt $max_attempts ]; do
         if curl -sk "$health_url" 2>/dev/null | grep -q '"status"'; then
             break
@@ -904,12 +1636,60 @@ cmd_start() {
 
     if [ $attempts -ge $max_attempts ]; then
         echo ""
-        echo "WARNING: Health check did not pass within 60 seconds."
+        echo "WARNING: Health check did not pass within 30 seconds."
         echo "Check logs with: $log_hint"
         exit 1
     fi
 
     print_banner
+}
+
+cmd_freshen_up() {
+    check_prerequisites
+
+    echo ""
+    echo "  ── Freshen-up: the following will be permanently deleted ─────────────"
+    local has_something="false"
+    if [ -f "$env_file" ]; then
+        echo "  • $env_file  (credentials, secret key, ports)"
+        echo "  • Docker volumes  (all container data, including database if containerized)"
+        has_something="true"
+    fi
+    if [ -d "$project_dir/certs" ]; then
+        echo "  • $project_dir/certs/  (TLS certificates)"
+        has_something="true"
+    fi
+    if [ -d "$script_dir/.run" ]; then
+        echo "  • $script_dir/.run/  (staged nginx/certs/logs)"
+        has_something="true"
+    fi
+    echo ""
+
+    if [ "$has_something" = "false" ]; then
+        info "Nothing to clean up — already at a clean slate."
+        return
+    fi
+
+    printf "  Proceed? [y/N]: "
+    read -r confirm
+    [[ "$confirm" =~ ^[Yy] ]] || { echo "Aborted."; exit 0; }
+    echo ""
+
+    if [ -f "$env_file" ]; then
+        info "Tearing down stack and volumes"
+        load_config_from_env
+        setup_compose_files
+        compose down -v 2>/dev/null || true
+        rm -f "$env_file"
+        info "Removed $env_file"
+    fi
+    if [ -d "$project_dir/certs" ]; then
+        rm -rf "$project_dir/certs"
+        info "Removed certs/"
+    fi
+    rm -rf "$script_dir/.run"
+
+    info "Clean slate ready — run --start to configure and launch."
 }
 
 cmd_stop() {
@@ -959,14 +1739,20 @@ main() {
         esac
     done
 
+    # --freshen-up alone means "clean up only"; with --start it regenerates and starts
+    if [ "$freshen_up" = "true" ] && [ -z "$action" ]; then
+        action="freshen-up"
+    fi
+
     if [ -z "$action" ]; then
         usage
         exit 1
     fi
 
     case "$action" in
-        start) cmd_start "$freshen_up" "$import_sqlite" ;;
-        stop)  cmd_stop ;;
+        start)      cmd_start "$freshen_up" "$import_sqlite" ;;
+        stop)       cmd_stop ;;
+        freshen-up) cmd_freshen_up ;;
     esac
 }
 

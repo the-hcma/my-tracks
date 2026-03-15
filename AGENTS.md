@@ -49,7 +49,8 @@ This document defines the four specialized agents for the My Tracks project.
 - ✅ **Submit PRs** (two steps — both required):
   1. `gt submit --no-interactive --publish` — pushes branch and creates ready-for-review PR (`--publish` is on `gt submit`, not `gt create`)
   2. Fill description: `gh api repos/{owner}/{repo}/pulls/{pr} --method PATCH --field body="..."` (no `--body` flag exists on `gt submit`)
-- ✅ **Amend commits**: `gt modify --all --message "updated message"`
+- ✅ **Amend commits** (incremental fixes to an existing PR): `gt modify --no-edit` (staged changes only) or `gt modify --all --message "updated message"` (re-stage + new message). Use this for corrections/additions to the same PR — **do not** create new commits for these. After amending, run `gt submit --no-interactive --publish` to push.
+- ✅ **Squash extra commits** (if you accidentally created several fixup commits): `git reset --soft HEAD~<n>` to collapse them into the staging area, then `gt modify --no-edit` to fold into the top commit.
 - ✅ **View stack**: `gt log short` to see current PR stack
 - ✅ **Sync with remote**: `gt sync --force` to update local branches
 - ✅ **Prune stale branches**: Periodically run `gt fetch --prune && git branch -vv | grep ': gone]' | awk '{print $1}' | xargs -r git branch -D`
@@ -379,12 +380,26 @@ Do not declare a PR ready until Steps 3, 4, and 5 all pass.
 - Variable names should be self-documenting
 - Avoid generic suffixes like `_map`, `_dict` when more specific names are available
 
+**Security Guidelines**:
+
+Passwords must never appear in shell command arguments — they end up in bash history (`~/.bash_history`) and in process listings (`ps aux`).
+
+- **In scripts**: pass passwords via environment variables scoped to the subprocess:
+  - ✅ `PGPASSWORD="$pw" psql -h host -U user -d db -c "SELECT 1"`
+  - ❌ `psql "postgresql://user:password@host/db" -c "SELECT 1"`
+- **In user-facing instructions**: use interactive prompts that don't record the password:
+  - ✅ `psql -c '\password username'` — prompts interactively, nothing stored
+  - ❌ `psql -c "ALTER USER username PASSWORD 'plaintext';"`
+- **In manual test commands shown to the user**: use `-W` to force an interactive password prompt, or `PGPASSWORD=...` with a note that the variable is not logged by bash
+  - ✅ `PGPASSWORD=yourpassword psql -h localhost -U user -d db -c "SELECT 1"` (env var only, not a command arg)
+  - ❌ `psql "postgresql://user:yourpassword@localhost/db"` (password in URL ends up in history)
+
 **Review Checklist**:
 - [ ] Algorithm correctness verified
 - [ ] All edge cases properly handled
 - [ ] Type hints complete and accurate
 - [ ] Docstrings clear and comprehensive
-- [ ] No security vulnerabilities
+- [ ] No security vulnerabilities — including **no passwords in command-line arguments** (see Security Guidelines above)
 - [ ] Error messages are informative (include both expected and actual values)
 - [ ] Naming conventions followed (values, descriptive mappings)
 - [ ] No dead code (unused methods, variables, imports, or parameters)
