@@ -6,8 +6,8 @@ from pathlib import Path
 from hamcrest import (assert_that, contains_string, equal_to, is_, is_not,
                       not_none)
 
-_ROOT = Path(__file__).resolve().parent
-_DEPLOY = _ROOT / "deploy"
+_ROOT = Path(__file__).resolve().parent.parent.parent
+_DEPLOY = _ROOT / "scripts" / "deploy"
 
 
 def _read_deploy() -> str:

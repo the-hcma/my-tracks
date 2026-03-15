@@ -117,9 +117,9 @@ uv run pytest test_websocket.py::TestLocationConsumer::test_websocket_connect -v
 
 ### Manual Testing
 
-1. Start server: `./my-tracks-server`
+1. Start server: `./scripts/my-tracks-server`
 2. Open browser to `http://localhost:8080/`
-3. Run tail generator: `./generate-tail --hours 1`
+3. Run tail generator: `./scripts/generate-tail --hours 1`
 4. Watch Live Activity panel update in real-time
 
 ## Configuration
@@ -192,7 +192,7 @@ console.log('WebSocket ready state:', ws.readyState);
 Start with debug logging:
 
 ```bash
-./my-tracks-server --log-level debug --console
+./scripts/my-tracks-server --log-level debug --console
 ```
 
 Watch for:

@@ -508,8 +508,8 @@ REQUIRED_CSS_VARIABLES = [
     '--right-header-color',
 ]
 
-CSS_PATH = Path(__file__).parent / 'web_ui' / 'static' / 'web_ui' / 'css' / 'main.css'
-HTML_PATH = Path(__file__).parent / 'web_ui' / 'templates' / 'web_ui' / 'home.html'
+CSS_PATH = Path(__file__).parent.parent.parent / 'web_ui' / 'static' / 'web_ui' / 'css' / 'main.css'
+HTML_PATH = Path(__file__).parent.parent.parent / 'web_ui' / 'templates' / 'web_ui' / 'home.html'
 
 
 def _extract_css_block(css: str, selector: str) -> str:

@@ -9,7 +9,7 @@ A self-hosted location tracking backend for the [OwnTracks](https://owntracks.or
 bash setup
 
 # Start server
-./my-tracks-server
+./scripts/my-tracks-server
 
 # Test API
 curl -X POST http://localhost:8080/api/locations/ \
@@ -17,17 +17,17 @@ curl -X POST http://localhost:8080/api/locations/ \
   -d '{"lat": 37.7749, "lon": -122.4194, "tst": 1705329600, "tid": "AB"}'
 ```
 
-**See [QUICKSTART.md](QUICKSTART.md) for detailed 5-minute setup guide.**
+**See [docs/QUICKSTART.md](docs/QUICKSTART.md) for detailed 5-minute setup guide.**
 
 ## 📚 Documentation
 
-- **[📖 Documentation Index](DOCS_INDEX.md)** - Complete guide to all docs
-- **[🚀 QUICKSTART.md](QUICKSTART.md)** - Get running in 5 minutes
-- **[📘 API.md](API.md)** - Complete API reference
-- **[🚢 DEPLOYMENT.md](DEPLOYMENT.md)** - Production deployment guide
-- **[⌨️ COMMANDS.md](COMMANDS.md)** - Command reference
-- **[📊 PROJECT_SUMMARY.md](PROJECT_SUMMARY.md)** - Comprehensive project overview
-- **[👥 AGENTS.md](AGENTS.md)** - Development agent workflow
+- **[📖 Documentation Index](docs/DOCS_INDEX.md)** - Complete guide to all docs
+- **[🚀 docs/QUICKSTART.md](docs/QUICKSTART.md)** - Get running in 5 minutes
+- **[📘 docs/API.md](docs/API.md)** - Complete API reference
+- **[🚢 docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** - Production deployment guide
+- **[⌨️ docs/COMMANDS.md](docs/COMMANDS.md)** - Command reference
+- **[📊 docs/PROJECT_SUMMARY.md](docs/PROJECT_SUMMARY.md)** - Comprehensive project overview
+- **[👥 docs/AGENTS.md](docs/AGENTS.md)** - Development agent workflow
 
 ## Features
 
@@ -119,12 +119,12 @@ This will:
 
 8. **Run the development server**:
    ```bash
-   ./my-tracks-server
+   ./scripts/my-tracks-server
    ```
 
    Or with console logging (outputs to both console and file):
    ```bash
-   ./my-tracks-server --console
+   ./scripts/my-tracks-server --console
    ```
 
 ## OwnTracks Configuration
@@ -285,10 +285,10 @@ For production deployment:
 
 Start production server:
 ```bash
-./my-tracks-server --log-level warning
+./scripts/my-tracks-server --log-level warning
 ```
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for complete production setup guide.
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for complete production setup guide.
 
 ## License
 
@@ -306,4 +306,4 @@ gt create --all --message "feat: your feature"
 gt submit --no-interactive --publish
 ```
 
-See [COMMANDS.md](COMMANDS.md#version-control-graphite) for the complete Graphite workflow.
+See [docs/COMMANDS.md](docs/COMMANDS.md#version-control-graphite) for the complete Graphite workflow.

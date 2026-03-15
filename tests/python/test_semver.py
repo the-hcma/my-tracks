@@ -14,8 +14,8 @@ from hamcrest import (assert_that, calling, contains_string, equal_to,
 
 from my_tracks.utils import get_version
 
-PROJECT_ROOT = Path(__file__).resolve().parent
-RELEASE_SCRIPT = PROJECT_ROOT / "release"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+RELEASE_SCRIPT = PROJECT_ROOT / "scripts" / "release"
 PYPROJECT = PROJECT_ROOT / "pyproject.toml"
 
 SEMVER_RE = r"^\d+\.\d+\.\d+$"

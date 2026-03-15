@@ -128,5 +128,5 @@ def _simulate_allowed_hosts(*, debug: bool) -> list[str]:
 
 def _read_settings_source() -> str:
     """Read the settings.py source for AST / string inspection."""
-    settings_path = Path(__file__).resolve().parent / "config" / "settings.py"
+    settings_path = Path(__file__).resolve().parent.parent.parent / "config" / "settings.py"
     return settings_path.read_text()

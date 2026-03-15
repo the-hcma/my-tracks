@@ -21,7 +21,7 @@ uv sync
 
 ```bash
 # Verify setup
-./verify-setup
+./scripts/verify-setup
 
 # Check Python version
 uv run python --version
@@ -107,19 +107,19 @@ uv run python manage.py migrate
 
 ```bash
 # Start development server (default port 8080)
-./my-tracks-server
+./scripts/my-tracks-server
 
 # Start on different port
-./my-tracks-server --port 18080
+./scripts/my-tracks-server --port 18080
 
 # Start with console logging (dual mode: console + file)
-./my-tracks-server --console
+./scripts/my-tracks-server --console
 
 # Start with debug log level
-./my-tracks-server --log-level debug --console
+./scripts/my-tracks-server --log-level debug --console
 
 # Let OS allocate ephemeral port (useful for testing)
-./my-tracks-server --port 0
+./scripts/my-tracks-server --port 0
 ```
 
 ### Server Script Options
@@ -460,13 +460,13 @@ gt submit --no-interactive --publish
 daphne -b 0.0.0.0 -p 8080 config.asgi:application
 
 # Development mode with my-tracks-server
-./my-tracks-server
+./scripts/my-tracks-server
 
 # With console logging
-./my-tracks-server --console
+./scripts/my-tracks-server --console
 
 # With debug level
-./my-tracks-server --log-level debug
+./scripts/my-tracks-server --log-level debug
 ```
 
 ### Systemd
@@ -517,7 +517,7 @@ watch -n 2 'curl -s http://localhost:8080/api/locations/?limit=1'
 tail -f logs/my-tracks.log
 
 # Monitor with console logging
-./my-tracks-server --console
+./scripts/my-tracks-server --console
 
 # Check disk usage
 du -sh db.sqlite3
@@ -608,7 +608,7 @@ rm -rf .venv db.sqlite3
 uv sync --all-extras
 uv run python manage.py migrate
 uv run python manage.py createsuperuser
-./my-tracks-server
+./scripts/my-tracks-server
 ```
 
 ### Deploy Update

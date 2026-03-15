@@ -12,13 +12,13 @@ This document provides guidelines for testing My Tracks.
 
 ```bash
 # Start test server on port 18080
-./my-tracks-server --port 18080
+./scripts/my-tracks-server --port 18080
 
 # With dual logging (console + file) for debugging
-./my-tracks-server --port 18080 --console
+./scripts/my-tracks-server --port 18080 --console
 
 # With debug log level
-./my-tracks-server --port 18080 --log-level debug --console
+./scripts/my-tracks-server --port 18080 --log-level debug --console
 ```
 
 ### Test URLs

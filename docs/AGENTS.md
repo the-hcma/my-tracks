@@ -76,7 +76,7 @@ This document defines the four specialized agents for the My Tracks project.
 ```bash
 uv run pyright                                      # type errors
 uv run isort --check-only --diff my_tracks config   # import order
-uv run flake8 my_tracks config                      # PEP 8 + unused imports/vars
+uv run flake8 --config dev-tooling/.flake8 my_tracks config  # PEP 8 + unused imports/vars
 uv run pytest --cov=my_tracks --cov-fail-under=90   # tests + coverage
 ```
 Do not proceed if any of these fail. Fix first.
@@ -122,8 +122,13 @@ Do not declare a PR ready until Steps 3, 4, and 5 all pass.
   - Validates import sorting with isort
   - Validates shell scripts with shellcheck
   - Checks for pending migrations
+**Directory Layout Rules**:
+- ❌ **NEVER move** `tsconfig.json`, `tsconfig.test.json`, `eslint.config.mjs`, `pyrightconfig.json`, or `vitest.config.ts` out of the project root — these are discovered by VS Code and IDE tooling by walking up from source files; moving them silently breaks IDE integration (type checking, linting, test discovery).
+- ✅ Only move config files that are invoked explicitly by path (e.g., `dev-tooling/esbuild.config.mjs` called via `node dev-tooling/esbuild.config.mjs`) or that support a `--config` flag set in CI/npm scripts (e.g., `dev-tooling/.flake8` via `flake8 --config dev-tooling/.flake8`).
+- Rationale: Tool config discovery and IDE integration depend on root-level placement; build script invocations do not.
+
 **Server Management**:
-- ❌ **NEVER start the production server** (`./my-tracks-server`) during development or testing
+- ❌ **NEVER start the production server** (`./scripts/my-tracks-server`) during development or testing
 - ✅ Tests run using Django's test framework (no server needed)
 - ✅ Manual testing should be done by user on their running server
 - ❌ Do not run curl/http commands against port 8080 during automated testing
@@ -131,7 +136,7 @@ Do not declare a PR ready until Steps 3, 4, and 5 all pass.
 **After PR is merged**:
 1. Sync with remote: `gt sync --force`
 2. Apply any pending migrations: `uv run python manage.py migrate`
-3. Restart the server: `./my-tracks-server`
+3. Restart the server: `./scripts/my-tracks-server`
 
 **GitHub Actions Polling**:
 - When checking CI/CD status, poll frequently to minimize wait time
@@ -248,10 +253,10 @@ Do not declare a PR ready until Steps 3, 4, and 5 all pass.
 - Keep last 5 log files: `my-tracks.log.1` through `my-tracks.log.5`
 - Always show log destination on startup
 - Examples:
-  - ✅ `./my-tracks-server` (warning level, file logging to logs/my-tracks.log)
-  - ✅ `./my-tracks-server --log-level debug` (debug level, file logging)
-  - ✅ `./my-tracks-server --console` (warning level, console output)
-  - ✅ `./my-tracks-server --log-level info --console` (info level, console output)
+  - ✅ `./scripts/my-tracks-server` (warning level, file logging to logs/my-tracks.log)
+  - ✅ `./scripts/my-tracks-server --log-level debug` (debug level, file logging)
+  - ✅ `./scripts/my-tracks-server --console` (warning level, console output)
+  - ✅ `./scripts/my-tracks-server --log-level info --console` (info level, console output)
 - Rationale: Consistent debugging experience, production-ready defaults, preserves logs for analysis, automatic cleanup
 
 **Shell Script Quality**:

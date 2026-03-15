@@ -351,21 +351,23 @@ flush_removal_errors() {
 }
 
 setup_compose_files() {
-    compose_files=("-f" "$project_dir/docker-compose.yml")
+    compose_files=("-f" "$project_dir/production/docker/docker-compose.yml")
     if is_internal_db; then
         if is_persistent_internal_db; then
-            compose_files+=("-f" "$project_dir/docker-compose.postgres-production.yml")
+            compose_files+=("-f" "$project_dir/production/docker/docker-compose.postgres-production.yml")
         else
-            compose_files+=("-f" "$project_dir/docker-compose.postgres-testing.yml")
+            compose_files+=("-f" "$project_dir/production/docker/docker-compose.postgres-testing.yml")
         fi
     elif [ -n "$(env_get "PG_SOCKET_DIR")" ]; then
-        compose_files+=("-f" "$project_dir/docker-compose.socket.yml")
+        compose_files+=("-f" "$project_dir/production/docker/docker-compose.socket.yml")
     fi
 }
 
 compose() {
     # podman-compose does not support --project-directory; it uses the compose
     # file's own directory as the base (correct since we pass absolute -f paths).
+    # PROJECT_ENV_FILE is exported so docker-compose.yml can reference it.
+    export PROJECT_ENV_FILE="$env_file"
     if [ "$container_engine" = "podman" ]; then
         $compose_cmd --env-file "$env_file" \
             "${compose_files[@]}" \
@@ -1701,8 +1703,8 @@ stage_bind_mounts() {
     local run_dir="$prod_dir/run"
     mkdir -p "$run_dir/nginx" "$run_dir/certs"
 
-    cp "$project_dir/nginx/nginx.conf" "$run_dir/nginx/nginx.conf"
-    cp "$project_dir/nginx/proxy_params" "$run_dir/nginx/proxy_params"
+    cp "$project_dir/production/nginx/nginx.conf" "$run_dir/nginx/nginx.conf"
+    cp "$project_dir/production/nginx/proxy_params" "$run_dir/nginx/proxy_params"
     cp "$CERTS_DIR/fullchain.pem" "$run_dir/certs/fullchain.pem"
     cp "$CERTS_DIR/privkey.pem" "$run_dir/certs/privkey.pem"
 

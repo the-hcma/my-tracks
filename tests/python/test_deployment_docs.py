@@ -4,8 +4,8 @@ from pathlib import Path
 
 from hamcrest import assert_that, contains_string, greater_than, is_, not_none
 
-PROJECT_ROOT = Path(__file__).resolve().parent
-DEPLOYMENT_MD = PROJECT_ROOT / "DEPLOYMENT.md"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+DEPLOYMENT_MD = PROJECT_ROOT / "docs" / "DEPLOYMENT.md"
 
 
 class TestDeploymentDocExists:
@@ -67,7 +67,7 @@ class TestQuickStart:
 
     def test_mentions_deploy_command(self) -> None:
         text = DEPLOYMENT_MD.read_text()
-        assert_that(text, contains_string("./deploy"))
+        assert_that(text, contains_string("scripts/deploy"))
 
 
 class TestConfigurationReference:
@@ -179,7 +179,7 @@ class TestSemverSection:
 
     def test_documents_release_script(self) -> None:
         text = DEPLOYMENT_MD.read_text()
-        assert_that(text, contains_string("./release"))
+        assert_that(text, contains_string("scripts/release"))
 
     def test_documents_dry_run(self) -> None:
         text = DEPLOYMENT_MD.read_text()

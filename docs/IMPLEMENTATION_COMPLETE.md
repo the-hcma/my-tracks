@@ -40,7 +40,7 @@ My Tracks — a self-hosted location tracking backend for OwnTracks — has been
    - `setup` - Automated setup script (no .sh extension)
    - `install` - File extraction utility (Typer CLI)
    - `verify-setup` - Setup verification script (Typer CLI)
-   - `.env.example` - Environment template
+   - `examples/.env.example` - Environment template
    - `.gitignore` - Git exclusions
    - `LICENSE` - PolyForm Noncommercial License 1.0.0
 
@@ -147,7 +147,7 @@ My Tracks — a self-hosted location tracking backend for OwnTracks — has been
 bash setup
 
 # 2. Start server
-./my-tracks-server
+./scripts/my-tracks-server
 
 # 3. Configure OwnTracks app
 # Mode: HTTP
@@ -183,12 +183,12 @@ my-tracks/
 │   └── AGENTS.md
 ├── Setup & Configuration (4 files)
 │   ├── pyproject.toml
-│   ├── .env.example
+│   ├── examples/.env.example
 │   ├── .gitignore
 │   └── LICENSE
 ├── Scripts (2 files)
 │   ├── setup
-│   └── verify-setup
+│   └── scripts/verify-setup
 ├── Project Configuration (1 file + 5 in config/)
 │   ├── manage.py
 │   └── config/
@@ -242,8 +242,8 @@ my-tracks/
 ## 📈 Next Steps for Users
 
 ### Development
-1. Run `./setup`
-2. Start server: `./my-tracks-server`
+1. Run `./scripts/setup`
+2. Start server: `./scripts/my-tracks-server`
 3. Configure OwnTracks app
 4. Test the integration
 

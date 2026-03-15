@@ -4,8 +4,8 @@
   "description": "TypeScript frontend for My Tracks OwnTracks backend",
   "private": true,
   "scripts": {
-    "build": "node esbuild.config.mjs",
-    "build:watch": "node esbuild.config.mjs --watch",
+    "build": "node dev-tooling/esbuild.config.mjs",
+    "build:watch": "node dev-tooling/esbuild.config.mjs --watch",
     "lint": "eslint 'web_ui/static/web_ui/ts/**/*.ts'",
     "lint:fix": "eslint 'web_ui/static/web_ui/ts/**/*.ts' --fix",
     "typecheck": "tsc --noEmit",

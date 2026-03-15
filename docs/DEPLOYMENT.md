@@ -42,7 +42,7 @@ The `my-tracks-production-container-manager` script auto-detects whichever engin
 ```bash
 git clone https://github.com/the-hcma/my-tracks.git
 cd my-tracks
-./deploy
+./scripts/deploy
 ```
 
 The interactive setup will:
@@ -60,7 +60,7 @@ Once running, visit `https://your-host` to log in.
 All configuration is in `.env.production`. The `deploy` script creates this file during first-time setup. You can also copy from the template:
 
 ```bash
-cp .env.production.example .env.production
+cp examples/.env.production.example .env.production
 ```
 
 ### Required Variables
@@ -99,11 +99,11 @@ The deploy script auto-generates credentials and constructs a `DATABASE_URL` poi
 DATABASE_URL=postgresql://mytracks:<generated>@postgres:5432/mytracks
 ```
 
-The containerized postgres is defined in `docker-compose.postgres-testing.yml` and included automatically when `DATABASE_URL` points to `@postgres:`.
+The containerized postgres is defined in `production/docker/docker-compose.postgres-testing.yml` and included automatically when `DATABASE_URL` points to `@postgres:`.
 
 ### External PostgreSQL (Recommended for Production)
 
-For persistent, production-grade storage, use an external PostgreSQL instance (managed database, separate server, etc.). During `./deploy` setup, choose option 2 and provide your `DATABASE_URL`:
+For persistent, production-grade storage, use an external PostgreSQL instance (managed database, separate server, etc.). During `./scripts/deploy` setup, choose option 2 and provide your `DATABASE_URL`:
 
 ```
 DATABASE_URL=postgresql://myuser:mypassword@db.example.com:5432/mytracks
@@ -113,12 +113,12 @@ When using an external database:
 - The containerized postgres service is **not started**
 - `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` variables are not needed
 - Backups must be managed through your database provider's tools
-- The `./deploy --backup` command is not available
+- The `./scripts/deploy --backup` command is not available
 
 ### Database Backup (Containerized Only)
 
 ```bash
-./deploy --backup
+./scripts/deploy --backup
 ```
 
 Creates a timestamped dump in `backups/`. For external databases, use your provider's backup tools (e.g., `pg_dump`, RDS snapshots, etc.).
@@ -147,7 +147,7 @@ The stack includes an optional Certbot service. To issue a certificate:
 1. **Ensure DNS** points your domain to the host's public IP
 2. **Start nginx** with self-signed certs first (so port 80 is listening):
    ```bash
-   ./deploy
+   ./scripts/deploy
    ```
 3. **Issue the certificate:**
    ```bash
@@ -184,7 +184,7 @@ docker compose exec nginx nginx -s reload
 ### Update to Latest Version
 
 ```bash
-./deploy --update
+./scripts/deploy --update
 ```
 
 This pulls the latest container image, runs database migrations, and restarts the stack.
@@ -192,7 +192,7 @@ This pulls the latest container image, runs database migrations, and restarts th
 ### Database Backup
 
 ```bash
-./deploy --backup
+./scripts/deploy --backup
 ```
 
 Creates a timestamped, gzipped dump in `backups/`:
@@ -211,7 +211,7 @@ gunzip -c backups/my-tracks-20260223-143000.sql.gz | \
 ### View Logs
 
 ```bash
-./deploy --logs           # tail all services
+./scripts/deploy --logs           # tail all services
 docker compose logs -f my-tracks   # single service
 docker compose logs -f nginx       # nginx only
 ```
@@ -219,13 +219,13 @@ docker compose logs -f nginx       # nginx only
 ### Check Status
 
 ```bash
-./deploy --status
+./scripts/deploy --status
 ```
 
 ### Stop / Start
 
 ```bash
-./deploy --stop
+./scripts/deploy --stop
 docker compose up -d      # start again
 ```
 
@@ -234,9 +234,9 @@ docker compose up -d      # start again
 My Tracks uses semantic versioning. The `release` script bumps the version in `pyproject.toml`, commits, and tags:
 
 ```bash
-./release patch    # 0.1.0 → 0.1.1
-./release minor    # 0.1.0 → 0.2.0
-./release major    # 0.1.0 → 1.0.0
+./scripts/release patch    # 0.1.0 → 0.1.1
+./scripts/release minor    # 0.1.0 → 0.2.0
+./scripts/release major    # 0.1.0 → 1.0.0
 ```
 
 Options:
@@ -276,7 +276,7 @@ sudo ufw allow 8883/tcp
 
 ## Nginx Details
 
-The bundled `nginx/nginx.conf` provides:
+The bundled `production/nginx/nginx.conf` provides:
 
 - **HTTPS** (443) — reverse proxies to `my-tracks:8080`, with WebSocket upgrade headers for `/ws/`
 - **HTTP** (80) — redirects to HTTPS, except `/.well-known/acme-challenge/` (for Let's Encrypt)
@@ -290,7 +290,7 @@ The bundled `nginx/nginx.conf` provides:
 To override the default config:
 ```bash
 # Edit directly
-vim nginx/nginx.conf
+vim production/nginx/nginx.conf
 
 # Reload without downtime
 docker compose exec nginx nginx -s reload
@@ -376,10 +376,10 @@ docker compose logs my-tracks    # check app logs
 **Containerized PostgreSQL:**
 ```bash
 # Check postgres health
-docker compose -f docker-compose.yml -f docker-compose.postgres-testing.yml exec postgres pg_isready -U mytracks
+docker compose -f production/docker/docker-compose.yml -f production/docker/docker-compose.postgres-testing.yml exec postgres pg_isready -U mytracks
 
 # Restart just postgres
-docker compose -f docker-compose.yml -f docker-compose.postgres-testing.yml restart postgres
+docker compose -f production/docker/docker-compose.yml -f production/docker/docker-compose.postgres-testing.yml restart postgres
 
 # Check disk space (full disk = postgres crash)
 df -h
@@ -406,10 +406,10 @@ openssl s_client -connect your.host:443 -servername your.host </dev/null
 ### Reset Everything
 
 ```bash
-./deploy --stop
+./scripts/deploy --stop
 docker compose down -v    # WARNING: deletes database volume!
 rm .env.production
-./deploy                  # fresh start
+./scripts/deploy                  # fresh start
 ```
 
 ## Local Testing
@@ -554,11 +554,11 @@ When using the containerized PostgreSQL, the banner shows a `psql` command to co
 
 ```bash
 # Docker
-docker compose --env-file .env.production -f docker-compose.yml -f docker-compose.postgres-testing.yml \
+docker compose --env-file .env.production -f production/docker/docker-compose.yml -f production/docker/docker-compose.postgres-testing.yml \
   exec postgres psql -U mytracks mytracks
 
 # Podman
-podman compose --env-file .env.production -f docker-compose.yml -f docker-compose.postgres-testing.yml \
+podman compose --env-file .env.production -f production/docker/docker-compose.yml -f production/docker/docker-compose.postgres-testing.yml \
   exec postgres psql -U mytracks mytracks
 ```
 
@@ -655,7 +655,7 @@ npm ci
 npm run build
 
 # Configure environment
-cp .env.production.example .env
+cp examples/.env.production.example .env
 # Edit .env — set SECRET_KEY, DATABASE_URL, ALLOWED_HOSTS, etc.
 # DATABASE_URL=postgresql://mytracks:your-secure-password@localhost:5432/mytracks
 
@@ -674,16 +674,16 @@ uv run python manage.py createsuperuser
 Copy the bundled nginx config as a starting point:
 
 ```bash
-sudo cp nginx/nginx.conf /etc/nginx/conf.d/my-tracks.conf
+sudo cp production/nginx/nginx.conf /etc/nginx/conf.d/my-tracks.conf
 ```
 
 Edit `/etc/nginx/conf.d/my-tracks.conf`:
 - Replace `proxy_pass http://app` with `proxy_pass http://127.0.0.1:8080`
 - Update `ssl_certificate` and `ssl_certificate_key` paths to your certs
-- Copy `nginx/proxy_params` to `/etc/nginx/proxy_params`
+- Copy `production/nginx/proxy_params` to `/etc/nginx/proxy_params`
 
 ```bash
-sudo cp nginx/proxy_params /etc/nginx/proxy_params
+sudo cp production/nginx/proxy_params /etc/nginx/proxy_params
 sudo nginx -t && sudo systemctl reload nginx
 ```
 

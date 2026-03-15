@@ -326,16 +326,16 @@ Package the application as a production-ready container image deployable on a Ce
 - `.env.production.example` template with all configuration variables
 
 **Step 5: Deployment Script** ✅ (PR #359)
-- `./deploy` interactive first-time setup (secret generation, TLS certs, admin user)
-- `./deploy --update` pulls latest image, migrates, restarts
-- `./deploy --backup` timestamped gzipped `pg_dump`
-- `./deploy --status`, `--stop`, `--logs` convenience commands
+- `./scripts/deploy` interactive first-time setup (secret generation, TLS certs, admin user)
+- `./scripts/deploy --update` pulls latest image, migrates, restarts
+- `./scripts/deploy --backup` timestamped gzipped `pg_dump`
+- `./scripts/deploy --status`, `--stop`, `--logs` convenience commands
 
 **Step 6: Semantic Versioning** ✅ (PR #354)
 - `pyproject.toml` is single source of truth for version
 - `get_version()` utility in `my_tracks/utils.py` via `importlib.metadata`
 - Version displayed on About page and `/api/health/` endpoint
-- `./release patch|minor|major` script (Typer CLI): bumps version, commits, tags, pushes
+- `./scripts/release patch|minor|major` script (Typer CLI): bumps version, commits, tags, pushes
 - Supports `--dry-run` and `--skip-push`
 
 **Step 7: Container Registry & CI/CD Publish** ← NEXT
@@ -468,13 +468,13 @@ Package the application as a production-ready container image deployable on a Ce
     - On mismatch: `CommandError` with common causes (placeholder .env key, Django default, key rotation)
     - Container manager tries Django's default insecure key as fallback
 
-44. **Reorganize Test Scripts Under Top-Level `tests/`**
+44. ✅ **Reorganize Test Scripts Under Top-Level `tests/`**
     - Move all test scripts into a top-level `tests/` directory
     - Organize test scripts by language using subdirectories (for example, `tests/python/`, `tests/bash/`, `tests/typescript/`)
     - Update test discovery/configuration paths so existing CI and local workflows continue to work
     - Update project documentation to reflect the new testing layout and commands
 
-45. **Reorganize Bash Scripts Under Top-Level `scripts/`**
+45. ✅ **Reorganize Bash Scripts Under Top-Level `scripts/`**
     - Move Bash scripts into a top-level `scripts/` directory
     - Keep script naming and executable conventions intact while updating all references
     - Update documentation and operational examples to use the new script paths

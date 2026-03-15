@@ -43,6 +43,7 @@ packages = ["config", "my_tracks"]
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings"
+testpaths = ["tests/python"]
 python_files = ["test_*.py", "*_test.py"]
 addopts = "-v -n auto"
 asyncio_mode = "auto"
