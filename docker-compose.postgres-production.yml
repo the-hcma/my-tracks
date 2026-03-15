@@ -1,0 +1,33 @@
+# Containerized PostgreSQL with persistent host-side data directory.
+#
+# PostgreSQL runs inside the Docker stack, but its data lives on the host
+# at POSTGRES_DATA_DIR and survives --stop, container restarts, and image
+# rebuilds.  The .env.production file holds the credentials (POSTGRES_PASSWORD)
+# that the data directory was initialised with — the two are a matched pair
+# and must always be deleted together.
+#
+# Include alongside docker-compose.yml:
+#
+#   docker compose -f docker-compose.yml \
+#                  -f docker-compose.postgres-persistent.yml up -d
+
+services:
+  postgres:
+    image: docker.io/library/postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mytracks}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: ${POSTGRES_DB:-mytracks}
+    volumes:
+      - ${POSTGRES_DATA_DIR:?POSTGRES_DATA_DIR must be set}:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mytracks}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  my-tracks:
+    depends_on:
+      postgres:
+        condition: service_healthy

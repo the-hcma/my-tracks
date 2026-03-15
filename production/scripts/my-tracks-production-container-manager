@@ -3,9 +3,9 @@
 # Local production container tester for my-tracks.
 #
 # Usage:
-#   ./production-testing/my-tracks-production-container-manager --start
-#   ./production-testing/my-tracks-production-container-manager --start --freshen-up
-#   ./production-testing/my-tracks-production-container-manager --stop
+#   ./production/scripts/my-tracks-production-container-manager --start
+#   ./production/scripts/my-tracks-production-container-manager --start --freshen-up
+#   ./production/scripts/my-tracks-production-container-manager --stop
 #   -h, --help    Show this help message
 #
 # --start   Build and launch the full production stack (nginx + my-tracks + postgres)
@@ -25,10 +25,15 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly script_dir
-project_dir="$(cd "$script_dir/.." && pwd)"
+# prod_dir: the production/ directory (parent of scripts/).
+# var/  — persistent state: var/db/ (postgres), var/certs/, var/log/
+# run/  — transient, recreated on --start, wiped on --stop
+prod_dir="$(cd "$script_dir/.." && pwd)"
+readonly prod_dir
+project_dir="$(cd "$prod_dir/.." && pwd)"
 readonly project_dir
 readonly env_file="$project_dir/.env.production"
-CERTS_DIR="$project_dir/certs"
+CERTS_DIR="$prod_dir/var/certs"
 
 readonly default_https_port=8443
 readonly default_http_port=8080
@@ -292,10 +297,67 @@ is_internal_db() {
     [[ -z "$db_url" || "$db_url" == *"@postgres:"* ]]
 }
 
+is_persistent_internal_db() {
+    [ "$(env_get "POSTGRES_MODE")" = "persistent" ]
+}
+
+# True when persistent mode is active AND the data directory exists.
+# Does NOT inspect contents — after postgres initialises the directory it
+# becomes owned by the container's postgres UID (remapped on the host via
+# user namespaces), so the host user cannot list or chmod it.
+has_persistent_pg_data() {
+    local data_dir
+    data_dir="$(env_get "POSTGRES_DATA_DIR")"
+    is_persistent_internal_db \
+        && [ -n "$data_dir" ] \
+        && [ -d "$data_dir" ]
+}
+
+# Remove empty subdirectories under var/, then var/ itself if empty.
+# Uses rmdir directly — it is a no-op on non-empty directories, so it is safe
+# even for dirs like var/db/ that are owned by a remapped container UID and
+# cannot be inspected by the host user (ls -A would falsely report empty).
+cleanup_empty_var_dirs() {
+    local var_dir="$prod_dir/var"
+    [ -d "$var_dir" ] || return 0
+    for subdir in "$var_dir"/*/; do
+        [ -d "$subdir" ] || continue
+        rmdir "$subdir" 2>/dev/null || true
+    done
+    rmdir "$var_dir" 2>/dev/null || true
+}
+
+# Try to remove a path (file or directory).  On failure, append a message to
+# _removal_errors rather than aborting — callers must check _removal_errors
+# afterward and report them.
+_removal_errors=()
+try_rm() {
+    local label="$1" path="$2"
+    local out
+    if ! out=$(rm -rf "$path" 2>&1); then
+        _removal_errors+=("  ✗ Failed to remove $label ($path): $out")
+    fi
+}
+
+# Flush collected removal errors to stderr and return non-zero if any exist.
+flush_removal_errors() {
+    [ "${#_removal_errors[@]}" -eq 0 ] && return 0
+    echo "" >&2
+    echo "  ── Removal errors (manual cleanup may be required) ──" >&2
+    for msg in "${_removal_errors[@]}"; do
+        echo "$msg" >&2
+    done
+    return 1
+}
+
 setup_compose_files() {
     compose_files=("-f" "$project_dir/docker-compose.yml")
     if is_internal_db; then
-        compose_files+=("-f" "$project_dir/docker-compose.postgres.yml")
+        if is_persistent_internal_db; then
+            compose_files+=("-f" "$project_dir/docker-compose.postgres-production.yml")
+        else
+            compose_files+=("-f" "$project_dir/docker-compose.postgres-testing.yml")
+        fi
     elif [ -n "$(env_get "PG_SOCKET_DIR")" ]; then
         compose_files+=("-f" "$project_dir/docker-compose.socket.yml")
     fi
@@ -998,15 +1060,15 @@ setup_external_database() {
 
     echo "" >&2
     echo "  ── No local PostgreSQL server detected ──" >&2
-    echo "    1) Install and run PostgreSQL on this machine" >&2
-    echo "    2) Connect to a remote PostgreSQL server" >&2
+    echo "    a) Install and run PostgreSQL on this machine" >&2
+    echo "    b) Connect to a remote PostgreSQL server" >&2
     echo "" >&2
-    printf "  Choose [1 (default)]: " >&2
+    printf "  Choose [a (default)]: " >&2
     local pg_choice
     read -r pg_choice
-    pg_choice="${pg_choice:-1}"
+    pg_choice="${pg_choice:-a}"
 
-    if [ "$pg_choice" = "1" ]; then
+    if [ "$pg_choice" = "a" ]; then
         show_local_postgres_install_instructions
         while true; do
             printf "  Press Enter when done (Ctrl+C to abort)..." >&2
@@ -1032,7 +1094,7 @@ verify_database_connectivity() {
     local url="$1"
     if is_internal_db; then
         echo ""
-        echo "  ℹ  Database: containerized PostgreSQL (data in Docker volume postgres-data)"
+        echo "  ℹ  Database: containerized PostgreSQL (transient; data in Docker volume)"
         echo ""
         return
     fi
@@ -1205,10 +1267,30 @@ prompt_value() {
     echo "${value:-$default}"
 }
 
+choose_containerized_postgres_mode() {
+    local data_dir="$prod_dir/var/db"
+    echo "" >&2
+    echo "  ── Containerized PostgreSQL ──" >&2
+    echo "    a) Transient   — data in a Docker volume; wiped on --stop  [testing/ephemeral use]" >&2
+    echo "    b) Persistent  — data on host at $data_dir" >&2
+    echo "                     (survives --stop and container restarts)" >&2
+    echo "" >&2
+    printf "  Choose [a (default)]: " >&2
+    local sub_choice
+    read -r sub_choice
+    sub_choice="${sub_choice:-a}"
+
+    if [ "$sub_choice" = "b" ]; then
+        echo "internal-persistent"
+    else
+        echo "internal-transient"
+    fi
+}
+
 choose_database_mode() {
     echo "" >&2
     echo "  ── Database configuration ──" >&2
-    echo "    1) Containerized PostgreSQL (transient, data in Docker volume)" >&2
+    echo "    1) Containerized PostgreSQL (PostgreSQL runs inside the stack)" >&2
     echo "    2) External PostgreSQL (connect to an existing PostgreSQL server)" >&2
     echo "" >&2
     printf "  Choose [1 (default)]: " >&2
@@ -1221,7 +1303,7 @@ choose_database_mode() {
         db_url="$(setup_external_database)" || exit 1
         echo "$db_url"
     else
-        echo "internal"
+        choose_containerized_postgres_mode
     fi
 }
 
@@ -1298,9 +1380,10 @@ create_env_file() {
     local csrf_origins
     csrf_origins="$(build_csrf_origins "$allowed_hosts" "$default_https_port")"
 
-    if [ "$db_result" = "internal" ]; then
-        local pg_password
+    if [ "$db_result" = "internal-transient" ] || [ "$db_result" = "internal-persistent" ]; then
+        local pg_password enc_pg_password
         pg_password="$(generate_secret)"
+        enc_pg_password="$(urlencode "$pg_password")"
 
         cat > "$env_file" <<ENVEOF
 SECRET_KEY=${secret_key}
@@ -1310,11 +1393,20 @@ CSRF_TRUSTED_ORIGINS=${csrf_origins}
 POSTGRES_USER=mytracks
 POSTGRES_PASSWORD=${pg_password}
 POSTGRES_DB=mytracks
-DATABASE_URL=postgresql://mytracks:${pg_password}@postgres:5432/mytracks
+DATABASE_URL=postgresql://mytracks:${enc_pg_password}@postgres:5432/mytracks
 HTTPS_PORT=${default_https_port}
 HTTP_PORT=${default_http_port}
 MQTT_TLS_PORT=${default_mqtt_tls_port}
 ENVEOF
+        if [ "$db_result" = "internal-persistent" ]; then
+            local data_dir="$prod_dir/var/db"
+            {
+                echo "POSTGRES_MODE=persistent"
+                echo "POSTGRES_DATA_DIR=${data_dir}"
+            } >> "$env_file"
+        else
+            echo "POSTGRES_MODE=transient" >> "$env_file"
+        fi
     else
         cat > "$env_file" <<ENVEOF
 SECRET_KEY=${secret_key}
@@ -1349,15 +1441,25 @@ validate_and_repair_env() {
         raw_db_result="$(choose_database_mode)"
         _pg_socket_dir="$(echo "$raw_db_result" | grep '^SOCKET_DIR:' | sed 's/^SOCKET_DIR://' || true)"
         db_result="$(echo "$raw_db_result" | grep -v '^SOCKET_DIR:')"
-        if [ "$db_result" = "internal" ]; then
-            local pg_password
+        if [ "$db_result" = "internal-transient" ] || [ "$db_result" = "internal-persistent" ]; then
+            local pg_password enc_pg_password
             pg_password="$(generate_secret)"
+            enc_pg_password="$(urlencode "$pg_password")"
             {
                 echo "POSTGRES_USER=mytracks"
                 echo "POSTGRES_PASSWORD=${pg_password}"
                 echo "POSTGRES_DB=mytracks"
-                echo "DATABASE_URL=postgresql://mytracks:${pg_password}@postgres:5432/mytracks"
+                echo "DATABASE_URL=postgresql://mytracks:${enc_pg_password}@postgres:5432/mytracks"
             } >> "$env_file"
+            if [ "$db_result" = "internal-persistent" ]; then
+                local data_dir="$prod_dir/var/db"
+                {
+                    echo "POSTGRES_MODE=persistent"
+                    echo "POSTGRES_DATA_DIR=${data_dir}"
+                } >> "$env_file"
+            else
+                echo "POSTGRES_MODE=transient" >> "$env_file"
+            fi
             info "Added internal database configuration to $env_file"
         else
             echo "DATABASE_URL=${db_result}" >> "$env_file"
@@ -1527,9 +1629,9 @@ print_banner() {
     fi
 
     echo "  ── Local files ───────────────────────────────────────────"
-    echo "  Nginx config:  $script_dir/.run/nginx/"
-    echo "  TLS certs:     $script_dir/.run/certs/"
-    echo "  App logs:      $script_dir/.run/logs/"
+    echo "  Nginx config:  $prod_dir/run/nginx/"
+    echo "  TLS certs:     $prod_dir/run/certs/"
+    echo "  App logs:      $prod_dir/var/log/"
     echo ""
     echo "  ── Commands ──────────────────────────────────────────────"
     echo "  Create admin user:"
@@ -1539,7 +1641,7 @@ print_banner() {
     echo "    $compose_manual${compose_files_display} logs -f my-tracks"
     echo ""
     echo "  Tail application log:"
-    echo "    tail -f $script_dir/.run/logs/my-tracks.log"
+    echo "    tail -f $prod_dir/var/log/my-tracks.log"
     echo ""
     echo "  Stop (destroys volumes):"
     echo "    $script_dir/my-tracks-production-container-manager --stop"
@@ -1592,23 +1694,24 @@ print_external_db_banner() {
 }
 
 stage_bind_mounts() {
-    # Stage all host-visible files under .run/ next to the container manager.
-    # Colima shares ~/ via virtiofs, so this path is accessible from both
-    # the macOS host and the Docker VM.
-    local run_dir="$script_dir/.run"
-    mkdir -p "$run_dir/nginx" "$run_dir/certs" "$run_dir/logs"
+    # Stage nginx config and certs into run/ for Docker bind-mount access.
+    # Colima shares ~/ via virtiofs, so run/ must be inside the repo to be
+    # reachable from both the macOS host and the Docker VM.
+    # Logs go directly to var/log/ (persistent) — not staged here.
+    local run_dir="$prod_dir/run"
+    mkdir -p "$run_dir/nginx" "$run_dir/certs"
 
     cp "$project_dir/nginx/nginx.conf" "$run_dir/nginx/nginx.conf"
     cp "$project_dir/nginx/proxy_params" "$run_dir/nginx/proxy_params"
     cp "$CERTS_DIR/fullchain.pem" "$run_dir/certs/fullchain.pem"
     cp "$CERTS_DIR/privkey.pem" "$run_dir/certs/privkey.pem"
 
-    chmod -R a+rX "$run_dir"
-    chmod a+rwx "$run_dir/logs"
+    chmod a+rX "$run_dir" \
+               "$run_dir/nginx" "$run_dir/nginx/nginx.conf" "$run_dir/nginx/proxy_params" \
+               "$run_dir/certs" "$run_dir/certs/fullchain.pem" "$run_dir/certs/privkey.pem"
 
     export NGINX_CONF_DIR="$run_dir/nginx"
     export CERTS_DIR="$run_dir/certs"
-    export APP_LOGS_DIR="$run_dir/logs"
 
     info "Staged files in $run_dir"
 }
@@ -1625,8 +1728,34 @@ cmd_start() {
     if [ "$freshen_up" = "true" ]; then
         info "Freshen-up: tearing down existing stack and volumes"
         if [ -f "$env_file" ]; then
+            load_config_from_env
             setup_compose_files
-            compose down -v 2>/dev/null || true
+            # Guard: if persistent postgres data exists, it must be deleted together
+            # with .env.production — never one without the other (orphaned data cannot
+            # be accessed because its POSTGRES_PASSWORD lives in .env.production).
+            if has_persistent_pg_data; then
+                local pg_data_dir
+                pg_data_dir="$(env_get "POSTGRES_DATA_DIR")"
+                echo ""
+                echo "  ── Persistent PostgreSQL data detected ─────────────────────────────────"
+                echo "  .env.production and $pg_data_dir are a matched pair."
+                echo "  Generating a new .env.production will make the existing database"
+                echo "  permanently inaccessible (credentials will no longer match)."
+                echo ""
+                printf "  Delete $pg_data_dir AND continue with freshen-up? [y/N]: "
+                local confirm_pg
+                read -r confirm_pg
+                if [[ "$confirm_pg" =~ ^[Yy] ]]; then
+                    compose down -v 2>/dev/null || true
+                    rm -rf "$pg_data_dir"
+                    info "Removed persistent PostgreSQL data at $pg_data_dir"
+                else
+                    echo "Aborted. Your database and credentials are untouched."
+                    exit 0
+                fi
+            else
+                compose down -v 2>/dev/null || true
+            fi
         fi
         local source_secret_key=""
         local source_allowed_hosts=""
@@ -1646,6 +1775,18 @@ cmd_start() {
         fi
         create_env_file "$source_allowed_hosts"
     elif [ ! -f "$env_file" ]; then
+        # Guard: if var/db/ exists without .env.production, the database is
+        # inaccessible — its POSTGRES_PASSWORD is gone.  Refuse to create a new
+        # env (which would generate a different password) until the user explicitly
+        # runs --freshen-up, which will prompt before deleting var/db/ too.
+        if [ -d "$prod_dir/var/db" ]; then
+            die "Found $prod_dir/var/db/ but no $env_file.
+  The database credentials (POSTGRES_PASSWORD) are stored in .env.production —
+  without it the PostgreSQL data at var/db/ cannot be accessed.
+  Options:
+    • Restore .env.production from a backup to recover the database.
+    • Run --freshen-up to wipe var/db/ and start fresh (data will be lost)."
+        fi
         info "No .env.production found — creating one"
         create_env_file ""
     else
@@ -1656,6 +1797,37 @@ cmd_start() {
     setup_compose_files
     info "Using env file: $env_file"
 
+    # Warn if var/db/ exists but the current mode is not persistent —
+    # this means data from a previous persistent run is stranded.
+    if ! is_persistent_internal_db && [ -d "$prod_dir/var/db" ]; then
+        echo ""
+        echo "  ⚠  $prod_dir/var/db/ exists but POSTGRES_MODE is not 'persistent'."
+        echo "     This data is from a previous persistent run and is no longer in use."
+        echo "     Run --freshen-up or delete it manually to reclaim disk space."
+        echo ""
+    fi
+
+    # Persistent postgres data directory: guard against orphaned state, then
+    # create the directory if this is the first run.
+    if is_persistent_internal_db; then
+        local pg_data_dir
+        pg_data_dir="$(env_get "POSTGRES_DATA_DIR")"
+        if [ -z "$pg_data_dir" ]; then
+            die "POSTGRES_MODE=persistent but POSTGRES_DATA_DIR is not set in $env_file.
+  Run --freshen-up to reset from scratch, or add POSTGRES_DATA_DIR to $env_file."
+        fi
+        if [ -d "$pg_data_dir" ]; then
+            info "Reusing existing PostgreSQL data at $pg_data_dir"
+            echo "    PostgreSQL is running inside the container with data stored on the host."
+            echo "    (to start fresh, run --freshen-up — you will be prompted before anything is deleted)"
+        else
+            mkdir -p "$pg_data_dir"
+            info "Created PostgreSQL data directory at $pg_data_dir"
+            echo "    PostgreSQL will run inside the container with data stored on the host."
+        fi
+        export POSTGRES_DATA_DIR="$pg_data_dir"
+    fi
+
     verify_database_connectivity "$database_url"
 
     if [ "$freshen_up" = "true" ] || [ ! -f "$CERTS_DIR/fullchain.pem" ]; then
@@ -1664,7 +1836,13 @@ cmd_start() {
         info "Reusing existing certs in $CERTS_DIR/"
     fi
 
-    # Stage bind-mount files to a Docker-accessible directory.
+    # Ensure the persistent log directory exists and is writable by the
+    # container's app user (which may have a remapped UID via user namespaces).
+    mkdir -p "$prod_dir/var/log"
+    chmod a+rwx "$prod_dir/var/log"
+    export APP_LOGS_DIR="$prod_dir/var/log"
+
+    # Stage nginx config and certs into run/ for Docker bind-mount access.
     # When the repo lives under a restricted home directory (e.g., 0700),
     # Docker cannot traverse the path to bind-mount files directly.
     stage_bind_mounts
@@ -1736,7 +1914,12 @@ cmd_start() {
     if [ $attempts -ge $max_attempts ]; then
         echo ""
         echo "WARNING: Health check did not pass within 30 seconds."
-        echo "Check logs with: $log_hint"
+        echo ""
+        echo "  ── Last 50 log lines ────────────────────────────────────────────────────"
+        compose logs --no-log-prefix --tail=50 my-tracks 2>/dev/null || true
+        echo "  ─────────────────────────────────────────────────────────────────────────"
+        echo ""
+        echo "Full logs: $log_hint"
         exit 1
     fi
 
@@ -1746,20 +1929,49 @@ cmd_start() {
 cmd_freshen_up() {
     check_prerequisites
 
+    # Load env early so we can check for persistent postgres mode.
+    local has_persistent_data="false"
+    local pg_data_dir=""
+    if [ -f "$env_file" ]; then
+        load_config_from_env
+        if has_persistent_pg_data; then
+            has_persistent_data="true"
+            pg_data_dir="$(env_get "POSTGRES_DATA_DIR")"
+        fi
+    fi
+
     echo ""
     echo "  ── Freshen-up: the following will be permanently deleted ─────────────"
     local has_something="false"
     if [ -f "$env_file" ]; then
-        echo "  • $env_file  (credentials, secret key, ports)"
-        echo "  • Docker volumes  (all container data, including database if containerized)"
+        if [ "$has_persistent_data" = "true" ]; then
+            # Persistent data and .env.production must be treated as an atomic pair.
+            # Show them grouped so the user understands they go together.
+            echo "  • $env_file  (credentials including POSTGRES_PASSWORD)"
+            echo "  • Docker volumes  (all container data)"
+            echo ""
+            echo "  ── Persistent PostgreSQL data (paired — must delete together) ──────────"
+            echo "  • $pg_data_dir  (your database)"
+            echo ""
+            echo "  WARNING: Deleting .env.production without its paired postgres data directory"
+            echo "  (or vice versa) will make the database permanently inaccessible."
+            echo "  These two will be deleted together or not at all."
+        else
+            echo "  • $env_file  (credentials, secret key, ports)"
+            echo "  • Docker volumes  (all container data, including database if containerized)"
+        fi
         has_something="true"
     fi
-    if [ -d "$project_dir/certs" ]; then
-        echo "  • $project_dir/certs/  (TLS certificates)"
+    if [ -d "$prod_dir/var/certs" ]; then
+        echo "  • $prod_dir/var/certs/  (TLS certificates)"
         has_something="true"
     fi
-    if [ -d "$script_dir/.run" ]; then
-        echo "  • $script_dir/.run/  (staged nginx/certs/logs)"
+    if [ -d "$prod_dir/run" ]; then
+        echo "  • $prod_dir/run/  (staged nginx/certs)"
+        has_something="true"
+    fi
+    if [ -d "$prod_dir/var/log" ]; then
+        echo "  • $prod_dir/var/log/  (application logs)"
         has_something="true"
     fi
     echo ""
@@ -1769,26 +1981,39 @@ cmd_freshen_up() {
         return
     fi
 
-    printf "  Proceed? [y/N]: "
+    if [ "$has_persistent_data" = "true" ]; then
+        printf "  Delete .env.production AND $pg_data_dir together? [y/N]: "
+    else
+        printf "  Proceed? [y/N]: "
+    fi
     read -r confirm
     [[ "$confirm" =~ ^[Yy] ]] || { echo "Aborted."; exit 0; }
     echo ""
 
+    _removal_errors=()
+
     if [ -f "$env_file" ]; then
         info "Tearing down stack and volumes"
-        load_config_from_env
         setup_compose_files
         compose down -v 2>/dev/null || true
-        rm -f "$env_file"
-        info "Removed $env_file"
+        try_rm ".env.production" "$env_file" && info "Removed $env_file"
+        if [ "$has_persistent_data" = "true" ]; then
+            try_rm "PostgreSQL data" "$pg_data_dir" \
+                && info "Removed persistent PostgreSQL data at $pg_data_dir"
+        fi
     fi
-    if [ -d "$project_dir/certs" ]; then
-        rm -rf "$project_dir/certs"
-        info "Removed certs/"
-    fi
-    rm -rf "$script_dir/.run"
+    [ -d "$prod_dir/var/certs" ] \
+        && try_rm "certs" "$prod_dir/var/certs" && info "Removed certs/"
+    try_rm "run dir" "$prod_dir/run"
+    [ -d "$prod_dir/var/log" ] \
+        && try_rm "application logs" "$prod_dir/var/log" && info "Removed application logs"
+    cleanup_empty_var_dirs
 
-    info "Clean slate ready — run --start to configure and launch."
+    if flush_removal_errors; then
+        info "Clean slate ready — run --start to configure and launch."
+    else
+        die "Some items could not be removed (see above). Fix the errors and retry."
+    fi
 }
 
 cmd_stop() {
@@ -1801,10 +2026,22 @@ cmd_stop() {
         compose_files=("-f" "$project_dir/docker-compose.yml")
     fi
 
+    _removal_errors=()
+
     info "Stopping stack and removing volumes"
     compose down -v
-    rm -rf "$script_dir/.run"
-    info "Stack stopped. .env.production and certs/ are preserved for next run."
+    try_rm "run dir" "$prod_dir/run"
+    cleanup_empty_var_dirs
+    flush_removal_errors || true  # report but don't abort — stack is already down
+
+    if is_persistent_internal_db; then
+        local pg_data_dir
+        pg_data_dir="$(env_get "POSTGRES_DATA_DIR")"
+        info "Stack stopped. PostgreSQL data preserved at $pg_data_dir"
+        echo "    $env_file and $prod_dir/var/certs/ also preserved for next run."
+    else
+        info "Stack stopped. $env_file and $prod_dir/var/certs/ are preserved for next run."
+    fi
 }
 
 # ── Main ─────────────────────────────────────────────────────────────────────
