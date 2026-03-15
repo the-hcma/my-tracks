@@ -517,6 +517,26 @@ detect_pg_socket_dir() {
     return 1
 }
 
+# Run psql with the password stored in a temporary .pgpass file (mode 0600).
+# The password is never placed in argv or in the process environment (PGPASSWORD
+# is visible to any process that can read /proc/<pid>/environ on Linux).
+# Runs in a subshell so the EXIT trap fires on any exit — including Ctrl+C —
+# without interfering with the parent script's signal handlers.
+# Usage: _run_psql <password> <psql-args...>
+_run_psql() {
+    local password="$1"
+    shift
+    (
+        local pgpass_file
+        pgpass_file="$(mktemp)" || exit 1
+        # shellcheck disable=SC2064
+        trap "rm -f '$pgpass_file'" EXIT
+        chmod 0600 "$pgpass_file"
+        printf '*:*:*:*:%s\n' "$password" > "$pgpass_file"
+        PGPASSFILE="$pgpass_file" PGCONNECT_TIMEOUT=5 psql "$@"
+    )
+}
+
 # Probe a PostgreSQL DATABASE_URL for connectivity and authentication.
 # Uses pg_isready for a fast network check, then psql for a full auth test.
 # Captures psql stderr to diagnose specific failures (missing user, missing
@@ -577,14 +597,14 @@ probe_db_connection() {
 
     if command -v psql >/dev/null 2>&1; then
         local psql_out psql_rc
-        # Password passed via PGPASSWORD so it never appears in process listings.
+        # Password stored in a temp .pgpass file — never in argv or environment.
         if [ "$is_socket" = "true" ]; then
-            psql_out="$(PGPASSWORD="$pg_password" PGCONNECT_TIMEOUT=5 \
-                psql -h "$probe_host" -U "$pg_user" -d "$pg_db" \
+            psql_out="$(_run_psql "$pg_password" \
+                -h "$probe_host" -U "$pg_user" -d "$pg_db" \
                 -c "SELECT 1" 2>&1)"
         else
-            psql_out="$(PGPASSWORD="$pg_password" PGCONNECT_TIMEOUT=5 \
-                psql -h "$probe_host" -p "$probe_port" -U "$pg_user" -d "$pg_db" \
+            psql_out="$(_run_psql "$pg_password" \
+                -h "$probe_host" -p "$probe_port" -U "$pg_user" -d "$pg_db" \
                 -c "SELECT 1" 2>&1)"
         fi
         psql_rc=$?
@@ -592,18 +612,18 @@ probe_db_connection() {
             # Verify PostgreSQL version — Django 5+ requires PostgreSQL 14 or later.
             local pg_ver_num pg_ver_display
             if [ "$is_socket" = "true" ]; then
-                pg_ver_num="$(PGPASSWORD="$pg_password" PGCONNECT_TIMEOUT=5 \
-                    psql -h "$probe_host" -U "$pg_user" -d "$pg_db" \
+                pg_ver_num="$(_run_psql "$pg_password" \
+                    -h "$probe_host" -U "$pg_user" -d "$pg_db" \
                     -t -c 'SHOW server_version_num;' 2>/dev/null | tr -d ' \n')"
-                pg_ver_display="$(PGPASSWORD="$pg_password" PGCONNECT_TIMEOUT=5 \
-                    psql -h "$probe_host" -U "$pg_user" -d "$pg_db" \
+                pg_ver_display="$(_run_psql "$pg_password" \
+                    -h "$probe_host" -U "$pg_user" -d "$pg_db" \
                     -t -c 'SHOW server_version;' 2>/dev/null | tr -d ' \n')"
             else
-                pg_ver_num="$(PGPASSWORD="$pg_password" PGCONNECT_TIMEOUT=5 \
-                    psql -h "$probe_host" -p "$probe_port" -U "$pg_user" -d "$pg_db" \
+                pg_ver_num="$(_run_psql "$pg_password" \
+                    -h "$probe_host" -p "$probe_port" -U "$pg_user" -d "$pg_db" \
                     -t -c 'SHOW server_version_num;' 2>/dev/null | tr -d ' \n')"
-                pg_ver_display="$(PGPASSWORD="$pg_password" PGCONNECT_TIMEOUT=5 \
-                    psql -h "$probe_host" -p "$probe_port" -U "$pg_user" -d "$pg_db" \
+                pg_ver_display="$(_run_psql "$pg_password" \
+                    -h "$probe_host" -p "$probe_port" -U "$pg_user" -d "$pg_db" \
                     -t -c 'SHOW server_version;' 2>/dev/null | tr -d ' \n')"
             fi
             if [ -n "$pg_ver_num" ] && [ "$pg_ver_num" -lt 140000 ] 2>/dev/null; then
@@ -1023,8 +1043,8 @@ _check_container_reachability() {
     probe_port="$_db_port"
 
     local listen_addrs
-    listen_addrs="$(PGPASSWORD="$pg_password" PGCONNECT_TIMEOUT=5 \
-        psql -h localhost -p "$probe_port" -U "$pg_user" -d "$pg_db" \
+    listen_addrs="$(_run_psql "$pg_password" \
+        -h localhost -p "$probe_port" -U "$pg_user" -d "$pg_db" \
         -t -c 'SHOW listen_addresses;' 2>/dev/null | tr -d ' \n')"
 
     # Empty means psql failed — skip silently (best-effort).
