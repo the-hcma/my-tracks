@@ -41,7 +41,7 @@ uv sync
 # Note: With uv run, you don't need to manually activate the venv
 
 # 4. Create environment file
-cp .env.example .env
+cp examples/.env.example .env
 
 # 5. Run migrations
 uv run python manage.py migrate

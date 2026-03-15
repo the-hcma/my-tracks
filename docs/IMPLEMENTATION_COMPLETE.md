@@ -40,7 +40,7 @@ My Tracks — a self-hosted location tracking backend for OwnTracks — has been
    - `setup` - Automated setup script (no .sh extension)
    - `install` - File extraction utility (Typer CLI)
    - `verify-setup` - Setup verification script (Typer CLI)
-   - `.env.example` - Environment template
+   - `examples/.env.example` - Environment template
    - `.gitignore` - Git exclusions
    - `LICENSE` - PolyForm Noncommercial License 1.0.0
 
@@ -183,7 +183,7 @@ my-tracks/
 │   └── AGENTS.md
 ├── Setup & Configuration (4 files)
 │   ├── pyproject.toml
-│   ├── .env.example
+│   ├── examples/.env.example
 │   ├── .gitignore
 │   └── LICENSE
 ├── Scripts (2 files)

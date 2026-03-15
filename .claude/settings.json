@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(grep -rn \"\\\\./my-tracks-server\\\\|\\\\./setup\\\\|\\\\./verify-setup\\\\|\\\\./generate-tail\\\\|\\\\./deploy\\\\|\\\\./release\" --include=*.md --include=*.toml --include=*.yml --include=*.yaml .)"
+      "Bash(grep -rn \"\\\\./my-tracks-server\\\\|\\\\./setup\\\\|\\\\./verify-setup\\\\|\\\\./generate-tail\\\\|\\\\./deploy\\\\|\\\\./release\" --include=*.md --include=*.toml --include=*.yml --include=*.yaml .)",
+      "Bash(npm run:*)"
     ]
   }
 }

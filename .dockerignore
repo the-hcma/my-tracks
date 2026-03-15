@@ -43,6 +43,5 @@ logs
 .env.local
 .env.production
 
-# Docker
-docker-compose*.yml
-nginx
+# Docker / deployment (moved to production/)
+production/

@@ -66,7 +66,7 @@ Model assignments for different agent roles.
 ### [pyproject.toml](pyproject.toml)
 Modern Python project configuration with dependencies (use `uv sync` to install).
 
-### [.env.example](.env.example)
+### [examples/.env.example](../examples/.env.example)
 Template for environment variables. Copy to `.env` and customize.
 
 ### [.gitignore](.gitignore)
@@ -136,7 +136,7 @@ See [AGENTS.md](AGENTS.md) for the development workflow and agent responsibiliti
 → [COMMANDS.md](COMMANDS.md#troubleshooting)
 
 **Set up environment variables**
-→ [.env.example](.env.example) + [README.md](README.md#installation)
+→ [examples/.env.example](../examples/.env.example) + [README.md](README.md#installation)
 
 ## 📊 Project Files Overview
 

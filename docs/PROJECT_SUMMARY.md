@@ -71,7 +71,8 @@ my-tracks/
 ├── my-tracks-server           # Server startup script
 ├── setup                      # Automated setup script
 ├── test_tracker.py            # Python test suite
-├── .env.example               # Environment template
+├── examples/                  # Example configuration files
+│   └── .env.example           # Environment template
 ├── config/                    # Project configuration
 │   ├── __init__.py
 │   ├── settings.py           # Application settings with type hints
@@ -207,7 +208,7 @@ npm install
 npm run build
 
 # 4. Initialize database
-cp .env.example .env
+cp examples/.env.example .env
 uv run python manage.py migrate
 
 # 5. Run server
@@ -314,7 +315,7 @@ CREATE USER owntrackuser WITH PASSWORD 'password';
 GRANT ALL PRIVILEGES ON DATABASE owntracks TO owntrackuser;
 
 # 2. Configure environment
-cp .env.example .env
+cp examples/.env.example .env
 # Edit .env with production settings
 
 # 3. Install dependencies

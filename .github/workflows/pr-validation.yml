@@ -72,7 +72,7 @@ jobs:
       run: uv run isort --check-only --diff my_tracks config
 
     - name: Lint with flake8
-      run: uv run flake8 my_tracks config
+      run: uv run flake8 --config dev-tooling/.flake8 my_tracks config
 
     - name: Check type annotations with Pyright
       run: |
