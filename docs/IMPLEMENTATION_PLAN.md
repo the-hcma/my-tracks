@@ -480,6 +480,110 @@ Package the application as a production-ready container image deployable on a Ce
     - Update documentation and operational examples to use the new script paths
     - Update configuration/workflow references that point to legacy script locations
 
+46. **Let's Encrypt Certificate Support in Production Container Manager**
+
+    **Problem**: The container manager currently generates self-signed certs for every `--start`, which means every browser session shows a TLS warning. Users who already hold Let's Encrypt (or other CA-issued) certs for their domain can't use them cleanly — the manager ignores them and overwrites with self-signed.
+
+    **Goal**: When real certs are present the stack starts with a fully browser-trusted HTTPS endpoint. When no certs exist, the manager guides the user through supplying them before starting.
+
+    ---
+
+    **Domain detection** (happens early in `cmd_start`, before env is written):
+
+    1. If `production/var/certs/fullchain.pem` exists, extract the domain automatically:
+       ```bash
+       # Prefer SAN (RFC-correct); fall back to CN
+       domain=$(openssl x509 -noout -ext subjectAltName \
+                   -in "$CERTS_DIR/fullchain.pem" 2>/dev/null \
+               | grep -oE 'DNS:[^,]+' | head -1 | sed 's/DNS://')
+       [ -z "$domain" ] && domain=$(openssl x509 -noout -subject \
+                   -in "$CERTS_DIR/fullchain.pem" \
+               | sed -n 's/.*CN\s*=\s*//p' | xargs)
+       ```
+    2. Validate the cert/key pair match (compare public-key fingerprints of cert and key).
+    3. Check expiry: error if already expired; warn (but continue) if expiring within 30 days.
+    4. Print the detected domain so the user can confirm: `info "Detected domain from cert: $domain"`.
+
+    **No-cert flow** (certs absent and `--freshen-up` not passed):
+
+    Present a choice instead of silently self-signing:
+    ```
+    ── TLS Certificate Setup ──
+      No certificates found in production/var/certs/
+
+      a) Import Let's Encrypt certs  — copy from certbot or a custom path (browser-trusted)
+      b) Generate self-signed cert   — fast start; browser will show a security warning
+    ```
+    - **Option a — import**:
+      1. Probe the certbot default path: `/etc/letsencrypt/live/<domain>/` (if the user already
+         has a domain in mind, or skip probing and ask first).
+      2. Prompt: `Domain name (e.g. mytracks.example.com):` — used to find
+         `/etc/letsencrypt/live/<domain>/{fullchain,privkey}.pem`.
+      3. If certbot path not found, prompt: `Path to fullchain.pem:` / `Path to privkey.pem:`.
+      4. Validate the pair, then copy to `production/var/certs/`.
+      5. Domain is now known from the imported cert (step 1 of detection above).
+    - **Option b — self-signed**: existing `create_self_signed_certs` behaviour; domain stays
+      `localhost`, self-signed for `localhost` (unchanged behaviour).
+
+    **`--freshen-up` behaviour change**:
+    - Currently always regenerates self-signed. After this change:
+      - If `production/var/certs/` already has a real CA cert, `--freshen-up` preserves it
+        and only wipes env/db/logs (not certs). Add `--freshen-up --reset-certs` to explicitly
+        replace certs as well.
+      - If certs are absent, runs the no-cert flow above (import or self-sign).
+
+    **New `--update-certs` command**:
+    ```
+    ./production/scripts/my-tracks-production-container-manager --update-certs
+    ```
+    - Prompts for the new cert source (certbot path or custom paths).
+    - Validates the new cert/key pair.
+    - Copies to `production/var/certs/`, replacing existing files.
+    - Re-stages bind-mount files (`stage_bind_mounts`) and sends `nginx -s reload` to the
+      running nginx container so the new cert takes effect without a full restart.
+    - Displays new expiry date on completion.
+
+    **Django environment (`ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS`)**:
+    - When domain is a real hostname (not `localhost`/`127.0.0.1`):
+      - `ALLOWED_HOSTS=<domain>` (no localhost in production mode; add 127.0.0.1 only if
+        POSTGRES_MODE=transient so health-checks still work)
+      - `CSRF_TRUSTED_ORIGINS=https://<domain>`
+    - When domain is `localhost` (self-signed path):
+      - Current defaults unchanged: `ALLOWED_HOSTS=localhost,127.0.0.1`
+      - `CSRF_TRUSTED_ORIGINS=https://localhost:<HTTPS_PORT>`
+
+    **nginx `server_name` patch**:
+    - After staging nginx config to `production/run/nginx/nginx.conf`, apply a `sed` substitution:
+      `server_name _;` → `server_name <domain>;`
+    - This enables proper SNI matching and is required for correct ACME renewal probes.
+    - The source file `production/nginx/nginx.conf` keeps `server_name _;` as the generic
+      default; the patch is applied only to the staged copy.
+
+    **Port defaults when a real domain is used**:
+    - Currently the manager uses non-standard ports (8443/8080/8883) to avoid local conflicts.
+    - When a real Let's Encrypt domain is detected, default to standard ports (443/80/8883)
+      and note in the banner that standard ports are in use.
+    - Allow override with `--https-port`, `--http-port`, `--mqtt-tls-port` as before.
+
+    **Start banner addition**:
+    ```
+    TLS:   Let's Encrypt  (expires 2025-09-14, 87 days)   [or: Self-signed (localhost)]
+    ```
+
+    **Cert expiry reminder on every `--start`**:
+    - If a real cert is present and expires within 30 days, print a prominent warning:
+      ```
+      ⚠  TLS cert expires in 23 days (2025-04-07). Run --update-certs to renew.
+      ```
+
+    **Files changed**:
+    - `production/scripts/my-tracks-production-container-manager`:
+      - New functions: `detect_domain_from_cert`, `validate_cert_key_pair`, `check_cert_expiry`,
+        `import_letsencrypt_certs`, `patch_nginx_server_name`, `cmd_update_certs`
+      - Modified: `cmd_start` (domain detection before env write, port defaults, banner line),
+        `cmd_freshen_up` (preserve real certs unless `--reset-certs`), `env_spec` defaults
+    - `docs/DEPLOYMENT.md`: document `--update-certs`, cert import flow, cert expiry warning
+
 ### Phase 9: Advanced Integration
 1. **Transition events** — Handle region enter/exit events, store transition history
 2. **Waypoints sync** — Connect waypoint storage to command API, allow UI to send waypoints to devices
