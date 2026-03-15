@@ -99,7 +99,7 @@ The deploy script auto-generates credentials and constructs a `DATABASE_URL` poi
 DATABASE_URL=postgresql://mytracks:<generated>@postgres:5432/mytracks
 ```
 
-The containerized postgres is defined in `docker-compose.postgres.yml` and included automatically when `DATABASE_URL` points to `@postgres:`.
+The containerized postgres is defined in `docker-compose.postgres-testing.yml` and included automatically when `DATABASE_URL` points to `@postgres:`.
 
 ### External PostgreSQL (Recommended for Production)
 
@@ -376,10 +376,10 @@ docker compose logs my-tracks    # check app logs
 **Containerized PostgreSQL:**
 ```bash
 # Check postgres health
-docker compose -f docker-compose.yml -f docker-compose.postgres.yml exec postgres pg_isready -U mytracks
+docker compose -f docker-compose.yml -f docker-compose.postgres-testing.yml exec postgres pg_isready -U mytracks
 
 # Restart just postgres
-docker compose -f docker-compose.yml -f docker-compose.postgres.yml restart postgres
+docker compose -f docker-compose.yml -f docker-compose.postgres-testing.yml restart postgres
 
 # Check disk space (full disk = postgres crash)
 df -h
@@ -487,20 +487,20 @@ sudo usermod -aG docker $USER && newgrp docker
 
 ### Container Manager
 
-The `production-testing/my-tracks-production-container-manager` script automates the entire local testing lifecycle:
+The `production/scripts/my-tracks-production-container-manager` script automates the entire local testing lifecycle:
 
 ```bash
 # Start the stack (first run creates .env.production + self-signed certs)
-./production-testing/my-tracks-production-container-manager --start
+./production/scripts/my-tracks-production-container-manager --start
 
 # Start fresh (regenerate .env.production and certs)
-./production-testing/my-tracks-production-container-manager --start --freshen-up
+./production/scripts/my-tracks-production-container-manager --start --freshen-up
 
 # Start and import your local development SQLite database
-./production-testing/my-tracks-production-container-manager --start --freshen-up --import-sqlite db.sqlite3
+./production/scripts/my-tracks-production-container-manager --start --freshen-up --import-sqlite db.sqlite3
 
 # Stop and tear down
-./production-testing/my-tracks-production-container-manager --stop
+./production/scripts/my-tracks-production-container-manager --stop
 ```
 
 ### What `--start` Does
@@ -528,7 +528,7 @@ The container manager uses non-privileged ports to avoid conflicts:
 If you've been running My Tracks in development with SQLite and want to test with your real data in the production container:
 
 ```bash
-./production-testing/my-tracks-production-container-manager --start --freshen-up --import-sqlite db.sqlite3
+./production/scripts/my-tracks-production-container-manager --start --freshen-up --import-sqlite db.sqlite3
 ```
 
 This will:
@@ -554,11 +554,11 @@ When using the containerized PostgreSQL, the banner shows a `psql` command to co
 
 ```bash
 # Docker
-docker compose --env-file .env.production -f docker-compose.yml -f docker-compose.postgres.yml \
+docker compose --env-file .env.production -f docker-compose.yml -f docker-compose.postgres-testing.yml \
   exec postgres psql -U mytracks mytracks
 
 # Podman
-podman compose --env-file .env.production -f docker-compose.yml -f docker-compose.postgres.yml \
+podman compose --env-file .env.production -f docker-compose.yml -f docker-compose.postgres-testing.yml \
   exec postgres psql -U mytracks mytracks
 ```
 
@@ -566,7 +566,7 @@ podman compose --env-file .env.production -f docker-compose.yml -f docker-compos
 
 ```bash
 # Stop containers and remove volumes
-./production-testing/my-tracks-production-container-manager --stop
+./production/scripts/my-tracks-production-container-manager --stop
 
 # Optionally remove generated files
 rm -rf .env.production certs/
