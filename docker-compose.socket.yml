@@ -1,0 +1,12 @@
+# Compose override for Unix socket connections to a host-side PostgreSQL.
+# Included automatically by my-tracks-production-container-manager when
+# PG_SOCKET_DIR is set in .env.production (i.e. when the user chose Unix
+# socket during database setup).
+#
+# This mounts the host socket directory into the container at the standard
+# PostgreSQL socket path so that DATABASE_URL can use ?host=/var/run/postgresql
+# without any TCP exposure.
+services:
+  my-tracks:
+    volumes:
+      - ${PG_SOCKET_DIR}:/var/run/postgresql

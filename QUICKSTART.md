@@ -7,6 +7,7 @@ Get up and running with My Tracks in 5 minutes.
 - Python 3.14 or higher
 - Git
 - [uv](https://github.com/astral-sh/uv) (installed automatically by setup script)
+- PostgreSQL **14 or later** (production) — Django 5.x requires PG 14+; older versions are rejected at startup
 
 **Note**: This project uses `uv` exclusively for package management. The setup script will install it if needed.
 

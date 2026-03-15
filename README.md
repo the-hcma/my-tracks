@@ -45,7 +45,7 @@ curl -X POST http://localhost:8080/api/locations/ \
 
 - Python 3.14 or higher
 - [uv](https://github.com/astral-sh/uv) package manager (fast, reliable Python package installer)
-- PostgreSQL (recommended for production) or SQLite (development)
+- PostgreSQL **14 or later** (required for production; Django 5.x enforces this minimum version) or SQLite (development only)
 
 **Why uv?** This project uses `uv` exclusively for dependency management - it's significantly faster than pip and provides deterministic installs.
 
