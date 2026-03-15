@@ -66,6 +66,8 @@ install_hint() {
             docker)              pkg="docker" ;;
             docker-buildx)       pkg="docker-buildx" ;;
             docker-compose)      pkg="docker-compose" ;;
+            podman)              pkg="podman" ;;
+            podman-compose)      pkg="podman-compose" ;;
             *)                   pkg="$logical" ;;
         esac
         echo "brew install $pkg"
@@ -138,8 +140,25 @@ host_internal=""     # hostname containers use to reach the host (set by check_p
 check_prerequisites() {
     local missing=()
 
-    # ── Container engine (Docker preferred, Podman as fallback) ──────────
-    if command -v docker >/dev/null 2>&1; then
+    # ── Container engine ─────────────────────────────────────────────────
+    # macOS: Podman preferred (Podman Desktop / brew install podman).
+    #        Colima + Docker CLI is supported as option 2.
+    # Linux: Docker preferred, Podman as fallback.
+    local os_type
+    os_type="$(uname -s)"
+    if [[ "$os_type" == "Darwin" ]] && command -v podman >/dev/null 2>&1; then
+        container_engine="podman"
+
+        # macOS Podman delegates to a podman machine Linux VM — subuid/subgid
+        # ranges live inside the VM, not on the macOS host; no host-side check needed.
+        if podman compose version >/dev/null 2>&1 || command -v podman-compose >/dev/null 2>&1; then
+            compose_cmd="$(detect_compose_cmd podman)"
+        else
+            missing+=("  • podman-compose is not installed (required for multi-container stack).
+      Install with:  brew install podman-compose")
+        fi
+
+    elif command -v docker >/dev/null 2>&1; then
         container_engine="docker"
 
         # ── Docker daemon reachable? ──────────────────────────────────────
@@ -249,7 +268,11 @@ check_prerequisites() {
 
     else
         # Neither Docker nor Podman found
-        if command -v dnf >/dev/null 2>&1; then
+        if [[ "$os_type" == "Darwin" ]]; then
+            missing+=("  • Neither Podman nor Docker is installed.
+      Podman (recommended):  brew install podman podman-compose
+      Or Colima + Docker:    brew install colima docker && colima start")
+        elif command -v dnf >/dev/null 2>&1; then
             missing+=("  • Neither Docker nor Podman is installed.
       Podman (available in default repos):
         sudo dnf install -y podman podman-compose
@@ -283,6 +306,15 @@ check_prerequisites() {
         host_internal="host.containers.internal"
     else
         host_internal="host.docker.internal"
+    fi
+
+    # When podman compose delegates to docker-compose, it prints a noisy warning
+    # during provider auto-detection. Setting PODMAN_COMPOSE_PROVIDER explicitly
+    # suppresses it. Must be done here (parent shell), not inside $() subshells.
+    if [ "$compose_cmd" = "podman compose" ]; then
+        local dc_path
+        dc_path="$(command -v docker-compose 2>/dev/null || true)"
+        [ -n "$dc_path" ] && export PODMAN_COMPOSE_PROVIDER="$dc_path"
     fi
 
     # ── Report all issues at once ────────────────────────────────────────
@@ -388,9 +420,12 @@ compose() {
     # PROJECT_ENV_FILE is exported so docker-compose.yml can reference it.
     export PROJECT_ENV_FILE="$env_file"
     if [ "$container_engine" = "podman" ]; then
+        # Filter the "Executing external compose provider" banner that podman emits
+        # when delegating to docker-compose. It can't be suppressed via env vars —
+        # filtering stderr is the only reliable approach without modifying containers.conf.
         $compose_cmd --env-file "$env_file" \
             "${compose_files[@]}" \
-            "$@"
+            "$@" 2> >(grep -v 'Executing external compose provider' >&2)
     else
         $compose_cmd --env-file "$env_file" \
             "${compose_files[@]}" \
@@ -1567,8 +1602,8 @@ import_sqlite_to_postgres() {
     info "Exported $record_count records from SQLite"
 
     info "Loading data into PostgreSQL (via Django loaddata)..."
-    compose run --rm --entrypoint "" -T my-tracks \
-        python manage.py loaddata --format json - < "$dump_file" \
+    compose run --rm --entrypoint python -T my-tracks \
+        manage.py loaddata --format json - < "$dump_file" \
         || die "Failed to import data into PostgreSQL"
 
     rm -f "$dump_file"
@@ -1578,15 +1613,15 @@ import_sqlite_to_postgres() {
         info "Re-encrypting PKI private keys with the new production SECRET_KEY..."
         local reencrypt_ok="false"
 
-        if compose run --rm --entrypoint "" -T my-tracks \
-            python manage.py reencrypt_pki --old-secret-key "$old_secret_key" 2>&1; then
+        if compose run --rm --entrypoint python -T my-tracks \
+            manage.py reencrypt_pki --old-secret-key "$old_secret_key" 2>&1; then
             reencrypt_ok="true"
         else
             echo ""
             echo "  ⚠  Primary key didn't work. Trying Django's default insecure key..."
             local fallback_key="django-insecure-change-me-in-production"
-            if compose run --rm --entrypoint "" -T my-tracks \
-                python manage.py reencrypt_pki --old-secret-key "$fallback_key" 2>&1; then
+            if compose run --rm --entrypoint python -T my-tracks \
+                manage.py reencrypt_pki --old-secret-key "$fallback_key" 2>&1; then
                 reencrypt_ok="true"
             fi
         fi
@@ -1913,8 +1948,8 @@ cmd_start() {
         [ $pg_attempts -lt 30 ] || die "PostgreSQL did not become healthy"
 
         info "Running database migrations..."
-        compose run --rm --entrypoint "" -T my-tracks \
-            python manage.py migrate --noinput \
+        compose run --rm --entrypoint python -T my-tracks \
+            manage.py migrate --noinput \
             || die "Failed to run migrations"
 
         import_sqlite_to_postgres "$import_sqlite" "$source_secret_key"
