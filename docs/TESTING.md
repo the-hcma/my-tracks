@@ -36,10 +36,10 @@ When testing, use these URLs:
 uv run pytest --cov=my_tracks --cov-fail-under=90
 
 # Run specific test file
-uv run pytest test_tracker.py -v
+uv run pytest tests/python/test_tracker.py -v
 
 # Run specific test
-uv run pytest test_tracker.py::TestLocationAPI::test_create_location -v
+uv run pytest tests/python/test_tracker.py::TestLocationAPI::test_create_location -v
 ```
 
 ## Running Frontend Tests

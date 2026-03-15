@@ -69,7 +69,7 @@ jobs:
       run: uv sync --all-extras
 
     - name: Check import sorting with isort
-      run: uv run isort --check-only --diff my_tracks config
+      run: uv run isort --check-only --diff my_tracks config web_ui
 
     - name: Lint with flake8
       run: uv run flake8 --config dev-tooling/.flake8 my_tracks config
