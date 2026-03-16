@@ -9,13 +9,15 @@
 #   -h, --help    Show this help message
 #
 # --start   Build and launch the full production stack (nginx + my-tracks + postgres)
-#           on non-conflicting local ports (8443/8080/8883). Creates .env.production
-#           and self-signed certs if they don't exist. Reuses existing .env.production
-#           unless --freshen-up is passed.
+#           on non-conflicting local ports (8443/8080/8883). Creates
+#           production/run/.env.production and self-signed certs on first run.
+#           Reuses existing config unless --freshen-up is passed.
 #
 # --stop    Tear down the stack and remove volumes.
+#           production/run/.env.production and var/certs/ are preserved.
 #
 # --freshen-up  (with --start) Regenerate .env.production and certs from scratch.
+#           Standalone --freshen-up prompts individually before deleting each item.
 #
 # --import-sqlite [path]  (with --start) Import a local SQLite database into the
 #           containerized PostgreSQL. Defaults to ./db.sqlite3 if no path given.
@@ -36,7 +38,7 @@ prod_dir="$(cd "$script_dir/.." && pwd)"
 readonly prod_dir
 project_dir="$(cd "$prod_dir/.." && pwd)"
 readonly project_dir
-readonly env_file="$project_dir/.env.production"
+env_file="$prod_dir/run/.env.production"
 CERTS_DIR="$prod_dir/var/certs"
 
 readonly default_https_port=8443
@@ -48,11 +50,32 @@ readonly default_mqtt_tls_port=8883
 # write PG_SOCKET_DIR into .env.production.
 _pg_socket_dir=""
 
+# TLS certificate state — set by setup_tls_certs / import_external_certs.
+_cert_domain=""   # domain extracted from the active TLS certificate
+_cert_type=""     # "imported" or "self-signed"
+_cert_expiry=""   # human-readable notAfter date from the certificate
+_reset_certs="false"  # set to "true" by --reset-certs flag
+
+# ANSI colours — only when stdout is a terminal.
+if [ -t 1 ]; then
+    _c_reset=$'\033[0m'
+    _c_info=$'\033[0;32m'   # green  — info / success messages
+    _c_step=$'\033[0;37m'   # light gray — inner step / detail lines
+    _c_warn=$'\033[0;33m'   # yellow — warnings
+    _c_err=$'\033[0;31m'    # red    — errors
+    _c_ask=$'\033[0;36m'    # cyan   — interactive prompts
+else
+    _c_reset='' _c_info='' _c_step='' _c_warn='' _c_err='' _c_ask=''
+fi
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-die() { echo "Error: $1" >&2; exit 1; }
-
-info() { echo "==> $1"; }
+die()  { printf '%sError: %s%s\n' "$_c_err" "$1" "$_c_reset" >&2; exit 1; }
+info() { printf '%s==> %s%s\n' "$_c_info" "$1" "$_c_reset"; }
+# step: indented blue line for inner sub-steps and detail fields.
+step() { printf '%s   · %s%s\n' "$_c_step" "$1" "$_c_reset"; }
+# ask: prints a blank line then a cyan prompt; caller reads the response with read -r.
+ask()  { printf '\n%s  ? %s%s' "$_c_ask" "$1" "$_c_reset"; }
 
 install_hint() {
     # Return OS-appropriate install command for a given logical package name.
@@ -1267,13 +1290,26 @@ Usage: my-tracks-production-container-manager [OPTIONS]
 Options:
   --start                Build and start the production container stack
   --freshen-up           Tear down stack, delete config/certs, and prompt before each deletion
-  --start --freshen-up   Tear down, wipe config/certs, then reconfigure and start immediately
+  --start --freshen-up   Tear down, wipe config, then reconfigure and start immediately
+                         (real TLS certs are preserved unless --reset-certs is also passed)
+  --start --freshen-up --reset-certs
+                         As above, but also wipe and re-prompt for TLS certificates
   --start --import-sqlite [path]
                          Import local SQLite db into PostgreSQL (default: ./db.sqlite3)
+  --update-certs         Copy new TLS certificate files into the cert directory and
+                         reload nginx in-place (no container restart)
   --stop                 Stop the stack and remove volumes
   --security-check       Run pre-launch security checks (pip-audit, Django deploy check,
                          container image CVE scan). Exit non-zero on any high/critical finding.
   -h, --help             Show this help message
+
+TLS certificates (configured interactively on first --start):
+  a) Copy existing certs — provide paths to fullchain.pem + privkey.pem
+     (Let's Encrypt, custom CA, or any trusted cert). Domain is auto-detected
+     from the certificate; ALLOWED_HOSTS and nginx server_name are set accordingly.
+     Standard ports 443/80 are used automatically.
+  b) Generate self-signed cert — fast start; browser will show a security warning.
+     Runs on localhost with dev-friendly ports (${default_https_port}/${default_http_port}).
 
 Default ports (chosen to avoid conflicts with dev server):
   HTTPS:    ${default_https_port}  →  https://localhost:${default_https_port}
@@ -1423,6 +1459,7 @@ create_env_file() {
     raw_db_result="$(choose_database_mode)" || die "Database setup failed — aborting."
     _pg_socket_dir="$(echo "$raw_db_result" | grep '^SOCKET_DIR:' | sed 's/^SOCKET_DIR://' || true)"
     db_result="$(echo "$raw_db_result" | grep -v '^SOCKET_DIR:')"
+    echo ""
 
     local secret_key
     secret_key="$(generate_secret)"
@@ -1431,12 +1468,80 @@ create_env_file() {
     if [ -n "$override_allowed_hosts" ]; then
         allowed_hosts="$override_allowed_hosts"
         info "Using ALLOWED_HOSTS from source environment: $allowed_hosts"
+    elif [ -n "$_cert_domain" ] && [ "$_cert_domain" != "localhost" ] && [ "$_cert_domain" != "127.0.0.1" ]; then
+        allowed_hosts="${_cert_domain}"
+        info "Using ALLOWED_HOSTS from TLS certificate domain: $allowed_hosts"
     else
-        allowed_hosts="localhost,127.0.0.1"
+        allowed_hosts="localhost"
+    fi
+    # 127.0.0.1 must always be present — the Docker HEALTHCHECK hits the app
+    # at http://127.0.0.1:8080/ and Django validates the Host header against
+    # ALLOWED_HOSTS regardless of how the override was constructed.
+    [[ "$allowed_hosts" != *"127.0.0.1"* ]] && allowed_hosts="${allowed_hosts},127.0.0.1"
+
+    # Port selection: ask when a real domain cert is in use.
+    # Standard ports (443/80) are needed on a public server but require root and
+    # are often already occupied on macOS (e.g. local dev nginx).  Non-standard
+    # ports (8443/8080) work without root and avoid conflicts on local machines.
+    local use_https_port="$default_https_port"
+    local use_http_port="$default_http_port"
+    if [ -n "$_cert_domain" ] && [ "$_cert_domain" != "localhost" ] && [ "$_cert_domain" != "127.0.0.1" ]; then
+        # Check if standard ports are already occupied on this host.
+        local port443_busy="false" port80_busy="false"
+        nc -z 127.0.0.1 443 >/dev/null 2>&1 && port443_busy="true"
+        nc -z 127.0.0.1 80  >/dev/null 2>&1 && port80_busy="true"
+
+        echo "" >&2
+        echo "  ── Port configuration ──────────────────────────────────────────────────" >&2
+
+        local port_choice
+        if [ "$port443_busy" = "true" ] || [ "$port80_busy" = "true" ]; then
+            # Standard ports occupied — recommend non-standard.
+            [ "$port443_busy" = "true" ] && \
+                printf '%s  ⚠  Port 443 is already in use on this host%s\n' "$_c_warn" "$_c_reset" >&2
+            [ "$port80_busy" = "true" ] && \
+                printf '%s  ⚠  Port 80 is already in use on this host%s\n'  "$_c_warn" "$_c_reset" >&2
+            printf '%s  Suggested: %s (HTTPS) / %s (HTTP)  — standard ports are occupied%s\n' \
+                "$_c_step" "$default_https_port" "$default_http_port" "$_c_reset" >&2
+            printf '\n%s  ? Use these ports? [Y/n]: %s' "$_c_ask" "$_c_reset" >&2
+            read -r port_choice
+            echo "" >&2
+            if [[ "$port_choice" =~ ^[Nn] ]]; then
+                # Warn: proceeding with occupied ports will likely cause a bind failure.
+                printf '\n%s  ⚠  Port 443 and/or 80 are already in use — the container will likely fail to start.%s\n' \
+                    "$_c_warn" "$_c_reset" >&2
+                printf '%s  ? Proceed with 443/80 anyway? [y/N]: %s' "$_c_ask" "$_c_reset" >&2
+                local confirm_override
+                read -r confirm_override
+                echo "" >&2
+                if [[ "$confirm_override" =~ ^[Yy] ]]; then
+                    use_https_port="443"
+                    use_http_port="80"
+                else
+                    info "Aborting. Free up ports 443/80 or use the suggested ports."
+                    exit 1
+                fi
+            fi
+            # else keep defaults (8443/8080)
+        else
+            # Standard ports free — recommend them for a real domain.
+            printf '%s  Suggested: 443 (HTTPS) / 80 (HTTP)  — standard ports for a public server%s\n' \
+                "$_c_step" "$_c_reset" >&2
+            printf '\n%s  ? Use these ports? [Y/n]: %s' "$_c_ask" "$_c_reset" >&2
+            read -r port_choice
+            echo "" >&2
+            if [[ ! "$port_choice" =~ ^[Nn] ]]; then
+                use_https_port="443"
+                use_http_port="80"
+            fi
+            # else keep defaults (8443/8080)
+        fi
     fi
 
     local csrf_origins
-    csrf_origins="$(build_csrf_origins "$allowed_hosts" "$default_https_port")"
+    csrf_origins="$(build_csrf_origins "$allowed_hosts" "$use_https_port")"
+
+    mkdir -p "$(dirname "$env_file")"
 
     if [ "$db_result" = "internal-transient" ] || [ "$db_result" = "internal-persistent" ]; then
         local pg_password enc_pg_password
@@ -1452,8 +1557,8 @@ POSTGRES_USER=mytracks
 POSTGRES_PASSWORD=${pg_password}
 POSTGRES_DB=mytracks
 DATABASE_URL=postgresql://mytracks:${enc_pg_password}@postgres:5432/mytracks
-HTTPS_PORT=${default_https_port}
-HTTP_PORT=${default_http_port}
+HTTPS_PORT=${use_https_port}
+HTTP_PORT=${use_http_port}
 MQTT_TLS_PORT=${default_mqtt_tls_port}
 ENVEOF
         if [ "$db_result" = "internal-persistent" ]; then
@@ -1472,8 +1577,8 @@ DEBUG=False
 ALLOWED_HOSTS=${allowed_hosts}
 CSRF_TRUSTED_ORIGINS=${csrf_origins}
 DATABASE_URL=${db_result}
-HTTPS_PORT=${default_https_port}
-HTTP_PORT=${default_http_port}
+HTTPS_PORT=${use_https_port}
+HTTP_PORT=${use_http_port}
 MQTT_TLS_PORT=${default_mqtt_tls_port}
 ENVEOF
         if [ -n "$_pg_socket_dir" ]; then
@@ -1564,7 +1669,19 @@ load_config_from_env() {
     active_http_port="${active_http_port:-$default_http_port}"
     active_mqtt_tls_port="$(env_get "MQTT_TLS_PORT")"
     active_mqtt_tls_port="${active_mqtt_tls_port:-$default_mqtt_tls_port}"
-    health_url="https://localhost:${active_https_port}/api/health/"
+    # Real domain cert → use the actual domain name so the Host header matches
+    # ALLOWED_HOSTS and TLS SNI is correct. Port 443 is the default for HTTPS
+    # so it's omitted from the URL. Self-signed/localhost → use localhost with
+    # the non-standard port.
+    if [ -n "$_cert_domain" ] && [ "$_cert_domain" != "localhost" ] && [ "$_cert_domain" != "127.0.0.1" ]; then
+        if [ "$active_https_port" = "443" ]; then
+            health_url="https://${_cert_domain}/api/health/"
+        else
+            health_url="https://${_cert_domain}:${active_https_port}/api/health/"
+        fi
+    else
+        health_url="https://localhost:${active_https_port}/api/health/"
+    fi
 
     db_user="$(env_get "POSTGRES_USER")"
     db_user="${db_user:-mytracks}"
@@ -1655,6 +1772,223 @@ create_self_signed_certs() {
         -subj "/CN=localhost" \
         2>/dev/null
     info "Certs written to $CERTS_DIR/"
+    _cert_domain="localhost"
+    _cert_type="self-signed"
+    _cert_expiry="$(openssl x509 -noout -enddate -in "$CERTS_DIR/fullchain.pem" 2>/dev/null | sed 's/notAfter=//')"
+    print_cert_details "$CERTS_DIR/fullchain.pem"
+}
+
+# Extract the primary domain from a certificate (SAN preferred, CN fallback).
+# Outputs the domain to stdout; falls back to "localhost" if nothing is found.
+detect_domain_from_cert() {
+    local cert_file="$1"
+    local domain=""
+    # Try Subject Alternative Name first (RFC-correct for modern certs)
+    domain=$(openssl x509 -noout -text -in "$cert_file" 2>/dev/null \
+        | grep -A1 "Subject Alternative Name" \
+        | grep -oE 'DNS:[^,[:space:]]+' | head -1 | sed 's/DNS://' || true)
+    # Fall back to Common Name
+    if [ -z "$domain" ]; then
+        domain=$(openssl x509 -noout -subject -in "$cert_file" 2>/dev/null \
+            | sed 's/.*CN\s*=\s*//' | sed 's/[,/].*//' | xargs)
+    fi
+    echo "${domain:-localhost}"
+}
+
+# Print detailed certificate fields as indented step() lines.
+print_cert_details() {
+    local cert_file="$1"
+    local subject issuer serial fingerprint not_before not_after sans
+
+    subject=$(openssl x509 -noout -subject -in "$cert_file" 2>/dev/null \
+        | sed 's/^[Ss]ubject[[:space:]]*=[[:space:]]*//' | sed 's|^/||')
+    issuer=$(openssl x509 -noout -issuer -in "$cert_file" 2>/dev/null \
+        | sed 's/^[Ii]ssuer[[:space:]]*=[[:space:]]*//' | sed 's|^/||')
+    serial=$(openssl x509 -noout -serial -in "$cert_file" 2>/dev/null \
+        | sed 's/^[Ss]erial[[:space:]]*=[[:space:]]*//')
+    fingerprint=$(openssl x509 -noout -fingerprint -sha256 -in "$cert_file" 2>/dev/null \
+        | sed 's/.*Fingerprint=//')
+    not_before=$(openssl x509 -noout -startdate -in "$cert_file" 2>/dev/null \
+        | sed 's/notBefore=//')
+    not_after=$(openssl x509 -noout -enddate -in "$cert_file" 2>/dev/null \
+        | sed 's/notAfter=//')
+    sans=$(openssl x509 -noout -text -in "$cert_file" 2>/dev/null \
+        | grep -A1 "Subject Alternative Name:" \
+        | tail -1 | sed 's/^[[:space:]]*//' || true)
+
+    step "Subject:     $subject"
+    if [ "$subject" = "$issuer" ]; then
+        step "Issuer:      (self-signed)"
+    else
+        step "Issuer:      $issuer"
+    fi
+    [ -n "$sans" ] && step "SAN:         $sans"
+    step "Serial:      $serial"
+    step "Fingerprint: $fingerprint"
+    step "Valid from:  $not_before"
+    step "Expires:     $not_after"
+}
+
+# Check certificate expiry. Dies if already expired; warns if expiring within
+# 30 days. Sets _cert_expiry to the human-readable notAfter date.
+check_cert_expiry() {
+    local cert_file="$1"
+    _cert_expiry="$(openssl x509 -noout -enddate -in "$cert_file" 2>/dev/null \
+        | sed 's/notAfter=//')"
+    if ! openssl x509 -noout -checkend 0 -in "$cert_file" >/dev/null 2>&1; then
+        die "TLS certificate has expired ($_cert_expiry). Run --update-certs to replace it."
+    fi
+    if ! openssl x509 -noout -checkend $((30 * 86400)) -in "$cert_file" >/dev/null 2>&1; then
+        printf '\n%s  ⚠  TLS certificate expires soon: %s\n' "$_c_warn" "$_cert_expiry"
+        printf '     Run --update-certs to replace it before it expires.%s\n\n' "$_c_reset"
+    fi
+    # Expiry is shown by print_cert_details; no separate success line here.
+}
+
+# Verify that a certificate and private key form a matching pair by comparing
+# their public keys. Returns 1 (does not die) so callers can loop on failure.
+validate_cert_key_pair() {
+    local cert_file="$1" key_file="$2"
+    local cert_pub key_pub
+    cert_pub=$(openssl x509 -pubkey -noout -in "$cert_file" 2>/dev/null)
+    key_pub=$(openssl pkey -pubout -in "$key_file" 2>/dev/null)
+    if [ -z "$cert_pub" ] || [ "$cert_pub" != "$key_pub" ]; then
+        return 1
+    fi
+}
+
+# Prompt the user for a directory containing TLS certificate files and copy
+# them into $CERTS_DIR. Loops until valid files are found or the user Ctrl-C's.
+# Validates the cert/key pair, checks expiry, and sets _cert_domain, _cert_type,
+# _cert_expiry. Uses cp -L to dereference symlinks (certbot stores symlinks).
+import_external_certs() {
+    echo ""
+    echo "  ── Copy TLS Certificates into $CERTS_DIR/ ───────────────────────────"
+    echo "  Provide the directory containing your TLS certificate files."
+    echo "  The directory must contain:"
+    echo "    fullchain.pem  — certificate chain (cert + intermediates)"
+    echo "    privkey.pem    — private key"
+    echo ""
+    echo "  If you have Let's Encrypt certs from certbot, the directory is typically:"
+    echo "    /etc/letsencrypt/live/<your-domain>/"
+    echo ""
+
+    local cert_dir fullchain_path privkey_path
+    while true; do
+        printf "  Certificate directory (Ctrl-C to abort): "
+        read -r cert_dir
+        [ -n "$cert_dir" ] || { echo "  Path cannot be empty."; continue; }
+        # Expand ~ — read -r does not invoke shell expansion.
+        cert_dir="${cert_dir/#\~/$HOME}"
+        cert_dir="${cert_dir%/}"  # strip trailing slash
+
+        fullchain_path="$cert_dir/fullchain.pem"
+        privkey_path="$cert_dir/privkey.pem"
+
+        local missing=()
+        [ -f "$fullchain_path" ] || missing+=("fullchain.pem")
+        [ -f "$privkey_path"   ] || missing+=("privkey.pem")
+
+        if [ ${#missing[@]} -gt 0 ]; then
+            echo ""
+            echo "  ✘  The following files were not found in $cert_dir/:"
+            for f in "${missing[@]}"; do echo "       $f"; done
+            echo "  Check the path and try again (Ctrl-C to abort)."
+            echo ""
+            continue
+        fi
+
+        step "Validating certificate and key pair..."
+        local pair_err
+        if ! pair_err="$(validate_cert_key_pair "$fullchain_path" "$privkey_path" 2>&1)"; then
+            echo "  ✘  $pair_err"
+            echo "  Certificate and private key do not match. Try a different directory."
+            echo ""
+            continue
+        fi
+
+        check_cert_expiry "$fullchain_path"
+
+        # If expiring soon, confirm before accepting — user may want to renew first.
+        if ! openssl x509 -noout -checkend $((30 * 86400)) -in "$fullchain_path" >/dev/null 2>&1; then
+            printf '%s  ? Continue with this certificate anyway? [y/N]: %s' "$_c_ask" "$_c_reset"
+            local expiry_choice
+            read -r expiry_choice
+            echo ""
+            [[ "$expiry_choice" =~ ^[Yy] ]] || continue
+        fi
+
+        print_cert_details "$fullchain_path"
+        echo ""
+
+        printf '%s  ? Use this certificate? [Y/n]: %s' "$_c_ask" "$_c_reset"
+        local cert_confirm
+        read -r cert_confirm
+        echo ""
+        [[ ! "$cert_confirm" =~ ^[Nn] ]] || { echo "  Re-enter the certificate directory."; echo ""; continue; }
+        break
+    done
+
+    _cert_domain="$(detect_domain_from_cert "$fullchain_path")"
+    step "Domain: $_cert_domain"
+
+    mkdir -p "$CERTS_DIR"
+    # Use install to set permissions atomically — avoids a window where privkey.pem
+    # is world-readable between cp and chmod.
+    install -m 644 "$fullchain_path" "$CERTS_DIR/fullchain.pem"
+    install -m 600 "$privkey_path"   "$CERTS_DIR/privkey.pem"
+    _cert_type="imported"
+    info "Certificates copied to $CERTS_DIR/"
+}
+
+# TLS certificate setup step, called from cmd_start before create_env_file.
+# force_prompt="true"  — always ask (first run, freshen-up, or --reset-certs).
+# force_prompt="false" — reuse existing certs if present; only detect + check expiry.
+setup_tls_certs() {
+    local force_prompt="$1"
+    if [ "$force_prompt" = "false" ] && [ -f "$CERTS_DIR/fullchain.pem" ]; then
+        info "Reusing existing TLS certificates"
+        _cert_domain="$(detect_domain_from_cert "$CERTS_DIR/fullchain.pem")"
+        check_cert_expiry "$CERTS_DIR/fullchain.pem"
+        _cert_type="existing"
+        print_cert_details "$CERTS_DIR/fullchain.pem"
+        return
+    fi
+
+    echo ""
+    echo "  ── TLS Certificate Setup ────────────────────────────────────────────"
+    echo "    a) Copy existing certs (Let's Encrypt or other)  — browser-trusted"
+    echo "    b) Generate self-signed cert  — browser will show a security warning"
+    echo ""
+    printf "  Choose [b (default)]: "
+    local tls_choice
+    read -r tls_choice
+    tls_choice="${tls_choice:-b}"
+    echo ""
+    if [ "$tls_choice" = "a" ]; then
+        import_external_certs
+    else
+        create_self_signed_certs
+    fi
+    echo ""
+}
+
+# Patch server_name in a staged nginx.conf copy (not the source file).
+# Only applies when the domain is a real hostname (not localhost / wildcard).
+patch_nginx_server_name() {
+    local nginx_conf="$1" domain="$2"
+    if [ -n "$domain" ] && [ "$domain" != "localhost" ] && [ "$domain" != "127.0.0.1" ]; then
+        local tmp
+        tmp="$(mktemp)"
+        # Escape & and \ in the replacement side to prevent sed misinterpretation.
+        # Use | as delimiter to avoid conflicts with / in domain names.
+        local safe_domain
+        safe_domain="$(printf '%s' "$domain" | sed 's/[&\]/\\&/g')"
+        sed "s|server_name _;|server_name ${safe_domain};|g" "$nginx_conf" > "$tmp"
+        mv "$tmp" "$nginx_conf"
+        chmod a+r "$nginx_conf"
+        step "Patched nginx server_name → $domain"
+    fi
 }
 
 # ── Banner ───────────────────────────────────────────────────────────────────
@@ -1674,10 +2008,24 @@ print_banner() {
     echo "║              my-tracks production stack running             ║"
     echo "╚══════════════════════════════════════════════════════════════╝"
     echo ""
+    local base_url
+    if [ -n "$_cert_domain" ] && [ "$_cert_domain" != "localhost" ] && [ "$_cert_domain" != "127.0.0.1" ]; then
+        if [ "$active_https_port" = "443" ]; then
+            base_url="https://${_cert_domain}"
+        else
+            base_url="https://${_cert_domain}:${active_https_port}"
+        fi
+    else
+        base_url="https://localhost:${active_https_port}"
+    fi
     echo "  Health:    $health_response"
-    echo "  Web UI:    https://localhost:${active_https_port}"
-    echo "  API:       https://localhost:${active_https_port}/api/"
+    echo "  Web UI:    ${base_url}"
+    echo "  API:       ${base_url}/api/"
     echo "  MQTT TLS:  0.0.0.0:${active_mqtt_tls_port}  (all interfaces)"
+    local tls_display="${_cert_type:-unknown}"
+    [ -n "$_cert_domain" ]  && tls_display="$tls_display  domain: ${_cert_domain}"
+    [ -n "$_cert_expiry" ]  && tls_display="$tls_display  exp: ${_cert_expiry}"
+    echo "  TLS cert:  $tls_display"
     echo ""
 
     if is_internal_db; then
@@ -1764,6 +2112,10 @@ stage_bind_mounts() {
     cp "$CERTS_DIR/fullchain.pem" "$run_dir/certs/fullchain.pem"
     cp "$CERTS_DIR/privkey.pem" "$run_dir/certs/privkey.pem"
 
+    # Patch server_name in the staged copy so nginx uses the real domain for SNI.
+    # The source nginx.conf keeps "server_name _;" as the generic default.
+    patch_nginx_server_name "$run_dir/nginx/nginx.conf" "$_cert_domain"
+
     chmod a+rX "$run_dir" \
                "$run_dir/nginx" "$run_dir/nginx/nginx.conf" "$run_dir/nginx/proxy_params" \
                "$run_dir/certs" "$run_dir/certs/fullchain.pem" "$run_dir/certs/privkey.pem"
@@ -1782,6 +2134,16 @@ cmd_start() {
 
     check_prerequisites
     info "Container engine: $container_engine (compose: $compose_cmd)"
+
+    # One-time migration: .env.production moved from project root to production/run/.
+    # If the new path is absent but the old path exists, migrate it so existing
+    # stacks keep their credentials (avoids POSTGRES_PASSWORD mismatch on restart).
+    local old_env_file="$project_dir/.env.production"
+    if [ ! -f "$env_file" ] && [ -f "$old_env_file" ]; then
+        mkdir -p "$(dirname "$env_file")"
+        mv "$old_env_file" "$env_file"
+        step "Migrated .env.production → $env_file"
+    fi
 
     if [ "$freshen_up" = "true" ]; then
         info "Freshen-up: tearing down existing stack and volumes"
@@ -1831,7 +2193,17 @@ cmd_start() {
                 read -r source_secret_key
             fi
         fi
-        create_env_file "$source_allowed_hosts"
+        # TLS setup first so the domain is known before create_env_file writes
+        # ALLOWED_HOSTS and port values. --reset-certs forces a new cert prompt;
+        # otherwise existing real certs are preserved across the freshen-up.
+        local tls_force="false"
+        if [ ! -f "$CERTS_DIR/fullchain.pem" ] || [ "$_reset_certs" = "true" ]; then
+            tls_force="true"
+        fi
+        setup_tls_certs "$tls_force"
+        local env_allowed_hosts="$_cert_domain"
+        [ -n "$source_allowed_hosts" ] && env_allowed_hosts="$source_allowed_hosts"
+        create_env_file "$env_allowed_hosts"
     elif [ ! -f "$env_file" ]; then
         # Guard: if var/db/ exists without .env.production, the database is
         # inaccessible — its POSTGRES_PASSWORD is gone.  Refuse to create a new
@@ -1846,9 +2218,13 @@ cmd_start() {
     • Run --freshen-up to wipe var/db/ and start fresh (data will be lost)."
         fi
         info "No .env.production found — creating one"
-        create_env_file ""
+        # TLS setup first so the domain is known before create_env_file.
+        setup_tls_certs "true"
+        create_env_file "$_cert_domain"
     else
         info "Reusing existing $env_file (use --freshen-up to regenerate)"
+        # Detect domain and check expiry for the existing cert (no new prompt).
+        setup_tls_certs "false"
     fi
     validate_and_repair_env
     load_config_from_env
@@ -1887,12 +2263,6 @@ cmd_start() {
     fi
 
     verify_database_connectivity "$database_url"
-
-    if [ "$freshen_up" = "true" ] || [ ! -f "$CERTS_DIR/fullchain.pem" ]; then
-        create_self_signed_certs
-    else
-        info "Reusing existing certs in $CERTS_DIR/"
-    fi
 
     # Ensure the persistent log directory exists and is writable by the
     # container's app user (which may have a remapped UID via user namespaces).
@@ -1958,11 +2328,18 @@ cmd_start() {
     info "Starting stack"
     compose up -d
 
-    local max_attempts=15
+    # For a real domain, use --resolve to connect to 127.0.0.1 without relying
+    # on public DNS (which may not point to this machine during local testing).
+    local curl_resolve_opts=()
+    if [ -n "$_cert_domain" ] && [ "$_cert_domain" != "localhost" ] && [ "$_cert_domain" != "127.0.0.1" ]; then
+        curl_resolve_opts=(--resolve "${_cert_domain}:${active_https_port}:127.0.0.1")
+    fi
+
+    local max_attempts=5
     info "Waiting for health check (${health_url}, up to $((max_attempts * 2))s)..."
     local attempts=0
     while [ $attempts -lt $max_attempts ]; do
-        if curl -sk "$health_url" 2>/dev/null | grep -q '"status"'; then
+        if curl -sk "${curl_resolve_opts[@]}" "$health_url" 2>/dev/null | grep -q '"status"'; then
             break
         fi
         attempts=$((attempts + 1))
@@ -1970,11 +2347,27 @@ cmd_start() {
     done
 
     if [ $attempts -ge $max_attempts ]; then
+        # Capture the last curl response and error to explain the failure.
+        local last_response last_curl_err
+        last_response=$(curl -sk "${curl_resolve_opts[@]}" "$health_url" 2>/tmp/curl_err_$$ || true)
+        last_curl_err=$(cat /tmp/curl_err_$$ 2>/dev/null); rm -f /tmp/curl_err_$$
+
+        printf '\n%sWARNING: Health check did not pass within %ds.%s\n' \
+            "$_c_warn" "$((max_attempts * 2))" "$_c_reset"
+        if [ -n "$last_curl_err" ]; then
+            printf '%s  curl error: %s%s\n' "$_c_warn" "$last_curl_err" "$_c_reset"
+        elif [ -n "$last_response" ]; then
+            printf '%s  curl got a response but no "status" field: %s%s\n' \
+                "$_c_warn" "$last_response" "$_c_reset"
+        else
+            printf '%s  curl got no response — nginx may not be up or port %s is not accessible.%s\n' \
+                "$_c_warn" "$active_https_port" "$_c_reset"
+        fi
         echo ""
-        echo "WARNING: Health check did not pass within 30 seconds."
-        echo ""
-        echo "  ── Last 50 log lines ────────────────────────────────────────────────────"
-        compose logs --no-log-prefix --tail=50 my-tracks 2>/dev/null || true
+        echo "  ── my-tracks logs (last 30 lines) ──────────────────────────────────────"
+        compose logs --no-log-prefix --tail=30 my-tracks 2>/dev/null || true
+        echo "  ── nginx logs (last 20 lines) ──────────────────────────────────────────"
+        compose logs --no-log-prefix --tail=20 nginx 2>/dev/null || true
         echo "  ─────────────────────────────────────────────────────────────────────────"
         echo ""
         echo "Full logs: $log_hint"
@@ -1998,75 +2391,152 @@ cmd_freshen_up() {
         fi
     fi
 
+    # Preserve real (non-self-signed) certs unless --reset-certs was passed.
+    local preserve_certs="false"
+    local preserved_cert_domain=""
+    if [ "$_reset_certs" = "false" ] && [ -f "$prod_dir/var/certs/fullchain.pem" ]; then
+        preserved_cert_domain="$(detect_domain_from_cert "$prod_dir/var/certs/fullchain.pem")"
+        if [ -n "$preserved_cert_domain" ] && [ "$preserved_cert_domain" != "localhost" ]; then
+            preserve_certs="true"
+        fi
+    fi
+
     echo ""
-    echo "  ── Freshen-up: the following will be permanently deleted ─────────────"
-    local has_something="false"
+    echo "  ── Freshen-up: items available for deletion ──────────────────────────"
+
+    # Track what exists so we know whether there is anything to do.
+    local has_run_items="false"
+    local has_var_items="false"
+
+    # production/run/ items (confirmed individually)
     if [ -f "$env_file" ]; then
         if [ "$has_persistent_data" = "true" ]; then
-            # Persistent data and .env.production must be treated as an atomic pair.
-            # Show them grouped so the user understands they go together.
             echo "  • $env_file  (credentials including POSTGRES_PASSWORD)"
+            echo "  • $pg_data_dir  (your database — paired with .env.production)"
             echo "  • Docker volumes  (all container data)"
-            echo ""
-            echo "  ── Persistent PostgreSQL data (paired — must delete together) ──────────"
-            echo "  • $pg_data_dir  (your database)"
-            echo ""
-            echo "  WARNING: Deleting .env.production without its paired postgres data directory"
-            echo "  (or vice versa) will make the database permanently inaccessible."
-            echo "  These two will be deleted together or not at all."
         else
             echo "  • $env_file  (credentials, secret key, ports)"
             echo "  • Docker volumes  (all container data, including database if containerized)"
         fi
-        has_something="true"
+        has_run_items="true"
     fi
-    if [ -d "$prod_dir/var/certs" ]; then
+    if [ -d "$prod_dir/run/nginx" ] || [ -d "$prod_dir/run/certs" ]; then
+        echo "  • $prod_dir/run/{nginx,certs}/  (staged nginx config and certs)"
+        has_run_items="true"
+    fi
+
+    # production/var/ items (confirmed together)
+    if [ "$preserve_certs" = "false" ] && [ -d "$prod_dir/var/certs" ]; then
         echo "  • $prod_dir/var/certs/  (TLS certificates)"
-        has_something="true"
-    fi
-    if [ -d "$prod_dir/run" ]; then
-        echo "  • $prod_dir/run/  (staged nginx/certs)"
-        has_something="true"
+        has_var_items="true"
+    elif [ "$preserve_certs" = "true" ]; then
+        echo "  ℹ  $prod_dir/var/certs/  preserved (real cert for $preserved_cert_domain — use --reset-certs to replace)"
     fi
     if [ -d "$prod_dir/var/log" ]; then
         echo "  • $prod_dir/var/log/  (application logs)"
-        has_something="true"
+        has_var_items="true"
     fi
     echo ""
 
-    if [ "$has_something" = "false" ]; then
+    if [ "$has_run_items" = "false" ] && [ "$has_var_items" = "false" ]; then
         info "Nothing to clean up — already at a clean slate."
         return
     fi
 
-    if [ "$has_persistent_data" = "true" ]; then
-        printf "  Delete .env.production AND $pg_data_dir together? [y/N]: "
-    else
-        printf "  Proceed? [y/N]: "
-    fi
-    read -r confirm
-    [[ "$confirm" =~ ^[Yy] ]] || { echo "Aborted."; exit 0; }
-    echo ""
+    [ "$has_run_items" = "true" ] && \
+        echo "  Items in production/run/ are confirmed individually."
+    [ "$has_var_items" = "true" ] && \
+        echo "  Other items (production/var/) are confirmed together."
 
     _removal_errors=()
 
+    # ── production/run/ items: individual confirms ────────────────────────────
+
+    # .env.production (catastrophic if lost — confirm individually with warning)
     if [ -f "$env_file" ]; then
-        info "Tearing down stack and volumes"
-        setup_compose_files
-        compose down -v 2>/dev/null || true
-        try_rm ".env.production" "$env_file" && info "Removed $env_file"
+        echo ""
+        printf '%s  ╔═══════════════════════════════════════════════════════════════════════╗\n' "$_c_warn"
+        printf '%s  ║  ⚠  WARNING — POTENTIALLY CATASTROPHIC                               ║\n' "$_c_warn"
+        printf '%s  ║  .env.production contains SECRET_KEY and POSTGRES_PASSWORD.           ║\n' "$_c_warn"
+        printf '%s  ║  Losing it makes your PostgreSQL database permanently inaccessible.   ║\n' "$_c_warn"
+        printf '%s  ║  There is no way to recover the database without this file.           ║\n' "$_c_warn"
+        printf '%s  ╚═══════════════════════════════════════════════════════════════════════╝%s\n' "$_c_warn" "$_c_reset"
         if [ "$has_persistent_data" = "true" ]; then
-            try_rm "PostgreSQL data" "$pg_data_dir" \
-                && info "Removed persistent PostgreSQL data at $pg_data_dir"
+            echo ""
+            echo "  .env.production and PostgreSQL data at $pg_data_dir must be deleted"
+            echo "  together — one without the other leaves the database inaccessible."
+            ask "Delete .env.production AND $pg_data_dir (paired)? [y/N]: "
+            local confirm_env_pg
+            read -r confirm_env_pg
+            echo ""
+            if [[ "$confirm_env_pg" =~ ^[Yy] ]]; then
+                info "Tearing down stack and volumes"
+                setup_compose_files
+                compose down -v 2>/dev/null || true
+                try_rm ".env.production" "$env_file" && info "Removed $env_file"
+                try_rm "PostgreSQL data" "$pg_data_dir" \
+                    && info "Removed persistent PostgreSQL data at $pg_data_dir"
+            else
+                info "Skipped .env.production and PostgreSQL data — keeping both."
+            fi
+        else
+            ask "Delete .env.production ($env_file)? [y/N]: "
+            local confirm_env
+            read -r confirm_env
+            echo ""
+            if [[ "$confirm_env" =~ ^[Yy] ]]; then
+                info "Tearing down stack and volumes"
+                setup_compose_files
+                compose down -v 2>/dev/null || true
+                try_rm ".env.production" "$env_file" && info "Removed $env_file"
+            else
+                info "Skipped .env.production."
+            fi
         fi
     fi
-    [ -d "$prod_dir/var/certs" ] \
-        && try_rm "certs" "$prod_dir/var/certs" && info "Removed certs/"
-    try_rm "run dir" "$prod_dir/run"
-    [ -d "$prod_dir/var/log" ] \
-        && try_rm "application logs" "$prod_dir/var/log" && info "Removed application logs"
+
+    # Staged run dirs (nginx/certs only — run/.env.production is untouched)
+    if [ -d "$prod_dir/run/nginx" ] || [ -d "$prod_dir/run/certs" ]; then
+        ask "Delete staged config at $prod_dir/run/{nginx,certs}/? [y/N]: "
+        local confirm_run
+        read -r confirm_run
+        echo ""
+        if [[ "$confirm_run" =~ ^[Yy] ]]; then
+            try_rm "nginx staging" "$prod_dir/run/nginx" && info "Removed run/nginx/"
+            try_rm "certs staging" "$prod_dir/run/certs" && info "Removed run/certs/"
+            rmdir "$prod_dir/run" 2>/dev/null || true
+        else
+            info "Skipped staged config."
+        fi
+    fi
+
+    # ── production/var/ items: single bulk confirm ────────────────────────────
+
+    if [ "$has_var_items" = "true" ]; then
+        echo ""
+        echo "  ── production/var/ items ─────────────────────────────────────────────"
+        [ "$preserve_certs" = "false" ] && [ -d "$prod_dir/var/certs" ] && \
+            echo "  • $prod_dir/var/certs/"
+        [ -d "$prod_dir/var/log" ] && \
+            echo "  • $prod_dir/var/log/"
+        ask "Delete the above? [y/N]: "
+        local confirm_var
+        read -r confirm_var
+        echo ""
+        if [[ "$confirm_var" =~ ^[Yy] ]]; then
+            if [ "$preserve_certs" = "false" ] && [ -d "$prod_dir/var/certs" ]; then
+                try_rm "certs" "$prod_dir/var/certs" && info "Removed certs/"
+            fi
+            [ -d "$prod_dir/var/log" ] && \
+                try_rm "application logs" "$prod_dir/var/log" && info "Removed application logs"
+        else
+            info "Skipped production/var/ items."
+        fi
+    fi
+
     cleanup_empty_var_dirs
 
+    echo ""
     if flush_removal_errors; then
         info "Clean slate ready — run --start to configure and launch."
     else
@@ -2088,7 +2558,10 @@ cmd_stop() {
 
     info "Stopping stack and removing volumes"
     compose down -v
-    try_rm "run dir" "$prod_dir/run"
+    # Remove transient staging subdirs only — run/.env.production is preserved.
+    try_rm "nginx staging" "$prod_dir/run/nginx"
+    try_rm "certs staging" "$prod_dir/run/certs"
+    rmdir "$prod_dir/run" 2>/dev/null || true
     cleanup_empty_var_dirs
     flush_removal_errors || true  # report but don't abort — stack is already down
 
@@ -2100,6 +2573,33 @@ cmd_stop() {
     else
         info "Stack stopped. $env_file and $prod_dir/var/certs/ are preserved for next run."
     fi
+}
+
+cmd_update_certs() {
+    check_prerequisites
+
+    if [ ! -f "$env_file" ]; then
+        die "No .env.production found. Run --start first to set up the stack."
+    fi
+    load_config_from_env
+    setup_compose_files
+
+    info "Updating TLS certificates"
+    import_external_certs
+
+    # Re-stage so nginx gets the new cert files and patched server_name.
+    stage_bind_mounts
+
+    # Reload nginx in-place — no container restart needed.
+    info "Reloading nginx with new certificates"
+    compose exec -T nginx nginx -s reload \
+        || die "Failed to reload nginx. Is the stack running? (--start to bring it up)"
+
+    echo ""
+    info "✅ Certificates updated and nginx reloaded."
+    echo "  Domain: $_cert_domain"
+    echo "  Expiry: $_cert_expiry"
+    echo ""
 }
 
 # ── Main ─────────────────────────────────────────────────────────────────────
@@ -2172,7 +2672,9 @@ main() {
             --start)           action="start"; shift ;;
             --stop)            action="stop"; shift ;;
             --security-check)  action="security-check"; shift ;;
+            --update-certs)    action="update-certs"; shift ;;
             --freshen-up)      freshen_up="true"; shift ;;
+            --reset-certs)     _reset_certs="true"; shift ;;
             --import-sqlite)
                 shift
                 if [ $# -gt 0 ] && [[ "$1" != --* ]]; then
@@ -2204,8 +2706,10 @@ main() {
 
     case "$action" in
         start)           cmd_start "$freshen_up" "$import_sqlite" ;;
-        stop)            cmd_stop ;;
+        # Order matters: stop first, then freshen-up (so compose is down before files are deleted).
+        stop)            cmd_stop; [ "$freshen_up" = "true" ] && cmd_freshen_up ;;
         freshen-up)      cmd_freshen_up ;;
+        update-certs)    cmd_update_certs ;;
         security-check)  check_prerequisites && cmd_security_check ;;
     esac
 }
