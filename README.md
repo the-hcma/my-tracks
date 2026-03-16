@@ -2,22 +2,40 @@
 
 A self-hosted location tracking backend for the [OwnTracks](https://owntracks.org/) Android/iOS app. Receives, persists, and visualizes geolocation data via HTTP and MQTT, with a live map UI, real-time WebSocket updates, and a PKI-based certificate management system for secure MQTT TLS.
 
-## 🚀 Quick Start
+## 🚀 Quick Start (Container — Recommended)
 
 ```bash
-# One-command setup
-bash scripts/setup
-
-# Start server
-./scripts/my-tracks-server
-
-# Test API
-curl -X POST http://localhost:8080/api/locations/ \
-  -H "Content-Type: application/json" \
-  -d '{"lat": 37.7749, "lon": -122.4194, "tst": 1705329600, "tid": "AB"}'
+git clone https://github.com/the-hcma/my-tracks.git
+cd my-tracks
+./production/scripts/my-tracks-production-container-manager --start
 ```
 
-**See [docs/QUICKSTART.md](docs/QUICKSTART.md) for detailed 5-minute setup guide.**
+On first run this will:
+1. Check for Docker or Podman (with platform-specific install hints if missing)
+2. Generate `.env.production` with a random secret key
+3. Generate self-signed TLS certificates
+4. Build the container image from source
+5. Start the full stack: **nginx** (TLS termination) + **my-tracks** (app) + **PostgreSQL**
+6. Wait for the health check and print access URLs
+
+Once healthy, visit `https://localhost:8443` and create an admin user:
+
+```bash
+# Create admin user (shown in the startup banner)
+docker compose exec my-tracks python manage.py createsuperuser
+```
+
+Common operations:
+
+| Command | Description |
+|---|---|
+| `--start` | Start (or restart) the stack; reuses existing config |
+| `--start --freshen-up` | Wipe config and start fresh |
+| `--start --import-sqlite [path]` | Import a local SQLite DB into PostgreSQL |
+| `--stop` | Tear down the stack and volumes |
+| `--security-check` | Run pre-launch security checks (CVE audit, Django hardening) |
+
+**See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the complete production deployment guide.**
 
 ## 📚 Documentation
 
@@ -41,86 +59,24 @@ curl -X POST http://localhost:8080/api/locations/ \
 - **Comprehensive Testing**: Full pytest test suite included
 - **Production Ready**: Includes deployment guide with Daphne ASGI server for WebSocket support
 
-## Requirements
+## Local Development Setup
 
-- Python 3.14 or higher
-- [uv](https://github.com/astral-sh/uv) package manager (fast, reliable Python package installer)
-- PostgreSQL **14 or later** (required for production; Django 5.x enforces this minimum version) or SQLite (development only)
+For contributing or running locally without Docker:
 
-**Why uv?** This project uses `uv` exclusively for dependency management - it's significantly faster than pip and provides deterministic installs.
-
-## Installation
-
-### Automated Setup (Recommended)
+**Requirements**: Python 3.14+, [uv](https://github.com/astral-sh/uv)
 
 ```bash
-# Clone repository
-git clone <repository-url>
+git clone https://github.com/the-hcma/my-tracks.git
 cd my-tracks
 
-# Run setup script
+# Install dependencies and run migrations
 bash scripts/setup
+
+# Start the dev server
+./scripts/my-tracks-server
 ```
 
-This will:
-1. Install `uv` if needed
-2. Set up virtual environment
-3. Install all dependencies
-4. Run database migrations
-
-### Manual Setup
-
-1. **Install uv** (if not already installed):
-   ```bash
-   curl -LsSf https://astral.sh/uv/install.sh | sh
-   ```
-
-2. **Clone the repository**:
-   ```bash
-   git clone <repository-url>
-   cd my-tracks
-   ```
-
-3. **Create virtual environment and install dependencies**:
-   ```bash
-   uv sync
-   ```
-
-   **Note**: With `uv run`, you don't need to manually activate the virtual environment.
-
-5. **For development dependencies**:
-   ```bash
-   uv sync --all-extras
-   ```
-
-6. **Configure environment variables**:
-   Create a `.env` file in the project root:
-   ```
-   SECRET_KEY=your-secret-key-here
-   DEBUG=True
-   ALLOWED_HOSTS=localhost,127.0.0.1
-   DATABASE_URL=sqlite:///db.sqlite3
-   ```
-
-6. **Run migrations**:
-   ```bash
-   uv run python manage.py migrate
-   ```
-
-7. **Create a superuser** (optional, for admin access):
-   ```bash
-   uv run python manage.py createsuperuser
-   ```
-
-8. **Run the development server**:
-   ```bash
-   ./scripts/my-tracks-server
-   ```
-
-   Or with console logging (outputs to both console and file):
-   ```bash
-   ./scripts/my-tracks-server --console
-   ```
+For manual setup or more options, see [docs/QUICKSTART.md](docs/QUICKSTART.md).
 
 ## OwnTracks Configuration
 
@@ -270,21 +226,9 @@ shellcheck scripts/my-tracks-server
 
 ## Production Deployment
 
-For production deployment:
+The recommended deployment path is the container manager script described in Quick Start above. It builds and runs the full stack (nginx + my-tracks + PostgreSQL) with a single command, handles first-time setup automatically, and works on macOS, Linux (Debian/Ubuntu, CentOS/RHEL), and anywhere Docker or Podman is available.
 
-1. Set `DEBUG=False` in `.env`
-2. Configure a proper database (PostgreSQL recommended)
-3. Set strong `SECRET_KEY`
-4. Configure `ALLOWED_HOSTS` with your domain
-5. Use the production server script
-6. Set up SSL/TLS certificates
-
-Start production server:
-```bash
-./scripts/my-tracks-server --log-level warning
-```
-
-See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for complete production setup guide.
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the complete guide, including TLS configuration, environment variables, and bare-metal (non-container) instructions.
 
 ## License
 
