@@ -65,6 +65,15 @@ backups/
 production/var/
 production/run/
 
+# Domain-named cert directories at repo root (certbot live dir copies, e.g. mytracks.example.com/)
+# Leading / anchors to repo root so these don't suppress legitimate subdirs elsewhere.
+/[a-z]*.com/
+/[a-z]*.info/
+/[a-z]*.net/
+/[a-z]*.org/
+/[a-z]*.io/
+/[a-z]*.dev/
+
 # IDE
 .cursor/
 .env.production
