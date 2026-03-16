@@ -480,7 +480,7 @@ Package the application as a production-ready container image deployable on a Ce
     - Update documentation and operational examples to use the new script paths
     - Update configuration/workflow references that point to legacy script locations
 
-46. **Let's Encrypt Certificate Support in Production Container Manager**
+46. ✅ **Let's Encrypt / Custom Cert Import in Production Container Manager** (PR #468)
 
     **Problem**: The container manager currently generates self-signed certs for every `--start`, which means every browser session shows a TLS warning. Users who already hold Let's Encrypt (or other CA-issued) certs for their domain can't use them cleanly — the manager ignores them and overwrites with self-signed.
 
@@ -646,6 +646,26 @@ Package the application as a production-ready container image deployable on a Ce
     - `.github/workflows/security-scan.yml`: new weekly scheduled workflow for
       `docker scout cves`
     - `production/scripts/my-tracks-production-container-manager`: add `cmd_security_check`
+
+48. ✅ **GitHub Actions Workflow Linting (actionlint)** (PR #469)
+
+    **Problem**: GitHub Actions workflow YAML files had no linting — expression syntax
+    errors, invalid action inputs, and shell injection risks in `run:` steps went
+    undetected until runtime failures.
+
+    **What was done**:
+    - Added `workflow-lint` job to `pr-validation.yml` using `rhysd/actionlint@v1.7.11`;
+      lints all `.github/workflows/` files on every PR; auto-updated by Dependabot
+    - Fixed script injection vulnerability in `cleanup-branch-on-merge.yml`:
+      `github.event.pull_request.head.ref` was interpolated directly into a shell script;
+      moved to `env:` vars (actionlint `[expression]` finding)
+    - Anchored domain-cert directory patterns in `.gitignore` with `/` prefix to prevent
+      repo-root certbot copies from being accidentally committed
+
+    **Files changed**:
+    - `.github/workflows/pr-validation.yml`: new `workflow-lint` job
+    - `.github/workflows/cleanup-branch-on-merge.yml`: script injection fix
+    - `.gitignore`: anchored domain-cert patterns
 
 ### Phase 9: Advanced Integration
 1. **Transition events** — Handle region enter/exit events, store transition history

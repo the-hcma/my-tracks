@@ -78,3 +78,4 @@ production/run/
 .cursor/
 .env.production
 certs/
+.claude/
