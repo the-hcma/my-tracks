@@ -298,6 +298,7 @@ def profile(request: HttpRequest) -> HttpResponse:
                     user.set_password(new_password)
                     user.save()
                     update_session_auth_hash(request, user)
+                    logger.info("[http] User '%s' changed their password", user.username)
                     context['password_success'] = 'Password changed successfully.'
                 except ValidationError as e:
                     context['password_error'] = ' '.join(str(m) for m in e.messages)
@@ -634,6 +635,13 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
                             not_valid_before=get_certificate_expiry(cert_pem) - timedelta(days=validity_days),
                             not_valid_after=get_certificate_expiry(cert_pem),
                             is_active=True,
+                        )
+                        logger.info(
+                            "Client certificate issued for user '%s' (serial %s, valid %d days) by admin '%s'",
+                            target_user.username,
+                            hex(serial),
+                            validity_days,
+                            request.user.username,
                         )
                         context['cc_success'] = f"Client certificate issued for '{target_user.username}'."
                 except User.DoesNotExist:
