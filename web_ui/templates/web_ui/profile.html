@@ -160,20 +160,44 @@
             color: var(--text);
         }
 
-        .form-actions {
+        .similarity-confirm {
+            background: rgba(243, 156, 18, 0.1);
+            border: 1px solid #f39c12;
+            border-radius: 6px;
+            padding: 0.625rem 0.875rem;
+            margin-bottom: 0.75rem;
+            font-size: 0.875rem;
+            color: #f3c46a;
+        }
+
+        .similarity-confirm p {
+            margin: 0 0 0.625rem 0;
+        }
+
+        .similarity-confirm-actions {
             display: flex;
-            align-items: center;
-            gap: 0.75rem;
+            gap: 0.5rem;
         }
 
-        .form-actions .submit-btn {
-            flex: 1;
+        .similarity-confirm .btn-ok {
+            background: #f39c12;
+            color: #1a1a2e;
+            border: none;
+            border-radius: 5px;
+            padding: 0.375rem 0.75rem;
+            font-size: 0.8125rem;
+            font-weight: 600;
+            cursor: pointer;
         }
 
-        .form-actions .password-toggle {
-            position: static;
-            transform: none;
-            flex-shrink: 0;
+        .similarity-confirm .btn-cancel {
+            background: none;
+            color: #f3c46a;
+            border: 1px solid rgba(243, 156, 18, 0.5);
+            border-radius: 5px;
+            padding: 0.375rem 0.75rem;
+            font-size: 0.8125rem;
+            cursor: pointer;
         }
 
         .form-group input:read-only {
@@ -573,12 +597,19 @@
             <hr class="section-divider">
 
             <h3 class="section-title">Change Password</h3>
-            <form method="post" action="{% url 'web_ui:profile' %}" id="change-password-form">
+            <form method="post" action="{% url 'web_ui:profile' %}" id="change-password-form" data-username="{{ user.username }}">
                 {% csrf_token %}
                 <input type="hidden" name="form_type" value="password">
+                <input type="hidden" name="bypass_similarity_check" id="id_bypass_similarity" value="0">
                 <div class="form-group">
                     <label for="id_current_password">Current Password</label>
-                    <input type="password" name="current_password" id="id_current_password" required class="change-pw-field">
+                    <div class="password-wrapper">
+                        <input type="password" name="current_password" id="id_current_password" required class="change-pw-field">
+                        <button type="button" class="password-toggle" id="change-pw-reveal" aria-label="Show passwords">
+                            <svg class="eye-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                            <svg class="eye-off-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/></svg>
+                        </button>
+                    </div>
                 </div>
                 <div class="form-group">
                     <label for="id_new_password">New Password</label>
@@ -588,13 +619,14 @@
                     <label for="id_confirm_password">Confirm New Password</label>
                     <input type="password" name="confirm_password" id="id_confirm_password" required minlength="8" class="change-pw-field">
                 </div>
-                <div class="form-actions">
-                    <button type="submit" class="submit-btn">Change Password</button>
-                    <button type="button" class="password-toggle" id="change-pw-reveal" aria-label="Show passwords">
-                        <svg class="eye-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                        <svg class="eye-off-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/></svg>
-                    </button>
+                <div id="similarity-confirm" class="similarity-confirm" style="display:none">
+                    <p>⚠ Your password is too similar to your username. Use it anyway?</p>
+                    <div class="similarity-confirm-actions">
+                        <button type="button" class="btn-ok" id="similarity-ok">Yes, use it anyway</button>
+                        <button type="button" class="btn-cancel" id="similarity-cancel">Choose a different password</button>
+                    </div>
                 </div>
+                <button type="submit" class="submit-btn">Change Password</button>
             </form>
 
             <div class="meta-info">
@@ -603,7 +635,7 @@
         </div>
     </div>
     <script>
-        // Single toggle for change-password form (reveals all three fields)
+        // Reveal toggle inside Current Password field — reveals all three change-pw fields
         const changePwReveal = document.getElementById('change-pw-reveal');
         if (changePwReveal) {
             changePwReveal.addEventListener('click', function() {
@@ -620,8 +652,9 @@
             });
         }
 
-        // Per-field toggles (used by the .p12 password field)
+        // Per-field toggles (used by the .p12 password field; skip the change-pw reveal)
         document.querySelectorAll('.password-wrapper .password-toggle').forEach(btn => {
+            if (btn.id === 'change-pw-reveal') return;
             btn.addEventListener('click', function() {
                 const wrapper = this.closest('.password-wrapper');
                 const input = wrapper.querySelector('input');
@@ -636,6 +669,51 @@
                 input.focus();
             });
         });
+
+        // Similarity check: intercept submit, confirm before bypassing
+        (function() {
+            const form = document.getElementById('change-password-form');
+            const confirmBox = document.getElementById('similarity-confirm');
+            const bypassInput = document.getElementById('id_bypass_similarity');
+            if (!form || !confirmBox || !bypassInput) return;
+
+            const username = (form.dataset.username || '').toLowerCase();
+
+            function isTooSimilar(password) {
+                if (!username || username.length < 3) return false;
+                const p = password.toLowerCase();
+                if (p.includes(username) || username.includes(p)) return true;
+                // Rough ratio check (matches Django's SequenceMatcher threshold of 0.6)
+                const counts = {};
+                for (const c of username) counts[c] = (counts[c] || 0) + 1;
+                let common = 0;
+                for (const c of p) { if (counts[c] > 0) { common++; counts[c]--; } }
+                return (2 * common) / (p.length + username.length) >= 0.6;
+            }
+
+            form.addEventListener('submit', function(e) {
+                if (bypassInput.value === '1') return; // already confirmed
+                const newPw = document.getElementById('id_new_password').value;
+                if (isTooSimilar(newPw)) {
+                    e.preventDefault();
+                    confirmBox.style.display = 'block';
+                    confirmBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }
+            });
+
+            document.getElementById('similarity-ok').addEventListener('click', function() {
+                bypassInput.value = '1';
+                confirmBox.style.display = 'none';
+                form.submit();
+            });
+
+            document.getElementById('similarity-cancel').addEventListener('click', function() {
+                confirmBox.style.display = 'none';
+                document.getElementById('id_new_password').value = '';
+                document.getElementById('id_confirm_password').value = '';
+                document.getElementById('id_new_password').focus();
+            });
+        })();
     </script>
 </body>
 </html>

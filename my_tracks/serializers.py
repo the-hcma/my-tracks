@@ -8,7 +8,12 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
+from django.conf import settings
 from django.contrib.auth.models import User
+from django.contrib.auth.password_validation import (
+    UserAttributeSimilarityValidator, get_password_validators,
+    validate_password)
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
 from .models import (CertificateAuthority, ClientCertificate, Device, Location,
@@ -296,6 +301,7 @@ class ChangePasswordSerializer(serializers.Serializer):
 
     current_password = serializers.CharField(required=True)
     new_password = serializers.CharField(required=True, min_length=8)
+    bypass_similarity_check = serializers.BooleanField(default=False)
 
     def validate_current_password(self, value: str) -> str:
         """Verify the current password is correct."""
@@ -305,6 +311,22 @@ class ChangePasswordSerializer(serializers.Serializer):
                 "Current password is incorrect"
             )
         return value
+
+    def validate(self, data: dict[str, Any]) -> dict[str, Any]:
+        user = self.context['request'].user
+        new_password = data['new_password']
+        if data.get('bypass_similarity_check'):
+            password_validators = [
+                v for v in get_password_validators(settings.AUTH_PASSWORD_VALIDATORS)
+                if not isinstance(v, UserAttributeSimilarityValidator)
+            ]
+        else:
+            password_validators = get_password_validators(settings.AUTH_PASSWORD_VALIDATORS)
+        try:
+            validate_password(new_password, user=user, password_validators=password_validators)
+        except DjangoValidationError as e:
+            raise serializers.ValidationError({"new_password": e.messages})
+        return data
 
 
 class CertificateAuthoritySerializer(serializers.ModelSerializer):
