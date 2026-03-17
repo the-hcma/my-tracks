@@ -599,6 +599,7 @@ class AccountViewSet(viewsets.ViewSet):
         validated: dict[str, Any] = serializer.validated_data  # type: ignore[assignment]
         request.user.set_password(validated['new_password'])
         request.user.save()
+        logger.info("[api] User '%s' changed their password", request.user.username)
         return Response({"detail": "Password updated successfully."})
 
 
@@ -787,6 +788,7 @@ class AdminUserViewSet(viewsets.ViewSet):
 
         user.set_password(str(password))
         user.save()
+        logger.info("[api] Admin '%s' reset password for user '%s'", request.user.username, user.username)
         return Response(
             {"detail": f"Password for '{user.username}' has been updated."},
             status=status.HTTP_200_OK,
@@ -1240,6 +1242,13 @@ class ClientCertificateViewSet(viewsets.ViewSet):
             is_active=True,
         )
 
+        logger.info(
+            "Client certificate issued for user '%s' (serial %s, valid %d days) by admin '%s'",
+            target_user.username,
+            client_cert.serial_number,
+            validity_days,
+            request.user.username,
+        )
         serializer = ClientCertificateSerializer(client_cert)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
