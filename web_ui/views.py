@@ -9,7 +9,9 @@ from django.conf import settings
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.decorators import login_required, user_passes_test
 from django.contrib.auth.models import User
-from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth.password_validation import (
+    UserAttributeSimilarityValidator, get_password_validators,
+    validate_password)
 from django.core.exceptions import ValidationError
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import render
@@ -275,6 +277,7 @@ def profile(request: HttpRequest) -> HttpResponse:
             current_password = str(request.POST.get('current_password', ''))
             new_password = str(request.POST.get('new_password', ''))
             confirm_password = str(request.POST.get('confirm_password', ''))
+            bypass_similarity = request.POST.get('bypass_similarity_check') == '1'
 
             if not user.check_password(current_password):
                 context['password_error'] = 'Current password is incorrect.'
@@ -284,7 +287,14 @@ def profile(request: HttpRequest) -> HttpResponse:
                 context['password_error'] = 'Password must be at least 8 characters.'
             else:
                 try:
-                    validate_password(new_password, user=user)
+                    if bypass_similarity:
+                        validators = [
+                            v for v in get_password_validators(settings.AUTH_PASSWORD_VALIDATORS)
+                            if not isinstance(v, UserAttributeSimilarityValidator)
+                        ]
+                        validate_password(new_password, user=user, password_validators=validators)
+                    else:
+                        validate_password(new_password, user=user)
                     user.set_password(new_password)
                     user.save()
                     update_session_auth_hash(request, user)
