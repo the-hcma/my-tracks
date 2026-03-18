@@ -1452,11 +1452,23 @@ build_csrf_origins() {
 
 create_env_file() {
     local override_allowed_hosts="${1:-}"
+    # When non-empty, --import-sqlite is active: skip the outer "containerized vs
+    # external" prompt (import only works with containerized postgres) but still
+    # ask the inner transient vs persistent question so the user chooses the
+    # import destination.
+    local sqlite_import_mode="${2:-}"
 
     info "Generating .env.production"
 
     local raw_db_result db_result
-    raw_db_result="$(choose_database_mode)" || die "Database setup failed — aborting."
+    if [ -n "$sqlite_import_mode" ]; then
+        echo "" >&2
+        echo "  ℹ  --import-sqlite only works with containerized PostgreSQL." >&2
+        echo "     To import into an external database, run the import manually." >&2
+        raw_db_result="$(choose_containerized_postgres_mode)"
+    else
+        raw_db_result="$(choose_database_mode)" || die "Database setup failed — aborting."
+    fi
     _pg_socket_dir="$(echo "$raw_db_result" | grep '^SOCKET_DIR:' | sed 's/^SOCKET_DIR://' || true)"
     db_result="$(echo "$raw_db_result" | grep -v '^SOCKET_DIR:')"
     echo ""
@@ -2131,6 +2143,9 @@ stage_bind_mounts() {
 cmd_start() {
     local freshen_up="$1"
     local import_sqlite="$2"
+    # Set to non-empty when --import-sqlite is active; tells create_env_file to skip
+    # the outer "containerized vs external" prompt and ask only transient vs persistent.
+    local sqlite_import_mode=""
 
     check_prerequisites
     info "Container engine: $container_engine (compose: $compose_cmd)"
@@ -2203,7 +2218,8 @@ cmd_start() {
         setup_tls_certs "$tls_force"
         local env_allowed_hosts="$_cert_domain"
         [ -n "$source_allowed_hosts" ] && env_allowed_hosts="$source_allowed_hosts"
-        create_env_file "$env_allowed_hosts"
+        [ -n "$import_sqlite" ] && sqlite_import_mode="1"
+        create_env_file "$env_allowed_hosts" "$sqlite_import_mode"
     elif [ ! -f "$env_file" ]; then
         # Guard: if var/db/ exists without .env.production, the database is
         # inaccessible — its POSTGRES_PASSWORD is gone.  Refuse to create a new
@@ -2220,7 +2236,8 @@ cmd_start() {
         info "No .env.production found — creating one"
         # TLS setup first so the domain is known before create_env_file.
         setup_tls_certs "true"
-        create_env_file "$_cert_domain"
+        [ -n "$import_sqlite" ] && sqlite_import_mode="1"
+        create_env_file "$_cert_domain" "$sqlite_import_mode"
     else
         info "Reusing existing $env_file (use --freshen-up to regenerate)"
         # Detect domain and check expiry for the existing cert (no new prompt).
