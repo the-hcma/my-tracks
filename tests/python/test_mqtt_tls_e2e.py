@@ -26,8 +26,8 @@ from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 from hamcrest import assert_that, equal_to, is_, not_none
 
-from my_tracks.mqtt.broker import MQTTBroker, TLSConfig
-from my_tracks.pki import (generate_ca_certificate,
+from app.mqtt.broker import MQTTBroker, TLSConfig
+from app.pki import (generate_ca_certificate,
                            generate_client_certificate, generate_crl,
                            generate_server_certificate,
                            get_certificate_serial_number)

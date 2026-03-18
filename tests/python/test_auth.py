@@ -13,8 +13,8 @@ from rest_framework import status
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.test import APIClient, APIRequestFactory
 
-from my_tracks.auth import CommandApiKeyAuthentication, get_command_api_key
-from my_tracks.models import UserProfile
+from app.auth import CommandApiKeyAuthentication, get_command_api_key
+from app.models import UserProfile
 
 
 @pytest.mark.django_db
@@ -490,13 +490,13 @@ factory = APIRequestFactory()
 class TestGetCommandApiKey:
     """Tests for get_command_api_key helper."""
 
-    @patch("my_tracks.auth.config", return_value="test-secret-key")
+    @patch("app.auth.config", return_value="test-secret-key")
     def test_returns_configured_key(self, mock_config: Any) -> None:
         """Returns the configured COMMAND_API_KEY."""
         result = get_command_api_key()
         assert_that(result, equal_to("test-secret-key"))
 
-    @patch("my_tracks.auth.config", return_value="")
+    @patch("app.auth.config", return_value="")
     def test_returns_empty_when_not_set(self, mock_config: Any) -> None:
         """Returns empty string when COMMAND_API_KEY is not configured."""
         result = get_command_api_key()
@@ -513,7 +513,7 @@ class TestCommandApiKeyAuthentication:
             kwargs["HTTP_AUTHORIZATION"] = auth_header
         return factory.get("/fake/", **kwargs)
 
-    @patch("my_tracks.auth.get_command_api_key", return_value="")
+    @patch("app.auth.get_command_api_key", return_value="")
     def test_no_api_key_configured_skips_auth(self, mock_key: Any) -> None:
         """When no key is configured, authentication is skipped (returns None)."""
         auth = CommandApiKeyAuthentication()
@@ -521,7 +521,7 @@ class TestCommandApiKeyAuthentication:
         result = auth.authenticate(request)
         assert_that(result, is_(None))
 
-    @patch("my_tracks.auth.get_command_api_key", return_value="my-secret")
+    @patch("app.auth.get_command_api_key", return_value="my-secret")
     def test_missing_header_raises(self, mock_key: Any) -> None:
         """Raises AuthenticationFailed when Authorization header is absent."""
         auth = CommandApiKeyAuthentication()
@@ -532,7 +532,7 @@ class TestCommandApiKeyAuthentication:
         except AuthenticationFailed as exc:
             assert_that(str(exc.detail), contains_string("Authorization header"))
 
-    @patch("my_tracks.auth.get_command_api_key", return_value="my-secret")
+    @patch("app.auth.get_command_api_key", return_value="my-secret")
     def test_invalid_format_raises(self, mock_key: Any) -> None:
         """Raises AuthenticationFailed for non-Bearer format."""
         auth = CommandApiKeyAuthentication()
@@ -543,7 +543,7 @@ class TestCommandApiKeyAuthentication:
         except AuthenticationFailed as exc:
             assert_that(str(exc.detail), contains_string("Bearer"))
 
-    @patch("my_tracks.auth.get_command_api_key", return_value="my-secret")
+    @patch("app.auth.get_command_api_key", return_value="my-secret")
     def test_wrong_token_raises(self, mock_key: Any) -> None:
         """Raises AuthenticationFailed when token doesn't match."""
         auth = CommandApiKeyAuthentication()
@@ -554,7 +554,7 @@ class TestCommandApiKeyAuthentication:
         except AuthenticationFailed as exc:
             assert_that(str(exc.detail), contains_string("Invalid API key"))
 
-    @patch("my_tracks.auth.get_command_api_key", return_value="my-secret")
+    @patch("app.auth.get_command_api_key", return_value="my-secret")
     def test_valid_token_returns_anonymous_user(self, mock_key: Any) -> None:
         """Returns (AnonymousUser, token) tuple for valid Bearer token."""
         auth = CommandApiKeyAuthentication()
@@ -563,7 +563,7 @@ class TestCommandApiKeyAuthentication:
         assert_that(result, is_not(None))
         assert_that(result[1], equal_to("my-secret"))
 
-    @patch("my_tracks.auth.get_command_api_key", return_value="my-secret")
+    @patch("app.auth.get_command_api_key", return_value="my-secret")
     def test_bearer_case_insensitive(self, mock_key: Any) -> None:
         """'bearer' prefix is matched case-insensitively."""
         auth = CommandApiKeyAuthentication()
@@ -572,7 +572,7 @@ class TestCommandApiKeyAuthentication:
         assert_that(result, is_not(None))
         assert_that(result[1], equal_to("my-secret"))
 
-    @patch("my_tracks.auth.get_command_api_key", return_value="my-secret")
+    @patch("app.auth.get_command_api_key", return_value="my-secret")
     def test_single_word_header_raises(self, mock_key: Any) -> None:
         """Raises AuthenticationFailed for single-word Authorization header."""
         auth = CommandApiKeyAuthentication()

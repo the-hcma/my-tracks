@@ -9,7 +9,7 @@ from typing import Any
 
 from channels.generic.websocket import AsyncWebsocketConsumer
 
-from my_tracks import STARTUP_TIMESTAMP
+from app import STARTUP_TIMESTAMP
 
 logger = logging.getLogger(__name__)
 

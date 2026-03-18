@@ -230,7 +230,7 @@ class TestMqttBrokerStartup:
 
     def test_starts_broker_when_config_exists(self, tmp_path: Path) -> None:
         """Broker thread starts when runtime config file exists with port >= 0."""
-        import my_tracks.apps as apps_module
+        import app.apps as apps_module
 
         config_file = tmp_path / ".runtime-config.json"
         config_file.write_text(json.dumps({"mqtt_port": 1883}))
@@ -248,9 +248,9 @@ class TestMqttBrokerStartup:
             patch("threading.Thread", mock_thread_class),
             patch("atexit.register") as mock_atexit,
         ):
-            from my_tracks.apps import MyTracksConfig
+            from app.apps import MyTracksConfig
 
-            app_config = MyTracksConfig("my_tracks", apps_module)
+            app_config = MyTracksConfig("app", apps_module)
             app_config.ready()
 
         mock_thread_class.assert_called_once()
@@ -263,7 +263,7 @@ class TestMqttBrokerStartup:
 
     def test_skips_broker_when_no_config_file(self, tmp_path: Path) -> None:
         """Broker does not start when runtime config file is missing."""
-        import my_tracks.apps as apps_module
+        import app.apps as apps_module
 
         missing_file = tmp_path / "nonexistent.json"
 
@@ -271,16 +271,16 @@ class TestMqttBrokerStartup:
             patch.object(apps_module, "CONFIG_FILE", missing_file),
             patch("threading.Thread") as mock_thread_class,
         ):
-            from my_tracks.apps import MyTracksConfig
+            from app.apps import MyTracksConfig
 
-            app_config = MyTracksConfig("my_tracks", apps_module)
+            app_config = MyTracksConfig("app", apps_module)
             app_config.ready()
 
         mock_thread_class.assert_not_called()
 
     def test_skips_broker_when_mqtt_disabled(self, tmp_path: Path) -> None:
         """Broker does not start when mqtt_port is negative."""
-        import my_tracks.apps as apps_module
+        import app.apps as apps_module
 
         config_file = tmp_path / ".runtime-config.json"
         config_file.write_text(json.dumps({"mqtt_port": -1}))
@@ -292,16 +292,16 @@ class TestMqttBrokerStartup:
             patch.object(apps_module, "get_mqtt_tls_port", return_value=-1),
             patch("threading.Thread") as mock_thread_class,
         ):
-            from my_tracks.apps import MyTracksConfig
+            from app.apps import MyTracksConfig
 
-            app_config = MyTracksConfig("my_tracks", apps_module)
+            app_config = MyTracksConfig("app", apps_module)
             app_config.ready()
 
         mock_thread_class.assert_not_called()
 
     def test_starts_broker_with_os_allocated_port(self, tmp_path: Path) -> None:
         """Broker thread starts with port 0 for OS allocation."""
-        import my_tracks.apps as apps_module
+        import app.apps as apps_module
 
         config_file = tmp_path / ".runtime-config.json"
         config_file.write_text(json.dumps({"mqtt_port": 0}))
@@ -319,9 +319,9 @@ class TestMqttBrokerStartup:
             patch("threading.Thread", mock_thread_class),
             patch("atexit.register"),
         ):
-            from my_tracks.apps import MyTracksConfig
+            from app.apps import MyTracksConfig
 
-            app_config = MyTracksConfig("my_tracks", apps_module)
+            app_config = MyTracksConfig("app", apps_module)
             app_config.ready()
 
         call_kwargs = mock_thread_class.call_args[1]
@@ -334,7 +334,7 @@ class TestStopMqttBroker:
 
     def test_stops_running_broker(self) -> None:
         """Stops a running broker and joins the thread."""
-        import my_tracks.apps as apps_module
+        import app.apps as apps_module
 
         mock_broker = MagicMock()
         mock_broker.is_running = True
@@ -354,7 +354,7 @@ class TestStopMqttBroker:
             patch.object(apps_module._state, "loop", mock_loop),
             patch.object(apps_module._state, "thread", mock_thread),
         ):
-            from my_tracks.apps import _stop_mqtt_broker
+            from app.apps import _stop_mqtt_broker
 
             _stop_mqtt_broker()
 
@@ -365,7 +365,7 @@ class TestStopMqttBroker:
 
     def test_handles_stop_timeout(self) -> None:
         """Logs warning when broker stop times out."""
-        import my_tracks.apps as apps_module
+        import app.apps as apps_module
 
         mock_broker = MagicMock()
         mock_broker.is_running = True
@@ -383,9 +383,9 @@ class TestStopMqttBroker:
             patch.object(apps_module._state, "broker", mock_broker),
             patch.object(apps_module._state, "loop", mock_loop),
             patch.object(apps_module._state, "thread", mock_thread),
-            patch("my_tracks.apps.logger") as mock_logger,
+            patch("app.apps.logger") as mock_logger,
         ):
-            from my_tracks.apps import _stop_mqtt_broker
+            from app.apps import _stop_mqtt_broker
 
             _stop_mqtt_broker()
 
@@ -396,14 +396,14 @@ class TestStopMqttBroker:
 
     def test_noop_when_no_broker(self) -> None:
         """Does nothing when broker is None."""
-        import my_tracks.apps as apps_module
+        import app.apps as apps_module
 
         with (
             patch.object(apps_module._state, "broker", None),
             patch.object(apps_module._state, "loop", None),
             patch.object(apps_module._state, "thread", None),
         ):
-            from my_tracks.apps import _stop_mqtt_broker
+            from app.apps import _stop_mqtt_broker
 
             # Should not raise
             _stop_mqtt_broker()
@@ -414,7 +414,7 @@ class TestRunMqttBroker:
 
     def test_creates_broker_and_starts(self) -> None:
         """Creates broker, starts it, and runs until is_running becomes False."""
-        import my_tracks.apps as apps_module
+        import app.apps as apps_module
 
         mock_broker = MagicMock()
         mock_broker.actual_mqtt_port = 1883
@@ -442,7 +442,7 @@ class TestRunMqttBroker:
             patch.object(apps_module._state, "broker", None),
             patch.object(apps_module._state, "loop", None),
         ):
-            from my_tracks.apps import _run_mqtt_broker
+            from app.apps import _run_mqtt_broker
 
             _run_mqtt_broker(1883)
 
@@ -451,7 +451,7 @@ class TestRunMqttBroker:
 
     def test_updates_runtime_config_for_os_allocated_port(self) -> None:
         """Updates runtime config when OS allocates a different port."""
-        import my_tracks.apps as apps_module
+        import app.apps as apps_module
 
         mock_broker = MagicMock()
         mock_broker.actual_mqtt_port = 54321  # OS-allocated
@@ -472,7 +472,7 @@ class TestRunMqttBroker:
             patch.object(apps_module._state, "broker", None),
             patch.object(apps_module._state, "loop", None),
         ):
-            from my_tracks.apps import _run_mqtt_broker
+            from app.apps import _run_mqtt_broker
 
             _run_mqtt_broker(0)
 
@@ -480,7 +480,7 @@ class TestRunMqttBroker:
 
     def test_handles_broker_exception(self) -> None:
         """Generic exception during startup logs critical and exits."""
-        import my_tracks.apps as apps_module
+        import app.apps as apps_module
 
         mock_broker = MagicMock()
 
@@ -492,12 +492,12 @@ class TestRunMqttBroker:
 
         with (
             patch.object(apps_module, "MQTTBroker", return_value=mock_broker),
-            patch("my_tracks.apps.logger") as mock_logger,
-            patch("my_tracks.apps.os._exit") as mock_exit,
+            patch("app.apps.logger") as mock_logger,
+            patch("app.apps.os._exit") as mock_exit,
             patch.object(apps_module._state, "broker", None),
             patch.object(apps_module._state, "loop", None),
         ):
-            from my_tracks.apps import _run_mqtt_broker
+            from app.apps import _run_mqtt_broker
 
             _run_mqtt_broker(1883)
 
@@ -506,7 +506,7 @@ class TestRunMqttBroker:
 
     def test_event_loop_stopped_during_shutdown_logs_debug(self) -> None:
         """RuntimeError during shutdown should be logged at DEBUG, not ERROR."""
-        import my_tracks.apps as apps_module
+        import app.apps as apps_module
 
         mock_broker = MagicMock()
 
@@ -522,12 +522,12 @@ class TestRunMqttBroker:
 
         with (
             patch.object(apps_module, "MQTTBroker", return_value=mock_broker),
-            patch("my_tracks.apps.logger") as mock_logger,
+            patch("app.apps.logger") as mock_logger,
             patch.object(apps_module._state, "broker", None),
             patch.object(apps_module._state, "loop", None),
             patch.object(apps_module._state, "shutting_down", shutdown_event),
         ):
-            from my_tracks.apps import _run_mqtt_broker
+            from app.apps import _run_mqtt_broker
 
             _run_mqtt_broker(1883)
 
@@ -538,7 +538,7 @@ class TestRunMqttBroker:
 
     def test_runtime_error_without_shutdown_logs_exception(self) -> None:
         """RuntimeError when NOT shutting down should log at ERROR."""
-        import my_tracks.apps as apps_module
+        import app.apps as apps_module
 
         mock_broker = MagicMock()
 
@@ -553,12 +553,12 @@ class TestRunMqttBroker:
 
         with (
             patch.object(apps_module, "MQTTBroker", return_value=mock_broker),
-            patch("my_tracks.apps.logger") as mock_logger,
+            patch("app.apps.logger") as mock_logger,
             patch.object(apps_module._state, "broker", None),
             patch.object(apps_module._state, "loop", None),
             patch.object(apps_module._state, "shutting_down", shutdown_event),
         ):
-            from my_tracks.apps import _run_mqtt_broker
+            from app.apps import _run_mqtt_broker
 
             _run_mqtt_broker(1883)
 
@@ -588,65 +588,65 @@ class TestIsManagementCommand:
 
     def test_returns_true_for_createsuperuser(self) -> None:
         """Management commands like createsuperuser are detected."""
-        from my_tracks.apps import _is_management_command
+        from app.apps import _is_management_command
 
-        with patch("my_tracks.apps.sys") as mock_sys:
+        with patch("app.apps.sys") as mock_sys:
             mock_sys.argv = ["manage.py", "createsuperuser"]
             assert_that(_is_management_command(), is_(True))
 
     def test_returns_true_for_migrate(self) -> None:
         """The migrate command is detected as a management command."""
-        from my_tracks.apps import _is_management_command
+        from app.apps import _is_management_command
 
-        with patch("my_tracks.apps.sys") as mock_sys:
+        with patch("app.apps.sys") as mock_sys:
             mock_sys.argv = ["manage.py", "migrate"]
             assert_that(_is_management_command(), is_(True))
 
     def test_returns_true_for_makemigrations(self) -> None:
         """The makemigrations command is detected."""
-        from my_tracks.apps import _is_management_command
+        from app.apps import _is_management_command
 
-        with patch("my_tracks.apps.sys") as mock_sys:
+        with patch("app.apps.sys") as mock_sys:
             mock_sys.argv = ["manage.py", "makemigrations"]
             assert_that(_is_management_command(), is_(True))
 
     def test_returns_true_for_shell(self) -> None:
         """The shell command is detected as a management command."""
-        from my_tracks.apps import _is_management_command
+        from app.apps import _is_management_command
 
-        with patch("my_tracks.apps.sys") as mock_sys:
+        with patch("app.apps.sys") as mock_sys:
             mock_sys.argv = ["manage.py", "shell"]
             assert_that(_is_management_command(), is_(True))
 
     def test_returns_false_for_runserver(self) -> None:
         """The runserver command is not considered a management command."""
-        from my_tracks.apps import _is_management_command
+        from app.apps import _is_management_command
 
-        with patch("my_tracks.apps.sys") as mock_sys:
+        with patch("app.apps.sys") as mock_sys:
             mock_sys.argv = ["manage.py", "runserver"]
             assert_that(_is_management_command(), is_(False))
 
     def test_returns_false_for_real_daphne_argv(self) -> None:
         """Daphne detected via argv[0] binary name with real server argv."""
-        from my_tracks.apps import _is_management_command
+        from app.apps import _is_management_command
 
-        with patch("my_tracks.apps.sys") as mock_sys:
+        with patch("app.apps.sys") as mock_sys:
             mock_sys.argv = self.REAL_DAPHNE_ARGV
             assert_that(_is_management_command(), is_(False))
 
     def test_returns_false_for_real_uvicorn_argv(self) -> None:
         """Uvicorn detected via argv[0] binary name with real server argv."""
-        from my_tracks.apps import _is_management_command
+        from app.apps import _is_management_command
 
-        with patch("my_tracks.apps.sys") as mock_sys:
+        with patch("app.apps.sys") as mock_sys:
             mock_sys.argv = self.REAL_UVICORN_ARGV
             assert_that(_is_management_command(), is_(False))
 
     def test_returns_false_when_no_args(self) -> None:
         """Returns False when sys.argv has no command argument."""
-        from my_tracks.apps import _is_management_command
+        from app.apps import _is_management_command
 
-        with patch("my_tracks.apps.sys") as mock_sys:
+        with patch("app.apps.sys") as mock_sys:
             mock_sys.argv = ["manage.py"]
             assert_that(_is_management_command(), is_(False))
 
@@ -672,7 +672,7 @@ class TestSkipBrokerForManagementCommand:
 
     def test_skips_broker_for_management_command(self, tmp_path: Path) -> None:
         """Broker does not start when running a management command."""
-        import my_tracks.apps as apps_module
+        import app.apps as apps_module
 
         config_file = tmp_path / ".runtime-config.json"
         config_file.write_text(json.dumps({"mqtt_port": 0}))
@@ -682,9 +682,9 @@ class TestSkipBrokerForManagementCommand:
             patch.object(apps_module, "_is_management_command", return_value=True),
             patch("threading.Thread") as mock_thread_class,
         ):
-            from my_tracks.apps import MyTracksConfig
+            from app.apps import MyTracksConfig
 
-            app_config = MyTracksConfig("my_tracks", apps_module)
+            app_config = MyTracksConfig("app", apps_module)
             app_config.ready()
 
         mock_thread_class.assert_not_called()
@@ -697,7 +697,7 @@ class TestBrokerErrorHandling:
         """BrokerError wrapping errno 48 (macOS) logs critical and exits."""
         from amqtt.errors import BrokerError
 
-        import my_tracks.apps as apps_module
+        import app.apps as apps_module
 
         mock_broker = MagicMock()
         os_error = OSError(48, "Address already in use")
@@ -710,12 +710,12 @@ class TestBrokerErrorHandling:
 
         with (
             patch.object(apps_module, "MQTTBroker", return_value=mock_broker),
-            patch("my_tracks.apps.logger") as mock_logger,
-            patch("my_tracks.apps.os._exit") as mock_exit,
+            patch("app.apps.logger") as mock_logger,
+            patch("app.apps.os._exit") as mock_exit,
             patch.object(apps_module._state, "broker", None),
             patch.object(apps_module._state, "loop", None),
         ):
-            from my_tracks.apps import _run_mqtt_broker
+            from app.apps import _run_mqtt_broker
 
             _run_mqtt_broker(0)
 
@@ -728,7 +728,7 @@ class TestBrokerErrorHandling:
         """BrokerError wrapping errno 98 (Linux) logs critical and exits."""
         from amqtt.errors import BrokerError
 
-        import my_tracks.apps as apps_module
+        import app.apps as apps_module
 
         mock_broker = MagicMock()
         os_error = OSError(98, "Address already in use")
@@ -741,12 +741,12 @@ class TestBrokerErrorHandling:
 
         with (
             patch.object(apps_module, "MQTTBroker", return_value=mock_broker),
-            patch("my_tracks.apps.logger") as mock_logger,
-            patch("my_tracks.apps.os._exit") as mock_exit,
+            patch("app.apps.logger") as mock_logger,
+            patch("app.apps.os._exit") as mock_exit,
             patch.object(apps_module._state, "broker", None),
             patch.object(apps_module._state, "loop", None),
         ):
-            from my_tracks.apps import _run_mqtt_broker
+            from app.apps import _run_mqtt_broker
 
             _run_mqtt_broker(0)
 
@@ -757,7 +757,7 @@ class TestBrokerErrorHandling:
         """BrokerError without address-in-use cause logs critical and exits."""
         from amqtt.errors import BrokerError
 
-        import my_tracks.apps as apps_module
+        import app.apps as apps_module
 
         mock_broker = MagicMock()
 
@@ -769,12 +769,12 @@ class TestBrokerErrorHandling:
 
         with (
             patch.object(apps_module, "MQTTBroker", return_value=mock_broker),
-            patch("my_tracks.apps.logger") as mock_logger,
-            patch("my_tracks.apps.os._exit") as mock_exit,
+            patch("app.apps.logger") as mock_logger,
+            patch("app.apps.os._exit") as mock_exit,
             patch.object(apps_module._state, "broker", None),
             patch.object(apps_module._state, "loop", None),
         ):
-            from my_tracks.apps import _run_mqtt_broker
+            from app.apps import _run_mqtt_broker
 
             _run_mqtt_broker(0)
 
@@ -1009,14 +1009,14 @@ class TestLoadTlsConfig:
 
     def test_returns_none_when_no_server_cert(self) -> None:
         """No active server cert → returns None, warns, no cert info logged."""
-        import my_tracks.apps as apps_module
+        import app.apps as apps_module
 
         mock_server_cls = MagicMock()
         mock_server_cls.objects.filter.return_value.first.return_value = None
 
         with (
             patch.object(apps_module, "logger") as mock_log,
-            patch("my_tracks.models.ServerCertificate", mock_server_cls),
+            patch("app.models.ServerCertificate", mock_server_cls),
         ):
             result = apps_module._load_tls_config()
 
@@ -1028,7 +1028,7 @@ class TestLoadTlsConfig:
 
     def test_returns_none_when_no_ca(self) -> None:
         """Server cert exists but no active CA → returns None, warns."""
-        import my_tracks.apps as apps_module
+        import app.apps as apps_module
 
         mock_server_cls = MagicMock()
         mock_server_cls.objects.filter.return_value.first.return_value = MagicMock()
@@ -1038,8 +1038,8 @@ class TestLoadTlsConfig:
 
         with (
             patch.object(apps_module, "logger") as mock_log,
-            patch("my_tracks.models.ServerCertificate", mock_server_cls),
-            patch("my_tracks.models.CertificateAuthority", mock_ca_cls),
+            patch("app.models.ServerCertificate", mock_server_cls),
+            patch("app.models.CertificateAuthority", mock_ca_cls),
         ):
             result = apps_module._load_tls_config()
 
@@ -1050,8 +1050,8 @@ class TestLoadTlsConfig:
 
     def test_returns_tls_config_and_logs_cert_info(self) -> None:
         """Active server cert + CA → returns TLSConfig, calls _log_cert_info."""
-        import my_tracks.apps as apps_module
-        from my_tracks.pki import (encrypt_private_key,
+        import app.apps as apps_module
+        from app.pki import (encrypt_private_key,
                                    generate_ca_certificate,
                                    generate_server_certificate)
 
@@ -1081,9 +1081,9 @@ class TestLoadTlsConfig:
         mock_client_cls.objects.filter.return_value.values_list.return_value = []
 
         with (
-            patch("my_tracks.models.ServerCertificate", mock_server_cls),
-            patch("my_tracks.models.CertificateAuthority", mock_ca_cls),
-            patch("my_tracks.models.ClientCertificate", mock_client_cls),
+            patch("app.models.ServerCertificate", mock_server_cls),
+            patch("app.models.CertificateAuthority", mock_ca_cls),
+            patch("app.models.ClientCertificate", mock_client_cls),
             patch.object(apps_module, "_log_cert_info") as mock_cert_log,
         ):
             result = apps_module._load_tls_config()
@@ -1099,7 +1099,7 @@ class TestRunMqttBrokerTlsBehavior:
 
     def test_tls_disabled_when_no_cert(self) -> None:
         """TLS port requested but no cert → TLS port set to -1, broker created without TLS."""
-        import my_tracks.apps as apps_module
+        import app.apps as apps_module
 
         mock_broker = MagicMock()
         mock_broker.actual_mqtt_port = 1883
@@ -1130,7 +1130,7 @@ class TestRunMqttBrokerTlsBehavior:
 
     def test_tls_enabled_when_cert_exists(self) -> None:
         """TLS port requested with valid cert → broker created with TLS config."""
-        import my_tracks.apps as apps_module
+        import app.apps as apps_module
 
         mock_tls_config = MagicMock()
         mock_broker = MagicMock()
@@ -1166,8 +1166,8 @@ class TestLogCertInfo:
 
     def test_logs_cert_details(self) -> None:
         """Should log CN, CA, expiry, and fingerprint at INFO level."""
-        import my_tracks.apps as apps_module
-        from my_tracks.pki import (generate_ca_certificate,
+        import app.apps as apps_module
+        from app.pki import (generate_ca_certificate,
                                    generate_server_certificate)
 
         ca_pem, ca_key = generate_ca_certificate(
@@ -1190,8 +1190,8 @@ class TestLogCertInfo:
 
     def test_warns_when_expiry_near(self) -> None:
         """Should emit WARNING when cert expires within 30 days."""
-        import my_tracks.apps as apps_module
-        from my_tracks.pki import (generate_ca_certificate,
+        import app.apps as apps_module
+        from app.pki import (generate_ca_certificate,
                                    generate_server_certificate)
 
         ca_pem, ca_key = generate_ca_certificate(
@@ -1220,8 +1220,8 @@ class TestLogCertInfo:
         from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
         from cryptography.x509.oid import NameOID
 
-        import my_tracks.apps as apps_module
-        from my_tracks.pki import generate_ca_certificate
+        import app.apps as apps_module
+        from app.pki import generate_ca_certificate
 
         ca_pem, ca_key_pem = generate_ca_certificate(
             common_name="Expired CA", key_size=2048,
@@ -1255,8 +1255,8 @@ class TestLogCertInfo:
 
     def test_no_warning_when_expiry_far(self) -> None:
         """Should not emit WARNING when cert expires in more than 30 days."""
-        import my_tracks.apps as apps_module
-        from my_tracks.pki import (generate_ca_certificate,
+        import app.apps as apps_module
+        from app.pki import (generate_ca_certificate,
                                    generate_server_certificate)
 
         ca_pem, ca_key = generate_ca_certificate(
@@ -1279,7 +1279,7 @@ class TestTriggerTlsReload:
 
     def test_noop_when_broker_is_none(self) -> None:
         """Does nothing when MQTT broker is not running."""
-        import my_tracks.apps as apps_module
+        import app.apps as apps_module
 
         with (
             patch.object(apps_module._state, "broker", None),
@@ -1292,7 +1292,7 @@ class TestTriggerTlsReload:
 
     def test_noop_when_loop_is_none(self) -> None:
         """Does nothing when event loop is None."""
-        import my_tracks.apps as apps_module
+        import app.apps as apps_module
 
         with (
             patch.object(apps_module._state, "broker", MagicMock()),
@@ -1305,7 +1305,7 @@ class TestTriggerTlsReload:
 
     def test_noop_when_loop_is_closed(self) -> None:
         """Does nothing when event loop is closed."""
-        import my_tracks.apps as apps_module
+        import app.apps as apps_module
 
         mock_loop = MagicMock()
         mock_loop.is_closed.return_value = True
@@ -1321,7 +1321,7 @@ class TestTriggerTlsReload:
 
     def test_loads_config_and_schedules_reload(self) -> None:
         """Loads TLS config from DB and schedules reload on broker loop."""
-        import my_tracks.apps as apps_module
+        import app.apps as apps_module
 
         mock_broker = MagicMock()
         mock_loop = MagicMock()
@@ -1352,8 +1352,8 @@ class TestTlsReloadSignals:
     @staticmethod
     def _create_ca(name: str = "Signal CA") -> tuple[Any, Any, bytes, bytes]:
         """Create a CA model instance, returning (ca_obj, ca_pem, ca_key)."""
-        from my_tracks.models import CertificateAuthority
-        from my_tracks.pki import (encrypt_private_key,
+        from app.models import CertificateAuthority
+        from app.pki import (encrypt_private_key,
                                    generate_ca_certificate,
                                    get_certificate_expiry,
                                    get_certificate_fingerprint)
@@ -1375,8 +1375,8 @@ class TestTlsReloadSignals:
 
     def test_server_cert_active_triggers_reload(self) -> None:
         """Creating an active ServerCertificate triggers TLS reload."""
-        from my_tracks.models import ServerCertificate
-        from my_tracks.pki import (encrypt_private_key,
+        from app.models import ServerCertificate
+        from app.pki import (encrypt_private_key,
                                    generate_server_certificate,
                                    get_certificate_expiry,
                                    get_certificate_fingerprint)
@@ -1388,7 +1388,7 @@ class TestTlsReloadSignals:
             san_entries=["signal-srv"], key_size=2048,
         )
 
-        with patch("my_tracks.apps.trigger_tls_reload") as mock_reload:
+        with patch("app.apps.trigger_tls_reload") as mock_reload:
             ServerCertificate.objects.create(
                 issuing_ca=ca,
                 certificate_pem=srv_pem.decode(),
@@ -1405,8 +1405,8 @@ class TestTlsReloadSignals:
 
     def test_server_cert_inactive_does_not_trigger(self) -> None:
         """Creating an inactive ServerCertificate does not trigger reload."""
-        from my_tracks.models import ServerCertificate
-        from my_tracks.pki import (encrypt_private_key,
+        from app.models import ServerCertificate
+        from app.pki import (encrypt_private_key,
                                    generate_server_certificate,
                                    get_certificate_expiry,
                                    get_certificate_fingerprint)
@@ -1418,7 +1418,7 @@ class TestTlsReloadSignals:
             san_entries=["inactive-srv"], key_size=2048,
         )
 
-        with patch("my_tracks.apps.trigger_tls_reload") as mock_reload:
+        with patch("app.apps.trigger_tls_reload") as mock_reload:
             ServerCertificate.objects.create(
                 issuing_ca=ca,
                 certificate_pem=srv_pem.decode(),
@@ -1438,8 +1438,8 @@ class TestTlsReloadSignals:
         from django.contrib.auth.models import User
         from django.utils import timezone
 
-        from my_tracks.models import ClientCertificate
-        from my_tracks.pki import (encrypt_private_key,
+        from app.models import ClientCertificate
+        from app.pki import (encrypt_private_key,
                                    generate_client_certificate,
                                    get_certificate_expiry,
                                    get_certificate_fingerprint)
@@ -1465,7 +1465,7 @@ class TestTlsReloadSignals:
             is_active=True,
         )
 
-        with patch("my_tracks.apps.trigger_tls_reload") as mock_reload:
+        with patch("app.apps.trigger_tls_reload") as mock_reload:
             cc.revoked = True
             cc.revoked_at = timezone.now()
             cc.is_active = False
@@ -1477,8 +1477,8 @@ class TestTlsReloadSignals:
         """Saving a non-revoked ClientCertificate does not trigger reload."""
         from django.contrib.auth.models import User
 
-        from my_tracks.models import ClientCertificate
-        from my_tracks.pki import (encrypt_private_key,
+        from app.models import ClientCertificate
+        from app.pki import (encrypt_private_key,
                                    generate_client_certificate,
                                    get_certificate_expiry,
                                    get_certificate_fingerprint)
@@ -1490,7 +1490,7 @@ class TestTlsReloadSignals:
             ca_pem, ca_key, username="norevoketest", key_size=2048,
         )
 
-        with patch("my_tracks.apps.trigger_tls_reload") as mock_reload:
+        with patch("app.apps.trigger_tls_reload") as mock_reload:
             ClientCertificate.objects.create(
                 user=user,
                 issuing_ca=ca,

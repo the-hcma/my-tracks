@@ -17,22 +17,20 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.utils import timezone as tz
 
+from app.models import (CertificateAuthority, ClientCertificate, Location,
+                        ServerCertificate)
+from app.pki import (ALLOWED_KEY_SIZES, DEFAULT_CA_VALIDITY_DAYS,
+                     DEFAULT_CERT_VALIDITY_DAYS, VALIDITY_PRESETS)
+from app.pki import decrypt_private_key as pki_decrypt_private_key
+from app.pki import encrypt_private_key as pki_encrypt_private_key
+from app.pki import (generate_ca_certificate, generate_client_certificate,
+                     generate_pkcs12, generate_server_certificate,
+                     get_certificate_expiry, get_certificate_fingerprint,
+                     get_certificate_metadata, get_certificate_sans,
+                     get_certificate_serial_number, get_certificate_subject)
+from app.utils import get_version
 from config.runtime import (get_actual_mqtt_port, get_mqtt_port,
                             get_mqtt_tls_port)
-from my_tracks.models import (CertificateAuthority, ClientCertificate,
-                              Location, ServerCertificate)
-from my_tracks.pki import (ALLOWED_KEY_SIZES, DEFAULT_CA_VALIDITY_DAYS,
-                           DEFAULT_CERT_VALIDITY_DAYS, VALIDITY_PRESETS)
-from my_tracks.pki import decrypt_private_key as pki_decrypt_private_key
-from my_tracks.pki import encrypt_private_key as pki_encrypt_private_key
-from my_tracks.pki import (generate_ca_certificate,
-                           generate_client_certificate, generate_pkcs12,
-                           generate_server_certificate, get_certificate_expiry,
-                           get_certificate_fingerprint,
-                           get_certificate_metadata, get_certificate_sans,
-                           get_certificate_serial_number,
-                           get_certificate_subject)
-from my_tracks.utils import get_version
 
 logger = logging.getLogger(__name__)
 

@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 from hamcrest import assert_that, equal_to, has_entries, has_key, is_, none, any_of, instance_of
 
-from my_tracks.mqtt.handlers import (OwnTracksMessageHandler,
+from app.mqtt.handlers import (OwnTracksMessageHandler,
                                      extract_location_data, extract_lwt_data,
                                      extract_transition_data,
                                      parse_owntracks_message,

@@ -300,5 +300,5 @@ def get_auth_config(allow_anonymous: bool = False) -> dict[str, Any]:
     """
     return {
         "allow-anonymous": allow_anonymous,
-        "plugins": ["my_tracks.mqtt.auth.DjangoAuthPlugin"],
+        "plugins": ["app.mqtt.auth.DjangoAuthPlugin"],
     }

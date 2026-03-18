@@ -19,8 +19,8 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.test import APIClient
 
-from my_tracks.models import Device, Location, OwnTracksMessage
-from my_tracks.views import DeviceViewSet, LocationViewSet
+from app.models import Device, Location, OwnTracksMessage
+from app.views import DeviceViewSet, LocationViewSet
 
 
 @pytest.fixture
@@ -147,7 +147,7 @@ class TestExtractDeviceId:
 
     def test_explicit_device_id_takes_priority(self) -> None:
         """Test that explicit device_id field is prioritized."""
-        from my_tracks.utils import extract_device_id
+        from app.utils import extract_device_id
 
         data: dict[str, object] = {
             "device_id": "my-device",
@@ -158,49 +158,49 @@ class TestExtractDeviceId:
 
     def test_topic_extracts_device_only(self) -> None:
         """Test that topic returns device name only (ignoring user)."""
-        from my_tracks.utils import extract_device_id
+        from app.utils import extract_device_id
 
         data: dict[str, object] = {"topic": "owntracks/alice/phone"}
         assert_that(extract_device_id(data), equal_to("phone"))
 
     def test_topic_with_subtopic_extracts_device_only(self) -> None:
         """Test that topic with extra path segments still returns device name only."""
-        from my_tracks.utils import extract_device_id
+        from app.utils import extract_device_id
 
         data: dict[str, object] = {"topic": "owntracks/bob/tablet/event"}
         assert_that(extract_device_id(data), equal_to("tablet"))
 
     def test_topic_preferred_over_tid(self) -> None:
         """Test that topic takes priority over tid."""
-        from my_tracks.utils import extract_device_id
+        from app.utils import extract_device_id
 
         data: dict[str, object] = {"topic": "owntracks/user/phone", "tid": "XY"}
         assert_that(extract_device_id(data), equal_to("phone"))
 
     def test_tid_fallback_when_no_topic(self) -> None:
         """Test that tid is used when no device_id or topic is present."""
-        from my_tracks.utils import extract_device_id
+        from app.utils import extract_device_id
 
         data: dict[str, object] = {"tid": "AB"}
         assert_that(extract_device_id(data), equal_to("AB"))
 
     def test_returns_none_when_no_identifier(self) -> None:
         """Test that None is returned when no identifier fields are present."""
-        from my_tracks.utils import extract_device_id
+        from app.utils import extract_device_id
 
         data: dict[str, object] = {"lat": 1.0, "lon": 2.0}
         assert_that(extract_device_id(data), none())
 
     def test_short_topic_ignored(self) -> None:
         """Test that topic with fewer than 3 segments falls through to tid."""
-        from my_tracks.utils import extract_device_id
+        from app.utils import extract_device_id
 
         data: dict[str, object] = {"topic": "owntracks/user", "tid": "ZZ"}
         assert_that(extract_device_id(data), equal_to("ZZ"))
 
     def test_empty_data_returns_none(self) -> None:
         """Test that empty dict returns None."""
-        from my_tracks.utils import extract_device_id
+        from app.utils import extract_device_id
 
         data: dict[str, object] = {}
         assert_that(extract_device_id(data), none())
@@ -370,7 +370,7 @@ class TestLocationAPI:
 
     def test_non_location_message(self, api_client: APIClient) -> None:
         """Test handling of non-location OwnTracks messages (status, waypoint, etc)."""
-        from my_tracks.models import OwnTracksMessage
+        from app.models import OwnTracksMessage
 
         payload = {
             "_type": "status",
@@ -423,7 +423,7 @@ class TestLocationAPI:
 
     def test_non_location_message_with_topic(self, api_client: APIClient) -> None:
         """Test that non-location messages extract device ID from topic."""
-        from my_tracks.models import OwnTracksMessage
+        from app.models import OwnTracksMessage
 
         payload = {
             "_type": "status",
@@ -708,8 +708,8 @@ class TestLocationAPI:
             "tid": "WE",
         }
         with (
-            patch('my_tracks.views.get_channel_layer') as mock_gcl,
-            patch('my_tracks.views.async_to_sync') as mock_a2s,
+            patch('app.views.get_channel_layer') as mock_gcl,
+            patch('app.views.async_to_sync') as mock_a2s,
         ):
             mock_gcl.return_value = MagicMock()
             mock_a2s.return_value = MagicMock(
@@ -732,7 +732,7 @@ class TestLocationAPI:
             "tst": int(datetime.now().timestamp()),
             "tid": "NL",
         }
-        with patch('my_tracks.views.get_channel_layer', return_value=None):
+        with patch('app.views.get_channel_layer', return_value=None):
             response = api_client.post(
                 '/api/locations/',
                 payload,
@@ -1122,7 +1122,7 @@ class TestCommandAPI:
 
     def test_report_location_success(self, api_client: APIClient) -> None:
         """Test successful report-location command."""
-        with patch('my_tracks.views.async_to_sync') as mock_a2s:
+        with patch('app.views.async_to_sync') as mock_a2s:
             mock_a2s.return_value = MagicMock(return_value=True)
             response = api_client.post(
                 '/api/commands/report-location/',
@@ -1135,7 +1135,7 @@ class TestCommandAPI:
 
     def test_report_location_send_failure(self, api_client: APIClient) -> None:
         """Test report-location when send_command returns False."""
-        with patch('my_tracks.views.async_to_sync') as mock_a2s:
+        with patch('app.views.async_to_sync') as mock_a2s:
             mock_a2s.return_value = MagicMock(return_value=False)
             response = api_client.post(
                 '/api/commands/report-location/',
@@ -1149,7 +1149,7 @@ class TestCommandAPI:
         self, api_client: APIClient
     ) -> None:
         """Test report-location when MQTT broker raises RuntimeError."""
-        with patch('my_tracks.views.async_to_sync') as mock_a2s:
+        with patch('app.views.async_to_sync') as mock_a2s:
             mock_a2s.return_value = MagicMock(
                 side_effect=RuntimeError("no broker")
             )
@@ -1169,8 +1169,8 @@ class TestCommandAPI:
         mock_broker.is_running = True
         mock_broker.amqtt_broker = MagicMock()
         with (
-            patch('my_tracks.views.get_mqtt_broker', return_value=mock_broker),
-            patch('my_tracks.views.async_to_sync') as mock_a2s,
+            patch('app.views.get_mqtt_broker', return_value=mock_broker),
+            patch('app.views.async_to_sync') as mock_a2s,
         ):
             mock_a2s.return_value = MagicMock(return_value=True)
             response = api_client.post(
@@ -1184,7 +1184,7 @@ class TestCommandAPI:
     def test_set_waypoints_success(self, api_client: APIClient) -> None:
         """Test successful set-waypoints command."""
         waypoints = [{'desc': 'Home', 'lat': 51.5074, 'lon': -0.1278, 'rad': 100}]
-        with patch('my_tracks.views.async_to_sync') as mock_a2s:
+        with patch('app.views.async_to_sync') as mock_a2s:
             mock_a2s.return_value = MagicMock(return_value=True)
             response = api_client.post(
                 '/api/commands/set-waypoints/',
@@ -1199,7 +1199,7 @@ class TestCommandAPI:
     def test_set_waypoints_send_failure(self, api_client: APIClient) -> None:
         """Test set-waypoints when send_command returns False."""
         waypoints = [{'desc': 'Home', 'lat': 51.5074, 'lon': -0.1278, 'rad': 100}]
-        with patch('my_tracks.views.async_to_sync') as mock_a2s:
+        with patch('app.views.async_to_sync') as mock_a2s:
             mock_a2s.return_value = MagicMock(return_value=False)
             response = api_client.post(
                 '/api/commands/set-waypoints/',
@@ -1214,7 +1214,7 @@ class TestCommandAPI:
     ) -> None:
         """Test set-waypoints when MQTT broker raises RuntimeError."""
         waypoints = [{'desc': 'Home', 'lat': 51.5074, 'lon': -0.1278, 'rad': 100}]
-        with patch('my_tracks.views.async_to_sync') as mock_a2s:
+        with patch('app.views.async_to_sync') as mock_a2s:
             mock_a2s.return_value = MagicMock(
                 side_effect=RuntimeError("no broker")
             )
@@ -1228,7 +1228,7 @@ class TestCommandAPI:
 
     def test_clear_waypoints_success(self, api_client: APIClient) -> None:
         """Test successful clear-waypoints command."""
-        with patch('my_tracks.views.async_to_sync') as mock_a2s:
+        with patch('app.views.async_to_sync') as mock_a2s:
             mock_a2s.return_value = MagicMock(return_value=True)
             response = api_client.post(
                 '/api/commands/clear-waypoints/',
@@ -1241,7 +1241,7 @@ class TestCommandAPI:
 
     def test_clear_waypoints_send_failure(self, api_client: APIClient) -> None:
         """Test clear-waypoints when send_command returns False."""
-        with patch('my_tracks.views.async_to_sync') as mock_a2s:
+        with patch('app.views.async_to_sync') as mock_a2s:
             mock_a2s.return_value = MagicMock(return_value=False)
             response = api_client.post(
                 '/api/commands/clear-waypoints/',
@@ -1255,7 +1255,7 @@ class TestCommandAPI:
         self, api_client: APIClient
     ) -> None:
         """Test clear-waypoints when MQTT broker raises RuntimeError."""
-        with patch('my_tracks.views.async_to_sync') as mock_a2s:
+        with patch('app.views.async_to_sync') as mock_a2s:
             mock_a2s.return_value = MagicMock(
                 side_effect=RuntimeError("no broker")
             )

@@ -7,14 +7,16 @@ import logging
 import os
 import sys
 import threading
+from datetime import UTC, datetime
+from pathlib import PurePath
 from typing import Any
 
 from amqtt.errors import BrokerError
 from django.apps import AppConfig
 
+from app.mqtt.broker import MQTTBroker, TLSConfig
 from config.runtime import (CONFIG_FILE, get_mqtt_port, get_mqtt_tls_port,
                             update_runtime_config)
-from my_tracks.mqtt.broker import MQTTBroker, TLSConfig
 
 logger = logging.getLogger(__name__)
 
@@ -62,12 +64,9 @@ def _stop_mqtt_broker() -> None:
 
 def _log_cert_info(server_cert_pem: bytes, ca_cert_pem: bytes) -> None:
     """Log server certificate details and warn if expiry is near."""
-    from datetime import UTC, datetime
-
-    from my_tracks.pki import (get_certificate_expiry,
-                               get_certificate_fingerprint,
-                               get_certificate_serial_number,
-                               get_certificate_subject)
+    from app.pki import (get_certificate_expiry, get_certificate_fingerprint,
+                         get_certificate_serial_number,
+                         get_certificate_subject)
 
     cn = get_certificate_subject(server_cert_pem)
     fingerprint = get_certificate_fingerprint(server_cert_pem)
@@ -100,8 +99,8 @@ def _load_tls_config() -> TLSConfig | None:
     Returns TLSConfig if an active server certificate and CA exist,
     None otherwise.
     """
-    from my_tracks.models import CertificateAuthority, ServerCertificate
-    from my_tracks.pki import decrypt_private_key, generate_crl
+    from app.models import CertificateAuthority, ServerCertificate
+    from app.pki import decrypt_private_key, generate_crl
 
     try:
         server_cert = ServerCertificate.objects.filter(is_active=True).first()
@@ -122,7 +121,7 @@ def _load_tls_config() -> TLSConfig | None:
         server_key_pem = decrypt_private_key(bytes(server_cert.encrypted_private_key))
         ca_key_pem = decrypt_private_key(bytes(ca.encrypted_private_key))
 
-        from my_tracks.models import ClientCertificate
+        from app.models import ClientCertificate
 
         revoked_certs = ClientCertificate.objects.filter(revoked=True).values_list(
             "serial_number", "revoked_at"
@@ -320,8 +319,6 @@ def _is_management_command() -> bool:
     - Django's runserver appears as sys.argv[1] via manage.py
     - If neither matches and there's a command arg, it's a management command
     """
-    from pathlib import PurePath
-
     prog = PurePath(sys.argv[0]).stem
     if prog in _ASGI_SERVER_BINARIES:
         return False
@@ -334,7 +331,8 @@ class MyTracksConfig(AppConfig):
     """Configuration for the my_tracks app."""
 
     default_auto_field: str = 'django.db.models.BigAutoField'
-    name: str = 'my_tracks'
+    name: str = 'app'
+    label: str = 'my_tracks'  # keeps DB tables and migration history stable
     verbose_name: str = 'My Tracks'
 
     def ready(self) -> None:

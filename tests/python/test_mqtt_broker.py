@@ -12,7 +12,7 @@ from hamcrest import (assert_that, contains_string, equal_to, greater_than,
                       has_item, has_key, has_length, is_, is_not, none,
                       not_none)
 
-from my_tracks.mqtt.broker import (MQTTBroker, TLSConfig, _CRLBroker,
+from app.mqtt.broker import (MQTTBroker, TLSConfig, _CRLBroker,
                                    create_and_start_broker, get_default_config)
 
 
@@ -318,7 +318,7 @@ class TestDjangoAuthConfig:
         """Should include DjangoAuthPlugin when use_django_auth=True and anonymous=False."""
         config = get_default_config(use_django_auth=True, allow_anonymous=False)
         assert_that(
-            "my_tracks.mqtt.auth.DjangoAuthPlugin" in config["plugins"],
+            "app.mqtt.auth.DjangoAuthPlugin" in config["plugins"],
             is_(True),
         )
         assert_that(
@@ -334,7 +334,7 @@ class TestDjangoAuthConfig:
             is_(True),
         )
         assert_that(
-            "my_tracks.mqtt.auth.DjangoAuthPlugin" in config["plugins"],
+            "app.mqtt.auth.DjangoAuthPlugin" in config["plugins"],
             is_(False),
         )
 
@@ -342,7 +342,7 @@ class TestDjangoAuthConfig:
         """Should omit OwnTracksPlugin when use_owntracks_handler=False."""
         config = get_default_config(use_owntracks_handler=False)
         assert_that(
-            "my_tracks.mqtt.plugin.OwnTracksPlugin" in config["plugins"],
+            "app.mqtt.plugin.OwnTracksPlugin" in config["plugins"],
             is_(False),
         )
 
@@ -350,7 +350,7 @@ class TestDjangoAuthConfig:
         """Should include OwnTracksPlugin by default."""
         config = get_default_config()
         assert_that(
-            "my_tracks.mqtt.plugin.OwnTracksPlugin" in config["plugins"],
+            "app.mqtt.plugin.OwnTracksPlugin" in config["plugins"],
             is_(True),
         )
 
@@ -736,7 +736,7 @@ class TestTLSConfig:
         mock_writer.get_ssl_info.return_value = MagicMock()
         mock_reader = MagicMock()
 
-        broker_logger = logging.getLogger("my_tracks.mqtt.broker")
+        broker_logger = logging.getLogger("app.mqtt.broker")
         with (
             patch.object(
                 _CRLBroker.__bases__[0], "_initialize_client_session",
@@ -770,7 +770,7 @@ class TestTLSConfig:
         mock_writer.get_ssl_info.return_value = None
         mock_reader = MagicMock()
 
-        broker_logger = logging.getLogger("my_tracks.mqtt.broker")
+        broker_logger = logging.getLogger("app.mqtt.broker")
         with (
             patch.object(
                 _CRLBroker.__bases__[0], "_initialize_client_session",
@@ -832,7 +832,7 @@ class TestReloadTLS:
         broker._running = True
 
         new_inner = AsyncMock()
-        with patch("my_tracks.mqtt.broker.Broker", return_value=new_inner):
+        with patch("app.mqtt.broker.Broker", return_value=new_inner):
             await broker.reload_tls(None, mqtt_tls_port=-1)
 
         mock_inner.shutdown.assert_awaited_once()
@@ -846,7 +846,7 @@ class TestReloadTLS:
         broker._running = True
         broker._broker = AsyncMock()
 
-        with patch("my_tracks.mqtt.broker.Broker", return_value=AsyncMock()):
+        with patch("app.mqtt.broker.Broker", return_value=AsyncMock()):
             await broker.reload_tls(None, mqtt_tls_port=-1)
 
         assert_that(broker._running, is_(True))
@@ -860,7 +860,7 @@ class TestReloadTLS:
 
         tls_config = self._make_tls_config("new")
 
-        with patch("my_tracks.mqtt.broker._CRLBroker", return_value=AsyncMock()) as mock_cls:
+        with patch("app.mqtt.broker._CRLBroker", return_value=AsyncMock()) as mock_cls:
             await broker.reload_tls(tls_config, mqtt_tls_port=8883)
 
         assert_that(broker.mqtt_tls_port, equal_to(8883))
@@ -881,7 +881,7 @@ class TestReloadTLS:
         broker._running = True
         broker._broker = AsyncMock()
 
-        with patch("my_tracks.mqtt.broker.Broker", return_value=AsyncMock()):
+        with patch("app.mqtt.broker.Broker", return_value=AsyncMock()):
             await broker.reload_tls(None, mqtt_tls_port=-1)
 
         assert_that(broker.mqtt_tls_port, equal_to(-1))
@@ -902,7 +902,7 @@ class TestReloadTLS:
         broker._running = True
         broker._broker = AsyncMock()
 
-        with patch("my_tracks.mqtt.broker.Broker", return_value=AsyncMock()):
+        with patch("app.mqtt.broker.Broker", return_value=AsyncMock()):
             await broker.reload_tls(None, mqtt_tls_port=-1)
 
         assert_that(os.path.exists(old_certfile), is_(False))
@@ -917,7 +917,7 @@ class TestReloadTLS:
         assert_that("mqtt-tls" in broker.config.get("listeners", {}), is_(False))
 
         tls_config = self._make_tls_config("new")
-        with patch("my_tracks.mqtt.broker._CRLBroker", return_value=AsyncMock()):
+        with patch("app.mqtt.broker._CRLBroker", return_value=AsyncMock()):
             await broker.reload_tls(tls_config, mqtt_tls_port=8883)
 
         assert_that(broker.config["listeners"], has_key("mqtt-tls"))
@@ -959,7 +959,7 @@ class TestReloadTLS:
         broker._running = True
         broker._broker = AsyncMock()
 
-        with patch("my_tracks.mqtt.broker.Broker", return_value=AsyncMock()):
+        with patch("app.mqtt.broker.Broker", return_value=AsyncMock()):
             await broker.reload_tls(None, mqtt_tls_port=-1)
 
         assert_that(_CRLBroker._crl_pem, is_(none()))
@@ -973,7 +973,7 @@ class TestReloadTLS:
         broker._actual_mqtt_port = 12345
         broker._actual_tls_port = 8883
 
-        with patch("my_tracks.mqtt.broker.Broker", return_value=AsyncMock()):
+        with patch("app.mqtt.broker.Broker", return_value=AsyncMock()):
             await broker.reload_tls(None, mqtt_tls_port=-1)
 
         assert_that(broker._actual_mqtt_port, is_(none()))
@@ -986,7 +986,7 @@ class TestReloadTLS:
         broker._running = True
         broker._broker = None
 
-        with patch("my_tracks.mqtt.broker.Broker", return_value=AsyncMock()) as mock_cls:
+        with patch("app.mqtt.broker.Broker", return_value=AsyncMock()) as mock_cls:
             await broker.reload_tls(None, mqtt_tls_port=-1)
 
         mock_cls.assert_called_once()
@@ -1010,7 +1010,7 @@ class TestReloadTLS:
 
         broker._broker.shutdown = slow_shutdown
 
-        with patch("my_tracks.mqtt.broker.Broker", return_value=AsyncMock()):
+        with patch("app.mqtt.broker.Broker", return_value=AsyncMock()):
             await asyncio.gather(
                 broker.reload_tls(None, mqtt_tls_port=-1),
                 broker.reload_tls(None, mqtt_tls_port=-1),

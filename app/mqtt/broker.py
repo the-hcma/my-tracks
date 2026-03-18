@@ -205,14 +205,14 @@ def get_default_config(
     }
 
     if use_django_auth and not allow_anonymous:
-        plugins["my_tracks.mqtt.auth.DjangoAuthPlugin"] = {}
+        plugins["app.mqtt.auth.DjangoAuthPlugin"] = {}
     else:
         plugins["amqtt.plugins.authentication.AnonymousAuthPlugin"] = {
             "allow_anonymous": allow_anonymous,
         }
 
     if use_owntracks_handler:
-        plugins["my_tracks.mqtt.plugin.OwnTracksPlugin"] = {}
+        plugins["app.mqtt.plugin.OwnTracksPlugin"] = {}
 
     listeners: dict[str, dict[str, Any]] = {
         "default": {

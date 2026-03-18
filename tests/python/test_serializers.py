@@ -19,9 +19,9 @@ from hamcrest import (assert_that, calling, contains_string, equal_to,
 from rest_framework import serializers, status
 from rest_framework.test import APIRequestFactory
 
-from my_tracks.models import (CertificateAuthority, ClientCertificate, Device,
+from app.models import (CertificateAuthority, ClientCertificate, Device,
                                Location, ServerCertificate, UserProfile)
-from my_tracks.serializers import (CertificateAuthoritySerializer,
+from app.serializers import (CertificateAuthoritySerializer,
                                     ChangePasswordSerializer,
                                     ClientCertificateSerializer,
                                     DeviceSerializer, LocationSerializer,
