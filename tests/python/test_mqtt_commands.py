@@ -9,7 +9,7 @@ from hamcrest import (assert_that, equal_to, greater_than, has_entries,
                       has_key, instance_of, is_, is_not, none, not_none,
                       raises)
 
-from my_tracks.mqtt.commands import (Command, CommandPublisher, CommandType,
+from app.mqtt.commands import (Command, CommandPublisher, CommandType,
                                      get_command_topic, parse_device_id)
 
 

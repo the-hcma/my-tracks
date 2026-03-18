@@ -18,9 +18,9 @@ from hamcrest import (assert_that, contains_string, equal_to, greater_than,
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from my_tracks.models import (CertificateAuthority, ClientCertificate,
+from app.models import (CertificateAuthority, ClientCertificate,
                               ServerCertificate)
-from my_tracks.pki import (ALLOWED_KEY_SIZES, DEFAULT_CERT_VALIDITY_DAYS,
+from app.pki import (ALLOWED_KEY_SIZES, DEFAULT_CERT_VALIDITY_DAYS,
                            VALIDITY_PRESETS, _derive_fernet_key_from,
                            decrypt_private_key, encrypt_private_key,
                            generate_ca_certificate,
@@ -133,7 +133,7 @@ class TestPKICryptoUtilities:
         encrypted_with_old = old_fernet.encrypt(key_pem)
 
         # Re-encrypt: old → current SECRET_KEY (which is new_secret here).
-        with patch("my_tracks.pki.settings") as mock_settings:
+        with patch("app.pki.settings") as mock_settings:
             mock_settings.SECRET_KEY = new_secret
             re_encrypted = reencrypt_private_key(encrypted_with_old, old_secret)
 
@@ -2066,7 +2066,7 @@ class TestReencryptPkiCommand:
             is_active=True,
         )
 
-        with patch("my_tracks.pki.settings") as mock_settings:
+        with patch("app.pki.settings") as mock_settings:
             mock_settings.SECRET_KEY = new_secret
             call_command("reencrypt_pki", old_secret_key=old_secret)
 

@@ -803,8 +803,8 @@ class TestProfileCertificates:
         """Helper to create a CA and issue a client cert for a user."""
         from datetime import timedelta
 
-        from my_tracks.models import CertificateAuthority, ClientCertificate
-        from my_tracks.pki import (encrypt_private_key,
+        from app.models import CertificateAuthority, ClientCertificate
+        from app.pki import (encrypt_private_key,
                                    generate_ca_certificate,
                                    generate_client_certificate,
                                    get_certificate_expiry,
@@ -1160,7 +1160,7 @@ class TestAdminPanelPKI:
 
     def test_generate_ca_creates_active_ca(self, admin_logged_in_client: Client) -> None:
         """Submitting the CA form should create a new active CA."""
-        from my_tracks.models import CertificateAuthority
+        from app.models import CertificateAuthority
 
         response = admin_logged_in_client.post('/admin-panel/', {
             'form_type': 'generate_ca',
@@ -1191,7 +1191,7 @@ class TestAdminPanelPKI:
 
     def test_generate_ca_deactivates_previous(self, admin_logged_in_client: Client) -> None:
         """Generating a new CA should deactivate the previous one."""
-        from my_tracks.models import CertificateAuthority
+        from app.models import CertificateAuthority
 
         admin_logged_in_client.post('/admin-panel/', {
             'form_type': 'generate_ca',
@@ -1271,7 +1271,7 @@ class TestAdminPanelPKI:
 
     def test_expunge_inactive_ca(self, admin_logged_in_client: Client) -> None:
         """Expunging an inactive CA should permanently delete it."""
-        from my_tracks.models import CertificateAuthority
+        from app.models import CertificateAuthority
 
         admin_logged_in_client.post('/admin-panel/', {
             'form_type': 'generate_ca',
@@ -1299,7 +1299,7 @@ class TestAdminPanelPKI:
 
     def test_expunge_active_ca_rejected(self, admin_logged_in_client: Client) -> None:
         """Expunging an active CA should be rejected."""
-        from my_tracks.models import CertificateAuthority
+        from app.models import CertificateAuthority
 
         admin_logged_in_client.post('/admin-panel/', {
             'form_type': 'generate_ca',
@@ -1346,7 +1346,7 @@ class TestAdminPanelPKI:
 
     def test_generate_ca_with_key_size(self, admin_logged_in_client: Client) -> None:
         """Generating CA with explicit key size should store it."""
-        from my_tracks.models import CertificateAuthority
+        from app.models import CertificateAuthority
 
         admin_logged_in_client.post('/admin-panel/', {
             'form_type': 'generate_ca',
@@ -1361,7 +1361,7 @@ class TestAdminPanelPKI:
 
     def test_generate_ca_default_key_size(self, admin_logged_in_client: Client) -> None:
         """Generating CA without key size should default to 4096."""
-        from my_tracks.models import CertificateAuthority
+        from app.models import CertificateAuthority
 
         admin_logged_in_client.post('/admin-panel/', {
             'form_type': 'generate_ca',
@@ -1455,7 +1455,7 @@ class TestAdminPanelServerCert:
 
     def test_generate_server_cert(self, admin_logged_in_client: Client) -> None:
         """Submitting the form should create a server certificate."""
-        from my_tracks.models import ServerCertificate
+        from app.models import ServerCertificate
 
         self._create_ca(admin_logged_in_client)
         response = admin_logged_in_client.post('/admin-panel/', {
@@ -1519,7 +1519,7 @@ class TestAdminPanelServerCert:
         self, admin_logged_in_client: Client,
     ) -> None:
         """Empty SANs auto-includes the request hostname, so the cert is generated."""
-        from my_tracks.models import ServerCertificate
+        from app.models import ServerCertificate
 
         self._create_ca(admin_logged_in_client)
         response = admin_logged_in_client.post('/admin-panel/', {
@@ -1550,7 +1550,7 @@ class TestAdminPanelServerCert:
 
     def test_generate_deactivates_previous(self, admin_logged_in_client: Client) -> None:
         """Generating a new server cert should deactivate the previous one."""
-        from my_tracks.models import ServerCertificate
+        from app.models import ServerCertificate
 
         self._create_ca(admin_logged_in_client)
         admin_logged_in_client.post('/admin-panel/', {
@@ -1593,7 +1593,7 @@ class TestAdminPanelServerCert:
 
     def test_expunge_inactive_server_cert(self, admin_logged_in_client: Client) -> None:
         """Expunging an inactive server cert should permanently delete it."""
-        from my_tracks.models import ServerCertificate
+        from app.models import ServerCertificate
 
         self._create_ca(admin_logged_in_client)
         admin_logged_in_client.post('/admin-panel/', {
@@ -1624,7 +1624,7 @@ class TestAdminPanelServerCert:
 
     def test_expunge_active_server_cert_rejected(self, admin_logged_in_client: Client) -> None:
         """Expunging an active server cert should be rejected."""
-        from my_tracks.models import ServerCertificate
+        from app.models import ServerCertificate
 
         self._create_ca(admin_logged_in_client)
         admin_logged_in_client.post('/admin-panel/', {
@@ -1667,7 +1667,7 @@ class TestAdminPanelServerCert:
         self, admin_logged_in_client: Client,
     ) -> None:
         """Request hostname is auto-included in SANs even if user omits it."""
-        from my_tracks.models import ServerCertificate
+        from app.models import ServerCertificate
 
         self._create_ca(admin_logged_in_client)
         response = admin_logged_in_client.post(
@@ -1694,7 +1694,7 @@ class TestAdminPanelServerCert:
         self, admin_logged_in_client: Client,
     ) -> None:
         """Request hostname is not duplicated if already in the SAN list."""
-        from my_tracks.models import ServerCertificate
+        from app.models import ServerCertificate
 
         self._create_ca(admin_logged_in_client)
         admin_logged_in_client.post('/admin-panel/', {
@@ -1766,7 +1766,7 @@ class TestAdminPanelClientCert:
 
     def test_issue_client_cert(self, admin_logged_in_client: Client) -> None:
         """Submitting the form should issue a client certificate."""
-        from my_tracks.models import ClientCertificate
+        from app.models import ClientCertificate
         self._create_ca(admin_logged_in_client)
         user = self._create_user()
 
@@ -1810,7 +1810,7 @@ class TestAdminPanelClientCert:
 
     def test_issue_cert_deactivates_existing(self, admin_logged_in_client: Client) -> None:
         """Issuing a new cert for a user should deactivate the old one."""
-        from my_tracks.models import ClientCertificate
+        from app.models import ClientCertificate
         self._create_ca(admin_logged_in_client)
         user = self._create_user()
 
@@ -1851,7 +1851,7 @@ class TestAdminPanelClientCert:
 
     def test_revoke_client_cert(self, admin_logged_in_client: Client) -> None:
         """Revoking a client cert should mark it as revoked."""
-        from my_tracks.models import ClientCertificate
+        from app.models import ClientCertificate
         self._create_ca(admin_logged_in_client)
         user = self._create_user()
         admin_logged_in_client.post('/admin-panel/', {
@@ -1876,7 +1876,7 @@ class TestAdminPanelClientCert:
 
     def test_revoke_already_revoked_cert(self, admin_logged_in_client: Client) -> None:
         """Revoking an already-revoked cert should show an error."""
-        from my_tracks.models import ClientCertificate
+        from app.models import ClientCertificate
         self._create_ca(admin_logged_in_client)
         user = self._create_user()
         admin_logged_in_client.post('/admin-panel/', {
@@ -1900,7 +1900,7 @@ class TestAdminPanelClientCert:
 
     def test_expunge_revoked_client_cert(self, admin_logged_in_client: Client) -> None:
         """Expunging a revoked cert should permanently delete it."""
-        from my_tracks.models import ClientCertificate
+        from app.models import ClientCertificate
         self._create_ca(admin_logged_in_client)
         user = self._create_user()
         admin_logged_in_client.post('/admin-panel/', {
@@ -1925,7 +1925,7 @@ class TestAdminPanelClientCert:
 
     def test_expunge_active_client_cert_rejected(self, admin_logged_in_client: Client) -> None:
         """Expunging an active cert should be rejected."""
-        from my_tracks.models import ClientCertificate
+        from app.models import ClientCertificate
         self._create_ca(admin_logged_in_client)
         user = self._create_user()
         admin_logged_in_client.post('/admin-panel/', {
@@ -2022,7 +2022,7 @@ class TestAdminPanelCRL:
         return User.objects.create_user(username=username, password='testpass123')
 
     def _issue_and_revoke(self, client: Client, user: User) -> None:
-        from my_tracks.models import ClientCertificate
+        from app.models import ClientCertificate
         client.post('/admin-panel/', {
             'form_type': 'issue_client_cert',
             'cc_user_id': str(user.pk),
@@ -2074,7 +2074,7 @@ class TestAdminPanelCRL:
 
     def test_crl_shows_serial_number(self, admin_logged_in_client: Client) -> None:
         """CRL table should display the certificate serial number."""
-        from my_tracks.models import ClientCertificate
+        from app.models import ClientCertificate
         self._create_ca(admin_logged_in_client)
         user = self._create_user()
         self._issue_and_revoke(admin_logged_in_client, user)

@@ -20,9 +20,9 @@ from channels.layers import get_channel_layer
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes
 
-from my_tracks.models import Device, Location, OwnTracksMessage
-from my_tracks.mqtt.handlers import OwnTracksMessageHandler
-from my_tracks.serializers import LocationSerializer
+from app.models import Device, Location, OwnTracksMessage
+from app.mqtt.handlers import OwnTracksMessageHandler
+from app.serializers import LocationSerializer
 
 if TYPE_CHECKING:
     from channels.layers import BaseChannelLayer

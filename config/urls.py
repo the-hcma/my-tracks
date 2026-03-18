@@ -12,5 +12,5 @@ from django.urls.resolvers import URLPattern, URLResolver
 urlpatterns: list[URLPattern | URLResolver] = [
     path('', include('web_ui.urls')),
     path('admin/', admin.site.urls),
-    path('api/', include('my_tracks.urls')),
+    path('api/', include('app.urls')),
 ]

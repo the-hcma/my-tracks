@@ -74,7 +74,7 @@ INSTALLED_APPS: list[str] = [
     'django.contrib.staticfiles',
     'rest_framework',
     'channels',
-    'my_tracks.apps.MyTracksConfig',
+    'app.apps.MyTracksConfig',
     'web_ui.apps.WebUiConfig',
 ]
 
@@ -343,7 +343,7 @@ LOGGING = {
         'level': 'INFO',
     },
     'loggers': {
-        'my_tracks': {
+        'app': {
             'handlers': _all_handlers,
             'level': 'INFO',
             'propagate': False,

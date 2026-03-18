@@ -8,11 +8,11 @@ import pytest
 from django.contrib.auth import get_user_model
 from hamcrest import assert_that, contains_string, equal_to, has_length, is_
 
-from my_tracks.mqtt import auth as auth_module
-from my_tracks.mqtt.auth import (DjangoAuthPlugin, authenticate_by_cert,
+from app.mqtt import auth as auth_module
+from app.mqtt.auth import (DjangoAuthPlugin, authenticate_by_cert,
                                  authenticate_user, check_topic_access,
                                  get_auth_config)
-from my_tracks.mqtt.broker import get_default_config
+from app.mqtt.broker import get_default_config
 
 User = get_user_model()
 
@@ -274,7 +274,7 @@ class TestGetAuthConfig:
     def test_has_plugin_reference(self) -> None:
         """Should include the Django auth plugin."""
         config = get_auth_config()
-        assert_that(config["plugins"], equal_to(["my_tracks.mqtt.auth.DjangoAuthPlugin"]))
+        assert_that(config["plugins"], equal_to(["app.mqtt.auth.DjangoAuthPlugin"]))
 
 
 class TestGetDefaultConfigWithAuth:
@@ -283,18 +283,18 @@ class TestGetDefaultConfigWithAuth:
     def test_default_no_django_auth(self) -> None:
         """Should not include Django auth by default."""
         config = get_default_config()
-        assert_that("my_tracks.mqtt.auth.DjangoAuthPlugin" in config["plugins"], is_(False))
+        assert_that("app.mqtt.auth.DjangoAuthPlugin" in config["plugins"], is_(False))
 
     def test_with_django_auth_anonymous_enabled(self) -> None:
         """With django_auth=True but anonymous allowed, should use AnonymousAuthPlugin."""
         config = get_default_config(use_django_auth=True, allow_anonymous=True)
         assert_that("amqtt.plugins.authentication.AnonymousAuthPlugin" in config["plugins"], is_(True))
-        assert_that("my_tracks.mqtt.auth.DjangoAuthPlugin" in config["plugins"], is_(False))
+        assert_that("app.mqtt.auth.DjangoAuthPlugin" in config["plugins"], is_(False))
 
     def test_django_auth_with_anonymous_disabled(self) -> None:
         """Should use DjangoAuthPlugin when anonymous disabled with Django auth."""
         config = get_default_config(use_django_auth=True, allow_anonymous=False)
-        assert_that("my_tracks.mqtt.auth.DjangoAuthPlugin" in config["plugins"], is_(True))
+        assert_that("app.mqtt.auth.DjangoAuthPlugin" in config["plugins"], is_(True))
         assert_that("amqtt.plugins.authentication.AnonymousAuthPlugin" in config["plugins"], is_(False))
 
 

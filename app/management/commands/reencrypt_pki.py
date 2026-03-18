@@ -2,9 +2,9 @@
 from cryptography.fernet import InvalidToken
 from django.core.management.base import BaseCommand, CommandError
 
-from my_tracks.models import (CertificateAuthority, ClientCertificate,
-                              ServerCertificate)
-from my_tracks.pki import reencrypt_private_key
+from app.models import (CertificateAuthority, ClientCertificate,
+                        ServerCertificate)
+from app.pki import reencrypt_private_key
 
 _PKI_MODELS = (CertificateAuthority, ServerCertificate, ClientCertificate)
 

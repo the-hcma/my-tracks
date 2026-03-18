@@ -48,7 +48,7 @@ class TestApiHealthEndpoint:
     def test_returns_503_when_mqtt_degraded(self) -> None:
         """Health endpoint returns 503 when the MQTT broker stopped unexpectedly."""
         client = APIClient()
-        with patch("my_tracks.views.is_mqtt_degraded", return_value=True):
+        with patch("app.views.is_mqtt_degraded", return_value=True):
             response = client.get("/api/health/")
         assert_that(response.status_code, equal_to(status.HTTP_503_SERVICE_UNAVAILABLE))
         assert_that(response.json(), has_entry("status", "degraded"))

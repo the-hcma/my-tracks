@@ -12,7 +12,7 @@ from hamcrest import (assert_that, calling, contains_string, equal_to,
                       greater_than, has_length, is_, is_not, matches_regexp,
                       not_none, raises, starts_with)
 
-from my_tracks.utils import get_version
+from app.utils import get_version
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 RELEASE_SCRIPT = PROJECT_ROOT / "scripts" / "release"
@@ -40,11 +40,11 @@ class TestGetVersion:
         assert_that(get_version(), equal_to(match.group(1)))  # type: ignore[union-attr]
 
     def test_returns_unknown_when_package_not_found(self) -> None:
-        with patch("my_tracks.utils._get_pkg_version", side_effect=Exception("nope")):
+        with patch("app.utils._get_pkg_version", side_effect=Exception("nope")):
             from importlib.metadata import PackageNotFoundError
 
             with patch(
-                "my_tracks.utils._get_pkg_version",
+                "app.utils._get_pkg_version",
                 side_effect=PackageNotFoundError("fake"),
             ):
                 assert_that(get_version(), equal_to("unknown"))

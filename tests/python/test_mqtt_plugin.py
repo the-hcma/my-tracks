@@ -16,8 +16,8 @@ from django.test import TestCase
 from hamcrest import (assert_that, contains_string, equal_to, has_entries,
                       has_length, is_, is_not, none, not_none, starts_with)
 
-from my_tracks.models import Device, Location, OwnTracksMessage
-from my_tracks.mqtt.plugin import (OwnTracksPlugin, _ClientTLSInfo,
+from app.models import Device, Location, OwnTracksMessage
+from app.mqtt.plugin import (OwnTracksPlugin, _ClientTLSInfo,
                                    _extract_tls_info, get_channel_layer_lazy,
                                    save_location_to_db, save_lwt_to_db)
 
@@ -627,7 +627,7 @@ class TestBroadcastLocation:
             "longitude": -0.1,
         }
 
-        with patch("my_tracks.mqtt.plugin.get_channel_layer_lazy", return_value=mock_layer):
+        with patch("app.mqtt.plugin.get_channel_layer_lazy", return_value=mock_layer):
             await plugin._broadcast_location(location_data)
 
         mock_layer.group_send.assert_called_once()
@@ -646,7 +646,7 @@ class TestBroadcastLocation:
         """Should handle missing channel layer gracefully."""
         location_data = {"id": 123}
 
-        with patch("my_tracks.mqtt.plugin.get_channel_layer_lazy", return_value=None):
+        with patch("app.mqtt.plugin.get_channel_layer_lazy", return_value=None):
             # Should not raise
             await plugin._broadcast_location(location_data)
 
@@ -661,7 +661,7 @@ class TestBroadcastLocation:
 
         location_data = {"id": 123}
 
-        with patch("my_tracks.mqtt.plugin.get_channel_layer_lazy", return_value=mock_layer):
+        with patch("app.mqtt.plugin.get_channel_layer_lazy", return_value=mock_layer):
             # Should not raise
             await plugin._broadcast_location(location_data)
 
@@ -691,7 +691,7 @@ class TestBroadcastDeviceStatus:
             "disconnected_at": "2024-01-01T12:00:00+00:00",
         }
 
-        with patch("my_tracks.mqtt.plugin.get_channel_layer_lazy", return_value=mock_layer):
+        with patch("app.mqtt.plugin.get_channel_layer_lazy", return_value=mock_layer):
             await plugin._broadcast_device_status(status_data)
 
         mock_layer.group_send.assert_called_once()
@@ -710,7 +710,7 @@ class TestBroadcastDeviceStatus:
         """Should handle missing channel layer gracefully."""
         status_data = {"device_id": "user/phone", "is_online": False}
 
-        with patch("my_tracks.mqtt.plugin.get_channel_layer_lazy", return_value=None):
+        with patch("app.mqtt.plugin.get_channel_layer_lazy", return_value=None):
             # Should not raise
             await plugin._broadcast_device_status(status_data)
 
@@ -725,7 +725,7 @@ class TestBroadcastDeviceStatus:
 
         status_data = {"device_id": "user/phone", "is_online": False}
 
-        with patch("my_tracks.mqtt.plugin.get_channel_layer_lazy", return_value=mock_layer):
+        with patch("app.mqtt.plugin.get_channel_layer_lazy", return_value=mock_layer):
             # Should not raise
             await plugin._broadcast_device_status(status_data)
 
@@ -755,7 +755,7 @@ class TestMqttProtocolVersionCheck:
         """MQTT v3.1 (MQIsdp/level 3) should log a warning with instructions."""
         packet = self._make_connect_packet(proto_name="MQIsdp", proto_level=3)
 
-        with patch("my_tracks.mqtt.plugin.logger") as mock_logger:
+        with patch("app.mqtt.plugin.logger") as mock_logger:
             await plugin.on_mqtt_packet_received(packet=packet)
 
         mock_logger.warning.assert_called_once()
@@ -771,7 +771,7 @@ class TestMqttProtocolVersionCheck:
         """Proto level < 4 should trigger warning even with 'MQTT' name."""
         packet = self._make_connect_packet(proto_name="MQTT", proto_level=3)
 
-        with patch("my_tracks.mqtt.plugin.logger") as mock_logger:
+        with patch("app.mqtt.plugin.logger") as mock_logger:
             await plugin.on_mqtt_packet_received(packet=packet)
 
         mock_logger.warning.assert_called_once()
@@ -781,7 +781,7 @@ class TestMqttProtocolVersionCheck:
         """MQTT v3.1.1 (level 4) should not trigger any warning."""
         packet = self._make_connect_packet(proto_name="MQTT", proto_level=4)
 
-        with patch("my_tracks.mqtt.plugin.logger") as mock_logger:
+        with patch("app.mqtt.plugin.logger") as mock_logger:
             await plugin.on_mqtt_packet_received(packet=packet)
 
         mock_logger.warning.assert_not_called()
@@ -791,7 +791,7 @@ class TestMqttProtocolVersionCheck:
         """Non-CONNECT packets should be silently ignored."""
         packet = MagicMock()  # Not a ConnectPacket
 
-        with patch("my_tracks.mqtt.plugin.logger") as mock_logger:
+        with patch("app.mqtt.plugin.logger") as mock_logger:
             await plugin.on_mqtt_packet_received(packet=packet)
 
         mock_logger.warning.assert_not_called()
@@ -806,7 +806,7 @@ class TestMqttProtocolVersionCheck:
         packet = MagicMock(spec=ConnectPacket)
         packet.variable_header = None
 
-        with patch("my_tracks.mqtt.plugin.logger") as mock_logger:
+        with patch("app.mqtt.plugin.logger") as mock_logger:
             await plugin.on_mqtt_packet_received(packet=packet)
 
         mock_logger.warning.assert_not_called()
@@ -818,14 +818,14 @@ class TestGetChannelLayerLazy:
     def test_returns_channel_layer_when_available(self) -> None:
         """Should return the channel layer when get_channel_layer succeeds."""
         mock_layer = MagicMock()
-        with patch("my_tracks.mqtt.plugin.get_channel_layer", return_value=mock_layer):
+        with patch("app.mqtt.plugin.get_channel_layer", return_value=mock_layer):
             result = get_channel_layer_lazy()
         assert_that(result, equal_to(mock_layer))
 
     def test_returns_none_on_exception(self) -> None:
         """Should return None when get_channel_layer raises an exception."""
         with patch(
-            "my_tracks.mqtt.plugin.get_channel_layer",
+            "app.mqtt.plugin.get_channel_layer",
             side_effect=Exception("No channel layer configured"),
         ):
             result = get_channel_layer_lazy()
@@ -872,7 +872,7 @@ class TestHandleLocationEarlyReturn:
             "longitude": -0.1,
         }
         with (
-            patch("my_tracks.mqtt.plugin.save_location_to_db", return_value=None),
+            patch("app.mqtt.plugin.save_location_to_db", return_value=None),
             patch.object(plugin, "_broadcast_location", broadcast_mock),
         ):
             await plugin._handle_location(location_data)
@@ -888,7 +888,7 @@ class TestHandleLocationEarlyReturn:
         serialized = {"id": 42, "device_id_display": "mydev", "latitude": "51.5"}
         broadcast_mock = AsyncMock()
         with (
-            patch("my_tracks.mqtt.plugin.save_location_to_db", return_value=serialized),
+            patch("app.mqtt.plugin.save_location_to_db", return_value=serialized),
             patch.object(plugin, "_broadcast_location", broadcast_mock),
         ):
             await plugin._handle_location({"device": "mydev", "latitude": 51.5, "longitude": -0.1})
@@ -913,7 +913,7 @@ class TestHandleLwtEarlyReturn:
         broadcast_mock = AsyncMock()
         lwt_data = {"device": "test", "event": "offline"}
         with (
-            patch("my_tracks.mqtt.plugin.save_lwt_to_db", return_value=None),
+            patch("app.mqtt.plugin.save_lwt_to_db", return_value=None),
             patch.object(plugin, "_broadcast_device_status", broadcast_mock),
         ):
             await plugin._handle_lwt(lwt_data)
@@ -934,7 +934,7 @@ class TestHandleLwtEarlyReturn:
         }
         broadcast_mock = AsyncMock()
         with (
-            patch("my_tracks.mqtt.plugin.save_lwt_to_db", return_value=status_data),
+            patch("app.mqtt.plugin.save_lwt_to_db", return_value=status_data),
             patch.object(plugin, "_broadcast_device_status", broadcast_mock),
         ):
             await plugin._handle_lwt({"device": "user/phone", "event": "offline"})
