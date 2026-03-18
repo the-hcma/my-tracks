@@ -438,8 +438,11 @@ setup_compose_files() {
 }
 
 compose() {
-    # podman-compose does not support --project-directory; it uses the compose
-    # file's own directory as the base (correct since we pass absolute -f paths).
+    # We pass absolute -f paths, so neither engine needs --project-directory.
+    # docker-compose resolves relative paths in compose files (e.g. build context)
+    # relative to the compose file's own directory; --project-directory would
+    # override that and break context: ../.. (making it resolve from $project_dir
+    # to the repo's parent instead of the repo root).
     # PROJECT_ENV_FILE is exported so docker-compose.yml can reference it.
     export PROJECT_ENV_FILE="$env_file"
     if [ "$container_engine" = "podman" ]; then
@@ -450,9 +453,11 @@ compose() {
             "${compose_files[@]}" \
             "$@" 2> >(grep -v 'Executing external compose provider' >&2)
     else
+        # BUILDKIT_PROGRESS=plain avoids the blue-tinted BuildKit progress bars
+        # that are hard to read on dark-background terminals.
+        BUILDKIT_PROGRESS=plain \
         $compose_cmd --env-file "$env_file" \
             "${compose_files[@]}" \
-            --project-directory "$project_dir" \
             "$@"
     fi
 }
@@ -2259,6 +2264,104 @@ cmd_start() {
     setup_compose_files
     info "Using env file: $env_file"
 
+    # If the configured ports require privilege (< 1024), rootless podman needs
+    # cap_net_bind_service on the rootlessport helper. Check now that we know the
+    # actual ports the user chose, and offer to apply the fix interactively.
+    if [ "$container_engine" = "podman" ] && [[ "$(uname -s)" == "Linux" ]] \
+    && { [ "${active_https_port}" -lt 1024 ] 2>/dev/null || [ "${active_http_port}" -lt 1024 ] 2>/dev/null; }; then
+        local rootlessport_bin=""
+        for candidate in \
+            /usr/libexec/podman/rootlessport \
+            /usr/lib/podman/rootlessport \
+            /usr/local/lib/podman/rootlessport \
+            /usr/bin/rootlessport; do
+            [ -x "$candidate" ] && rootlessport_bin="$candidate" && break
+        done
+        if [ -z "$rootlessport_bin" ]; then
+            die "Could not find the rootlessport binary (checked common locations).
+  rootlessport is required for rootless podman port binding.
+  Ensure podman is fully installed:  $(install_hint podman)"
+        fi
+        while true; do
+            # Step 1: ensure cap_net_bind_service is set on rootlessport.
+            if ! getcap "$rootlessport_bin" 2>/dev/null | grep -q 'cap_net_bind_service'; then
+                echo ""
+                echo "  ── Rootless podman port binding ────────────────────────────────────────"
+                echo "  rootlessport cannot bind privileged ports (cap_net_bind_service not set)."
+                echo "  nginx is configured to use ports ${active_https_port}/${active_http_port},"
+                echo "  which require this capability."
+                echo ""
+                echo "  Fix:  sudo setcap 'cap_net_bind_service=ep' $rootlessport_bin"
+                echo "  Note: must be re-applied after podman upgrades."
+                echo ""
+                echo "  ⚠  Security impact: grants cap_net_bind_service to the rootlessport binary."
+                echo "     Any user on this system who can run podman will be able to have"
+                echo "     containers bind ports below 1024. On a single-user server this is"
+                echo "     generally acceptable; on a shared system, consider the implications."
+                echo ""
+                printf "  Apply fix now (requires sudo)? [Y/n/abort]: "
+                local cap_choice
+                read -r cap_choice
+                cap_choice="${cap_choice:-y}"
+                if [[ "$cap_choice" =~ ^[Aa] ]]; then
+                    die "Aborted — cannot start stack without port binding capability."
+                elif [[ "$cap_choice" =~ ^[Yy] ]]; then
+                    sudo setcap 'cap_net_bind_service=ep' "$rootlessport_bin" || true
+                    if ! getcap "$rootlessport_bin" 2>/dev/null | grep -q 'cap_net_bind_service'; then
+                        echo ""
+                        echo "  ✘ cap_net_bind_service is still not set — setcap may have failed."
+                        echo "    Try running manually:  sudo setcap 'cap_net_bind_service=ep' $rootlessport_bin"
+                    fi
+                fi
+                continue
+            fi
+            echo "  ✔ cap_net_bind_service confirmed on $rootlessport_bin"
+
+            # Step 2: verify rootlessport can actually bind port 80.
+            # SELinux or other policy may block the capability even after setcap.
+            echo "  Verifying port binding works..."
+            if podman run --rm -p 80:80 --name __port_bind_test \
+                docker.io/library/nginx:1-alpine /bin/true 2>/dev/null; then
+                echo "  ✔ Port 80 binding verified"
+                echo ""
+                break
+            fi
+
+            # Binding failed — strip the ineffective cap and let the user choose next step.
+            echo ""
+            echo "  ✘ Port 80 binding failed — cap_net_bind_service is set but rootlessport"
+            echo "    still cannot bind port 80. This typically means SELinux is stripping"
+            echo "    the file capability at exec time."
+            echo ""
+            sudo setcap -r "$rootlessport_bin" 2>/dev/null || true
+            echo "  (Removed cap_net_bind_service since it had no effect.)"
+            echo ""
+            echo "  Fix options:"
+            echo "    1. SELinux policy module (targeted, survives podman upgrades):"
+            echo "         sudo dnf install -y audit policycoreutils-python-utils"
+            echo "         sudo ausearch -m avc -ts recent | grep rootlessport | audit2allow -M rootlessport-bindport"
+            echo "         sudo semodule -i rootlessport-bindport.pp"
+            echo ""
+            echo "    2. Firewall redirect — use higher ports + iptables (no OS privilege changes):"
+            echo "         Re-run with different ports (e.g. 8443/8080), then:"
+            echo "         sudo iptables -t nat -A PREROUTING -p tcp --dport 443 -j REDIRECT --to-port 8443"
+            echo "         sudo iptables -t nat -A PREROUTING -p tcp --dport 80  -j REDIRECT --to-port 8080"
+            echo ""
+            echo "    3. Sysctl (broadest — allows all processes to bind ports >= 80):"
+            echo "         echo 'net.ipv4.ip_unprivileged_port_start=80' | sudo tee /etc/sysctl.d/99-rootless-ports.conf"
+            echo "         sudo sysctl --system"
+            echo ""
+            printf "  Applied a fix? Retry port binding test? [Y/n/abort]: "
+            local retry_choice
+            read -r retry_choice
+            retry_choice="${retry_choice:-y}"
+            if [[ "$retry_choice" =~ ^[Aa] ]]; then
+                die "Aborted — cannot start stack without port binding capability."
+            fi
+            # Loop back: will re-check getcap and re-run the port test.
+        done
+    fi
+
     # Warn if var/db/ exists but the current mode is not persistent —
     # this means data from a previous persistent run is stranded.
     if ! is_persistent_internal_db && [ -d "$prod_dir/var/db" ]; then
@@ -2328,8 +2431,21 @@ cmd_start() {
         if ! is_internal_db; then
             die "--import-sqlite is only supported with containerized PostgreSQL"
         fi
+        # Tear down any existing stack (containers only, not volumes) before import.
+        # Use podman directly rather than compose down — podman-compose's down is
+        # unreliable when dependent containers are present, and we need a clean slate
+        # so compose up -d postgres and compose run don't collide with leftovers.
+        info "Stopping any existing stack before import..."
+        local stale_containers
+        stale_containers="$(podman ps -aq --filter "label=com.docker.compose.project=docker" 2>/dev/null || true)"
+        if [ -n "$stale_containers" ]; then
+            # shellcheck disable=SC2086
+            podman rm -f $stale_containers || die "Failed to remove existing stack containers — cannot proceed with import"
+        fi
+
         info "Starting postgres for data import"
-        compose up -d postgres
+        compose up -d postgres \
+            || die "Failed to start postgres for import"
 
         info "Waiting for postgres to be healthy..."
         local pg_attempts=0
@@ -2349,12 +2465,15 @@ cmd_start() {
 
         import_sqlite_to_postgres "$import_sqlite" "$source_secret_key"
 
-        # Stop and remove the temporary postgres container so the final
-        # `compose up -d` below can create all containers from scratch.
-        # The data lives in a named volume and is not affected.
+        # Stop and remove the postgres container so the final `compose up -d`
+        # can create all containers from scratch. Data lives in a named volume.
         info "Stopping temporary postgres container..."
-        compose stop postgres 2>/dev/null || true
-        compose rm -f postgres 2>/dev/null || true
+        local pg_container
+        pg_container="$(podman ps -aq \
+            --filter "label=com.docker.compose.project=docker" \
+            --filter "label=com.docker.compose.service=postgres" \
+            2>/dev/null || true)"
+        [ -n "$pg_container" ] && podman rm -f "$pg_container" 2>/dev/null || true
     fi
 
     info "Starting stack"
