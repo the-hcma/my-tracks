@@ -1712,19 +1712,24 @@ import_sqlite_to_postgres() {
 
     info "Importing SQLite database: $sqlite_path"
 
-    info "Dumping data from SQLite (via Django dumpdata)..."
+    info "Dumping data from SQLite (via Django dumpdata inside container)..."
     local dump_file
     dump_file="$(mktemp "${TMPDIR:-/tmp}/my-tracks-dump-XXXXXX").json"
 
-    DJANGO_SETTINGS_MODULE=config.settings \
-        DATABASE_URL="sqlite:///$sqlite_path" \
-        uv run --directory "$project_dir" python manage.py dumpdata \
+    # Run dumpdata inside the container with the SQLite file bind-mounted.
+    # This avoids any host-side Python/uv requirement.
+    compose run --rm \
+        -v "$sqlite_path:/tmp/import.sqlite3:ro" \
+        -e DJANGO_SETTINGS_MODULE=config.settings \
+        -e DATABASE_URL="sqlite:////tmp/import.sqlite3" \
+        --entrypoint python -T my-tracks \
+        manage.py dumpdata \
             --natural-foreign --natural-primary \
             --exclude contenttypes --exclude auth.permission \
             --exclude admin.logentry --exclude sessions \
             --exclude my_tracks.userprofile \
             --indent 2 \
-            -o "$dump_file" 2>&1 || die "Failed to dump SQLite data"
+        > "$dump_file" || die "Failed to dump SQLite data"
 
     local record_count
     record_count="$(awk '/^  \{/{n++} END{print n+0}' "$dump_file" 2>/dev/null || echo "unknown")"
@@ -2146,6 +2151,9 @@ cmd_start() {
     # Set to non-empty when --import-sqlite is active; tells create_env_file to skip
     # the outer "containerized vs external" prompt and ask only transient vs persistent.
     local sqlite_import_mode=""
+    # SECRET_KEY from the source SQLite environment; used to re-encrypt PKI keys after
+    # import. Populated in the freshen-up branch; empty when reusing an existing env.
+    local source_secret_key=""
 
     check_prerequisites
     info "Container engine: $container_engine (compose: $compose_cmd)"
@@ -2234,9 +2242,12 @@ cmd_start() {
     • Run --freshen-up to wipe var/db/ and start fresh (data will be lost)."
         fi
         info "No .env.production found — creating one"
+        if [ -n "$import_sqlite" ]; then
+            source_secret_key="$(extract_source_secret_key)"
+            sqlite_import_mode="1"
+        fi
         # TLS setup first so the domain is known before create_env_file.
         setup_tls_certs "true"
-        [ -n "$import_sqlite" ] && sqlite_import_mode="1"
         create_env_file "$_cert_domain" "$sqlite_import_mode"
     else
         info "Reusing existing $env_file (use --freshen-up to regenerate)"
@@ -2317,9 +2328,6 @@ cmd_start() {
         if ! is_internal_db; then
             die "--import-sqlite is only supported with containerized PostgreSQL"
         fi
-        command -v uv >/dev/null 2>&1 || die "uv is required for --import-sqlite (used to run Django dumpdata).
-  Install with:  curl -LsSf https://astral.sh/uv/install.sh | sh"
-
         info "Starting postgres for data import"
         compose up -d postgres
 
@@ -2340,6 +2348,13 @@ cmd_start() {
             || die "Failed to run migrations"
 
         import_sqlite_to_postgres "$import_sqlite" "$source_secret_key"
+
+        # Stop and remove the temporary postgres container so the final
+        # `compose up -d` below can create all containers from scratch.
+        # The data lives in a named volume and is not affected.
+        info "Stopping temporary postgres container..."
+        compose stop postgres 2>/dev/null || true
+        compose rm -f postgres 2>/dev/null || true
     fi
 
     info "Starting stack"
