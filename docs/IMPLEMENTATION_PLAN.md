@@ -1,6 +1,6 @@
 # My Tracks — Implementation Plan
 
-**Last Updated**: March 11, 2026
+**Last Updated**: March 18, 2026
 
 ## Overview
 
@@ -667,21 +667,90 @@ Package the application as a production-ready container image deployable on a Ce
     - `.github/workflows/cleanup-branch-on-merge.yml`: script injection fix
     - `.gitignore`: anchored domain-cert patterns
 
-### Phase 9: Advanced Integration
-1. **Transition events** — Handle region enter/exit events, store transition history
-2. **Waypoints sync** — Connect waypoint storage to command API, allow UI to send waypoints to devices
-3. **Friends feature** — Refine as a phased, backward-compatible sharing model:
-   - Add explicit ownership and sharing entities (`Device.owner`, `FriendRequest`, `FriendConnection` with per-direction share toggles)
-   - Keep OwnTracks ingestion (`POST /api/locations/`) behavior unchanged, but enforce visibility on read paths (`/api/locations/`, `/api/devices/`, device locations)
-   - Add friend APIs (send/list/accept/decline/remove requests + share preference updates)
-   - Extend MQTT ACL rules so subscribe access supports approved friend visibility while preserving own-topic publish constraints
-   - Replace global WebSocket fan-out with visibility-aware delivery (only owner + authorized friends receive updates)
-   - Cover with dedicated tests for model constraints, API filtering, MQTT ACL, and WebSocket visibility behavior
+### Phase 9: Waypoints & Geofencing
+
+OwnTracks devices publish circular geofence regions (waypoints) and fire transition events when the device crosses a boundary. This phase wires that data end-to-end: from device → server storage → web UI, and from the web UI → device (push waypoints back).
+
+**OwnTracks protocol recap**:
+- `_type: waypoint` / `_type: waypoints` — device publishes its configured regions (desc, lat, lon, rad in metres, stable `rid` UUID)
+- `_type: transition` — device fires enter/leave when crossing a boundary (event, rid, desc, lat, lon, acc, tst)
+- `setWaypoints` command — server can push a waypoint list to any device (command infrastructure already exists in `CommandPublisher`)
+
+**Step 1: Data model**
+
+New fields and models, one migration:
+
+- **`Device.owner` FK** (nullable `ForeignKey(User)`) — link device to its Django user. The MQTT topic `owntracks/{user}/{device}` already stores the username in `Device.mqtt_user`; populate `owner` by looking up `User.objects.filter(username=device.mqtt_user).first()` in `save_location_to_db`. Devices that authenticated without a matching Django user stay `null`.
+
+- **`UserProfile` expansion** — add `home_latitude`, `home_longitude` (DecimalField, nullable) and `home_label` (CharField, default "Home"). The home location becomes the default map center when a user creates a new geofence.
+
+- **`Waypoint` model** — server-side record of a geofence region:
+  ```
+  user          ForeignKey(User)
+  label         CharField          — display name; maps to OwnTracks desc
+  latitude      DecimalField
+  longitude     DecimalField
+  radius        IntegerField       — metres; default 100
+  rid           CharField(unique)  — OwnTracks region ID (UUID4 on create, preserved on upsert)
+  is_active     BooleanField(default=True)
+  created_at    DateTimeField(auto_now_add)
+  updated_at    DateTimeField(auto_now)
+  ```
+
+- **`Transition` model** — persisted enter/leave events (completes the TODO at `app/mqtt/plugin.py:349`):
+  ```
+  device        ForeignKey(Device)
+  waypoint      ForeignKey(Waypoint, null=True)  — matched by rid; null if no server-side waypoint
+  event         CharField                        — "enter" or "leave"
+  region_id     CharField                        — rid from the message
+  description   CharField                        — desc from the message
+  timestamp     DateTimeField
+  latitude      DecimalField(null=True)
+  longitude     DecimalField(null=True)
+  accuracy      IntegerField(null=True)
+  received_at   DateTimeField(auto_now_add)
+  ```
+  Indexed on (device, -timestamp) and (waypoint, -timestamp).
+
+**Step 2: MQTT integration**
+
+- **Persist transitions** — complete the TODO in `plugin.py`: implement `save_transition_to_db()` that creates a `Transition` record, matching `rid` to an existing `Waypoint` (by `rid`) for the FK if one exists. Broadcast the event over WebSocket so the live map can show enter/leave indicators.
+
+- **Handle incoming waypoint messages** — add `on_waypoint` callback to `OwnTracksMessageHandler` and wire `_handle_waypoint()` in the plugin. When the device publishes its waypoint list (`_type: waypoints`), upsert `Waypoint` rows by `rid` (update if exists, create if new). This keeps the server in sync with what the device has configured without overwriting user edits.
+
+**Step 3: Profile page — device ownership & home location**
+
+Extend the existing `/profile/` page (no new URL):
+
+- **My Devices section** — query `Device.objects.filter(owner=request.user)` and display a table: device ID, friendly name, online/offline badge, last seen. Devices with `owner=null` that share the user's `mqtt_user` are also included (migration gap fallback).
+
+- **Home location form** — lat/lon coordinate inputs (degree-decimal) with a "Use my last known location" shortcut (reads from the user's most recent `Location` record). Saved to `UserProfile.home_latitude/longitude`. Displayed on the map as a home pin.
+
+**Step 4: Geofence management UI**
+
+New page `/geofences/` (linked from profile and from the map):
+
+- **Map view** — Leaflet map centered on the user's home location (or last known location if home is unset). Shows all active `Waypoint` circles for the user.
+- **Create geofence** — click on map to set center; drag the circle edge to set radius; enter a label. Auto-fills center with home location as default.
+- **Edit / delete** — inline editing of label, coordinates, and radius. Deleting a waypoint on the server does not automatically push a clear to the device (OwnTracks limitation: deletions don't sync back). Show a note: "Push updated waypoints to device to apply changes."
+- **Push to device** — "Sync to device" button per waypoint set (per user, or filtered to a specific device). Calls the existing `CommandPublisher.set_waypoints()` endpoint.
+- **Transition history** — per-waypoint collapsible table of recent enter/leave events (device, timestamp, coordinates).
+
+### Phase 10: Friends & Location Sharing
+
+Backward-compatible sharing model layered on top of the existing single-user visibility:
+
+- Add explicit ownership and sharing entities (`FriendRequest`, `FriendConnection` with per-direction share toggles)
+- Keep OwnTracks ingestion (`POST /api/locations/`) unchanged; enforce visibility on read paths (`/api/locations/`, `/api/devices/`, device locations)
+- Friend APIs: send/list/accept/decline/remove requests + share preference updates
+- Extend MQTT ACL so subscribe access supports approved friend visibility while preserving own-topic publish constraints
+- Replace global WebSocket fan-out with visibility-aware delivery (only owner + authorized friends receive updates)
+- Tests for model constraints, API filtering, MQTT ACL, and WebSocket visibility behavior
 
 ## Key Files
 
 ```
-my_tracks/mqtt/
+app/mqtt/
 ├── __init__.py      # Module exports
 ├── broker.py        # MQTTBroker class
 ├── handlers.py      # OwnTracksMessageHandler
@@ -692,7 +761,7 @@ my_tracks/mqtt/
 
 ## Test Coverage
 
-- 1120+ Python tests + 87 TypeScript tests passing
+- 1127+ Python tests + 87 TypeScript tests passing
 - 97%+ code coverage (target: 90%)
 - Tests run in parallel via pytest-xdist with accurate coverage merging
 - All pyright checks pass (0 errors, 0 warnings)
