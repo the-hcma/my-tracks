@@ -12,6 +12,9 @@ This document defines the four specialized agents for the My Tracks project.
 
 **CRITICAL**: All changes MUST go through pull requests - direct pushes to main are blocked by branch protection.
 
+**At the start of every session**, before doing anything else:
+1. **Sync main**: `GRAPHITE_PROFILE=thehcma gt sync --force` — pulls latest main and restacks all local branches. This prevents stale-base-ref ejections from the merge queue when other PRs have merged since your last session.
+
 **Before creating any pull request**, the following workflow MUST be completed:
 
 1. **Implementation Agent** completes the code changes
@@ -19,7 +22,7 @@ This document defines the four specialized agents for the My Tracks project.
 3. **Secondary Critique Agent (GPT-5)** provides independent review
 4. **Testing Agent** ensures comprehensive test coverage
 5. **Final verification**: All agents confirm VS Code Problems panel is clear
-6. **Coverage verification**: Run `uv run pytest --cov=my_tracks --cov-fail-under=90` and ensure it passes
+6. **Coverage verification**: Run `uv run pytest --cov=app --cov-fail-under=90` and ensure it passes
 7. **Create feature branch**: NEVER commit or push to main - always create a feature branch
 
 **Pull Request Workflow** (CRITICAL):
