@@ -10,7 +10,7 @@ from hamcrest import (assert_that, equal_to, greater_than, has_entries,
                       raises)
 
 from app.mqtt.commands import (Command, CommandPublisher, CommandType,
-                                     get_command_topic, parse_device_id)
+                               get_command_topic, parse_device_id)
 
 
 class TestCommandType:
@@ -75,15 +75,15 @@ class TestCommand:
         """Test serialization includes extra payload fields."""
         cmd = Command(
             command_type=CommandType.SET_WAYPOINTS,
-            payload={"waypoints": [{"desc": "Home", "lat": 51.5, "lon": -0.1}]},
+            payload={"waypoints": {"_type": "waypoints", "waypoints": [{"_type": "waypoint", "desc": "Home", "lat": 51.5, "lon": -0.1}]}},
         )
         payload = cmd.to_mqtt_payload()
         data = json.loads(payload.decode("utf-8"))
 
         assert_that(data["_type"], equal_to("cmd"))
         assert_that(data["action"], equal_to("setWaypoints"))
-        assert_that(data, has_key("waypoints"))
-        assert_that(len(data["waypoints"]), equal_to(1))
+        assert_that(data["waypoints"]["_type"], equal_to("waypoints"))
+        assert_that(len(data["waypoints"]["waypoints"]), equal_to(1))
 
 
 class TestCommandFactoryMethods:
@@ -96,7 +96,7 @@ class TestCommandFactoryMethods:
         assert_that(cmd.payload, equal_to({}))
 
     def test_set_waypoints(self) -> None:
-        """Test set_waypoints factory method."""
+        """Test set_waypoints factory method produces correct OwnTracks protocol structure."""
         waypoints = [
             {"desc": "Home", "lat": 51.5074, "lon": -0.1278, "rad": 100},
             {"desc": "Work", "lat": 51.5200, "lon": -0.0800, "rad": 50},
@@ -104,13 +104,18 @@ class TestCommandFactoryMethods:
         cmd = Command.set_waypoints(waypoints)
 
         assert_that(cmd.command_type, equal_to(CommandType.SET_WAYPOINTS))
-        assert_that(cmd.payload, has_entries({"waypoints": waypoints}))
+        wrapper = cmd.payload["waypoints"]
+        assert_that(wrapper["_type"], equal_to("waypoints"))
+        assert_that(len(wrapper["waypoints"]), equal_to(2))
+        assert_that(wrapper["waypoints"][0]["_type"], equal_to("waypoint"))
+        assert_that(wrapper["waypoints"][0]["desc"], equal_to("Home"))
+        assert_that(wrapper["waypoints"][1]["desc"], equal_to("Work"))
 
     def test_set_waypoints_empty_list(self) -> None:
         """Test set_waypoints with empty list."""
         cmd = Command.set_waypoints([])
         assert_that(cmd.command_type, equal_to(CommandType.SET_WAYPOINTS))
-        assert_that(cmd.payload["waypoints"], equal_to([]))
+        assert_that(cmd.payload["waypoints"]["waypoints"], equal_to([]))
 
     def test_clear_waypoints(self) -> None:
         """Test clear_waypoints factory method."""
@@ -352,7 +357,10 @@ class TestCommandPublisherHelperMethods:
         call_args = mock_client.internal_message_broadcast.call_args
         payload_data = json.loads(call_args[0][1].decode("utf-8"))
         assert_that(payload_data["action"], equal_to("setWaypoints"))
-        assert_that(payload_data["waypoints"], equal_to(waypoints))
+        wrapper = payload_data["waypoints"]
+        assert_that(wrapper["_type"], equal_to("waypoints"))
+        assert_that(wrapper["waypoints"][0]["_type"], equal_to("waypoint"))
+        assert_that(wrapper["waypoints"][0]["desc"], equal_to("Home"))
 
     @pytest.mark.asyncio
     async def test_clear_waypoints(self) -> None:

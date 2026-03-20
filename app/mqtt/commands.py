@@ -88,17 +88,24 @@ class Command:
         """
         Create a command to set waypoints on the device.
 
+        The OwnTracks protocol requires the waypoints key to be a
+        {"_type": "waypoints", "waypoints": [...]} wrapper object, and each
+        individual waypoint must carry "_type": "waypoint".
+
         Args:
             waypoints: List of waypoint dictionaries with keys:
                 - desc: Description/name of the waypoint
                 - lat: Latitude
                 - lon: Longitude
                 - rad: Radius in meters (optional)
-                - tst: Timestamp (optional)
+                - tst: Unix timestamp (required by Android as upsert key)
         """
+        typed_waypoints = [
+            {"_type": "waypoint", **wp} for wp in waypoints
+        ]
         return cls(
             command_type=CommandType.SET_WAYPOINTS,
-            payload={"waypoints": waypoints},
+            payload={"waypoints": {"_type": "waypoints", "waypoints": typed_waypoints}},
         )
 
     @classmethod
@@ -234,12 +241,18 @@ class CommandPublisher:
         topic = get_command_topic(user, device)
         payload = command.to_mqtt_payload()
 
-        logger.info(
-            "Sending %s command to device %s on topic %s",
-            command.command_type.value,
-            device_id,
-            topic,
-        )
+        if command.command_type == CommandType.SET_WAYPOINTS:
+            wp_list = command.payload.get("waypoints", {}).get("waypoints", [])
+            names = [w.get("desc", "?") for w in wp_list]
+            logger.info(
+                "[mqtt] setWaypoints → user=%s device=%s waypoints=[%s]",
+                user, device, ", ".join(names),
+            )
+        else:
+            logger.info(
+                "[mqtt] %s → user=%s device=%s",
+                command.command_type.value, user, device,
+            )
 
         try:
             # amqtt broker internal publish
