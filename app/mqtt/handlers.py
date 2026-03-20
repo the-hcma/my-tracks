@@ -284,6 +284,7 @@ class OwnTracksMessageHandler:
         client_ip: str | None = None,
         transport: str = "mqtt",
         tls_identity: str = "",
+        tls_cn: str = "",
     ) -> None:
         """
         Handle an incoming MQTT message.
@@ -294,6 +295,7 @@ class OwnTracksMessageHandler:
             client_ip: IP address of the MQTT client (from broker session)
             transport: Transport label for logging (``mqtt`` or ``mqtt-tls``)
             tls_identity: TLS identity suffix, e.g. ``" (CN=alice [AA:BB])"``
+            tls_cn: Raw CN from the client's TLS certificate (Django username)
         """
         topic_info = parse_owntracks_topic(topic)
         if not topic_info:
@@ -312,7 +314,7 @@ class OwnTracksMessageHandler:
         if msg_type == "location":
             await self._handle_location(
                 message, topic_info, client_ip=client_ip, mqtt_user=mqtt_user,
-                transport=transport, tls_identity=tls_identity,
+                transport=transport, tls_identity=tls_identity, tls_cn=tls_cn,
             )
         elif msg_type == "lwt":
             await self._handle_lwt(message, topic_info, transport=transport)
@@ -332,6 +334,7 @@ class OwnTracksMessageHandler:
         mqtt_user: str = "",
         transport: str = "mqtt",
         tls_identity: str = "",
+        tls_cn: str = "",
     ) -> None:
         """Handle a location message."""
         location_data = extract_location_data(message, topic_info)
@@ -342,6 +345,8 @@ class OwnTracksMessageHandler:
             location_data["client_ip"] = client_ip
         if mqtt_user:
             location_data["mqtt_user"] = mqtt_user
+        if tls_cn:
+            location_data["tls_cn"] = tls_cn
         location_data["transport"] = transport
         location_data["tls_identity"] = tls_identity
 

@@ -25,6 +25,11 @@ This document defines the four specialized agents for the My Tracks project.
 6. **Coverage verification**: Run `uv run pytest --cov=app --cov-fail-under=90` and ensure it passes
 7. **Create feature branch**: NEVER commit or push to main - always create a feature branch
 
+**PR Submission Time Window** (CRITICAL):
+- ❌ **NEVER submit PRs (`gt submit`) before 6 PM local time**
+- ✅ Only push branches and open PRs after 6 PM
+- Rationale: During working hours the user is actively using the running server; CI/merge queue activity can disrupt it
+
 **Pull Request Workflow** (CRITICAL):
 
 1. **Create PR**: Once all pre-PR quality gates pass, create the pull request

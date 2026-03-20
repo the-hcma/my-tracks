@@ -2,7 +2,9 @@
 
 from django.contrib import admin
 
-from .models import Device, Location, OwnTracksMessage, Transition, Waypoint
+from .models import (CertificateAuthority, ClientCertificate, Device, Location,
+                     OwnTracksMessage, ServerCertificate, Transition,
+                     UserProfile, Waypoint)
 
 
 @admin.register(Device)
@@ -48,6 +50,53 @@ class OwnTracksMessageAdmin(admin.ModelAdmin):
     search_fields: tuple[str, ...] = ('device__device_id', 'device__name', 'ip_address')
     readonly_fields: tuple[str, ...] = ('received_at', 'payload')
     date_hierarchy: str = 'received_at'
+
+
+@admin.register(UserProfile)
+class UserProfileAdmin(admin.ModelAdmin):
+    """Admin interface for UserProfile model."""
+
+    list_display: tuple[str, ...] = ('user', 'home_label', 'home_latitude', 'home_longitude', 'updated_at')
+    search_fields: tuple[str, ...] = ('user__username', 'home_label')
+    readonly_fields: tuple[str, ...] = ('created_at', 'updated_at')
+
+
+@admin.register(CertificateAuthority)
+class CertificateAuthorityAdmin(admin.ModelAdmin):
+    """Admin interface for CertificateAuthority model."""
+
+    list_display: tuple[str, ...] = ('common_name', 'is_active', 'not_valid_before', 'not_valid_after', 'created_at')
+    list_filter: tuple[str, ...] = ('is_active',)
+    search_fields: tuple[str, ...] = ('common_name', 'fingerprint')
+    readonly_fields: tuple[str, ...] = ('fingerprint', 'created_at', 'not_valid_before', 'not_valid_after')
+
+
+@admin.register(ServerCertificate)
+class ServerCertificateAdmin(admin.ModelAdmin):
+    """Admin interface for ServerCertificate model."""
+
+    list_display: tuple[str, ...] = (
+        'common_name', 'issuing_ca', 'is_active', 'not_valid_before', 'not_valid_after', 'created_at',
+    )
+    list_filter: tuple[str, ...] = ('is_active', 'issuing_ca')
+    search_fields: tuple[str, ...] = ('common_name', 'fingerprint')
+    readonly_fields: tuple[str, ...] = (
+        'fingerprint', 'created_at', 'not_valid_before', 'not_valid_after', 'san_entries',
+    )
+
+
+@admin.register(ClientCertificate)
+class ClientCertificateAdmin(admin.ModelAdmin):
+    """Admin interface for ClientCertificate model."""
+
+    list_display: tuple[str, ...] = (
+        'common_name', 'user', 'issuing_ca', 'is_active', 'revoked', 'not_valid_after', 'created_at',
+    )
+    list_filter: tuple[str, ...] = ('is_active', 'revoked', 'issuing_ca')
+    search_fields: tuple[str, ...] = ('common_name', 'fingerprint', 'user__username')
+    readonly_fields: tuple[str, ...] = (
+        'fingerprint', 'serial_number', 'created_at', 'not_valid_before', 'not_valid_after', 'revoked_at',
+    )
 
 
 @admin.register(Waypoint)

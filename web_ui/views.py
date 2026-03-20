@@ -266,9 +266,9 @@ def profile(request: HttpRequest) -> HttpResponse:
         user = request.user
 
         if form_type == 'home_location':
-            lat_str = request.POST.get('home_latitude', '').strip()
-            lon_str = request.POST.get('home_longitude', '').strip()
-            label = request.POST.get('home_label', '').strip() or 'Home'
+            lat_str = (request.POST.get('home_latitude') or '').strip()
+            lon_str = (request.POST.get('home_longitude') or '').strip()
+            label = (request.POST.get('home_label') or '').strip() or 'Home'
             try:
                 lat = float(lat_str) if lat_str else None
                 lon = float(lon_str) if lon_str else None
@@ -339,8 +339,19 @@ def profile(request: HttpRequest) -> HttpResponse:
             active_ca.certificate_pem.encode()
         )
 
-    # My Devices
-    context['devices'] = Device.objects.filter(owner=request.user).order_by('-last_seen')
+    # My Devices — paired with their client certificate (matched by common_name == device_id)
+    raw_devices = Device.objects.filter(owner=request.user).order_by('-last_seen')
+    cert_map = {
+        c.common_name: c
+        for c in ClientCertificate.objects.filter(
+            user=request.user,
+            common_name__in=[d.device_id for d in raw_devices],
+        ).select_related('issuing_ca')
+    }
+    context['devices_with_certs'] = [
+        {'device': d, 'cert': cert_map.get(d.device_id)}
+        for d in raw_devices
+    ]
 
     # Home location
     context['user_profile'] = user_profile
