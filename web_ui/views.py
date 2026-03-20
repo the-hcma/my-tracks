@@ -5,6 +5,7 @@ import os
 from dataclasses import dataclass, field
 from datetime import timedelta
 
+from asgiref.sync import async_to_sync
 from django.conf import settings
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.decorators import login_required, user_passes_test
@@ -14,11 +15,13 @@ from django.contrib.auth.password_validation import (
     validate_password)
 from django.core.exceptions import ValidationError
 from django.http import HttpRequest, HttpResponse, JsonResponse
-from django.shortcuts import render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone as tz
 
 from app.models import (CertificateAuthority, ClientCertificate, Device,
-                        Location, ServerCertificate, UserProfile)
+                        Location, ServerCertificate, Transition, UserProfile,
+                        Waypoint)
+from app.mqtt.commands import CommandPublisher
 from app.pki import (ALLOWED_KEY_SIZES, DEFAULT_CA_VALIDITY_DAYS,
                      DEFAULT_CERT_VALIDITY_DAYS, VALIDITY_PRESETS)
 from app.pki import decrypt_private_key as pki_decrypt_private_key
@@ -363,7 +366,98 @@ def profile(request: HttpRequest) -> HttpResponse:
     )
     context['last_location'] = last_location
 
+    # Geofences tab data
+    context['waypoints'] = list(
+        Waypoint.objects
+        .filter(user=request.user, is_active=True)
+        .order_by('label')
+    )
+    context['geofence_devices'] = list(
+        Device.objects.filter(owner=request.user).order_by('name')
+    )
+    context['transitions'] = list(
+        Transition.objects
+        .filter(device__owner=request.user)
+        .select_related('waypoint', 'device')
+        .order_by('-timestamp')[:50]
+    )
+
     return render(request, 'web_ui/profile.html', context)
+
+
+@login_required
+def geofences(request: HttpRequest) -> HttpResponse:
+    """Geofence management: create, edit, delete waypoints, sync to device."""
+    if request.method == 'POST':
+        form_type = request.POST.get('form_type')
+
+        if form_type == 'add_waypoint':
+            Waypoint.objects.create(
+                user=request.user,
+                label=(request.POST.get('label') or '').strip() or 'Unnamed',
+                latitude=float(str(request.POST.get('latitude') or '0')),
+                longitude=float(str(request.POST.get('longitude') or '0')),
+                radius=int(str(request.POST.get('radius') or 100)),
+            )
+
+        elif form_type == 'edit_waypoint':
+            wp = get_object_or_404(
+                Waypoint, pk=request.POST['waypoint_id'], user=request.user
+            )
+            wp.label = (request.POST.get('label') or '').strip() or wp.label
+            wp.latitude = float(  # type: ignore[assignment]
+                str(request.POST.get('latitude') or wp.latitude)
+            )
+            wp.longitude = float(  # type: ignore[assignment]
+                str(request.POST.get('longitude') or wp.longitude)
+            )
+            wp.radius = int(str(request.POST.get('radius') or wp.radius))
+            wp.save()
+
+        elif form_type == 'delete_waypoint':
+            wp = get_object_or_404(
+                Waypoint, pk=request.POST['waypoint_id'], user=request.user
+            )
+            wp.delete()
+
+        elif form_type == 'sync_to_device':
+            device = get_object_or_404(
+                Device, pk=request.POST['device_id'], owner=request.user
+            )
+            active_waypoints = list(
+                Waypoint.objects.filter(user=request.user, is_active=True)
+            )
+            payload = [
+                {
+                    'desc': w.label,
+                    'lat': float(w.latitude),
+                    'lon': float(w.longitude),
+                    'rad': w.radius,
+                    'tst': int(w.updated_at.timestamp()),
+                }
+                for w in active_waypoints
+            ]
+            mqtt_device_id = f"{device.mqtt_user}/{device.device_id}"
+            publisher = CommandPublisher()
+            async_to_sync(publisher.set_waypoints)(mqtt_device_id, payload)
+
+        next_url = (request.POST.get('next_url') or '').strip()
+        if next_url.startswith('/'):
+            return redirect(next_url)
+        return redirect('web_ui:geofences')
+
+    waypoints = list(
+        Waypoint.objects
+        .filter(user=request.user, is_active=True)
+        .order_by('label')
+    )
+    devices = list(Device.objects.filter(owner=request.user).order_by('name'))
+    user_profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    return render(request, 'web_ui/geofences.html', {
+        'waypoints': waypoints,
+        'devices': devices,
+        'user_profile': user_profile,
+    })
 
 
 @login_required

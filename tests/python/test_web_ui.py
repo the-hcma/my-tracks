@@ -804,12 +804,11 @@ class TestProfileCertificates:
         from datetime import timedelta
 
         from app.models import CertificateAuthority, ClientCertificate
-        from app.pki import (encrypt_private_key,
-                                   generate_ca_certificate,
-                                   generate_client_certificate,
-                                   get_certificate_expiry,
-                                   get_certificate_fingerprint,
-                                   get_certificate_serial_number)
+        from app.pki import (encrypt_private_key, generate_ca_certificate,
+                             generate_client_certificate,
+                             get_certificate_expiry,
+                             get_certificate_fingerprint,
+                             get_certificate_serial_number)
 
         ca_cert_pem, ca_key_pem = generate_ca_certificate(
             common_name='Profile Test CA', key_size=2048
@@ -2116,3 +2115,213 @@ class TestAdminPanelCRL:
         client.login(username='regular', password='testpass123')
         response = client.get('/admin-panel/')
         assert_that(response.status_code, is_(equal_to(status.HTTP_302_FOUND)))
+
+
+@pytest.mark.django_db
+class TestGeofencesView:
+    """Tests for the /geofences/ view."""
+
+    def test_get_redirects_unauthenticated(self) -> None:
+        """Unauthenticated users are redirected to login."""
+        client = Client()
+        response = client.get('/geofences/')
+        assert_that(response.status_code, equal_to(status.HTTP_302_FOUND))
+        assert_that(response.url, contains_string('/login/'))
+
+    def test_get_renders_for_authenticated_user(self, logged_in_client: Client) -> None:
+        """GET returns 200 for a logged-in user."""
+        response = logged_in_client.get('/geofences/')
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        content = response.content.decode('utf-8')
+        assert_that(content, contains_string('Geofences'))
+        assert_that(content, contains_string('geofence-map'))
+
+    def test_get_lists_user_waypoints(self, logged_in_client: Client, user: User) -> None:
+        """Waypoints owned by the user appear in the context."""
+        from app.models import Waypoint
+        wp = Waypoint.objects.create(
+            user=user, label='Test Zone', latitude='41.0', longitude='-73.0', radius=200
+        )
+        response = logged_in_client.get('/geofences/')
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        content = response.content.decode('utf-8')
+        assert_that(content, contains_string('Test Zone'))
+        wp.delete()
+
+    def test_get_excludes_other_users_waypoints(
+        self, logged_in_client: Client, user: User
+    ) -> None:
+        """Waypoints owned by other users are not shown."""
+        from app.models import Waypoint
+        other = User.objects.create_user(username='other', password='pass')
+        wp = Waypoint.objects.create(
+            user=other, label='Other Zone', latitude='42.0', longitude='-74.0', radius=100
+        )
+        response = logged_in_client.get('/geofences/')
+        content = response.content.decode('utf-8')
+        assert_that(content, not_(contains_string('Other Zone')))
+        wp.delete()
+        other.delete()
+
+    def test_post_add_waypoint_creates_object(
+        self, logged_in_client: Client, user: User
+    ) -> None:
+        """POST add_waypoint creates a new Waypoint for the user and redirects."""
+        from app.models import Waypoint
+        response = logged_in_client.post('/geofences/', {
+            'form_type': 'add_waypoint',
+            'label': 'Home',
+            'latitude': '41.194',
+            'longitude': '-73.888',
+            'radius': '150',
+        })
+        assert_that(response.status_code, equal_to(status.HTTP_302_FOUND))
+        assert_that(response.url, equal_to('/geofences/'))
+        wp = Waypoint.objects.filter(user=user, label='Home').first()
+        assert_that(wp, not_none())
+        assert_that(wp.radius, equal_to(150))
+
+    def test_post_edit_waypoint_updates_object(
+        self, logged_in_client: Client, user: User
+    ) -> None:
+        """POST edit_waypoint updates the waypoint and redirects."""
+        from app.models import Waypoint
+        wp = Waypoint.objects.create(
+            user=user, label='Old Name', latitude='41.0', longitude='-73.0', radius=100
+        )
+        response = logged_in_client.post('/geofences/', {
+            'form_type': 'edit_waypoint',
+            'waypoint_id': wp.pk,
+            'label': 'New Name',
+            'latitude': '41.5',
+            'longitude': '-73.5',
+            'radius': '300',
+        })
+        assert_that(response.status_code, equal_to(status.HTTP_302_FOUND))
+        wp.refresh_from_db()
+        assert_that(wp.label, equal_to('New Name'))
+        assert_that(wp.radius, equal_to(300))
+
+    def test_post_edit_waypoint_returns_404_for_other_user(
+        self, logged_in_client: Client
+    ) -> None:
+        """Editing another user's waypoint returns 404."""
+        from app.models import Waypoint
+        other = User.objects.create_user(username='other2', password='pass')
+        wp = Waypoint.objects.create(
+            user=other, label='Theirs', latitude='41.0', longitude='-73.0', radius=100
+        )
+        response = logged_in_client.post('/geofences/', {
+            'form_type': 'edit_waypoint',
+            'waypoint_id': wp.pk,
+            'label': 'Hijacked',
+            'latitude': '0',
+            'longitude': '0',
+            'radius': '50',
+        })
+        assert_that(response.status_code, equal_to(status.HTTP_404_NOT_FOUND))
+
+    def test_post_delete_waypoint_removes_object(
+        self, logged_in_client: Client, user: User
+    ) -> None:
+        """POST delete_waypoint removes the waypoint and redirects."""
+        from app.models import Waypoint
+        wp = Waypoint.objects.create(
+            user=user, label='To Delete', latitude='41.0', longitude='-73.0', radius=100
+        )
+        response = logged_in_client.post('/geofences/', {
+            'form_type': 'delete_waypoint',
+            'waypoint_id': wp.pk,
+        })
+        assert_that(response.status_code, equal_to(status.HTTP_302_FOUND))
+        assert_that(Waypoint.objects.filter(pk=wp.pk).exists(), is_(False))
+
+    def test_post_delete_waypoint_returns_404_for_other_user(
+        self, logged_in_client: Client
+    ) -> None:
+        """Deleting another user's waypoint returns 404."""
+        from app.models import Waypoint
+        other = User.objects.create_user(username='other3', password='pass')
+        wp = Waypoint.objects.create(
+            user=other, label='Theirs', latitude='41.0', longitude='-73.0', radius=100
+        )
+        response = logged_in_client.post('/geofences/', {
+            'form_type': 'delete_waypoint',
+            'waypoint_id': wp.pk,
+        })
+        assert_that(response.status_code, equal_to(status.HTTP_404_NOT_FOUND))
+
+    def test_post_sync_to_device_returns_404_for_unowned_device(
+        self, logged_in_client: Client, user: User
+    ) -> None:
+        """Syncing to a device not owned by the user returns 404."""
+        from app.models import Device
+        other = User.objects.create_user(username='other4', password='pass')
+        device = Device.objects.create(
+            device_id='d1', mqtt_user='other4', name='Device', owner=other
+        )
+        response = logged_in_client.post('/geofences/', {
+            'form_type': 'sync_to_device',
+            'device_id': device.pk,
+        })
+        assert_that(response.status_code, equal_to(status.HTTP_404_NOT_FOUND))
+
+    def test_post_sync_to_device_calls_command_publisher(
+        self, logged_in_client: Client, user: User
+    ) -> None:
+        """Syncing to an owned device calls CommandPublisher.set_waypoints."""
+        from unittest.mock import AsyncMock, patch
+
+        from app.models import Device, Waypoint
+        device = Device.objects.create(
+            device_id='mydevice', mqtt_user='testuser', name='My Phone', owner=user
+        )
+        Waypoint.objects.create(
+            user=user, label='Home', latitude='41.194', longitude='-73.888', radius=100
+        )
+        with patch('web_ui.views.CommandPublisher') as mock_cls:
+            mock_instance = mock_cls.return_value
+            mock_instance.set_waypoints = AsyncMock(return_value=True)
+            response = logged_in_client.post('/geofences/', {
+                'form_type': 'sync_to_device',
+                'device_id': device.pk,
+            })
+        assert_that(response.status_code, equal_to(status.HTTP_302_FOUND))
+        mock_instance.set_waypoints.assert_called_once()
+        call_args = mock_instance.set_waypoints.call_args
+        assert_that(call_args[0][0], equal_to('testuser/mydevice'))
+        payload = call_args[0][1]
+        assert_that(payload, has_length(1))
+        assert_that(payload[0]['desc'], equal_to('Home'))
+
+
+@pytest.mark.django_db
+class TestProfileTransitions:
+    """Profile view should include transition history in context."""
+
+    def test_profile_transitions_in_context(
+        self, logged_in_client: Client, user: User
+    ) -> None:
+        """Transitions for the user's devices appear on the profile Locations tab."""
+        from django.utils import timezone
+
+        from app.models import Device, Transition, Waypoint
+        device = Device.objects.create(
+            device_id='dev1', mqtt_user='testuser', name='Test Device', owner=user
+        )
+        wp = Waypoint.objects.create(
+            user=user, label='Office', latitude='40.7', longitude='-74.0', radius=100
+        )
+        Transition.objects.create(
+            device=device,
+            waypoint=wp,
+            event='enter',
+            region_id=wp.rid,
+            description='Office',
+            timestamp=timezone.now(),
+        )
+        response = logged_in_client.get('/profile/')
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        content = response.content.decode('utf-8')
+        assert_that(content, contains_string('Recent Transitions'))
+        assert_that(content, contains_string('Office'))

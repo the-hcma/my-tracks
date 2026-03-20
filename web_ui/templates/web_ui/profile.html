@@ -574,6 +574,21 @@
             display: block;
         }
 
+        /* ── Geofences tab ── */
+        #gf-map {
+            width: 100%;
+            height: 360px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            margin-bottom: 1rem;
+        }
+
+        #gf-map.draw-mode { cursor: crosshair !important; }
+
+        .devices-table tr.highlighted td {
+            background: rgba(78, 154, 241, 0.08);
+        }
+
         /* ── Footer meta ── */
         .meta-info {
             font-size: 0.8rem;
@@ -626,6 +641,7 @@
                 <button class="tab-btn" data-tab="account">Account</button>
                 <button class="tab-btn" data-tab="devices">My Devices</button>
                 <button class="tab-btn" data-tab="locations">Locations</button>
+                <button class="tab-btn" data-tab="geofences">Geofences</button>
             </div>
 
             {# ── Account tab ── #}
@@ -905,7 +921,171 @@
                         {% if user_profile.home_latitude and user_profile.home_longitude %}Update{% else %}Save{% endif %} Home Location
                     </button>
                 </form>
+
             </div>
+
+            {# ── Geofences tab ── #}
+            <div class="tab-panel" id="tab-geofences">
+
+                {# Draw toolbar #}
+                <div style="display:flex; gap:.75rem; align-items:center; margin-bottom:.75rem; flex-wrap:wrap;">
+                    <button type="button" id="gf-draw-btn" class="submit-btn"
+                            style="width:auto; padding:.45rem 1rem; font-size:.875rem;">+ Add geofence</button>
+                    <button type="button" id="gf-cancel-draw-btn" class="submit-btn"
+                            style="width:auto; padding:.45rem 1rem; font-size:.875rem; background:var(--input-bg); color:var(--text-muted); display:none;">Cancel</button>
+                    <span id="gf-draw-hint" style="font-size:.8rem; color:var(--text-muted); font-style:italic;"></span>
+                </div>
+
+                {# Use home as center? — only shown if home location is saved #}
+                {% if user_profile.home_latitude and user_profile.home_longitude %}
+                <div id="gf-center-choice" style="display:none; background:var(--input-bg); border:1px solid var(--accent); border-radius:8px; padding:.75rem 1rem; margin-bottom:.75rem; font-size:.875rem;">
+                    Use your home location as the geofence center?
+                    <div style="display:flex; gap:.5rem; margin-top:.5rem;">
+                        <button type="button" id="gf-use-home-btn" class="submit-btn"
+                                style="width:auto; padding:.35rem .85rem; font-size:.8rem;">Yes, use home</button>
+                        <button type="button" id="gf-drop-pin-btn" class="submit-btn"
+                                style="width:auto; padding:.35rem .85rem; font-size:.8rem; background:var(--input-bg); color:var(--text-muted); border:1px solid var(--border);">No, drop a pin</button>
+                    </div>
+                </div>
+                {% endif %}
+
+                {# Leaflet map #}
+                <div id="gf-map"></div>
+
+                {# Waypoint add / edit form — shown after drawing or clicking Edit #}
+                <div id="gf-form-panel" style="display:none; background:var(--input-bg); border:1px solid var(--accent); border-radius:8px; padding:1rem 1.25rem; margin-bottom:1rem;">
+                    <div id="gf-form-title" style="font-size:.8rem; font-weight:700; text-transform:uppercase; letter-spacing:.5px; color:var(--accent); margin-bottom:.75rem;">New Geofence</div>
+                    <form method="post" action="{% url 'web_ui:geofences' %}" id="gf-form">
+                        {% csrf_token %}
+                        <input type="hidden" name="form_type" id="gf-form-type" value="add_waypoint">
+                        <input type="hidden" name="waypoint_id" id="gf-waypoint-id">
+                        <input type="hidden" name="next_url" value="{% url 'web_ui:profile' %}#geofences">
+                        <div style="display:flex; gap:.75rem; flex-wrap:wrap; margin-bottom:.875rem;">
+                            <div class="form-group" style="flex:2; min-width:140px; margin-bottom:0;">
+                                <label for="gf-form-label">Label</label>
+                                <input type="text" id="gf-form-label" name="label" placeholder="e.g. Home, Work" required>
+                            </div>
+                            <div class="form-group" style="flex:1; min-width:90px; margin-bottom:0;">
+                                <label for="gf-form-lat">Latitude</label>
+                                <input type="number" id="gf-form-lat" name="latitude" step="0.0000001" required>
+                            </div>
+                            <div class="form-group" style="flex:1; min-width:90px; margin-bottom:0;">
+                                <label for="gf-form-lon">Longitude</label>
+                                <input type="number" id="gf-form-lon" name="longitude" step="0.0000001" required>
+                            </div>
+                            <div class="form-group" style="flex:1; min-width:90px; margin-bottom:0;">
+                                <label for="gf-form-radius">Radius (m)</label>
+                                <input type="number" id="gf-form-radius" name="radius" min="10" max="50000" value="100">
+                            </div>
+                        </div>
+                        <div style="display:flex; gap:.5rem;">
+                            <button type="submit" class="submit-btn" style="width:auto; padding:.45rem 1.25rem;">Save</button>
+                            <button type="button" id="gf-form-cancel" class="submit-btn"
+                                    style="width:auto; padding:.45rem 1.25rem; background:var(--input-bg); color:var(--text-muted);">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+
+                {# Waypoints table #}
+                <h3 class="section-title" style="margin-top:1.5rem;">Your Geofences</h3>
+                {% if waypoints %}
+                <table class="devices-table">
+                    <thead>
+                        <tr>
+                            <th>Label</th>
+                            <th>Center</th>
+                            <th>Radius</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for wp in waypoints %}
+                        <tr data-wp-id="{{ wp.pk }}"
+                            data-label="{{ wp.label|escapejs }}"
+                            data-lat="{{ wp.latitude }}"
+                            data-lon="{{ wp.longitude }}"
+                            data-radius="{{ wp.radius }}">
+                            <td>{{ wp.label }}</td>
+                            <td class="muted">{{ wp.latitude|floatformat:4 }}, {{ wp.longitude|floatformat:4 }}</td>
+                            <td class="muted">{{ wp.radius }}&thinsp;m</td>
+                            <td style="text-align:right; white-space:nowrap;">
+                                <button type="button" class="gf-edit-btn cert-btn"
+                                        style="padding:.3rem .65rem; font-size:.8rem; margin-right:.25rem;">Edit</button>
+                                <form method="post" action="{% url 'web_ui:geofences' %}" style="display:inline;">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="form_type" value="delete_waypoint">
+                                    <input type="hidden" name="waypoint_id" value="{{ wp.pk }}">
+                                    <input type="hidden" name="next_url" value="{% url 'web_ui:profile' %}#geofences">
+                                    <button type="submit" class="cert-btn"
+                                            style="padding:.3rem .65rem; font-size:.8rem; background:rgba(231,76,60,.15); color:var(--error); border:1px solid rgba(231,76,60,.35);"
+                                            onclick="return confirm('Delete &quot;{{ wp.label|escapejs }}&quot;?')">Delete</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <p class="cert-none">No geofences yet. Click &ldquo;+ Add geofence&rdquo; to draw one on the map.</p>
+                {% endif %}
+
+                {# Sync to device #}
+                <h3 class="section-title" style="margin-top:1.5rem;">Sync to Device</h3>
+                {% if geofence_devices %}
+                <form method="post" action="{% url 'web_ui:geofences' %}"
+                      style="display:flex; gap:.75rem; align-items:center; flex-wrap:wrap;">
+                    {% csrf_token %}
+                    <input type="hidden" name="form_type" value="sync_to_device">
+                    <input type="hidden" name="next_url" value="{% url 'web_ui:profile' %}#geofences">
+                    <select name="device_id"
+                            style="flex:1; min-width:150px; padding:.5rem .75rem; background:var(--input-bg); border:1px solid var(--border); border-radius:7px; color:var(--text); font-size:.875rem;">
+                        {% for d in geofence_devices %}
+                        <option value="{{ d.pk }}">{{ d.name|default:d.device_id }}</option>
+                        {% endfor %}
+                    </select>
+                    <button type="submit" class="submit-btn"
+                            style="width:auto; padding:.5rem 1.25rem;">Sync all waypoints &rarr;</button>
+                </form>
+                <p class="cert-none" style="margin-top:.75rem; font-size:.8rem;">Deleting a geofence here does not remove it from your device — sync to apply changes.</p>
+                {% else %}
+                <p class="cert-none">No devices linked to your account.</p>
+                {% endif %}
+
+                {# Transition history #}
+                <hr class="section-divider">
+                <h3 class="section-title">Recent Transitions</h3>
+                {% if transitions %}
+                <table class="devices-table">
+                    <thead>
+                        <tr>
+                            <th>Geofence</th>
+                            <th>Event</th>
+                            <th>Device</th>
+                            <th>Time</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for t in transitions %}
+                        <tr>
+                            <td>{{ t.waypoint.label|default:t.description }}</td>
+                            <td>
+                                {% if t.event == 'enter' %}
+                                <span class="status-pill active">enter</span>
+                                {% else %}
+                                <span class="status-pill offline">leave</span>
+                                {% endif %}
+                            </td>
+                            <td class="muted">{{ t.device.name|default:t.device.device_id }}</td>
+                            <td class="muted">{{ t.timestamp|date:"Y-m-d H:i" }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <p class="cert-none">No transition events yet.</p>
+                {% endif %}
+
+            </div>{# /tab-geofences #}
 
             <div class="meta-info">
                 Member since {{ user.date_joined|date:"N j, Y" }}
@@ -926,7 +1106,7 @@
             return 'account';
             {% else %}
             const hash = location.hash.replace('#', '');
-            if (['account', 'devices', 'locations'].includes(hash)) return hash;
+            if (['account', 'devices', 'locations', 'geofences'].includes(hash)) return hash;
             return localStorage.getItem(TAB_KEY) || 'account';
             {% endif %}
         }
@@ -943,6 +1123,15 @@
             // Leaflet needs a size refresh when its panel becomes visible
             if (name === 'locations' && window._homeMap) {
                 setTimeout(function() { window._homeMap.invalidateSize(); }, 50);
+            }
+            if (name === 'geofences' && window._geoMap) {
+                setTimeout(function() {
+                    window._geoMap.invalidateSize();
+                    if (!window._geoMapViewSet && window._geoMapInitView) {
+                        window._geoMapViewSet = true;
+                        window._geoMapInitView();
+                    }
+                }, 50);
             }
         }
 
@@ -1126,6 +1315,301 @@
             latInput.addEventListener('input', onCoordInput);
             lonInput.addEventListener('input', onCoordInput);
         })();
+    </script>
+
+    <script>
+    (function() {
+        var mapEl = document.getElementById('gf-map');
+        if (!mapEl) return;
+
+        // ── Server data ────────────────────────────────────────────────────
+        var homeLatLng = {% if user_profile.home_latitude and user_profile.home_longitude %}
+            [{{ user_profile.home_latitude }}, {{ user_profile.home_longitude }}]
+        {% else %}null{% endif %};
+        var homeLabel = "{{ user_profile.home_label|default:'Home'|escapejs }}";
+        var serverWaypoints = [
+            {% for wp in waypoints %}
+            {id: {{ wp.pk }}, label: "{{ wp.label|escapejs }}", lat: {{ wp.latitude }}, lon: {{ wp.longitude }}, radius: {{ wp.radius }} },
+            {% endfor %}
+        ];
+
+        // ── Map init ───────────────────────────────────────────────────────
+        var geoMap = L.map('gf-map', { zoomControl: true, attributionControl: false });
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(geoMap);
+        // Set a placeholder view so Leaflet's internal state (pixelOrigin, zoom)
+        // is valid before any L.circle/L.marker layers are added.  Without this,
+        // addTo(geoMap) calls latLngToLayerPoint → getPixelOrigin() which is
+        // undefined and throws, aborting the IIFE and leaving all event listeners
+        // unbound.  _geoMapInitView() will set the real view once the tab is visible.
+        geoMap.setView([20, 0], 2);
+        window._geoMap = geoMap;
+
+        if (homeLatLng) {
+            var homeIcon = L.divIcon({
+                html: '<span style="font-size:22px;line-height:1;">&#127968;</span>',
+                className: '', iconAnchor: [11, 22],
+            });
+            L.marker(homeLatLng, { icon: homeIcon })
+             .bindTooltip(homeLabel || 'Home')
+             .addTo(geoMap);
+        }
+
+        var circleLayer = {};
+        serverWaypoints.forEach(function(wp) {
+            var circle = L.circle([wp.lat, wp.lon], {
+                radius: wp.radius,
+                color: '#4e9af1', fillColor: '#4e9af1', fillOpacity: 0.12, weight: 2,
+            }).bindTooltip(wp.label).addTo(geoMap);
+            circleLayer[wp.id] = circle;
+        });
+
+        // ── Draw state machine ─────────────────────────────────────────────
+        // States: 'idle' | 'choosing-center' | 'placing-center' | 'placing-radius'
+        var drawState = 'idle';
+        var drawCenter = null;
+        var centerIsHome = false;
+        var formCenterIsHome = false;  // preserved after confirmRadius resets centerIsHome
+        var labelAutoGen = false;      // true while label still matches the auto-generated text
+        var previewCircle = null;
+        var centerMarker = null;
+        var editCircle = null;
+        var editHighlightedRow = null;
+
+        var drawBtn = document.getElementById('gf-draw-btn');
+        var cancelDrawBtn = document.getElementById('gf-cancel-draw-btn');
+        var drawHint = document.getElementById('gf-draw-hint');
+        var centerChoice = document.getElementById('gf-center-choice');
+        var formPanel = document.getElementById('gf-form-panel');
+        var formTitleEl = document.getElementById('gf-form-title');
+        var formTypeField = document.getElementById('gf-form-type');
+        var formWaypointId = document.getElementById('gf-waypoint-id');
+        var formLabel = document.getElementById('gf-form-label');
+        var formLat = document.getElementById('gf-form-lat');
+        var formLon = document.getElementById('gf-form-lon');
+        var formRadius = document.getElementById('gf-form-radius');
+
+        function enterDrawMode() {
+            drawBtn.style.display = 'none';
+            cancelDrawBtn.style.display = '';
+            if (homeLatLng && centerChoice) {
+                centerChoice.style.display = '';
+                drawState = 'choosing-center';
+            } else {
+                startPlacingCenter();
+            }
+        }
+
+        function startPlacingCenter() {
+            if (centerChoice) centerChoice.style.display = 'none';
+            drawState = 'placing-center';
+            mapEl.classList.add('draw-mode');
+            if (geoMap.getZoom() < 14) {
+                if (homeLatLng) geoMap.setView(homeLatLng, 16);
+                else geoMap.setZoom(14);
+            }
+            drawHint.textContent = 'Click on the map to place the geofence center.';
+        }
+
+        function useHomeAsCenter() {
+            if (centerChoice) centerChoice.style.display = 'none';
+            centerIsHome = true;
+            drawCenter = L.latLng(homeLatLng[0], homeLatLng[1]);
+            drawState = 'placing-radius';
+            geoMap.setView(homeLatLng, 16);
+            mapEl.classList.add('draw-mode');
+            centerMarker = L.circleMarker(drawCenter, {
+                radius: 6, color: '#4e9af1', fillColor: '#4e9af1', fillOpacity: 1, weight: 2,
+            }).addTo(geoMap);
+            previewCircle = L.circle(drawCenter, {
+                radius: 100, color: '#4e9af1', fillColor: '#4e9af1',
+                fillOpacity: 0.15, weight: 2, dashArray: '6 4',
+            }).addTo(geoMap);
+            drawHint.textContent = 'Move mouse to set radius, then click to confirm.';
+        }
+
+        function cancelDraw() {
+            drawState = 'idle';
+            centerIsHome = false;
+            mapEl.classList.remove('draw-mode');
+            drawBtn.style.display = '';
+            cancelDrawBtn.style.display = 'none';
+            drawHint.textContent = '';
+            if (centerChoice) centerChoice.style.display = 'none';
+            if (previewCircle) { geoMap.removeLayer(previewCircle); previewCircle = null; }
+            if (centerMarker) { geoMap.removeLayer(centerMarker); centerMarker = null; }
+            drawCenter = null;
+        }
+
+        function confirmRadius(radius) {
+            formCenterIsHome = centerIsHome;
+            var defaultLabel = centerIsHome
+                ? (radius + 'm around ' + (homeLabel || 'Home'))
+                : (radius + 'm around ' + drawCenter.lat.toFixed(4) + ', ' + drawCenter.lng.toFixed(4));
+            // Remove center marker — it would otherwise block map interaction
+            if (centerMarker) { geoMap.removeLayer(centerMarker); centerMarker = null; }
+            showNewForm(drawCenter.lat, drawCenter.lng, radius, defaultLabel);
+            mapEl.classList.remove('draw-mode');
+            drawBtn.style.display = '';
+            cancelDrawBtn.style.display = 'none';
+            drawHint.textContent = '';
+            drawState = 'idle';
+            centerIsHome = false;
+        }
+
+        function showNewForm(lat, lon, radius, defaultLabel) {
+            formTitleEl.textContent = 'New Geofence';
+            formTypeField.value = 'add_waypoint';
+            formWaypointId.value = '';
+            formLabel.value = defaultLabel || '';
+            labelAutoGen = !!defaultLabel;
+            formLat.value = (typeof lat === 'number') ? lat.toFixed(7) : lat;
+            formLon.value = (typeof lon === 'number') ? lon.toFixed(7) : lon;
+            formRadius.value = radius;
+            formPanel.style.display = '';
+            formLabel.focus();
+            formLabel.select();
+        }
+
+        function showEditForm(wpId, label, lat, lon, radius) {
+            labelAutoGen = false;
+            clearEditHighlight();
+            formTitleEl.textContent = 'Edit Geofence';
+            formTypeField.value = 'edit_waypoint';
+            formWaypointId.value = wpId;
+            formLabel.value = label;
+            formLat.value = lat;
+            formLon.value = lon;
+            formRadius.value = radius;
+            formPanel.style.display = '';
+            formLabel.focus();
+            var row = document.querySelector('[data-wp-id="' + wpId + '"]');
+            if (row) { row.classList.add('highlighted'); editHighlightedRow = row; }
+            var circle = circleLayer[wpId];
+            if (circle) {
+                geoMap.fitBounds(circle.getBounds(), { padding: [60, 60], maxZoom: 16 });
+                circle.setStyle({ color: '#f39c12', fillColor: '#f39c12' });
+                editCircle = circle;
+            }
+            formPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        function hideForm() {
+            formPanel.style.display = 'none';
+            clearEditHighlight();
+            if (previewCircle && drawState === 'idle') {
+                geoMap.removeLayer(previewCircle); previewCircle = null;
+            }
+            if (centerMarker) { geoMap.removeLayer(centerMarker); centerMarker = null; }
+        }
+
+        function clearEditHighlight() {
+            if (editHighlightedRow) {
+                editHighlightedRow.classList.remove('highlighted');
+                editHighlightedRow = null;
+            }
+            if (editCircle) {
+                editCircle.setStyle({ color: '#4e9af1', fillColor: '#4e9af1' });
+                editCircle = null;
+            }
+        }
+
+        // ── Event bindings ─────────────────────────────────────────────────
+        drawBtn.addEventListener('click', enterDrawMode);
+        cancelDrawBtn.addEventListener('click', function() { cancelDraw(); hideForm(); });
+
+        if (centerChoice) {
+            document.getElementById('gf-use-home-btn').addEventListener('click', useHomeAsCenter);
+            document.getElementById('gf-drop-pin-btn').addEventListener('click', startPlacingCenter);
+        }
+
+        document.getElementById('gf-form-cancel').addEventListener('click', function() {
+            cancelDraw(); hideForm();
+        });
+
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && drawState !== 'idle') { cancelDraw(); hideForm(); }
+        });
+
+        geoMap.on('click', function(e) {
+            if (drawState === 'placing-center') {
+                drawCenter = e.latlng;
+                drawState = 'placing-radius';
+                drawHint.textContent = 'Click again to set the radius.';
+                centerMarker = L.circleMarker(drawCenter, {
+                    radius: 5, color: '#4e9af1', fillColor: '#4e9af1', fillOpacity: 1, weight: 2,
+                }).addTo(geoMap);
+                previewCircle = L.circle(drawCenter, {
+                    radius: 50, color: '#4e9af1', fillColor: '#4e9af1',
+                    fillOpacity: 0.15, weight: 2, dashArray: '6 4',
+                }).addTo(geoMap);
+            } else if (drawState === 'placing-radius') {
+                var radius = Math.max(10, Math.round(drawCenter.distanceTo(e.latlng)));
+                if (previewCircle) geoMap.removeLayer(previewCircle);
+                previewCircle = L.circle(drawCenter, {
+                    radius: radius, color: '#4e9af1', fillColor: '#4e9af1',
+                    fillOpacity: 0.15, weight: 2,
+                }).addTo(geoMap);
+                confirmRadius(radius);
+            }
+        });
+
+        geoMap.on('mousemove', function(e) {
+            if (drawState === 'placing-radius' && drawCenter && previewCircle) {
+                previewCircle.setRadius(Math.max(10, Math.round(drawCenter.distanceTo(e.latlng))));
+            }
+        });
+
+        formLabel.addEventListener('input', function() { labelAutoGen = false; });
+
+        formRadius.addEventListener('input', function() {
+            var r = parseInt(formRadius.value) || 0;
+            if (r < 10) return;
+            if (editCircle) editCircle.setRadius(r);
+            else if (previewCircle && drawState === 'idle') previewCircle.setRadius(r);
+            if (labelAutoGen && formTypeField.value === 'add_waypoint') {
+                formLabel.value = formCenterIsHome
+                    ? (r + 'm around ' + (homeLabel || 'Home'))
+                    : (r + 'm around ' + parseFloat(formLat.value).toFixed(4) + ', ' + parseFloat(formLon.value).toFixed(4));
+            }
+        });
+
+        document.querySelectorAll('.gf-edit-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var row = btn.closest('tr');
+                showEditForm(
+                    row.dataset.wpId, row.dataset.label,
+                    row.dataset.lat, row.dataset.lon, row.dataset.radius
+                );
+            });
+        });
+
+        // Set initial map view (called once, after the container is visible).
+        window._geoMapInitView = function() {
+            var circles = Object.values(circleLayer);
+            if (circles.length === 1) {
+                geoMap.fitBounds(circles[0].getBounds(), { padding: [40, 40] });
+            } else if (circles.length > 1) {
+                var b = circles[0].getBounds();
+                circles.slice(1).forEach(function(c) { b.extend(c.getBounds()); });
+                geoMap.fitBounds(b, { padding: [40, 40] });
+            } else if (homeLatLng) {
+                geoMap.setView(homeLatLng, 14);
+            } else {
+                geoMap.setView([20, 0], 2);
+            }
+        };
+
+        // If the geofences tab is already active on load, set the view now;
+        // otherwise activateTab will call _geoMapInitView on first show.
+        setTimeout(function() {
+            geoMap.invalidateSize();
+            var panel = document.getElementById('tab-geofences');
+            if (panel && panel.classList.contains('active')) {
+                window._geoMapViewSet = true;
+                window._geoMapInitView();
+            }
+        }, 100);
+    })();
     </script>
 </body>
 </html>
