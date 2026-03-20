@@ -2325,3 +2325,191 @@ class TestProfileTransitions:
         content = response.content.decode('utf-8')
         assert_that(content, contains_string('Recent Transitions'))
         assert_that(content, contains_string('Office'))
+
+
+@pytest.mark.django_db
+class TestAdminPanelSmtp:
+    """Tests for the SMTP configuration section of the admin panel."""
+
+    def test_email_tab_renders(self, admin_logged_in_client: Client) -> None:
+        """GET admin panel renders the Email tab containing SMTP Configuration."""
+        response = admin_logged_in_client.get('/admin-panel/')
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        content = response.content.decode('utf-8')
+        assert_that(content, contains_string('SMTP Configuration'))
+        assert_that(content, contains_string('Send test email'))
+
+    def test_save_smtp_creates_config(self, admin_logged_in_client: Client) -> None:
+        """POST save_smtp with valid data creates SmtpConfig and shows success."""
+        from app.models import SmtpConfig
+        response = admin_logged_in_client.post('/admin-panel/', {
+            'form_type': 'save_smtp',
+            'smtp_host': 'smtp.example.com',
+            'smtp_port': '587',
+            'smtp_username': 'user@example.com',
+            'smtp_password': 'secret',
+            'smtp_from_address': 'noreply@example.com',
+        })
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        assert_that(response.content.decode(), contains_string('SMTP configuration saved.'))
+        config = SmtpConfig.get()
+        assert config is not None
+        assert_that(config.host, equal_to('smtp.example.com'))
+        assert_that(config.port, equal_to(587))
+        assert_that(config.from_address, equal_to('noreply@example.com'))
+        assert_that(bool(config.encrypted_password), equal_to(True))
+
+    def test_save_smtp_updates_existing(self, admin_logged_in_client: Client) -> None:
+        """Saving again updates the singleton — only one row ever exists."""
+        from app.models import SmtpConfig
+        admin_logged_in_client.post('/admin-panel/', {
+            'form_type': 'save_smtp',
+            'smtp_host': 'smtp.first.com',
+            'smtp_port': '587',
+            'smtp_username': '',
+            'smtp_password': '',
+            'smtp_from_address': 'a@first.com',
+        })
+        admin_logged_in_client.post('/admin-panel/', {
+            'form_type': 'save_smtp',
+            'smtp_host': 'smtp.second.com',
+            'smtp_port': '465',
+            'smtp_username': '',
+            'smtp_password': '',
+            'smtp_from_address': 'a@second.com',
+        })
+        assert_that(SmtpConfig.objects.count(), equal_to(1))
+        config = SmtpConfig.get()
+        assert config is not None
+        assert_that(config.host, equal_to('smtp.second.com'))
+
+    def test_save_smtp_preserves_password_when_blank(self, admin_logged_in_client: Client) -> None:
+        """Saving with blank password keeps the existing encrypted password."""
+        from app.models import SmtpConfig
+        from app.pki import encrypt_private_key
+        config = SmtpConfig(host='smtp.example.com', port=587, from_address='a@b.com')
+        config.encrypted_password = encrypt_private_key(b'original-password')
+        config.save()
+        original_encrypted = bytes(config.encrypted_password)
+
+        admin_logged_in_client.post('/admin-panel/', {
+            'form_type': 'save_smtp',
+            'smtp_host': 'smtp.example.com',
+            'smtp_port': '587',
+            'smtp_username': '',
+            'smtp_password': '',  # blank — should not overwrite
+            'smtp_from_address': 'a@b.com',
+        })
+        config.refresh_from_db()
+        assert_that(bytes(config.encrypted_password), equal_to(original_encrypted))
+
+    def test_save_smtp_missing_host(self, admin_logged_in_client: Client) -> None:
+        """POST with blank host shows smtp_error."""
+        response = admin_logged_in_client.post('/admin-panel/', {
+            'form_type': 'save_smtp',
+            'smtp_host': '',
+            'smtp_port': '587',
+            'smtp_username': '',
+            'smtp_password': '',
+            'smtp_from_address': 'a@b.com',
+        })
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        assert_that(response.content.decode(), contains_string('Host is required.'))
+
+    def test_save_smtp_missing_from_address(self, admin_logged_in_client: Client) -> None:
+        """POST with blank from_address shows smtp_error."""
+        response = admin_logged_in_client.post('/admin-panel/', {
+            'form_type': 'save_smtp',
+            'smtp_host': 'smtp.example.com',
+            'smtp_port': '587',
+            'smtp_username': '',
+            'smtp_password': '',
+            'smtp_from_address': '',
+        })
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        assert_that(response.content.decode(), contains_string('From address is required.'))
+
+    def test_smtp_test_no_config(self, admin_logged_in_client: Client) -> None:
+        """POST smtp-test/ with no config returns ok=false."""
+        import json
+        response = admin_logged_in_client.post('/admin-panel/smtp-test/', {'to': 'test@example.com'})
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        data = json.loads(response.content)
+        assert_that(data['ok'], equal_to(False))
+        assert_that(data['error'], contains_string('not configured'))
+
+    def test_smtp_test_success(self, admin_logged_in_client: Client) -> None:
+        """POST smtp-test/ with valid config and mock send returns ok=true."""
+        import json
+
+        from app.models import SmtpConfig
+        SmtpConfig(host='smtp.example.com', port=587, from_address='a@b.com').save()
+        with patch('web_ui.views.send_test_email'):
+            response = admin_logged_in_client.post('/admin-panel/smtp-test/', {'to': 'test@example.com'})
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        data = json.loads(response.content)
+        assert_that(data['ok'], equal_to(True))
+
+    def test_smtp_test_includes_server_sans(self, admin_logged_in_client: Client) -> None:
+        """SANs from the active server cert are forwarded to send_test_email."""
+        from unittest.mock import MagicMock
+
+        from app.models import SmtpConfig
+        SmtpConfig(host='smtp.example.com', port=587, from_address='a@b.com').save()
+        mock_sc = MagicMock()
+        mock_sc.certificate_pem = 'FAKE-PEM'
+        with (
+            patch('web_ui.views.ServerCertificate') as mock_sc_model,
+            patch('web_ui.views.get_certificate_sans', return_value=['tracks.local', '192.168.1.1']) as mock_sans,
+            patch('web_ui.views.send_test_email') as mock_send,
+        ):
+            mock_sc_model.objects.filter.return_value.first.return_value = mock_sc
+            admin_logged_in_client.post('/admin-panel/smtp-test/', {'to': 'test@example.com'})
+        mock_sans.assert_called_once_with(b'FAKE-PEM')
+        _, kwargs = mock_send.call_args
+        assert_that(kwargs['server_names'], equal_to(['tracks.local', '192.168.1.1']))
+
+    def test_smtp_test_failure(self, admin_logged_in_client: Client) -> None:
+        """POST smtp-test/ when send raises returns ok=false with error message."""
+        import json
+
+        from app.models import SmtpConfig
+        SmtpConfig(host='smtp.example.com', port=587, from_address='a@b.com').save()
+        with patch('web_ui.views.send_test_email', side_effect=Exception('connection timeout')):
+            response = admin_logged_in_client.post('/admin-panel/smtp-test/', {'to': 'test@example.com'})
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        data = json.loads(response.content)
+        assert_that(data['ok'], equal_to(False))
+        assert_that(data['error'], contains_string('connection timeout'))
+
+    def test_smtp_test_friendly_error_gaierror(self, admin_logged_in_client: Client) -> None:
+        """socket.gaierror is translated to a human-readable message."""
+        import json
+        import socket
+
+        from app.models import SmtpConfig
+        SmtpConfig(host='bad.host', port=587, from_address='a@b.com').save()
+        with patch('web_ui.views.send_test_email', side_effect=socket.gaierror(8, 'nodename nor servname provided')):
+            response = admin_logged_in_client.post('/admin-panel/smtp-test/', {'to': 'test@example.com'})
+        data = json.loads(response.content)
+        assert_that(data['ok'], equal_to(False))
+        assert_that(data['error'], contains_string('Could not resolve hostname'))
+
+    def test_save_smtp_infers_tls_from_port(self, admin_logged_in_client: Client) -> None:
+        """Port 465 sets use_ssl=True; port 587 sets use_tls=True."""
+        from app.models import SmtpConfig
+        admin_logged_in_client.post('/admin-panel/', {
+            'form_type': 'save_smtp',
+            'smtp_host': 'smtp.example.com',
+            'smtp_port': '465',
+            'smtp_from_address': 'a@b.com',
+        })
+        config = SmtpConfig.get()
+        assert config is not None
+        assert_that(config.use_ssl, equal_to(True))
+        assert_that(config.use_tls, equal_to(False))
+
+    def test_smtp_test_requires_staff(self, logged_in_client: Client) -> None:
+        """Non-staff user is redirected away from smtp-test/."""
+        response = logged_in_client.post('/admin-panel/smtp-test/', {'to': 'test@example.com'})
+        assert_that(response.status_code, equal_to(302))

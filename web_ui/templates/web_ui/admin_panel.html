@@ -751,6 +751,7 @@
             <div class="tab-bar">
                 <button type="button" class="tab-btn {% if active_tab == 'users' %}active{% endif %}" data-tab="users">Users</button>
                 <button type="button" class="tab-btn {% if active_tab == 'pki' %}active{% endif %}" data-tab="pki">PKI</button>
+                <button type="button" class="tab-btn {% if active_tab == 'email' %}active{% endif %}" data-tab="email">Email</button>
             </div>
 
             <div id="tab-users" class="tab-panel {% if active_tab == 'users' %}active{% endif %}" {% if active_tab != 'users' %}style="display:none"{% endif %}>
@@ -1379,6 +1380,99 @@
             {% endif %}
             </div>
             </div>
+
+            <div id="tab-email" class="tab-panel {% if active_tab == 'email' %}active{% endif %}" {% if active_tab != 'email' %}style="display:none"{% endif %}>
+            <h3 class="section-title">SMTP Configuration</h3>
+
+            {% if smtp_success %}<div class="message success">{{ smtp_success }}</div>{% endif %}
+            {% if smtp_error %}<div class="message error">{{ smtp_error }}</div>{% endif %}
+
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="form_type" value="save_smtp">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="smtp_host">Host</label>
+                        <input type="text" id="smtp_host" name="smtp_host" value="{{ smtp_config.host|default:'' }}" placeholder="smtp.example.com">
+                    </div>
+                    <div class="form-group">
+                        <label for="smtp_port">Port</label>
+                        <select id="smtp_port" name="smtp_port" style="background:var(--input-bg); border:1px solid var(--border); color:var(--text); padding:0.5rem 0.75rem; border-radius:6px; width:100%">
+                            <option value="587" {% if smtp_config.port == 587 or not smtp_config %}selected{% endif %}>587 — Submission (STARTTLS)</option>
+                            <option value="465" {% if smtp_config.port == 465 %}selected{% endif %}>465 — SMTPS (implicit SSL)</option>
+                            <option value="25" {% if smtp_config.port == 25 %}selected{% endif %}>25 — SMTP (plain)</option>
+                            <option value="2525" {% if smtp_config.port == 2525 %}selected{% endif %}>2525 — Alternative (STARTTLS)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="smtp_username">Username <span class="muted">(optional)</span></label>
+                        <input type="text" id="smtp_username" name="smtp_username" value="{{ smtp_config.username|default:'' }}" placeholder="user@example.com">
+                    </div>
+                    <div class="form-group">
+                        <label for="smtp_password">Password <span class="muted">(optional)</span></label>
+                        <input type="password" id="smtp_password" name="smtp_password" placeholder="{% if smtp_config %}leave blank to keep current{% else %}leave blank if not required{% endif %}">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group full-width">
+                        <label for="smtp_from_address">From Address</label>
+                        <input type="email" id="smtp_from_address" name="smtp_from_address" value="{{ smtp_config.from_address|default:'' }}" placeholder="noreply@example.com">
+                    </div>
+                </div>
+                <button type="submit" class="submit-btn">Save SMTP Settings</button>
+            </form>
+
+            <h3 class="section-title" style="margin-top:2rem">Send Test Email</h3>
+            <p class="muted" style="margin-bottom:1rem">Verify connectivity by sending a test message to any address.</p>
+            <div style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap">
+                <input type="email" id="smtp-test-to" placeholder="recipient@example.com"
+                    style="flex:1; min-width:200px; background:var(--input-bg); border:1px solid var(--border); color:var(--text); padding:0.5rem 0.75rem; border-radius:6px">
+                <button type="button" class="submit-btn" id="smtp-test-btn"
+                    {% if not smtp_config %}disabled title="Save SMTP settings first"{% endif %}>Send test email</button>
+            </div>
+            <div id="smtp-test-result" style="margin-top:0.75rem; font-size:0.9rem"></div>
+
+            <script>
+            document.getElementById('smtp-test-btn').addEventListener('click', function() {
+                const to = document.getElementById('smtp-test-to').value.trim();
+                const result = document.getElementById('smtp-test-result');
+                if (!to) {
+                    result.innerHTML = '<span style="color:var(--error)">Enter a recipient address.</span>';
+                    return;
+                }
+                const btn = this;
+                btn.disabled = true;
+                btn.textContent = 'Sending\u2026';
+                result.innerHTML = '';
+                fetch('{% url "web_ui:smtp_test" %}', {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': '{{ csrf_token }}',
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: 'to=' + encodeURIComponent(to),
+                })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.ok) {
+                        result.innerHTML = '<span style="color:var(--success)">Test email sent successfully.</span>';
+                    } else {
+                        result.innerHTML = '<span style="color:var(--error)">Failed: ' + data.error + '</span>';
+                    }
+                })
+                .catch(() => {
+                    result.innerHTML = '<span style="color:var(--error)">Request failed.</span>';
+                })
+                .finally(() => {
+                    btn.disabled = false;
+                    btn.textContent = 'Send test email';
+                });
+            });
+            </script>
+            </div>
+
         </div>
     </div>
 

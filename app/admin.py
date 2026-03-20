@@ -3,8 +3,8 @@
 from django.contrib import admin
 
 from .models import (CertificateAuthority, ClientCertificate, Device, Location,
-                     OwnTracksMessage, ServerCertificate, Transition,
-                     UserProfile, Waypoint)
+                     OwnTracksMessage, ServerCertificate, SmtpConfig,
+                     Transition, UserProfile, Waypoint)
 
 
 @admin.register(Device)
@@ -107,6 +107,15 @@ class WaypointAdmin(admin.ModelAdmin):
     list_filter: tuple[str, ...] = ('is_active', 'user')
     search_fields: tuple[str, ...] = ('label', 'user__username', 'rid')
     readonly_fields: tuple[str, ...] = ('rid', 'created_at', 'updated_at')
+
+
+@admin.register(SmtpConfig)
+class SmtpConfigAdmin(admin.ModelAdmin):
+    """Admin interface for SmtpConfig singleton model."""
+
+    list_display: tuple[str, ...] = ('host', 'port', 'username', 'from_address', 'use_tls', 'use_ssl', 'updated_at')
+    readonly_fields: tuple[str, ...] = ('updated_at',)
+    exclude: tuple[str, ...] = ('encrypted_password',)
 
 
 @admin.register(Transition)
