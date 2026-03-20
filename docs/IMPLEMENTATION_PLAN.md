@@ -1,6 +1,6 @@
 # My Tracks — Implementation Plan
 
-**Last Updated**: March 18, 2026
+**Last Updated**: March 19, 2026
 
 ## Overview
 
@@ -676,7 +676,7 @@ OwnTracks devices publish circular geofence regions (waypoints) and fire transit
 - `_type: transition` — device fires enter/leave when crossing a boundary (event, rid, desc, lat, lon, acc, tst)
 - `setWaypoints` command — server can push a waypoint list to any device (command infrastructure already exists in `CommandPublisher`)
 
-**Step 1: Data model**
+**Step 1: Data model** ✅ (PR #506)
 
 New fields and models, one migration:
 
@@ -712,29 +712,29 @@ New fields and models, one migration:
   ```
   Indexed on (device, -timestamp) and (waypoint, -timestamp).
 
-**Step 2: MQTT integration**
+**Step 2: MQTT integration** ← NEXT
 
 - **Persist transitions** — complete the TODO in `plugin.py`: implement `save_transition_to_db()` that creates a `Transition` record, matching `rid` to an existing `Waypoint` (by `rid`) for the FK if one exists. Broadcast the event over WebSocket so the live map can show enter/leave indicators.
 
 - **Handle incoming waypoint messages** — add `on_waypoint` callback to `OwnTracksMessageHandler` and wire `_handle_waypoint()` in the plugin. When the device publishes its waypoint list (`_type: waypoints`), upsert `Waypoint` rows by `rid` (update if exists, create if new). This keeps the server in sync with what the device has configured without overwriting user edits.
 
-**Step 3: Profile page — device ownership & home location**
+**Step 3: Profile page — device ownership, home location & tabbed UI** ✅ (PR #507)
 
-Extend the existing `/profile/` page (no new URL):
+- **Tabbed profile layout** — Account, Devices, Locations, and Geofences tabs replace the single-scroll layout; tab state persisted to `localStorage` and restored from URL hash (supports redirect-back-to-tab after form submissions).
+- **My Devices tab** — query `Device.objects.filter(owner=request.user)` and display a table: device ID, friendly name, online/offline badge, last seen.
+- **Locations tab** — lat/lon coordinate inputs with a "Use my last known location" shortcut; Leaflet map with draggable home pin. Saved to `UserProfile.home_latitude/longitude`.
+- **Admin improvements** — `DeviceAdmin` shows `owner`; `WaypointAdmin` and `TransitionAdmin` registered with list/filter/search config.
 
-- **My Devices section** — query `Device.objects.filter(owner=request.user)` and display a table: device ID, friendly name, online/offline badge, last seen. Devices with `owner=null` that share the user's `mqtt_user` are also included (migration gap fallback).
+**Step 4: Geofence management UI** ✅ (PR #508)
 
-- **Home location form** — lat/lon coordinate inputs (degree-decimal) with a "Use my last known location" shortcut (reads from the user's most recent `Location` record). Saved to `UserProfile.home_latitude/longitude`. Displayed on the map as a home pin.
+Geofences tab on the profile page (not a separate page):
 
-**Step 4: Geofence management UI**
-
-New page `/geofences/` (linked from profile and from the map):
-
-- **Map view** — Leaflet map centered on the user's home location (or last known location if home is unset). Shows all active `Waypoint` circles for the user.
-- **Create geofence** — click on map to set center; drag the circle edge to set radius; enter a label. Auto-fills center with home location as default.
-- **Edit / delete** — inline editing of label, coordinates, and radius. Deleting a waypoint on the server does not automatically push a clear to the device (OwnTracks limitation: deletions don't sync back). Show a note: "Push updated waypoints to device to apply changes."
-- **Push to device** — "Sync to device" button per waypoint set (per user, or filtered to a specific device). Calls the existing `CommandPublisher.set_waypoints()` endpoint.
-- **Transition history** — per-waypoint collapsible table of recent enter/leave events (device, timestamp, coordinates).
+- **Map** (Leaflet) — shows all active `Waypoint` circles for the user and a home pin; initialised with a placeholder `setView` before any layers are added to keep Leaflet's internal state valid on hidden tabs.
+- **Create flow** — "+ Add geofence" → choice: *Use home as center* (pans to home at zoom 16, user sets radius only) or *Drop a pin* (crosshair cursor, first click = center, second click = radius). Auto-generated label (`"{r}m around Home"` / `"{r}m around {lat}, {lon}"`) updates live as the radius input changes until the user manually edits it.
+- **Edit / delete** — inline editing with per-row highlight; delete via confirm dialog.
+- **Sync to device** — device dropdown + "Sync all waypoints" button calls `CommandPublisher.set_waypoints()`.
+- **Recent Transitions** — last 50 enter/leave events table (geofence, event, device, time).
+- **`/geofences/` endpoint** — handles add/edit/delete/sync POSTs; `next_url` field redirects back to the profile Geofences tab after each action.
 
 ### Phase 10: Friends & Location Sharing
 
@@ -761,7 +761,7 @@ app/mqtt/
 
 ## Test Coverage
 
-- 1127+ Python tests + 87 TypeScript tests passing
+- 1145+ Python tests + 87 TypeScript tests passing
 - 97%+ code coverage (target: 90%)
 - Tests run in parallel via pytest-xdist with accurate coverage merging
 - All pyright checks pass (0 errors, 0 warnings)
