@@ -123,3 +123,15 @@ class LocationConsumer(AsyncWebsocketConsumer):
             'type': 'device_status',
             'data': event['data']
         }))
+
+    async def transition_event(self, event: dict[str, Any]) -> None:
+        """
+        Receive geofence transition event from channel layer and send to WebSocket.
+
+        Args:
+            event: Dictionary containing transition data (device, event, region, waypoint)
+        """
+        await self.send(text_data=json.dumps({
+            'type': 'transition',
+            'data': event['data']
+        }))

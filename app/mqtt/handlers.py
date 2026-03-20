@@ -246,6 +246,47 @@ def extract_transition_data(
     return transition_data
 
 
+def extract_waypoint_data(
+    message: dict[str, Any],
+    topic_info: dict[str, str],
+) -> dict[str, Any] | None:
+    """
+    Extract waypoint list data from an OwnTracks '_type: waypoints' message.
+
+    Args:
+        message: Parsed OwnTracks message
+        topic_info: Parsed topic information
+
+    Returns:
+        Dictionary with device ID and list of waypoint dicts,
+        or None if the message is not a valid waypoints message
+    """
+    if message.get("_type") != "waypoints":
+        return None
+
+    raw_waypoints = message.get("waypoints", [])
+    if not isinstance(raw_waypoints, list):
+        logger.warning("Waypoints message has non-list 'waypoints' field")
+        return None
+
+    waypoints = [
+        {
+            "rid": wp.get("rid"),
+            "desc": wp.get("desc", ""),
+            "lat": wp.get("lat"),
+            "lon": wp.get("lon"),
+            "rad": wp.get("rad", 100),
+        }
+        for wp in raw_waypoints
+        if isinstance(wp, dict) and wp.get("rid")
+    ]
+
+    return {
+        "device": topic_info["device"],
+        "waypoints": waypoints,
+    }
+
+
 # Type alias for callbacks that can be sync or async
 LocationCallback = Callable[[dict[str, Any]], Any]
 
@@ -263,6 +304,7 @@ class OwnTracksMessageHandler:
         self._location_callbacks: list[LocationCallback] = []
         self._lwt_callbacks: list[LocationCallback] = []
         self._transition_callbacks: list[LocationCallback] = []
+        self._waypoint_callbacks: list[LocationCallback] = []
 
     def on_location(self, callback: LocationCallback) -> None:
         """Register a callback for location messages."""
@@ -275,6 +317,10 @@ class OwnTracksMessageHandler:
     def on_transition(self, callback: LocationCallback) -> None:
         """Register a callback for transition messages."""
         self._transition_callbacks.append(callback)
+
+    def on_waypoint(self, callback: LocationCallback) -> None:
+        """Register a callback for incoming waypoint list messages."""
+        self._waypoint_callbacks.append(callback)
 
     async def handle_message(
         self,
@@ -322,6 +368,8 @@ class OwnTracksMessageHandler:
             await self._handle_transition(
                 message, topic_info, transport=transport, tls_identity=tls_identity,
             )
+        elif msg_type == "waypoints":
+            await self._handle_waypoints(message, topic_info, transport=transport)
         else:
             logger.debug("Unhandled OwnTracks message type: %s", msg_type)
 
@@ -403,3 +451,25 @@ class OwnTracksMessageHandler:
                     await result
             except Exception:
                 logger.exception("Error in transition callback")
+
+    async def _handle_waypoints(
+        self,
+        message: dict[str, Any],
+        topic_info: dict[str, str],
+        *,
+        transport: str = "mqtt",
+    ) -> None:
+        """Handle an incoming waypoint list message from a device."""
+        waypoint_data = extract_waypoint_data(message, topic_info)
+        if not waypoint_data:
+            return
+
+        waypoint_data["transport"] = transport
+
+        for callback in self._waypoint_callbacks:
+            try:
+                result = callback(waypoint_data)
+                if inspect.isawaitable(result):
+                    await result
+            except Exception:
+                logger.exception("Error in waypoint callback")

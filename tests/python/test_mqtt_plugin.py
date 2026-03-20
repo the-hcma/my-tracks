@@ -14,12 +14,13 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 from django.test import TestCase
 from hamcrest import (assert_that, contains_string, equal_to, has_entries,
-                      has_length, is_, is_not, none, not_none, starts_with)
+                      has_length, is_, is_not, none, not_none)
 
-from app.models import Device, Location, OwnTracksMessage
+from app.models import Device, Location, OwnTracksMessage, Transition, Waypoint
 from app.mqtt.plugin import (OwnTracksPlugin, _ClientTLSInfo,
-                                   _extract_tls_info, get_channel_layer_lazy,
-                                   save_location_to_db, save_lwt_to_db)
+                             _extract_tls_info, get_channel_layer_lazy,
+                             save_location_to_db, save_lwt_to_db,
+                             save_transition_to_db, save_waypoints_to_db)
 
 # Allow sync DB access in async tests for testing purposes
 os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
@@ -349,6 +350,7 @@ class TestOwnTracksPluginInit:
         assert_that(plugin._handler._location_callbacks, has_length(1))
         assert_that(plugin._handler._lwt_callbacks, has_length(1))
         assert_that(plugin._handler._transition_callbacks, has_length(1))
+        assert_that(plugin._handler._waypoint_callbacks, has_length(1))
 
 
 @pytest.mark.django_db
@@ -942,6 +944,7 @@ class TestHandleLwtEarlyReturn:
         broadcast_mock.assert_called_once_with(status_data, transport="mqtt")
 
 
+@pytest.mark.django_db
 class TestHandleTransition:
     """Tests for _handle_transition method."""
 
@@ -955,12 +958,13 @@ class TestHandleTransition:
         self,
         plugin: OwnTracksPlugin,
     ) -> None:
-        """Should log transition data and return without error."""
+        """Should handle transition for unknown device without raising."""
         transition_data = {
-            "device": "phone",
+            "device": "unknown-device",
             "event": "enter",
             "description": "Home",
         }
+        # Device not found → save_transition_to_db returns None, no exception raised
         await plugin._handle_transition(transition_data)
 
     @pytest.mark.asyncio
@@ -968,9 +972,9 @@ class TestHandleTransition:
         self,
         plugin: OwnTracksPlugin,
     ) -> None:
-        """Should handle transition data with missing optional keys."""
+        """Should handle transition data with missing optional keys without raising."""
         transition_data: dict[str, Any] = {
-            "device": "tablet",
+            "device": "unknown-device-2",
         }
         await plugin._handle_transition(transition_data)
 
@@ -1361,3 +1365,241 @@ class TestPluginTLSClientIdentification:
 
         result = plugin._get_handler_writer_ssl("client-2")
         assert_that(result, is_(none()))
+
+
+@pytest.mark.django_db
+class TestSaveTransitionToDb:
+    """Tests for save_transition_to_db function."""
+
+    @pytest.fixture
+    def user_and_device(self, django_user_model: Any) -> tuple[Any, Device]:
+        user = django_user_model.objects.create_user(username="alice-tr", password="pass")
+        device = Device.objects.create(device_id="phone-tr", name="phone", owner=user)
+        return user, device
+
+    def test_saves_transition_with_matching_waypoint(self, user_and_device: tuple[Any, Device]) -> None:
+        """Should create Transition with FK when rid matches a Waypoint."""
+        user, device = user_and_device
+        wp = Waypoint.objects.create(
+            user=user, label="Home", latitude=51.5, longitude=-0.1, radius=100, rid="rid-123",
+        )
+        ts = datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC)
+
+        result = save_transition_to_db({
+            "device": "phone-tr",
+            "event": "enter",
+            "region_id": "rid-123",
+            "description": "Home",
+            "timestamp": ts,
+            "latitude": 51.5,
+            "longitude": -0.1,
+            "accuracy": 10,
+        })
+
+        assert_that(result, not_none())
+        assert result is not None
+        assert_that(result["event"], equal_to("enter"))
+        assert_that(result["waypoint_label"], equal_to("Home"))
+        transition = Transition.objects.get(pk=result["id"])
+        assert_that(transition.waypoint, equal_to(wp))
+        assert_that(transition.device, equal_to(device))
+
+    def test_saves_transition_without_matching_waypoint(self, user_and_device: tuple[Any, Device]) -> None:
+        """Should create Transition with null waypoint FK when rid has no match."""
+        ts = datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC)
+
+        result = save_transition_to_db({
+            "device": "phone-tr",
+            "event": "leave",
+            "region_id": "unknown-rid",
+            "description": "Unknown place",
+            "timestamp": ts,
+        })
+
+        assert_that(result, not_none())
+        assert result is not None
+        assert_that(result["waypoint_label"], is_(none()))
+        transition = Transition.objects.get(pk=result["id"])
+        assert_that(transition.waypoint, is_(none()))
+
+    def test_returns_none_for_unknown_device(self) -> None:
+        """Should return None when device does not exist."""
+        result = save_transition_to_db({
+            "device": "no-such-device",
+            "event": "enter",
+            "region_id": "rid-123",
+            "description": "Home",
+            "timestamp": datetime.now(tz=UTC),
+        })
+        assert_that(result, is_(none()))
+        assert_that(Device.objects.filter(device_id="no-such-device").exists(), is_(False))
+
+
+@pytest.mark.django_db
+class TestSaveWaypointsToDb:
+    """Tests for save_waypoints_to_db function."""
+
+    @pytest.fixture
+    def user_and_device(self, django_user_model: Any) -> tuple[Any, Device]:
+        user = django_user_model.objects.create_user(username="alice-wp", password="pass")
+        device = Device.objects.create(device_id="phone-wp", name="phone", owner=user)
+        return user, device
+
+    def test_creates_new_waypoints(self, user_and_device: tuple[Any, Device]) -> None:
+        """Should create Waypoint records for new rids."""
+        user, device = user_and_device
+        result = save_waypoints_to_db({
+            "device": "phone-wp",
+            "waypoints": [
+                {"rid": "rid-1", "desc": "Home", "lat": 51.5, "lon": -0.1, "rad": 100},
+                {"rid": "rid-2", "desc": "Work", "lat": 51.52, "lon": -0.08, "rad": 50},
+            ],
+        })
+
+        assert_that(result, equal_to(2))
+        assert_that(Waypoint.objects.count(), equal_to(2))
+        wp = Waypoint.objects.get(rid="rid-1")
+        assert_that(wp.label, equal_to("Home"))
+        assert_that(wp.user, equal_to(user))
+
+    def test_updates_existing_waypoint(self, user_and_device: tuple[Any, Device]) -> None:
+        """Should update lat/lon/radius for existing waypoint by rid."""
+        user, _ = user_and_device
+        Waypoint.objects.create(
+            user=user, label="Old label", latitude=51.0, longitude=0.0, radius=50, rid="rid-1",
+        )
+
+        save_waypoints_to_db({
+            "device": "phone-wp",
+            "waypoints": [{"rid": "rid-1", "desc": "New label", "lat": 51.5, "lon": -0.1, "rad": 200}],
+        })
+
+        wp = Waypoint.objects.get(rid="rid-1")
+        assert_that(wp.label, equal_to("New label"))
+        assert_that(float(wp.latitude), equal_to(51.5))
+        assert_that(wp.radius, equal_to(200))
+        assert_that(Waypoint.objects.count(), equal_to(1))
+
+    def test_returns_zero_for_unknown_device(self) -> None:
+        """Should return 0 when device does not exist."""
+        result = save_waypoints_to_db({
+            "device": "no-such-device",
+            "waypoints": [{"rid": "rid-1", "desc": "Home", "lat": 51.5, "lon": -0.1, "rad": 100}],
+        })
+        assert_that(result, equal_to(0))
+        assert_that(Waypoint.objects.count(), equal_to(0))
+
+    def test_returns_zero_when_device_has_no_owner(self, user_and_device: tuple[Any, Device]) -> None:
+        """Should return 0 when device has no owner."""
+        _, device = user_and_device
+        device.owner = None
+        device.save()
+
+        result = save_waypoints_to_db({
+            "device": "phone-wp",
+            "waypoints": [{"rid": "rid-1", "desc": "Home", "lat": 51.5, "lon": -0.1, "rad": 100}],
+        })
+        assert_that(result, equal_to(0))
+
+    def test_skips_waypoints_missing_lat_or_lon(self, user_and_device: tuple[Any, Device]) -> None:
+        """Should skip waypoints with missing lat or lon."""
+        result = save_waypoints_to_db({
+            "device": "phone-wp",
+            "waypoints": [
+                {"rid": "rid-1", "desc": "No lat", "lon": -0.1, "rad": 100},
+                {"rid": "rid-2", "desc": "Good", "lat": 51.5, "lon": -0.1, "rad": 100},
+            ],
+        })
+        assert_that(result, equal_to(1))
+        assert_that(Waypoint.objects.filter(rid="rid-1").exists(), is_(False))
+
+
+@pytest.mark.django_db
+class TestBroadcastTransition:
+    """Tests for _broadcast_transition WebSocket broadcast."""
+
+    @pytest.fixture
+    def plugin(self, mock_broker_context: MagicMock) -> OwnTracksPlugin:
+        return OwnTracksPlugin(mock_broker_context)
+
+    @pytest.mark.asyncio
+    async def test_broadcast_transition_to_channel_layer(self, plugin: OwnTracksPlugin) -> None:
+        """Should broadcast transition event to channel layer."""
+        mock_layer = AsyncMock()
+        mock_layer.group_send = AsyncMock()
+
+        transition_data = {
+            "id": 1, "device_id": "phone", "event": "enter",
+            "region_id": "rid-1", "description": "Home",
+            "timestamp": "2024-01-15T12:00:00+00:00",
+            "waypoint_label": "Home",
+        }
+
+        with patch("app.mqtt.plugin.get_channel_layer_lazy", return_value=mock_layer):
+            await plugin._broadcast_transition(transition_data)
+
+        mock_layer.group_send.assert_called_once()
+        call_args = mock_layer.group_send.call_args
+        assert_that(call_args[0][0], equal_to("locations"))
+        assert_that(call_args[0][1], has_entries(type="transition_event", data=transition_data))
+
+    @pytest.mark.asyncio
+    async def test_broadcast_transition_no_channel_layer(self, plugin: OwnTracksPlugin) -> None:
+        """Should not raise when channel layer is unavailable."""
+        with patch("app.mqtt.plugin.get_channel_layer_lazy", return_value=None):
+            await plugin._broadcast_transition({"id": 1})
+
+    @pytest.mark.asyncio
+    async def test_handle_transition_message_saves_to_db(
+        self, plugin: OwnTracksPlugin,
+    ) -> None:
+        """Should save Transition when device publishes transition message."""
+        from django.contrib.auth.models import User
+        user = User.objects.create_user(username="alice2", password="pass")
+        Device.objects.create(device_id="myphone", name="myphone", owner=user)
+
+        message = MagicMock()
+        message.topic = "owntracks/alice2/myphone"
+        message.data = json.dumps({
+            "_type": "transition",
+            "event": "enter",
+            "desc": "Home",
+            "tst": 1704067200,
+            "rid": "rid-home",
+            "lat": 51.5,
+            "lon": -0.1,
+            "acc": 10,
+        }).encode()
+
+        with patch.object(plugin, "_broadcast_transition", new_callable=AsyncMock):
+            await plugin.on_broker_message_received(client_id="client", message=message)
+
+        device = Device.objects.get(device_id="myphone")
+        assert_that(Transition.objects.filter(device=device).count(), equal_to(1))
+        t = Transition.objects.get(device=device)
+        assert_that(t.event, equal_to("enter"))
+        assert_that(t.region_id, equal_to("rid-home"))
+
+    @pytest.mark.asyncio
+    async def test_handle_waypoints_message_upserts_waypoints(
+        self, plugin: OwnTracksPlugin,
+    ) -> None:
+        """Should upsert Waypoints when device publishes waypoints message."""
+        from django.contrib.auth.models import User
+        user = User.objects.create_user(username="alice3", password="pass")
+        Device.objects.create(device_id="tablet", name="tablet", owner=user)
+
+        message = MagicMock()
+        message.topic = "owntracks/alice3/tablet"
+        message.data = json.dumps({
+            "_type": "waypoints",
+            "waypoints": [
+                {"_type": "waypoint", "desc": "Home", "lat": 51.5, "lon": -0.1, "rad": 100, "rid": "rid-a"},
+                {"_type": "waypoint", "desc": "Work", "lat": 51.52, "lon": -0.08, "rad": 50, "rid": "rid-b"},
+            ],
+        }).encode()
+
+        await plugin.on_broker_message_received(client_id="client", message=message)
+
+        assert_that(Waypoint.objects.count(), equal_to(2))
+        assert_that(Waypoint.objects.get(rid="rid-a").label, equal_to("Home"))

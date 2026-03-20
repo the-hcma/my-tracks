@@ -5,13 +5,13 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from hamcrest import assert_that, equal_to, has_entries, has_key, is_, none, any_of, instance_of
+from hamcrest import (any_of, assert_that, equal_to, has_entries, has_key,
+                      instance_of, is_, none)
 
-from app.mqtt.handlers import (OwnTracksMessageHandler,
-                                     extract_location_data, extract_lwt_data,
-                                     extract_transition_data,
-                                     parse_owntracks_message,
-                                     parse_owntracks_topic)
+from app.mqtt.handlers import (OwnTracksMessageHandler, extract_location_data,
+                               extract_lwt_data, extract_transition_data,
+                               extract_waypoint_data, parse_owntracks_message,
+                               parse_owntracks_topic)
 
 
 class TestParseOwnTracksMessage:
@@ -591,3 +591,99 @@ class TestOwnTracksMessageHandler:
         )
 
         assert_that(len(received_data), equal_to(0))
+
+
+class TestExtractWaypointData:
+    """Tests for extract_waypoint_data function."""
+
+    def test_valid_waypoints_message(self) -> None:
+        """Should extract waypoints from a valid waypoints message."""
+        message = {
+            "_type": "waypoints",
+            "waypoints": [
+                {"_type": "waypoint", "desc": "Home", "lat": 51.5, "lon": -0.1, "rad": 100, "rid": "uuid-1"},
+                {"_type": "waypoint", "desc": "Work", "lat": 51.52, "lon": -0.08, "rad": 50, "rid": "uuid-2"},
+            ],
+        }
+        result = extract_waypoint_data(message, {"user": "alice", "device": "phone"})
+
+        assert_that(result, has_entries(device="phone"))
+        assert_that(len(result["waypoints"]), equal_to(2))
+        assert_that(result["waypoints"][0], has_entries(rid="uuid-1", desc="Home", lat=51.5, lon=-0.1, rad=100))
+        assert_that(result["waypoints"][1], has_entries(rid="uuid-2", desc="Work"))
+
+    def test_empty_waypoints_list(self) -> None:
+        """Should return empty waypoints list for empty message."""
+        message = {"_type": "waypoints", "waypoints": []}
+        result = extract_waypoint_data(message, {"user": "alice", "device": "phone"})
+        assert_that(result, has_entries(device="phone"))
+        assert_that(result["waypoints"], equal_to([]))
+
+    def test_wrong_type_returns_none(self) -> None:
+        """Should return None for non-waypoints messages."""
+        message = {"_type": "location", "lat": 51.5, "lon": -0.1}
+        result = extract_waypoint_data(message, {"user": "alice", "device": "phone"})
+        assert_that(result, is_(none()))
+
+    def test_skips_waypoints_without_rid(self) -> None:
+        """Should skip waypoints missing the rid field."""
+        message = {
+            "_type": "waypoints",
+            "waypoints": [
+                {"desc": "No RID", "lat": 51.5, "lon": -0.1, "rad": 100},
+                {"desc": "Has RID", "lat": 51.6, "lon": -0.2, "rad": 50, "rid": "uuid-1"},
+            ],
+        }
+        result = extract_waypoint_data(message, {"user": "alice", "device": "phone"})
+        assert_that(len(result["waypoints"]), equal_to(1))
+        assert_that(result["waypoints"][0]["rid"], equal_to("uuid-1"))
+
+    def test_default_radius(self) -> None:
+        """Should default radius to 100 when missing."""
+        message = {
+            "_type": "waypoints",
+            "waypoints": [{"desc": "Place", "lat": 51.5, "lon": -0.1, "rid": "uuid-1"}],
+        }
+        result = extract_waypoint_data(message, {"user": "alice", "device": "phone"})
+        assert_that(result["waypoints"][0]["rad"], equal_to(100))
+
+
+class TestHandlerWaypointCallback:
+    """Tests for OwnTracksMessageHandler waypoint callback dispatch."""
+
+    @pytest.mark.asyncio
+    async def test_waypoints_message_triggers_callback(self) -> None:
+        """Should call on_waypoint callback for _type: waypoints messages."""
+        handler = OwnTracksMessageHandler()
+        received: list[dict] = []
+
+        handler.on_waypoint(received.append)
+
+        payload = json.dumps({
+            "_type": "waypoints",
+            "waypoints": [
+                {"desc": "Home", "lat": 51.5, "lon": -0.1, "rad": 100, "rid": "uuid-1"},
+            ],
+        }).encode()
+
+        await handler.handle_message("owntracks/alice/phone", payload)
+
+        assert_that(len(received), equal_to(1))
+        assert_that(received[0], has_entries(device="phone"))
+        assert_that(len(received[0]["waypoints"]), equal_to(1))
+
+    @pytest.mark.asyncio
+    async def test_location_does_not_trigger_waypoint_callback(self) -> None:
+        """Should not call waypoint callback for location messages."""
+        handler = OwnTracksMessageHandler()
+        received: list[dict] = []
+
+        handler.on_waypoint(received.append)
+
+        payload = json.dumps({
+            "_type": "location", "lat": 51.5, "lon": -0.1, "tst": 1704067200,
+        }).encode()
+
+        await handler.handle_message("owntracks/alice/phone", payload)
+
+        assert_that(len(received), equal_to(0))

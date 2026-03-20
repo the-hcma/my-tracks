@@ -21,7 +21,7 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes
 from django.contrib.auth.models import User
 
-from app.models import Device, Location, OwnTracksMessage
+from app.models import Device, Location, OwnTracksMessage, Transition, Waypoint
 from app.mqtt.handlers import OwnTracksMessageHandler
 from app.serializers import LocationSerializer
 
@@ -179,6 +179,124 @@ def save_lwt_to_db(lwt_data: dict[str, Any]) -> dict[str, Any] | None:
         return None
 
 
+def save_transition_to_db(transition_data: dict[str, Any]) -> dict[str, Any] | None:
+    """
+    Save a transition event to the database.
+
+    Matches the incoming rid to an existing Waypoint FK if one exists;
+    the FK stays null otherwise so no transition data is lost.
+
+    Args:
+        transition_data: Parsed transition data from OwnTracksMessageHandler
+
+    Returns:
+        Dictionary with transition info for WebSocket broadcast, or None on failure
+    """
+    try:
+        device_id = transition_data["device"]
+        try:
+            device = Device.objects.get(device_id=device_id)
+        except Device.DoesNotExist:
+            logger.warning("Transition received for unknown device: %s", device_id)
+            return None
+
+        region_id = transition_data.get("region_id", "")
+        waypoint = Waypoint.objects.filter(rid=region_id).first() if region_id else None
+
+        transition = Transition.objects.create(
+            device=device,
+            waypoint=waypoint,
+            event=transition_data["event"],
+            region_id=region_id,
+            description=transition_data.get("description") or "",
+            timestamp=transition_data["timestamp"],
+            latitude=transition_data.get("latitude"),
+            longitude=transition_data.get("longitude"),
+            accuracy=transition_data.get("accuracy"),
+        )
+
+        return {
+            "id": transition.pk,
+            "device_id": device_id,
+            "event": transition_data["event"],
+            "region_id": region_id,
+            "description": transition_data.get("description") or "",
+            "timestamp": transition_data["timestamp"].isoformat(),
+            "waypoint_label": waypoint.label if waypoint else None,
+        }
+
+    except Exception:
+        logger.exception("Failed to save transition from MQTT message")
+        return None
+
+
+def save_waypoints_to_db(waypoint_data: dict[str, Any]) -> int:
+    """
+    Upsert waypoints received from a device.
+
+    When a device publishes its waypoint list, this keeps the server in sync
+    without overwriting label or geometry edits made through the web UI.
+
+    Args:
+        waypoint_data: Parsed waypoint data from OwnTracksMessageHandler
+
+    Returns:
+        Number of waypoints processed
+    """
+    try:
+        device_id = waypoint_data["device"]
+        try:
+            device = Device.objects.select_related("owner").get(device_id=device_id)
+        except Device.DoesNotExist:
+            logger.warning("Waypoints received for unknown device: %s", device_id)
+            return 0
+
+        if device.owner is None:
+            logger.warning(
+                "Waypoints received for device with no owner: %s", device_id
+            )
+            return 0
+
+        valid_wps = [
+            wp for wp in waypoint_data.get("waypoints", [])
+            if wp.get("rid") and wp.get("lat") is not None and wp.get("lon") is not None
+        ]
+        if not valid_wps:
+            return 0
+
+        existing_by_rid = {
+            w.rid: w
+            for w in Waypoint.objects.filter(rid__in=[wp["rid"] for wp in valid_wps])
+        }
+
+        count = 0
+        for wp in valid_wps:
+            rid = wp["rid"]
+            existing = existing_by_rid.get(rid)
+            if existing:
+                existing.label = wp.get("desc") or existing.label
+                existing.latitude = wp["lat"]
+                existing.longitude = wp["lon"]
+                existing.radius = wp.get("rad", existing.radius)
+                existing.save(update_fields=["label", "latitude", "longitude", "radius", "updated_at"])
+            else:
+                Waypoint.objects.create(
+                    user=device.owner,
+                    rid=rid,
+                    label=wp.get("desc") or "",
+                    latitude=wp["lat"],
+                    longitude=wp["lon"],
+                    radius=wp.get("rad", 100),
+                )
+            count += 1
+
+        return count
+
+    except Exception:
+        logger.exception("Failed to save waypoints from MQTT message")
+        return 0
+
+
 class OwnTracksPlugin(BasePlugin[BrokerContext]):
     """
     MQTT Plugin that processes OwnTracks messages.
@@ -201,6 +319,7 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
         self._handler.on_location(self._handle_location)
         self._handler.on_lwt(self._handle_lwt)
         self._handler.on_transition(self._handle_transition)
+        self._handler.on_waypoint(self._handle_waypoints_from_device)
 
     def _get_handler_writer_ssl(self, client_id: str) -> ssl.SSLObject | None:
         """Try to get the SSL object from a client's handler writer."""
@@ -341,7 +460,7 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
         """
         Handle a parsed transition message.
 
-        Transition messages indicate region enter/exit events.
+        Saves to database and broadcasts via WebSocket.
         """
         transport = transition_data.get("transport", "mqtt")
         identity = transition_data.get("tls_identity", "")
@@ -354,7 +473,42 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
             transition_data.get("description"),
             identity,
         )
-        # TODO: Store transition events when model supports it
+
+        saved = await sync_to_async(save_transition_to_db)(transition_data)
+        if saved is None:
+            return
+
+        logger.info(
+            "[%s] Transition saved: id=%s, device=%s, event=%s, waypoint=%s",
+            transport,
+            saved.get("id"),
+            saved.get("device_id"),
+            saved.get("event"),
+            saved.get("waypoint_label") or saved.get("region_id"),
+        )
+
+        await self._broadcast_transition(saved, transport=transport)
+
+    async def _handle_waypoints_from_device(self, waypoint_data: dict[str, Any]) -> None:
+        """
+        Handle an incoming waypoint list published by a device.
+
+        Upserts Waypoint rows by rid to keep the server in sync with the device.
+        """
+        transport = waypoint_data.get("transport", "mqtt")
+        device_id = waypoint_data.get("device")
+        count = len(waypoint_data.get("waypoints", []))
+
+        logger.info(
+            "[%s] Waypoints from device: device=%s, count=%d",
+            transport, device_id, count,
+        )
+
+        saved = await sync_to_async(save_waypoints_to_db)(waypoint_data)
+        logger.info(
+            "[%s] Waypoints upserted: device=%s, processed=%d",
+            transport, device_id, saved,
+        )
 
     async def _broadcast_location(
         self,
@@ -412,6 +566,35 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
             )
         except Exception:
             logger.exception("[%s] WebSocket broadcast failed for device status", transport)
+
+    async def _broadcast_transition(
+        self,
+        transition_data: dict[str, Any],
+        *,
+        transport: str = "mqtt",
+    ) -> None:
+        """Broadcast a geofence transition event to WebSocket clients."""
+        channel_layer = get_channel_layer_lazy()
+        if channel_layer is None:
+            logger.warning("[%s] WebSocket broadcast skipped: no channel layer", transport)
+            return
+
+        try:
+            await channel_layer.group_send(
+                "locations",
+                {
+                    "type": "transition_event",
+                    "data": transition_data,
+                },
+            )
+            logger.info(
+                "[%s] WebSocket broadcast completed for transition: id=%s, device=%s",
+                transport,
+                transition_data.get("id"),
+                transition_data.get("device_id"),
+            )
+        except Exception:
+            logger.exception("[%s] WebSocket broadcast failed for transition", transport)
 
     # -- Protocol version check ------------------------------------------
 
