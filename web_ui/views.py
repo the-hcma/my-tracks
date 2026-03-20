@@ -21,9 +21,10 @@ from django.utils import timezone as tz
 from app.apps import get_mqtt_broker
 from app.models import (CertificateAuthority, ClientCertificate, Device,
                         Location, ServerCertificate, SmtpConfig, Transition,
-                        UserProfile, Waypoint)
+                        TransitionAction, UserProfile, Waypoint)
 from app.mqtt.commands import CommandPublisher
-from app.notifications import send_test_email, smtp_friendly_error
+from app.notifications import (get_smtp_backend, send_test_email,
+                               smtp_friendly_error)
 from app.pki import (ALLOWED_KEY_SIZES, DEFAULT_CA_VALIDITY_DAYS,
                      DEFAULT_CERT_VALIDITY_DAYS, VALIDITY_PRESETS)
 from app.pki import decrypt_private_key as pki_decrypt_private_key
@@ -383,6 +384,13 @@ def profile(request: HttpRequest) -> HttpResponse:
         .select_related('waypoint', 'device')
         .order_by('-timestamp')[:50]
     )
+    context['actions'] = list(
+        TransitionAction.objects
+        .filter(user=request.user)
+        .select_related('waypoint')
+        .order_by('waypoint__label', 'event')
+    )
+    context['smtp_configured'] = SmtpConfig.get() is not None
 
     return render(request, 'web_ui/profile.html', context)
 
@@ -448,6 +456,28 @@ def geofences(request: HttpRequest) -> HttpResponse:
             )
             async_to_sync(publisher.set_waypoints)(mqtt_device_id, payload, owner=request.user.username)
 
+        elif form_type == 'add_action':
+            wp_id_raw = (request.POST.get('waypoint_id') or '').strip()
+            event = (request.POST.get('event') or 'any').strip()
+            email = (request.POST.get('email_address') or '').strip()
+            if email and event in ('enter', 'leave', 'any'):
+                waypoint: Waypoint | None = None
+                if wp_id_raw:
+                    waypoint = get_object_or_404(Waypoint, pk=wp_id_raw, user=request.user)
+                TransitionAction.objects.create(
+                    user=request.user,
+                    waypoint=waypoint,
+                    event=event,
+                    action_type=TransitionAction.ACTION_EMAIL,
+                    email_address=email,
+                )
+
+        elif form_type == 'delete_action':
+            action = get_object_or_404(
+                TransitionAction, pk=request.POST['action_id'], user=request.user
+            )
+            action.delete()
+
         next_url = (request.POST.get('next_url') or '').strip()
         if next_url.startswith('/'):
             return redirect(next_url)
@@ -460,10 +490,17 @@ def geofences(request: HttpRequest) -> HttpResponse:
     )
     devices = list(Device.objects.filter(owner=request.user).order_by('name'))
     user_profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    actions = list(
+        TransitionAction.objects
+        .filter(user=request.user)
+        .select_related('waypoint')
+        .order_by('waypoint__label', 'event')
+    )
     return render(request, 'web_ui/geofences.html', {
         'waypoints': waypoints,
         'devices': devices,
         'user_profile': user_profile,
+        'actions': actions,
     })
 
 
@@ -919,6 +956,43 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
     context['hostname'] = admin_info.hostname
 
     return render(request, 'web_ui/admin_panel.html', context)
+
+
+@login_required
+def action_test(request: HttpRequest) -> JsonResponse:
+    """Send a test email for a specific TransitionAction. Returns JSON."""
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'POST required.'}, status=405)
+    action = get_object_or_404(
+        TransitionAction, pk=request.POST.get('action_id'), user=request.user
+    )
+    config = SmtpConfig.get()
+    if config is None:
+        return JsonResponse({'ok': False, 'error': 'SMTP is not configured yet.'})
+    wp_label = action.waypoint.label if action.waypoint else 'any geofence'
+    logger.info(
+        "[http] User '%s' testing action %s (→ %s)",
+        request.user.username, action.pk, action.email_address,
+    )
+    try:
+        from django.core.mail import EmailMessage as DjangoEmailMessage
+        backend = get_smtp_backend(config)
+        DjangoEmailMessage(
+            subject=f"[my-tracks] Test — automation rule for {wp_label}",
+            body=(
+                f"This is a test of your automation rule:\n\n"
+                f"  Geofence: {wp_label}\n"
+                f"  Event:    {action.get_event_display()}\n"
+                f"  Recipient: {action.email_address}\n\n"
+                f"If you receive this, the rule is correctly configured."
+            ),
+            from_email=config.from_address,
+            to=[action.email_address],
+            connection=backend,
+        ).send()
+        return JsonResponse({'ok': True})
+    except Exception as e:
+        return JsonResponse({'ok': False, 'error': smtp_friendly_error(e)})
 
 
 @login_required

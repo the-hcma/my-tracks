@@ -663,6 +663,74 @@ class SmtpConfig(models.Model):
         return cls.objects.filter(pk=1).first()
 
 
+class TransitionAction(models.Model):
+    """
+    Rule that triggers an email when a geofence transition fires.
+
+    Belongs to a user and optionally a specific Waypoint (null = any geofence).
+    The event field controls which direction triggers the rule.
+    """
+
+    ENTER = 'enter'
+    LEAVE = 'leave'
+    ANY = 'any'
+    EVENT_CHOICES = [
+        (ENTER, 'Enter'),
+        (LEAVE, 'Leave'),
+        (ANY, 'Either'),
+    ]
+
+    ACTION_EMAIL = 'email'
+    ACTION_CHOICES = [
+        (ACTION_EMAIL, 'Email'),
+    ]
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='transition_actions',
+    )
+    waypoint = models.ForeignKey(
+        Waypoint,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='actions',
+        help_text="Target waypoint; null means 'any geofence'",
+    )
+    event = models.CharField(
+        max_length=10,
+        choices=EVENT_CHOICES,
+        default=ANY,
+        help_text="'enter', 'leave', or 'any'",
+    )
+    action_type = models.CharField(
+        max_length=20,
+        choices=ACTION_CHOICES,
+        default=ACTION_EMAIL,
+    )
+    email_address = models.EmailField(
+        help_text="Recipient email address for the notification",
+    )
+    is_active = models.BooleanField(
+        default=True,  # type: ignore[reportArgumentType]
+        help_text="Whether this rule is currently active",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['waypoint__label', 'event']
+        verbose_name = 'Transition Action'
+        verbose_name_plural = 'Transition Actions'
+        indexes = [
+            models.Index(fields=['user', 'is_active'], name='ta_user_active_idx'),
+        ]
+
+    def __str__(self) -> str:
+        wp_label = self.waypoint.label if self.waypoint else 'Any'
+        return f"{self.user.username}: {wp_label} {self.event} → {self.email_address}"
+
+
 @receiver(post_save, sender=User)
 def create_user_profile(
     sender: type[User], instance: User, created: bool, **kwargs: Any
