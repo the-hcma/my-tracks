@@ -22,7 +22,11 @@
       "Bash(find docs:*)",
       "Bash(find . -name PLAN*.md -not -path ./.claude/*)",
       "Bash(GRAPHITE_PROFILE=thehcma gt create -a -m \"docs: mark Phase 9 Step 2 complete in implementation plan\")",
-      "Bash(GRAPHITE_PROFILE=thehcma gt ls -s)"
+      "Bash(GRAPHITE_PROFILE=thehcma gt ls -s)",
+      "Bash(grep -E \"\\\\.py$\")",
+      "Bash(ls -1 /Users/hcma/work/ai/my-tracks/tests/python/*.py)",
+      "Bash(xargs basename:*)",
+      "Bash(GRAPHITE_PROFILE=thehcma gt create -a -m \"feat\\(phase10/step1\\): SMTP configuration in admin panel with test email\")"
     ]
   }
 }

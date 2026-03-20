@@ -20,9 +20,10 @@ from django.utils import timezone as tz
 
 from app.apps import get_mqtt_broker
 from app.models import (CertificateAuthority, ClientCertificate, Device,
-                        Location, ServerCertificate, Transition, UserProfile,
-                        Waypoint)
+                        Location, ServerCertificate, SmtpConfig, Transition,
+                        UserProfile, Waypoint)
 from app.mqtt.commands import CommandPublisher
+from app.notifications import send_test_email, smtp_friendly_error
 from app.pki import (ALLOWED_KEY_SIZES, DEFAULT_CA_VALIDITY_DAYS,
                      DEFAULT_CERT_VALIDITY_DAYS, VALIDITY_PRESETS)
 from app.pki import decrypt_private_key as pki_decrypt_private_key
@@ -823,6 +824,39 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
             except ClientCertificate.DoesNotExist:
                 context['cc_error'] = 'Client certificate not found.'
 
+        if form_type == 'save_smtp':
+            host = str(request.POST.get('smtp_host', '')).strip()
+            port_raw = str(request.POST.get('smtp_port', '587')).strip()
+            username = str(request.POST.get('smtp_username', '')).strip()
+            password_raw = request.POST.get('smtp_password', '')
+            from_address = str(request.POST.get('smtp_from_address', '')).strip()
+
+            if not host:
+                context['smtp_error'] = 'Host is required.'
+            elif not from_address:
+                context['smtp_error'] = 'From address is required.'
+            else:
+                try:
+                    port = int(port_raw)
+                    use_ssl = port == 465
+                    use_tls = port in (587, 2525)
+                    config = SmtpConfig.get() or SmtpConfig()
+                    config.host = host
+                    config.port = port
+                    config.username = username
+                    config.use_tls = use_tls
+                    config.use_ssl = use_ssl
+                    config.from_address = from_address
+                    if password_raw:
+                        config.encrypted_password = pki_encrypt_private_key(password_raw.encode())
+                    config.save()
+                    logger.info("[http] Admin '%s' updated SMTP configuration", request.user.username)
+                    context['smtp_success'] = 'SMTP configuration saved.'
+                except ValueError:
+                    context['smtp_error'] = 'Port must be a number.'
+                except Exception as e:
+                    context['smtp_error'] = str(e)
+
     users = list(User.objects.all().order_by('username'))
     user_id_to_active_cert = {
         cc.user_id: cc
@@ -864,7 +898,15 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
     pki_has_message = any(context.get(k) for k in (
         'ca_success', 'ca_error', 'sc_success', 'sc_error', 'cc_success', 'cc_error',
     ))
-    context['active_tab'] = 'pki' if pki_has_message else 'users'
+    smtp_has_message = any(context.get(k) for k in ('smtp_success', 'smtp_error'))
+    if smtp_has_message:
+        context['active_tab'] = 'email'
+    elif pki_has_message:
+        context['active_tab'] = 'pki'
+    else:
+        context['active_tab'] = 'users'
+
+    context['smtp_config'] = SmtpConfig.get()
 
     admin_info = get_server_info(request)
     san_candidates: list[str] = list(admin_info.lan_ips)
@@ -877,3 +919,28 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
     context['hostname'] = admin_info.hostname
 
     return render(request, 'web_ui/admin_panel.html', context)
+
+
+@login_required
+@user_passes_test(_is_staff, login_url='/')
+def smtp_test(request: HttpRequest) -> JsonResponse:
+    """Send a test email using the stored SMTP config. Returns JSON."""
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'POST required.'}, status=405)
+    to = str(request.POST.get('to', '')).strip()
+    if not to:
+        return JsonResponse({'ok': False, 'error': 'Recipient address is required.'})
+    config = SmtpConfig.get()
+    if config is None:
+        return JsonResponse({'ok': False, 'error': 'SMTP is not configured yet.'})
+    active_sc = ServerCertificate.objects.filter(is_active=True).first()
+    server_names = (
+        get_certificate_sans(active_sc.certificate_pem.encode())
+        if active_sc else None
+    )
+    logger.info("[http] Admin '%s' sending test email to %s", request.user.username, to)
+    try:
+        send_test_email(to, config, server_names=server_names)
+        return JsonResponse({'ok': True})
+    except Exception as e:
+        return JsonResponse({'ok': False, 'error': smtp_friendly_error(e)})

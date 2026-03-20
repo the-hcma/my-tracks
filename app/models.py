@@ -619,6 +619,50 @@ class Transition(models.Model):
         return f"{self.device.device_id} {self.event} {self.description} @ {self.timestamp}"
 
 
+class SmtpConfig(models.Model):
+    """
+    Singleton SMTP configuration for outgoing email notifications.
+
+    Only one row ever exists (pk=1, enforced by save()). Use SmtpConfig.get()
+    to retrieve it; returns None when SMTP has not been configured yet.
+    """
+
+    host = models.CharField(max_length=255, help_text="SMTP server hostname")
+    port = models.PositiveIntegerField(
+        default=587,  # type: ignore[reportArgumentType]
+        help_text="SMTP port (587 for STARTTLS, 465 for SSL)",
+    )
+    username = models.CharField(max_length=255, blank=True)
+    encrypted_password = models.BinaryField(
+        blank=True,
+        default=b"",
+        help_text="SMTP password encrypted at rest (Fernet/SECRET_KEY)",
+    )
+    use_tls = models.BooleanField(default=True, help_text="Use STARTTLS")  # type: ignore[reportArgumentType]
+    use_ssl = models.BooleanField(
+        default=False,  # type: ignore[reportArgumentType]
+        help_text="Use implicit SSL (port 465)",
+    )
+    from_address = models.EmailField(help_text="From address for outgoing emails")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "SMTP configuration"
+
+    def __str__(self) -> str:
+        return f"SMTP {self.host}:{self.port}"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Enforce singleton by always writing to pk=1."""
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def get(cls) -> "SmtpConfig | None":
+        """Return the singleton config, or None if SMTP has not been configured."""
+        return cls.objects.filter(pk=1).first()
+
+
 @receiver(post_save, sender=User)
 def create_user_profile(
     sender: type[User], instance: User, created: bool, **kwargs: Any

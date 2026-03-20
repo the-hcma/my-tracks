@@ -14,6 +14,7 @@ urlpatterns = [
     path('profile/download-ca/', views.download_ca_cert, name='download_ca_cert'),
     path('geofences/', views.geofences, name='geofences'),
     path('admin-panel/', views.admin_panel, name='admin_panel'),
+    path('admin-panel/smtp-test/', views.smtp_test, name='smtp_test'),
     path('about/', views.about, name='about'),
     path('health/', views.health, name='health'),
     path('network-info/', views.network_info, name='network_info'),

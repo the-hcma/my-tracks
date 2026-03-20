@@ -1556,10 +1556,10 @@ class TestBroadcastTransition:
         """Should save Transition when device publishes transition message."""
         from django.contrib.auth.models import User
         user = User.objects.create_user(username="alice2", password="pass")
-        Device.objects.create(device_id="myphone", name="myphone", owner=user)
+        Device.objects.create(device_id="alice2phone", name="alice2phone", owner=user)
 
         message = MagicMock()
-        message.topic = "owntracks/alice2/myphone"
+        message.topic = "owntracks/alice2/alice2phone"
         message.data = json.dumps({
             "_type": "transition",
             "event": "enter",
@@ -1574,7 +1574,7 @@ class TestBroadcastTransition:
         with patch.object(plugin, "_broadcast_transition", new_callable=AsyncMock):
             await plugin.on_broker_message_received(client_id="client", message=message)
 
-        device = Device.objects.get(device_id="myphone")
+        device = Device.objects.get(device_id="alice2phone")
         assert_that(Transition.objects.filter(device=device).count(), equal_to(1))
         t = Transition.objects.get(device=device)
         assert_that(t.event, equal_to("enter"))
