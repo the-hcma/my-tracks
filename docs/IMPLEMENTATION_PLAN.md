@@ -712,7 +712,7 @@ New fields and models, one migration:
   ```
   Indexed on (device, -timestamp) and (waypoint, -timestamp).
 
-**Step 2: MQTT integration** ← NEXT
+**Step 2: MQTT integration** ✅
 
 - **Persist transitions** — complete the TODO in `plugin.py`: implement `save_transition_to_db()` that creates a `Transition` record, matching `rid` to an existing `Waypoint` (by `rid`) for the FK if one exists. Broadcast the event over WebSocket so the live map can show enter/leave indicators.
 
@@ -736,7 +736,34 @@ Geofences tab on the profile page (not a separate page):
 - **Recent Transitions** — last 50 enter/leave events table (geofence, event, device, time).
 - **`/geofences/` endpoint** — handles add/edit/delete/sync POSTs; `next_url` field redirects back to the profile Geofences tab after each action.
 
-### Phase 10: Friends & Location Sharing
+### Phase 10: Notifications & Automations
+
+Two-part feature: admin-managed SMTP configuration and per-user geofence transition rules that trigger email notifications.
+
+**Step 1: SMTP configuration (admin)**
+
+- **`SmtpConfig` singleton model** — one row, fields: `host`, `port` (default 587), `username`, `password` (encrypted at rest via Django's `make_password` / a dedicated secrets field), `use_tls` (bool, default True), `from_address`, `updated_at`. Enforced as singleton via `save()` override or `get_or_create(pk=1)`.
+- **Admin panel section** — new "Email / SMTP" card on `/admin-panel/`, visible only to staff users. Form fields for all `SmtpConfig` fields + a "Recipient" field used only for the test. CSRF-protected POST to a dedicated endpoint (`/admin/smtp/`).
+- **"Send test email" button** — fires `POST /admin/smtp/test/` with a `to` address. Django view connects to the SMTP server using the stored config, sends a fixed test message (`subject: "my-tracks SMTP test"`, `body: "SMTP is configured correctly."`), and returns JSON `{"ok": true}` or `{"ok": false, "error": "..."}`. The page shows an inline success/error banner without a full reload (small `fetch()` call).
+- **`get_smtp_backend()`** helper in `app/notifications.py` — constructs an `django.core.mail.backends.smtp.EmailBackend` from the stored `SmtpConfig`; returns `None` if no config exists. All email sending goes through this helper.
+
+**Step 2: Geofence transition actions**
+
+- **`TransitionAction` model** — fields: `user` (FK User), `waypoint` (FK `Waypoint`, null=True — null means "any geofence"), `event` (CharField, choices: `enter` / `leave` / `any`), `action_type` (CharField, choices: `email`), `email_address` (EmailField), `is_active` (bool, default True), `created_at`.
+- **Geofences page UI** — new "Automations" section below the waypoints table. Lists existing rules in a table (geofence, event, action, address, active toggle, delete). "Add rule" form: geofence dropdown (options: each waypoint label + "Any geofence"), event dropdown (Enter / Leave / Either), email address input.
+- **Email content** — subject: `"[my-tracks] {username} {entered|left} {waypoint label}"`. Body: `"{username} {entered|left} {waypoint label} at {timestamp} (device: {device name})."`. Sent from `SmtpConfig.from_address`.
+- **Rule evaluation** — in `save_transition_to_db()` (or a post-save signal), after the `Transition` row is created, query `TransitionAction.objects.filter(user=device.owner, is_active=True)` and match against the event. For each match, call `send_transition_email()` from `app/notifications.py` using `get_smtp_backend()`. Failures are logged but do not raise (same pattern as WebSocket broadcast).
+- **`app/notifications.py`** — `get_smtp_backend()`, `send_transition_email(transition, action)`, and `send_test_email(to, smtp_config)` as the three public functions.
+
+**Tests**
+- `SmtpConfig` singleton enforcement
+- `get_smtp_backend()` returns None when unconfigured
+- `send_transition_email()` with mocked backend: correct subject/body/recipient
+- Rule matching: enter-only rule not fired on leave; `waypoint=None` rule fires for any geofence
+- Admin SMTP form: only staff can access; test endpoint returns correct JSON on success and on `SMTPException`
+- Geofences page: add/delete automation rule; rule appears in context
+
+### Phase 11: Friends & Location Sharing
 
 Backward-compatible sharing model layered on top of the existing single-user visibility:
 
