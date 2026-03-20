@@ -445,7 +445,7 @@ def geofences(request: HttpRequest) -> HttpResponse:
                 if broker is not None and broker.is_running
                 else CommandPublisher()
             )
-            async_to_sync(publisher.set_waypoints)(mqtt_device_id, payload)
+            async_to_sync(publisher.set_waypoints)(mqtt_device_id, payload, owner=request.user.username)
 
         next_url = (request.POST.get('next_url') or '').strip()
         if next_url.startswith('/'):
