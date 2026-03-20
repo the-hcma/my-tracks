@@ -179,6 +179,40 @@ def save_lwt_to_db(lwt_data: dict[str, Any]) -> dict[str, Any] | None:
         return None
 
 
+def _fire_transition_actions(transition: Transition) -> None:
+    """
+    Evaluate TransitionAction rules and send emails for any that match.
+
+    Called synchronously after the Transition row is committed.
+    Failures are logged and suppressed so they never interrupt message processing.
+    """
+    from app.models import TransitionAction
+    from app.notifications import send_transition_email
+
+    owner = transition.device.owner
+    if owner is None:
+        return
+
+    actions = TransitionAction.objects.filter(
+        user=owner,
+        is_active=True,
+    ).select_related('waypoint')
+
+    for action in actions:
+        if action.waypoint is not None and action.waypoint != transition.waypoint:
+            continue
+        if action.event != TransitionAction.ANY and action.event != transition.event:
+            continue
+        try:
+            send_transition_email(transition, action)
+        except Exception:
+            logger.exception(
+                "Failed to send transition email (action_id=%s, to=%s)",
+                action.pk,
+                action.email_address,
+            )
+
+
 def save_transition_to_db(transition_data: dict[str, Any]) -> dict[str, Any] | None:
     """
     Save a transition event to the database.
@@ -214,6 +248,8 @@ def save_transition_to_db(transition_data: dict[str, Any]) -> dict[str, Any] | N
             longitude=transition_data.get("longitude"),
             accuracy=transition_data.get("accuracy"),
         )
+
+        _fire_transition_actions(transition)
 
         return {
             "id": transition.pk,

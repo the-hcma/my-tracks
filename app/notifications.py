@@ -6,6 +6,7 @@ All functions that send email raise on failure — callers are responsible for
 catching and logging.
 """
 import logging
+import math
 import smtplib
 import socket
 from typing import TYPE_CHECKING
@@ -16,9 +17,19 @@ from django.core.mail.backends.smtp import EmailBackend
 from app.pki import decrypt_private_key
 
 if TYPE_CHECKING:
-    from app.models import SmtpConfig
+    from app.models import SmtpConfig, Transition, TransitionAction
 
 logger = logging.getLogger(__name__)
+
+
+def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Return the great-circle distance in metres between two WGS-84 points."""
+    r = 6_371_000
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlam = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlam / 2) ** 2
+    return 2 * r * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
 def get_smtp_backend(config: "SmtpConfig") -> EmailBackend:
@@ -72,6 +83,73 @@ def send_test_email(
     )
     msg.send()
     logger.info("Test email sent to %s via %s:%s", to, config.host, config.port)
+
+
+def send_transition_email(transition: "Transition", action: "TransitionAction") -> None:
+    """
+    Send a notification email for a geofence transition event. Raises on failure.
+
+    Args:
+        transition: The Transition instance that fired.
+        action: The TransitionAction rule that matched.
+    """
+    from app.models import SmtpConfig
+    config = SmtpConfig.get()
+    if config is None:
+        logger.debug("send_transition_email: no SMTP config, skipping")
+        return
+
+    device_name = transition.device.name or transition.device.device_id
+    waypoint_label = (
+        transition.waypoint.label if transition.waypoint else transition.description
+    ) or "unknown geofence"
+    owner = transition.device.owner
+    display_name = (
+        owner.get_full_name() or owner.username if owner else device_name
+    )
+
+    verb = "entered" if transition.event == "enter" else "left"
+    ts_str = transition.timestamp.strftime("%Y-%m-%d %H:%M:%S UTC")
+
+    distance_line = ""
+    if (
+        transition.latitude is not None
+        and transition.longitude is not None
+        and transition.waypoint is not None
+    ):
+        dist_m = _haversine_m(
+            float(str(transition.latitude)), float(str(transition.longitude)),
+            float(str(transition.waypoint.latitude)), float(str(transition.waypoint.longitude)),
+        )
+        if dist_m >= 1000:
+            distance_line = f"Distance from geofence center: {dist_m / 1000:.2f} km"
+        else:
+            distance_line = f"Distance from geofence center: {dist_m:.0f} m"
+
+    subject = f"[my-tracks] {display_name} {verb} {waypoint_label}"
+    lines = [
+        f"{display_name} {verb} {waypoint_label}.",
+        "",
+        f"  Event:  {transition.event}",
+        f"  When:   {ts_str}",
+        f"  Device: {device_name}",
+    ]
+    if distance_line:
+        lines.append(f"  {distance_line}")
+    body = "\n".join(lines)
+
+    backend = get_smtp_backend(config)
+    EmailMessage(
+        subject=subject,
+        body=body,
+        from_email=config.from_address,
+        to=[action.email_address],
+        connection=backend,
+    ).send()
+    logger.info(
+        "Transition email sent to %s: %s %s %s",
+        action.email_address, display_name, verb, waypoint_label,
+    )
 
 
 def smtp_friendly_error(exc: Exception) -> str:

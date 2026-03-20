@@ -4,7 +4,7 @@ from django.contrib import admin
 
 from .models import (CertificateAuthority, ClientCertificate, Device, Location,
                      OwnTracksMessage, ServerCertificate, SmtpConfig,
-                     Transition, UserProfile, Waypoint)
+                     Transition, TransitionAction, UserProfile, Waypoint)
 
 
 @admin.register(Device)
@@ -127,3 +127,15 @@ class TransitionAdmin(admin.ModelAdmin):
     search_fields: tuple[str, ...] = ('device__device_id', 'description', 'region_id')
     readonly_fields: tuple[str, ...] = ('received_at',)
     date_hierarchy: str = 'timestamp'
+
+
+@admin.register(TransitionAction)
+class TransitionActionAdmin(admin.ModelAdmin):
+    """Admin interface for TransitionAction model."""
+
+    list_display: tuple[str, ...] = (
+        'user', 'waypoint', 'event', 'action_type', 'email_address', 'is_active', 'created_at',
+    )
+    list_filter: tuple[str, ...] = ('is_active', 'event', 'action_type', 'user')
+    search_fields: tuple[str, ...] = ('user__username', 'waypoint__label', 'email_address')
+    readonly_fields: tuple[str, ...] = ('created_at',)

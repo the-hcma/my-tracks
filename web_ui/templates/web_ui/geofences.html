@@ -290,6 +290,65 @@
             margin-top: 0.75rem;
         }
 
+        /* ── Automations ── */
+        .actions-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.875rem;
+            margin-bottom: 1rem;
+        }
+        .actions-table th {
+            text-align: left;
+            padding: 0.5rem 0.75rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border);
+        }
+        .actions-table td {
+            padding: 0.55rem 0.75rem;
+            border-bottom: 1px solid var(--border);
+            vertical-align: middle;
+        }
+        .actions-table tr:last-child td { border-bottom: none; }
+
+        .add-action-form {
+            display: flex;
+            gap: 0.6rem;
+            align-items: flex-end;
+            flex-wrap: wrap;
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border);
+        }
+        .add-action-form .form-field { flex: 1; min-width: 120px; }
+        .add-action-form label {
+            display: block;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            color: var(--text-muted);
+            margin-bottom: 0.3rem;
+        }
+        .add-action-form select,
+        .add-action-form input[type="email"] {
+            width: 100%;
+            padding: 0.5rem 0.75rem;
+            background: var(--input-bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-size: 0.875rem;
+        }
+        .add-action-form select:focus,
+        .add-action-form input[type="email"]:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
         /* ── Messages ── */
         .message {
             padding: 0.75rem 1rem;
@@ -434,6 +493,74 @@
         {% else %}
         <p class="muted">No devices linked to your account.</p>
         {% endif %}
+    </div>
+
+    <!-- Automations card -->
+    <div class="card">
+        <div class="section-title">Automations</div>
+
+        {% if actions %}
+        <table class="actions-table">
+            <thead>
+                <tr>
+                    <th>Geofence</th>
+                    <th>Event</th>
+                    <th>Action</th>
+                    <th>Recipient</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for action in actions %}
+                <tr>
+                    <td>{{ action.waypoint.label|default:"Any geofence" }}</td>
+                    <td>{{ action.get_event_display }}</td>
+                    <td>Email</td>
+                    <td class="muted">{{ action.email_address }}</td>
+                    <td>
+                        <form method="post" style="display:inline"
+                              onsubmit="return confirm('Delete this automation rule?')">
+                            {% csrf_token %}
+                            <input type="hidden" name="form_type" value="delete_action">
+                            <input type="hidden" name="action_id" value="{{ action.pk }}">
+                            <button type="submit" class="btn btn-danger" style="padding:0.3rem 0.6rem;font-size:0.8rem">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="empty-state" style="text-align:left;padding:0;margin-bottom:0.5rem">No automation rules yet.</p>
+        {% endif %}
+
+        <form method="post" class="add-action-form">
+            {% csrf_token %}
+            <input type="hidden" name="form_type" value="add_action">
+            <div class="form-field">
+                <label>Geofence</label>
+                <select name="waypoint_id">
+                    <option value="">Any geofence</option>
+                    {% for wp in waypoints %}
+                    <option value="{{ wp.pk }}">{{ wp.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-field">
+                <label>Event</label>
+                <select name="event">
+                    <option value="any">Either</option>
+                    <option value="enter">Enter</option>
+                    <option value="leave">Leave</option>
+                </select>
+            </div>
+            <div class="form-field" style="flex:2;min-width:160px">
+                <label>Recipient email</label>
+                <input type="email" name="email_address" placeholder="notify@example.com" required>
+            </div>
+            <button type="submit" class="btn btn-primary" style="white-space:nowrap">+ Add rule</button>
+        </form>
+        <p class="sync-note">Rules fire when a device owned by your account crosses a geofence boundary. Requires SMTP to be configured by an admin.</p>
     </div>
 </div>
 
