@@ -82,7 +82,7 @@ def save_location_to_db(location_data: dict[str, Any]) -> dict[str, Any] | None:
         device_id = location_data["device"]
         device, _created = Device.objects.get_or_create(
             device_id=device_id,
-            defaults={"name": f"Device {device_id}"},
+            defaults={"name": device_id},
         )
 
         # Mark device as online (receiving location = device is connected)
@@ -93,10 +93,13 @@ def save_location_to_db(location_data: dict[str, Any]) -> dict[str, Any] | None:
             updates["is_online"] = True
         if mqtt_user and device.mqtt_user != mqtt_user:
             updates["mqtt_user"] = mqtt_user
-        if mqtt_user and device.owner_id is None:
-            owner = User.objects.filter(username=mqtt_user).first()
-            if owner is not None:
-                updates["owner"] = owner
+        if device.owner_id is None:
+            # Prefer TLS CN (authenticated identity) over mqtt_user (topic string)
+            owner_username = location_data.get("tls_cn") or mqtt_user
+            if owner_username:
+                owner = User.objects.filter(username=owner_username).first()
+                if owner is not None:
+                    updates["owner"] = owner
         if updates:
             Device.objects.filter(pk=device.pk).update(**updates)
 
@@ -487,8 +490,10 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
         if session is not None:
             client_ip = session.remote_address
 
+        tls_info = self._client_tls.get(client_id)
+        tls_cn = tls_info.cn if tls_info is not None else ""
         payload = bytes(message.data) if isinstance(message.data, bytearray) else message.data
         await self._handler.handle_message(
             topic, payload, client_ip=client_ip,
-            transport=transport, tls_identity=identity,
+            transport=transport, tls_identity=identity, tls_cn=tls_cn,
         )

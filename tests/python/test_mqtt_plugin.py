@@ -1026,7 +1026,7 @@ class TestSaveLocationToDbEdgeCases(TestCase):
         assert_that(location.ip_address, equal_to("10.0.0.5"))
 
     def test_save_location_creates_device_with_default_name(self) -> None:
-        """Should create a new device with 'Device {id}' naming pattern."""
+        """Should create a new device whose name defaults to its device_id."""
         location_data = {
             "device": "newdevice99",
             "latitude": 35.6762,
@@ -1038,7 +1038,7 @@ class TestSaveLocationToDbEdgeCases(TestCase):
         assert_that(result, is_not(none()))
 
         device = Device.objects.get(device_id="newdevice99")
-        assert_that(device.name, equal_to("Device newdevice99"))
+        assert_that(device.name, equal_to("newdevice99"))
 
 
 class TestSaveLwtToDbEdgeCases(TestCase):

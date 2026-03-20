@@ -6,6 +6,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Profile - My Tracks</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🗺️</text></svg>">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
     <style>
         :root {
             --bg: #1a1a2e;
@@ -29,8 +31,10 @@
             color: var(--text);
             min-height: 100vh;
             display: flex;
-            align-items: center;
+            align-items: flex-start;
             justify-content: center;
+            padding-top: 2rem;
+            padding-bottom: 2rem;
         }
 
         .profile-container {
@@ -43,12 +47,13 @@
             background: var(--card-bg);
             border: 1px solid var(--border);
             border-radius: 12px;
-            padding: 2.5rem;
+            overflow: hidden;
         }
 
+        /* ── Header ── */
         .profile-header {
             text-align: center;
-            margin-bottom: 2rem;
+            padding: 2rem 2.5rem 1.5rem;
         }
 
         .profile-header h1 {
@@ -81,7 +86,7 @@
             display: flex;
             justify-content: center;
             gap: 1rem;
-            margin-bottom: 2rem;
+            margin-bottom: 1rem;
         }
 
         .nav-links a {
@@ -95,6 +100,49 @@
             text-decoration: underline;
         }
 
+        /* ── Tab bar ── */
+        .tab-bar {
+            display: flex;
+            border-bottom: 2px solid var(--border);
+            padding: 0 2.5rem;
+            gap: 0;
+        }
+
+        .tab-btn {
+            background: none;
+            border: none;
+            border-bottom: 3px solid transparent;
+            margin-bottom: -2px;
+            padding: 0.75rem 1.25rem;
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            cursor: pointer;
+            letter-spacing: 0.3px;
+            transition: color 0.15s, border-color 0.15s;
+            white-space: nowrap;
+        }
+
+        .tab-btn:hover {
+            color: var(--text);
+        }
+
+        .tab-btn.active {
+            color: var(--accent);
+            border-bottom-color: var(--accent);
+        }
+
+        /* ── Tab panels ── */
+        .tab-panel {
+            display: none;
+            padding: 2rem 2.5rem 2.5rem;
+        }
+
+        .tab-panel.active {
+            display: block;
+        }
+
+        /* ── Section titles ── */
         .section-title {
             font-size: 1.05rem;
             font-weight: 700;
@@ -106,6 +154,13 @@
             border-bottom: 2px solid var(--accent);
         }
 
+        .section-divider {
+            margin: 2rem 0;
+            border: none;
+            border-top: 1px solid var(--border);
+        }
+
+        /* ── Forms ── */
         .form-group {
             margin-bottom: 1.25rem;
         }
@@ -134,6 +189,49 @@
             border-color: var(--accent);
         }
 
+        .form-group input:read-only {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .submit-btn {
+            width: 100%;
+            padding: 0.75rem;
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .submit-btn:hover {
+            background: var(--accent-hover);
+        }
+
+        /* ── Messages ── */
+        .message {
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            margin-bottom: 1.25rem;
+            font-size: 0.875rem;
+        }
+
+        .message.success {
+            background: rgba(39, 174, 96, 0.15);
+            border: 1px solid var(--success);
+            color: var(--success);
+        }
+
+        .message.error {
+            background: rgba(231, 76, 60, 0.15);
+            border: 1px solid var(--error);
+            color: var(--error);
+        }
+
+        /* ── Password fields ── */
         .password-wrapper {
             position: relative;
         }
@@ -200,64 +298,7 @@
             cursor: pointer;
         }
 
-        .form-group input:read-only {
-            opacity: 0.6;
-            cursor: not-allowed;
-        }
-
-        .submit-btn {
-            width: 100%;
-            padding: 0.75rem;
-            background: var(--accent);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 1rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-
-        .submit-btn:hover {
-            background: var(--accent-hover);
-        }
-
-        .message {
-            padding: 0.75rem 1rem;
-            border-radius: 8px;
-            margin-bottom: 1.25rem;
-            font-size: 0.875rem;
-        }
-
-        .message.success {
-            background: rgba(39, 174, 96, 0.15);
-            border: 1px solid var(--success);
-            color: var(--success);
-        }
-
-        .message.error {
-            background: rgba(231, 76, 60, 0.15);
-            border: 1px solid var(--error);
-            color: var(--error);
-        }
-
-        .section-divider {
-            margin: 2rem 0;
-            border: none;
-            border-top: 1px solid var(--border);
-        }
-
-        .meta-info {
-            font-size: 0.8rem;
-            color: var(--text-muted);
-            text-align: center;
-            margin-top: 1.5rem;
-        }
-
-        .cert-section {
-            margin-top: 0;
-        }
-
+        /* ── Certificates ── */
         .cert-card {
             background: var(--input-bg);
             border: 1px solid var(--border);
@@ -371,6 +412,7 @@
             font-style: italic;
         }
 
+        /* ── Status pills ── */
         .status-pill {
             display: inline-block;
             font-size: 0.65rem;
@@ -391,11 +433,13 @@
             color: var(--text-muted);
         }
 
+        /* ── Devices table ── */
         .devices-table {
             width: 100%;
             border-collapse: collapse;
             font-size: 0.875rem;
             margin-bottom: 0.5rem;
+            overflow: visible;
         }
 
         .devices-table th {
@@ -423,6 +467,75 @@
         .device-id { color: var(--text-muted); font-size: 0.8rem; }
         .muted { color: var(--text-muted); }
 
+        .cert-badge-wrap {
+            position: relative;
+            display: inline-block;
+            margin-left: 0.5rem;
+            vertical-align: middle;
+        }
+
+        .cert-badge {
+            font-size: 0.6rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            padding: 2px 6px;
+            border-radius: 6px;
+            cursor: default;
+        }
+
+        .cert-badge.valid   { background: rgba(39,174,96,0.15);  color: #27ae60; border: 1px solid rgba(39,174,96,0.3); }
+        .cert-badge.revoked { background: rgba(231,76,60,0.15);  color: #e74c3c; border: 1px solid rgba(231,76,60,0.3); }
+        .cert-badge.inactive{ background: rgba(160,160,176,0.1); color: var(--text-muted); border: 1px solid var(--border); }
+
+        .cert-tooltip {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            background: #0d1b33;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.65rem 0.85rem;
+            min-width: 240px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+            font-size: 0.78rem;
+            pointer-events: none;
+        }
+
+        .cert-badge-wrap:hover .cert-tooltip {
+            display: block;
+        }
+
+        .cert-tooltip-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 1rem;
+            padding: 0.2rem 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .cert-tooltip-row:last-child { border-bottom: none; }
+
+        .cert-tooltip-label {
+            color: var(--text-muted);
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            flex-shrink: 0;
+        }
+
+        .cert-tooltip-val {
+            text-align: right;
+            word-break: break-all;
+        }
+
+        .cert-tooltip-val code {
+            font-size: 0.72rem;
+            color: var(--accent);
+        }
+
+        /* ── Home location map ── */
         .coord-row {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -448,76 +561,54 @@
             background: rgba(78, 154, 241, 0.1);
         }
 
+        #home-map {
+            width: 100%;
+            height: 200px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            margin-bottom: 1.25rem;
+            display: none;
+        }
+
+        #home-map.visible {
+            display: block;
+        }
+
+        /* ── Footer meta ── */
+        .meta-info {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            text-align: center;
+            padding: 0 2.5rem 1.5rem;
+        }
+
+        /* ── Responsive ── */
         @media (max-width: 600px) {
-            .profile-container {
-                padding: 0.75rem;
-            }
-
-            .profile-card {
-                padding: 1.25rem;
-            }
-
-            .profile-header h1 {
-                font-size: 1.25rem;
-            }
-
-            .section-title {
-                font-size: 1rem;
-            }
-
-            .cert-detail-row {
-                flex-direction: column;
-                gap: 0.15rem;
-                font-size: 0.85rem;
-            }
-
-            .cert-value {
-                text-align: left;
-            }
-
-            .cert-value code {
-                font-size: 0.8rem;
-            }
-
-            .p12-password-row {
-                flex-direction: column;
-                align-items: stretch;
-            }
-
-            .p12-password-row input {
-                padding: 0.5rem;
-                font-size: 0.9rem;
-            }
-
-            .cert-btn {
-                padding: 0.5rem 1rem;
-                font-size: 0.9rem;
-                width: 100%;
-                text-align: center;
-            }
-
-            .form-group label {
-                font-size: 0.9rem;
-            }
-
-            .nav-links {
-                flex-wrap: wrap;
-                gap: 0.5rem;
-            }
-
-            .nav-links a {
-                font-size: 0.9rem;
-            }
-
-            .section-divider {
-                margin: 1.25rem 0;
-            }
+            .profile-container { padding: 0.75rem; }
+            .profile-header { padding: 1.25rem 1.25rem 1rem; }
+            .tab-bar { padding: 0 1rem; gap: 0; overflow-x: auto; }
+            .tab-btn { padding: 0.65rem 0.85rem; font-size: 0.8rem; }
+            .tab-panel { padding: 1.25rem; }
+            .profile-header h1 { font-size: 1.25rem; }
+            .section-title { font-size: 1rem; }
+            .cert-detail-row { flex-direction: column; gap: 0.15rem; font-size: 0.85rem; }
+            .cert-value { text-align: left; }
+            .cert-value code { font-size: 0.8rem; }
+            .p12-password-row { flex-direction: column; align-items: stretch; }
+            .p12-password-row input { padding: 0.5rem; font-size: 0.9rem; }
+            .cert-btn { padding: 0.5rem 1rem; font-size: 0.9rem; width: 100%; text-align: center; }
+            .form-group label { font-size: 0.9rem; }
+            .nav-links { flex-wrap: wrap; gap: 0.5rem; }
+            .nav-links a { font-size: 0.9rem; }
+            .meta-info { padding: 0 1.25rem 1.25rem; }
+            .coord-row { grid-template-columns: 1fr; }
         }
     </style>
 </head>
 <body>
     <div class="profile-container">
         <div class="profile-card">
+
             <div class="profile-header">
                 <h1>{{ user.username }}</h1>
                 {% if user.is_staff %}
@@ -525,257 +616,343 @@
                 {% else %}
                     <span class="role-badge user">User</span>
                 {% endif %}
+                <div class="nav-links" style="margin-top:1rem;">
+                    <a href="{% url 'web_ui:home' %}">← Back to Map</a>
+                </div>
             </div>
 
-            <div class="nav-links">
-                <a href="{% url 'web_ui:home' %}">← Back to Map</a>
+            {# Tab bar #}
+            <div class="tab-bar">
+                <button class="tab-btn" data-tab="account">Account</button>
+                <button class="tab-btn" data-tab="devices">My Devices</button>
+                <button class="tab-btn" data-tab="locations">Locations</button>
             </div>
 
-            {% if profile_success %}
-            <div class="message success">{{ profile_success }}</div>
-            {% endif %}
-            {% if profile_error %}
-            <div class="message error">{{ profile_error }}</div>
-            {% endif %}
-            {% if password_success %}
-            <div class="message success">{{ password_success }}</div>
-            {% endif %}
-            {% if password_error %}
-            <div class="message error">{{ password_error }}</div>
-            {% endif %}
-
-            <h3 class="section-title">Profile</h3>
-            <form method="post" action="{% url 'web_ui:profile' %}">
-                {% csrf_token %}
-                <input type="hidden" name="form_type" value="profile">
-                <div class="form-group">
-                    <label for="id_username">Username</label>
-                    <input type="text" id="id_username" value="{{ user.username }}" readonly>
-                </div>
-                <div class="form-group">
-                    <label for="id_first_name">First Name</label>
-                    <input type="text" name="first_name" id="id_first_name" value="{{ user.first_name }}">
-                </div>
-                <div class="form-group">
-                    <label for="id_last_name">Last Name</label>
-                    <input type="text" name="last_name" id="id_last_name" value="{{ user.last_name }}">
-                </div>
-                <div class="form-group">
-                    <label for="id_email">Email</label>
-                    <input type="email" name="email" id="id_email" value="{{ user.email }}">
-                </div>
-                <button type="submit" class="submit-btn">Save Profile</button>
-            </form>
-
-            <hr class="section-divider">
-
-            <h3 class="section-title">My Devices</h3>
-            {% if devices %}
-            <table class="devices-table">
-                <thead>
-                    <tr>
-                        <th>Device</th>
-                        <th>Status</th>
-                        <th>Last Seen</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for device in devices %}
-                    <tr>
-                        <td>
-                            <span class="device-name">{{ device.name|default:device.device_id }}</span>
-                            {% if device.name %}<span class="device-id"> ({{ device.device_id }})</span>{% endif %}
-                        </td>
-                        <td>
-                            {% if device.is_online %}
-                                <span class="status-pill active">online</span>
-                            {% else %}
-                                <span class="status-pill offline">offline</span>
-                            {% endif %}
-                        </td>
-                        <td class="muted">{{ device.last_seen|date:"Y-m-d H:i" }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            {% else %}
-            <p class="cert-none">No devices linked to your account yet.</p>
-            {% endif %}
-
-            <hr class="section-divider">
-
-            <h3 class="section-title">Home Location</h3>
-            {% if home_location_success %}
-            <div class="message success">{{ home_location_success }}</div>
-            {% endif %}
-            {% if home_location_error %}
-            <div class="message error">{{ home_location_error }}</div>
-            {% endif %}
-            <form method="post" action="{% url 'web_ui:profile' %}">
-                {% csrf_token %}
-                <input type="hidden" name="form_type" value="home_location">
-                <div class="form-group">
-                    <label for="id_home_label">Label</label>
-                    <input type="text" name="home_label" id="id_home_label"
-                           value="{{ user_profile.home_label }}" maxlength="100">
-                </div>
-                <div class="coord-row">
-                    <div class="form-group">
-                        <label for="id_home_latitude">Latitude</label>
-                        <input type="number" name="home_latitude" id="id_home_latitude"
-                               value="{{ user_profile.home_latitude|default:'' }}"
-                               step="0.0000000001" min="-90" max="90" placeholder="e.g. 41.194">
-                    </div>
-                    <div class="form-group">
-                        <label for="id_home_longitude">Longitude</label>
-                        <input type="number" name="home_longitude" id="id_home_longitude"
-                               value="{{ user_profile.home_longitude|default:'' }}"
-                               step="0.0000000001" min="-180" max="180" placeholder="e.g. -73.888">
-                    </div>
-                </div>
-                {% if last_location %}
-                <div class="use-last-location">
-                    <button type="button" class="use-last-btn"
-                            data-lat="{{ last_location.latitude }}"
-                            data-lon="{{ last_location.longitude }}">
-                        Use my last known location ({{ last_location.latitude }}, {{ last_location.longitude }})
-                    </button>
-                </div>
+            {# ── Account tab ── #}
+            <div class="tab-panel" id="tab-account">
+                {% if profile_success %}
+                <div class="message success">{{ profile_success }}</div>
                 {% endif %}
-                <button type="submit" class="submit-btn">Save Home Location</button>
-            </form>
+                {% if profile_error %}
+                <div class="message error">{{ profile_error }}</div>
+                {% endif %}
 
-            <hr class="section-divider">
+                <h3 class="section-title">Profile</h3>
+                <form method="post" action="{% url 'web_ui:profile' %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="form_type" value="profile">
+                    <div class="form-group">
+                        <label for="id_username">Username</label>
+                        <input type="text" id="id_username" value="{{ user.username }}" readonly>
+                    </div>
+                    <div class="form-group">
+                        <label for="id_first_name">First Name</label>
+                        <input type="text" name="first_name" id="id_first_name" value="{{ user.first_name }}">
+                    </div>
+                    <div class="form-group">
+                        <label for="id_last_name">Last Name</label>
+                        <input type="text" name="last_name" id="id_last_name" value="{{ user.last_name }}">
+                    </div>
+                    <div class="form-group">
+                        <label for="id_email">Email</label>
+                        <input type="email" name="email" id="id_email" value="{{ user.email }}">
+                    </div>
+                    <button type="submit" class="submit-btn">Save Profile</button>
+                </form>
 
-            <div class="cert-section">
-                <h3 class="section-title">Certificates</h3>
+                <hr class="section-divider">
 
-                {% if active_cert %}
-                <div class="cert-card">
-                    <div class="cert-card-header">
-                        <span class="status-pill active">active</span>
-                        <strong>Client Certificate</strong>
-                    </div>
-                    {% if cert_meta %}
-                    <div class="cert-detail-row">
-                        <span class="cert-label">Subject</span>
-                        <span class="cert-value">{% for key, val in cert_meta.items %}{{ key }}={{ val }}{% if not forloop.last %}, {% endif %}{% endfor %}</span>
-                    </div>
-                    {% endif %}
-                    <div class="cert-detail-row">
-                        <span class="cert-label">Fingerprint</span>
-                        <span class="cert-value"><code>{{ active_cert.fingerprint }}</code></span>
-                    </div>
-                    <div class="cert-detail-row">
-                        <span class="cert-label">Key Size</span>
-                        <span class="cert-value">{{ active_cert.key_size }}-bit RSA</span>
-                    </div>
-                    <div class="cert-detail-row">
-                        <span class="cert-label">Issuing CA</span>
-                        <span class="cert-value">{{ active_cert.issuing_ca.common_name }}</span>
-                    </div>
-                    <div class="cert-detail-row">
-                        <span class="cert-label">Valid from</span>
-                        <span class="cert-value">{{ active_cert.not_valid_before|date:"Y-m-d" }}</span>
-                    </div>
-                    <div class="cert-detail-row">
-                        <span class="cert-label">Expires</span>
-                        <span class="cert-value">{{ active_cert.not_valid_after|date:"Y-m-d" }}</span>
-                    </div>
-                    <div class="cert-actions">
-                        <form method="post" action="{% url 'web_ui:download_my_cert' %}" class="p12-download-form">
-                            {% csrf_token %}
-                            <div class="p12-password-row">
-                                <label for="p12_password">Password for .p12</label>
-                                <div class="password-wrapper">
-                                    <input type="password" name="p12_password" id="p12_password" required
-                                           placeholder="Enter password to protect the .p12 file"
-                                           minlength="4" autocomplete="new-password">
-                                    <button type="button" class="password-toggle" aria-label="Show password">
-                                        <svg class="eye-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                                        <svg class="eye-off-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/></svg>
-                                    </button>
+                <div class="cert-section">
+                    <h3 class="section-title">Certificates</h3>
+
+                    {% if active_cert %}
+                    <div class="cert-card">
+                        <div class="cert-card-header">
+                            <span class="status-pill active">active</span>
+                            <strong>Client Certificate</strong>
+                        </div>
+                        {% if cert_meta %}
+                        <div class="cert-detail-row">
+                            <span class="cert-label">Subject</span>
+                            <span class="cert-value">{% for key, val in cert_meta.items %}{{ key }}={{ val }}{% if not forloop.last %}, {% endif %}{% endfor %}</span>
+                        </div>
+                        {% endif %}
+                        <div class="cert-detail-row">
+                            <span class="cert-label">Fingerprint</span>
+                            <span class="cert-value"><code>{{ active_cert.fingerprint }}</code></span>
+                        </div>
+                        <div class="cert-detail-row">
+                            <span class="cert-label">Key Size</span>
+                            <span class="cert-value">{{ active_cert.key_size }}-bit RSA</span>
+                        </div>
+                        <div class="cert-detail-row">
+                            <span class="cert-label">Issuing CA</span>
+                            <span class="cert-value">{{ active_cert.issuing_ca.common_name }}</span>
+                        </div>
+                        <div class="cert-detail-row">
+                            <span class="cert-label">Valid from</span>
+                            <span class="cert-value">{{ active_cert.not_valid_before|date:"Y-m-d" }}</span>
+                        </div>
+                        <div class="cert-detail-row">
+                            <span class="cert-label">Expires</span>
+                            <span class="cert-value">{{ active_cert.not_valid_after|date:"Y-m-d" }}</span>
+                        </div>
+                        <div class="cert-actions">
+                            <form method="post" action="{% url 'web_ui:download_my_cert' %}" class="p12-download-form">
+                                {% csrf_token %}
+                                <div class="p12-password-row">
+                                    <label for="p12_password">Password for .p12</label>
+                                    <div class="password-wrapper">
+                                        <input type="password" name="p12_password" id="p12_password" required
+                                               placeholder="Enter password to protect the .p12 file"
+                                               minlength="4" autocomplete="new-password">
+                                        <button type="button" class="password-toggle" aria-label="Show password">
+                                            <svg class="eye-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                            <svg class="eye-off-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/></svg>
+                                        </button>
+                                    </div>
                                 </div>
-                            </div>
-                            <button type="submit" class="cert-btn">Download .p12 Bundle</button>
-                            <span class="cert-hint">Includes certificate + private key + CA (for OwnTracks)</span>
-                        </form>
+                                <button type="submit" class="cert-btn">Download .p12 Bundle</button>
+                                <span class="cert-hint">Includes certificate + private key + CA (for OwnTracks)</span>
+                            </form>
+                        </div>
                     </div>
-                </div>
-                {% else %}
-                <p class="cert-none">No client certificate has been issued for your account. Contact an administrator to request one.</p>
-                {% endif %}
-
-                {% if active_ca %}
-                <div class="cert-card">
-                    <div class="cert-card-header">
-                        <strong>CA Certificate</strong>
-                    </div>
-                    {% if ca_meta %}
-                    <div class="cert-detail-row">
-                        <span class="cert-label">Subject</span>
-                        <span class="cert-value">{% for key, val in ca_meta.items %}{{ key }}={{ val }}{% if not forloop.last %}, {% endif %}{% endfor %}</span>
-                    </div>
+                    {% else %}
+                    <p class="cert-none">No client certificate has been issued for your account. Contact an administrator to request one.</p>
                     {% endif %}
-                    <div class="cert-detail-row">
-                        <span class="cert-label">Fingerprint</span>
-                        <span class="cert-value"><code>{{ active_ca.fingerprint }}</code></span>
+
+                    {% if active_ca %}
+                    <div class="cert-card">
+                        <div class="cert-card-header">
+                            <strong>CA Certificate</strong>
+                        </div>
+                        {% if ca_meta %}
+                        <div class="cert-detail-row">
+                            <span class="cert-label">Subject</span>
+                            <span class="cert-value">{% for key, val in ca_meta.items %}{{ key }}={{ val }}{% if not forloop.last %}, {% endif %}{% endfor %}</span>
+                        </div>
+                        {% endif %}
+                        <div class="cert-detail-row">
+                            <span class="cert-label">Fingerprint</span>
+                            <span class="cert-value"><code>{{ active_ca.fingerprint }}</code></span>
+                        </div>
+                        <div class="cert-detail-row">
+                            <span class="cert-label">Expires</span>
+                            <span class="cert-value">{{ active_ca.not_valid_after|date:"Y-m-d" }}</span>
+                        </div>
+                        <div class="cert-actions">
+                            <a href="{% url 'web_ui:download_ca_cert' %}" class="cert-btn">Download CA Cert</a>
+                        </div>
                     </div>
-                    <div class="cert-detail-row">
-                        <span class="cert-label">Expires</span>
-                        <span class="cert-value">{{ active_ca.not_valid_after|date:"Y-m-d" }}</span>
-                    </div>
-                    <div class="cert-actions">
-                        <a href="{% url 'web_ui:download_ca_cert' %}" class="cert-btn">Download CA Cert</a>
-                    </div>
+                    {% else %}
+                    <p class="cert-none">No CA certificate is currently available.</p>
+                    {% endif %}
                 </div>
+
+                <hr class="section-divider">
+
+                {% if password_success %}
+                <div class="message success">{{ password_success }}</div>
+                {% endif %}
+                {% if password_error %}
+                <div class="message error">{{ password_error }}</div>
+                {% endif %}
+                <h3 class="section-title">Change Password</h3>
+                <form method="post" action="{% url 'web_ui:profile' %}" id="change-password-form" data-username="{{ user.username }}">
+                    {% csrf_token %}
+                    <input type="hidden" name="form_type" value="password">
+                    <input type="hidden" name="bypass_similarity_check" id="id_bypass_similarity" value="0">
+                    <div class="form-group">
+                        <label for="id_current_password">Current Password</label>
+                        <div class="password-wrapper">
+                            <input type="password" name="current_password" id="id_current_password" required class="change-pw-field">
+                            <button type="button" class="password-toggle" id="change-pw-reveal" aria-label="Show passwords">
+                                <svg class="eye-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                <svg class="eye-off-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="id_new_password">New Password</label>
+                        <input type="password" name="new_password" id="id_new_password" required minlength="8" class="change-pw-field">
+                    </div>
+                    <div class="form-group">
+                        <label for="id_confirm_password">Confirm New Password</label>
+                        <input type="password" name="confirm_password" id="id_confirm_password" required minlength="8" class="change-pw-field">
+                    </div>
+                    <div id="similarity-confirm" class="similarity-confirm" style="display:none">
+                        <p>⚠ Your password is too similar to your username. Use it anyway?</p>
+                        <div class="similarity-confirm-actions">
+                            <button type="button" class="btn-ok" id="similarity-ok">Yes, use it anyway</button>
+                            <button type="button" class="btn-cancel" id="similarity-cancel">Choose a different password</button>
+                        </div>
+                    </div>
+                    <button type="submit" class="submit-btn">Change Password</button>
+                </form>
+            </div>
+
+            {# ── My Devices tab ── #}
+            <div class="tab-panel" id="tab-devices">
+                {% if devices_with_certs %}
+                <table class="devices-table">
+                    <thead>
+                        <tr>
+                            <th>Device</th>
+                            <th>Status</th>
+                            <th>Last Seen</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in devices_with_certs %}
+                        <tr>
+                            <td>
+                                <span class="device-name">{{ row.device.name|default:row.device.device_id }}</span>
+                                {% if row.device.name and row.device.name != row.device.device_id %}<span class="device-id"> ({{ row.device.device_id }})</span>{% endif %}
+                                {% if row.cert %}
+                                <span class="cert-badge-wrap">
+                                    {% if row.cert.revoked %}
+                                    <span class="cert-badge revoked">revoked</span>
+                                    {% elif row.cert.is_active %}
+                                    <span class="cert-badge valid">cert ✓</span>
+                                    {% else %}
+                                    <span class="cert-badge inactive">cert</span>
+                                    {% endif %}
+                                    <div class="cert-tooltip">
+                                        <div class="cert-tooltip-row">
+                                            <span class="cert-tooltip-label">CN</span>
+                                            <span class="cert-tooltip-val">{{ row.cert.common_name }}</span>
+                                        </div>
+                                        <div class="cert-tooltip-row">
+                                            <span class="cert-tooltip-label">CA</span>
+                                            <span class="cert-tooltip-val">{{ row.cert.issuing_ca.common_name }}</span>
+                                        </div>
+                                        <div class="cert-tooltip-row">
+                                            <span class="cert-tooltip-label">Valid from</span>
+                                            <span class="cert-tooltip-val">{{ row.cert.not_valid_before|date:"N j, Y" }}</span>
+                                        </div>
+                                        <div class="cert-tooltip-row">
+                                            <span class="cert-tooltip-label">Expires</span>
+                                            <span class="cert-tooltip-val">{{ row.cert.not_valid_after|date:"N j, Y" }}</span>
+                                        </div>
+                                        <div class="cert-tooltip-row">
+                                            <span class="cert-tooltip-label">Fingerprint</span>
+                                            <span class="cert-tooltip-val"><code>{{ row.cert.fingerprint|slice:":23" }}</code></span>
+                                        </div>
+                                    </div>
+                                </span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if row.device.is_online %}
+                                    <span class="status-pill active">online</span>
+                                {% else %}
+                                    <span class="status-pill offline">offline</span>
+                                {% endif %}
+                            </td>
+                            <td class="muted">{{ row.device.last_seen|date:"Y-m-d H:i" }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
                 {% else %}
-                <p class="cert-none">No CA certificate is currently available.</p>
+                <p class="cert-none">No devices linked to your account yet.</p>
                 {% endif %}
             </div>
 
-            <hr class="section-divider">
+            {# ── Locations tab ── #}
+            <div class="tab-panel" id="tab-locations">
+                {% if home_location_success %}
+                <div class="message success">{{ home_location_success }}</div>
+                {% endif %}
+                {% if home_location_error %}
+                <div class="message error">{{ home_location_error }}</div>
+                {% endif %}
 
-            <h3 class="section-title">Change Password</h3>
-            <form method="post" action="{% url 'web_ui:profile' %}" id="change-password-form" data-username="{{ user.username }}">
-                {% csrf_token %}
-                <input type="hidden" name="form_type" value="password">
-                <input type="hidden" name="bypass_similarity_check" id="id_bypass_similarity" value="0">
-                <div class="form-group">
-                    <label for="id_current_password">Current Password</label>
-                    <div class="password-wrapper">
-                        <input type="password" name="current_password" id="id_current_password" required class="change-pw-field">
-                        <button type="button" class="password-toggle" id="change-pw-reveal" aria-label="Show passwords">
-                            <svg class="eye-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                            <svg class="eye-off-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/></svg>
+                <h3 class="section-title">Home Location</h3>
+                <form method="post" action="{% url 'web_ui:profile' %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="form_type" value="home_location">
+                    <div class="form-group">
+                        <label for="id_home_label">Label</label>
+                        <input type="text" name="home_label" id="id_home_label"
+                               value="{{ user_profile.home_label }}" maxlength="100">
+                    </div>
+                    <div class="coord-row">
+                        <div class="form-group">
+                            <label for="id_home_latitude">Latitude</label>
+                            <input type="number" name="home_latitude" id="id_home_latitude"
+                                   value="{{ user_profile.home_latitude|default:'' }}"
+                                   step="0.0000000001" min="-90" max="90" placeholder="e.g. 41.194">
+                        </div>
+                        <div class="form-group">
+                            <label for="id_home_longitude">Longitude</label>
+                            <input type="number" name="home_longitude" id="id_home_longitude"
+                                   value="{{ user_profile.home_longitude|default:'' }}"
+                                   step="0.0000000001" min="-180" max="180" placeholder="e.g. -73.888">
+                        </div>
+                    </div>
+                    <div id="home-map"{% if user_profile.home_latitude and user_profile.home_longitude %} class="visible"{% endif %}></div>
+                    {% if last_location %}
+                    <div class="use-last-location">
+                        <button type="button" class="use-last-btn"
+                                data-lat="{{ last_location.latitude }}"
+                                data-lon="{{ last_location.longitude }}">
+                            Use my last known location ({{ last_location.latitude }}, {{ last_location.longitude }})
                         </button>
                     </div>
-                </div>
-                <div class="form-group">
-                    <label for="id_new_password">New Password</label>
-                    <input type="password" name="new_password" id="id_new_password" required minlength="8" class="change-pw-field">
-                </div>
-                <div class="form-group">
-                    <label for="id_confirm_password">Confirm New Password</label>
-                    <input type="password" name="confirm_password" id="id_confirm_password" required minlength="8" class="change-pw-field">
-                </div>
-                <div id="similarity-confirm" class="similarity-confirm" style="display:none">
-                    <p>⚠ Your password is too similar to your username. Use it anyway?</p>
-                    <div class="similarity-confirm-actions">
-                        <button type="button" class="btn-ok" id="similarity-ok">Yes, use it anyway</button>
-                        <button type="button" class="btn-cancel" id="similarity-cancel">Choose a different password</button>
-                    </div>
-                </div>
-                <button type="submit" class="submit-btn">Change Password</button>
-            </form>
+                    {% endif %}
+                    <button type="submit" class="submit-btn">
+                        {% if user_profile.home_latitude and user_profile.home_longitude %}Update{% else %}Save{% endif %} Home Location
+                    </button>
+                </form>
+            </div>
 
             <div class="meta-info">
                 Member since {{ user.date_joined|date:"N j, Y" }}
             </div>
-        </div>
-    </div>
+
+        </div>{# /profile-card #}
+    </div>{# /profile-container #}
+
     <script>
-        // Reveal toggle inside Current Password field — reveals all three change-pw fields
+        // ── Tab switching ────────────────────────────────────────────────────
+        const TAB_KEY = 'profile-active-tab';
+
+        // Determine initial tab: server-side messages win, then hash, then localStorage
+        function initialTab() {
+            {% if home_location_success or home_location_error %}
+            return 'locations';
+            {% elif profile_success or profile_error or password_success or password_error %}
+            return 'account';
+            {% else %}
+            const hash = location.hash.replace('#', '');
+            if (['account', 'devices', 'locations'].includes(hash)) return hash;
+            return localStorage.getItem(TAB_KEY) || 'account';
+            {% endif %}
+        }
+
+        function activateTab(name) {
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.tab === name);
+            });
+            document.querySelectorAll('.tab-panel').forEach(panel => {
+                panel.classList.toggle('active', panel.id === 'tab-' + name);
+            });
+            localStorage.setItem(TAB_KEY, name);
+            history.replaceState(null, '', '#' + name);
+            // Leaflet needs a size refresh when its panel becomes visible
+            if (name === 'locations' && window._homeMap) {
+                setTimeout(function() { window._homeMap.invalidateSize(); }, 50);
+            }
+        }
+
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', function() { activateTab(this.dataset.tab); });
+        });
+
+        activateTab(initialTab());
+
+        // ── Password reveal ──────────────────────────────────────────────────
         const changePwReveal = document.getElementById('change-pw-reveal');
         if (changePwReveal) {
             changePwReveal.addEventListener('click', function() {
@@ -784,7 +961,6 @@
                 const eyeOffIcon = this.querySelector('.eye-off-icon');
                 const isHidden = fields[0]?.type === 'password';
                 const newType = isHidden ? 'text' : 'password';
-
                 fields.forEach(f => { f.type = newType; });
                 eyeIcon.style.display = isHidden ? 'none' : 'block';
                 eyeOffIcon.style.display = isHidden ? 'block' : 'none';
@@ -792,7 +968,7 @@
             });
         }
 
-        // Per-field toggles (used by the .p12 password field; skip the change-pw reveal)
+        // Per-field toggles (.p12 field)
         document.querySelectorAll('.password-wrapper .password-toggle').forEach(btn => {
             if (btn.id === 'change-pw-reveal') return;
             btn.addEventListener('click', function() {
@@ -801,7 +977,6 @@
                 const eyeIcon = this.querySelector('.eye-icon');
                 const eyeOffIcon = this.querySelector('.eye-off-icon');
                 const isHidden = input.type === 'password';
-
                 input.type = isHidden ? 'text' : 'password';
                 eyeIcon.style.display = isHidden ? 'none' : 'block';
                 eyeOffIcon.style.display = isHidden ? 'block' : 'none';
@@ -810,7 +985,7 @@
             });
         });
 
-        // Similarity check: intercept submit, confirm before bypassing
+        // ── Password similarity check ────────────────────────────────────────
         (function() {
             const form = document.getElementById('change-password-form');
             const confirmBox = document.getElementById('similarity-confirm');
@@ -823,7 +998,6 @@
                 if (!username || username.length < 3) return false;
                 const p = password.toLowerCase();
                 if (p.includes(username) || username.includes(p)) return true;
-                // Rough ratio check (matches Django's SequenceMatcher threshold of 0.6)
                 const counts = {};
                 for (const c of username) counts[c] = (counts[c] || 0) + 1;
                 let common = 0;
@@ -832,7 +1006,7 @@
             }
 
             form.addEventListener('submit', function(e) {
-                if (bypassInput.value === '1') return; // already confirmed
+                if (bypassInput.value === '1') return;
                 const newPw = document.getElementById('id_new_password').value;
                 if (isTooSimilar(newPw)) {
                     e.preventDefault();
@@ -854,13 +1028,104 @@
                 document.getElementById('id_new_password').focus();
             });
         })();
-        // Use last known location shortcut
-        document.querySelectorAll('.use-last-btn').forEach(btn => {
-            btn.addEventListener('click', function() {
-                document.getElementById('id_home_latitude').value = this.dataset.lat;
-                document.getElementById('id_home_longitude').value = this.dataset.lon;
+
+        // ── Cert tooltip positioning ─────────────────────────────────────────
+        document.querySelectorAll('.cert-badge-wrap').forEach(function(wrap) {
+            const tooltip = wrap.querySelector('.cert-tooltip');
+            if (!tooltip) return;
+            wrap.addEventListener('mouseenter', function() {
+                const rect = wrap.getBoundingClientRect();
+                const tipH = tooltip.offsetHeight || 160;
+                const spaceBelow = window.innerHeight - rect.bottom;
+                if (spaceBelow < tipH + 12) {
+                    tooltip.style.top = (rect.top - tipH - 6) + 'px';
+                } else {
+                    tooltip.style.top = (rect.bottom + 6) + 'px';
+                }
+                tooltip.style.left = rect.left + 'px';
             });
         });
+
+        // ── Use last known location ──────────────────────────────────────────
+        document.querySelectorAll('.use-last-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const lat = this.dataset.lat;
+                const lon = this.dataset.lon;
+                document.getElementById('id_home_latitude').value = lat;
+                document.getElementById('id_home_longitude').value = lon;
+                updateHomeMap(parseFloat(lat), parseFloat(lon));
+            });
+        });
+    </script>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script>
+        (function() {
+            const latInput = document.getElementById('id_home_latitude');
+            const lonInput = document.getElementById('id_home_longitude');
+            const mapEl = document.getElementById('home-map');
+            if (!latInput || !lonInput || !mapEl) return;
+
+            const initLat = parseFloat(latInput.value) || null;
+            const initLon = parseFloat(lonInput.value) || null;
+            const defaultCenter = [20, 0];
+            const defaultZoom = 2;
+            const locationZoom = 16;
+
+            const map = L.map('home-map', { zoomControl: true, attributionControl: false });
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19
+            }).addTo(map);
+            window._homeMap = map;
+
+            let marker = null;
+
+            function placeMarker(lat, lon) {
+                if (marker) {
+                    marker.setLatLng([lat, lon]);
+                } else {
+                    marker = L.marker([lat, lon], { draggable: true }).addTo(map);
+                    marker.on('dragend', function(e) {
+                        const pos = e.target.getLatLng();
+                        latInput.value = pos.lat.toFixed(7);
+                        lonInput.value = pos.lng.toFixed(7);
+                    });
+                }
+            }
+
+            if (initLat !== null && initLon !== null) {
+                map.setView([initLat, initLon], locationZoom);
+                placeMarker(initLat, initLon);
+            } else {
+                map.setView(defaultCenter, defaultZoom);
+            }
+
+            setTimeout(function() { map.invalidateSize(); }, 50);
+
+            window.updateHomeMap = function(lat, lon) {
+                if (isNaN(lat) || isNaN(lon)) return;
+                mapEl.classList.add('visible');
+                map.invalidateSize();
+                map.setView([lat, lon], locationZoom);
+                placeMarker(lat, lon);
+            };
+
+            let debounceTimer = null;
+            function onCoordInput() {
+                clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(function() {
+                    const lat = parseFloat(latInput.value);
+                    const lon = parseFloat(lonInput.value);
+                    if (!isNaN(lat) && !isNaN(lon) &&
+                        lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
+                        window.updateHomeMap(lat, lon);
+                    }
+                }, 600);
+            }
+            latInput.addEventListener('input', onCoordInput);
+            lonInput.addEventListener('input', onCoordInput);
+        })();
     </script>
 </body>
 </html>
