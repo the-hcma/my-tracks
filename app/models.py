@@ -5,6 +5,7 @@ This module defines the data models for storing device information
 and location data from OwnTracks clients.
 """
 import logging
+import uuid
 from typing import Any
 
 from django.contrib.auth.models import User
@@ -51,6 +52,14 @@ class Device(models.Model):
         blank=True,
         default='',
         help_text="OwnTracks MQTT user (from topic owntracks/{user}/{device})"
+    )
+    owner = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='devices',
+        help_text="Django user who owns this device (matched from mqtt_user)"
     )
 
     class Meta:
@@ -430,6 +439,25 @@ class UserProfile(models.Model):
         related_name='profile',
         help_text="The user this profile belongs to"
     )
+    home_latitude = models.DecimalField(
+        max_digits=15,
+        decimal_places=10,
+        null=True,
+        blank=True,
+        help_text="Home location latitude — default map center for geofence creation"
+    )
+    home_longitude = models.DecimalField(
+        max_digits=15,
+        decimal_places=10,
+        null=True,
+        blank=True,
+        help_text="Home location longitude — default map center for geofence creation"
+    )
+    home_label = models.CharField(
+        max_length=100,
+        default='Home',
+        help_text="Display label for the home location pin"
+    )
     created_at = models.DateTimeField(
         auto_now_add=True,
         help_text="When this profile was created"
@@ -446,6 +474,149 @@ class UserProfile(models.Model):
     def __str__(self) -> str:
         """Return string representation of the profile."""
         return f"Profile for {self.user.username}"
+
+
+class Waypoint(models.Model):
+    """
+    Server-side record of a geofence region for a user.
+
+    Each waypoint is a circular region identified by a stable UUID (rid) that
+    matches the OwnTracks region ID. The server can push waypoints to devices
+    via CommandPublisher.set_waypoints().
+    """
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='waypoints',
+        help_text="User who owns this geofence"
+    )
+    label = models.CharField(
+        max_length=200,
+        help_text="Display name for this geofence (maps to OwnTracks 'desc')"
+    )
+    latitude = models.DecimalField(
+        max_digits=15,
+        decimal_places=10,
+        help_text="Center latitude of the geofence circle"
+    )
+    longitude = models.DecimalField(
+        max_digits=15,
+        decimal_places=10,
+        help_text="Center longitude of the geofence circle"
+    )
+    radius = models.IntegerField(
+        default=100,  # type: ignore[reportArgumentType]
+        help_text="Radius of the geofence circle in metres"
+    )
+    rid = models.CharField(
+        max_length=36,
+        unique=True,
+        help_text="OwnTracks region ID (UUID4); stable across device syncs"
+    )
+    is_active = models.BooleanField(
+        default=True,  # type: ignore[reportArgumentType]
+        help_text="Whether this waypoint is active"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['label']
+        verbose_name = 'Waypoint'
+        verbose_name_plural = 'Waypoints'
+        indexes = [
+            models.Index(fields=['user', 'is_active']),
+        ]
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        if not self.rid:
+            self.rid = str(uuid.uuid4())
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f"{self.label} ({self.user.username})"
+
+
+class Transition(models.Model):
+    """
+    Persisted enter/leave event fired when a device crosses a geofence boundary.
+
+    Matches the OwnTracks '_type: transition' message. The waypoint FK is
+    populated by matching rid to an existing Waypoint; stays null if no
+    server-side waypoint exists for that rid.
+    """
+
+    ENTER = 'enter'
+    LEAVE = 'leave'
+    EVENT_CHOICES = [
+        (ENTER, 'Enter'),
+        (LEAVE, 'Leave'),
+    ]
+
+    device = models.ForeignKey(
+        Device,
+        on_delete=models.CASCADE,
+        related_name='transitions',
+        help_text="Device that fired this transition"
+    )
+    waypoint = models.ForeignKey(
+        Waypoint,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='transitions',
+        help_text="Matched server-side waypoint (null if rid has no server record)"
+    )
+    event = models.CharField(
+        max_length=10,
+        choices=EVENT_CHOICES,
+        help_text="'enter' or 'leave'"
+    )
+    region_id = models.CharField(
+        max_length=36,
+        help_text="OwnTracks rid from the transition message"
+    )
+    description = models.CharField(
+        max_length=200,
+        blank=True,
+        help_text="OwnTracks desc from the transition message"
+    )
+    timestamp = models.DateTimeField(
+        help_text="When the transition occurred on the device (tst)"
+    )
+    latitude = models.DecimalField(
+        max_digits=15,
+        decimal_places=10,
+        null=True,
+        blank=True,
+        help_text="Device latitude at transition time"
+    )
+    longitude = models.DecimalField(
+        max_digits=15,
+        decimal_places=10,
+        null=True,
+        blank=True,
+        help_text="Device longitude at transition time"
+    )
+    accuracy = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Location accuracy in metres at transition time"
+    )
+    received_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-timestamp']
+        verbose_name = 'Transition'
+        verbose_name_plural = 'Transitions'
+        indexes = [
+            models.Index(fields=['device', '-timestamp']),
+            models.Index(fields=['waypoint', '-timestamp']),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.device.device_id} {self.event} {self.description} @ {self.timestamp}"
 
 
 @receiver(post_save, sender=User)
