@@ -18,6 +18,7 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone as tz
 
+from app.apps import get_mqtt_broker
 from app.models import (CertificateAuthority, ClientCertificate, Device,
                         Location, ServerCertificate, Transition, UserProfile,
                         Waypoint)
@@ -438,7 +439,12 @@ def geofences(request: HttpRequest) -> HttpResponse:
                 for w in active_waypoints
             ]
             mqtt_device_id = f"{device.mqtt_user}/{device.device_id}"
-            publisher = CommandPublisher()
+            broker = get_mqtt_broker()
+            publisher = (
+                CommandPublisher(mqtt_client=broker.amqtt_broker)
+                if broker is not None and broker.is_running
+                else CommandPublisher()
+            )
             async_to_sync(publisher.set_waypoints)(mqtt_device_id, payload)
 
         next_url = (request.POST.get('next_url') or '').strip()

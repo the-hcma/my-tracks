@@ -8,7 +8,10 @@
       "Bash(do)",
       "Bash(echo \"#$pr labeled\")",
       "Bash(done)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(GRAPHITE_PROFILE=thehcma gt modify -m \"docs: mark Phase 9 steps 1/3/4 complete in implementation plan\")",
+      "Bash(python3 -c \"import json,sys; print\\(json.load\\(sys.stdin\\).get\\(''''html_url'''',''''ok''''\\)\\)\")",
+      "Bash(GRAPHITE_PROFILE=thehcma gt create -a -m \"fix\\(phase9/step4\\): wire CommandPublisher to running MQTT broker for sync-to-device\" --no-interactive)"
     ]
   }
 }
