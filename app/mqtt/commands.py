@@ -214,6 +214,7 @@ class CommandPublisher:
         device_id: str,
         command: Command,
         qos: int = 1,
+        owner: str | None = None,
     ) -> bool:
         """
         Send a command to a device.
@@ -222,6 +223,7 @@ class CommandPublisher:
             device_id: The device ID in "user/device" format
             command: The command to send
             qos: MQTT QoS level (default: 1 for at-least-once delivery)
+            owner: Human-readable owner name for log messages (e.g. Django username)
 
         Returns:
             True if the command was published successfully, False otherwise
@@ -237,21 +239,22 @@ class CommandPublisher:
         if parsed is None:
             return False
 
-        user, device = parsed
-        topic = get_command_topic(user, device)
+        mqtt_user, device = parsed
+        log_owner = owner or mqtt_user
+        topic = get_command_topic(mqtt_user, device)
         payload = command.to_mqtt_payload()
 
         if command.command_type == CommandType.SET_WAYPOINTS:
             wp_list = command.payload.get("waypoints", {}).get("waypoints", [])
             names = [w.get("desc", "?") for w in wp_list]
             logger.info(
-                "[mqtt] setWaypoints → user=%s device=%s waypoints=[%s]",
-                user, device, ", ".join(names),
+                "[mqtt] setWaypoints → owner=%s device=%s waypoints=[%s]",
+                log_owner, device, ", ".join(names),
             )
         else:
             logger.info(
-                "[mqtt] %s → user=%s device=%s",
-                command.command_type.value, user, device,
+                "[mqtt] %s → owner=%s device=%s",
+                command.command_type.value, log_owner, device,
             )
 
         try:
@@ -274,22 +277,24 @@ class CommandPublisher:
             logger.exception("Failed to publish command to %s", topic)
             return False
 
-    async def request_location(self, device_id: str) -> bool:
+    async def request_location(self, device_id: str, owner: str | None = None) -> bool:
         """
         Request current location from a device.
 
         Args:
             device_id: The device ID in "user/device" format
+            owner: Human-readable owner name for log messages
 
         Returns:
             True if the command was sent successfully
         """
-        return await self.send_command(device_id, Command.report_location())
+        return await self.send_command(device_id, Command.report_location(), owner=owner)
 
     async def set_waypoints(
         self,
         device_id: str,
         waypoints: list[dict[str, Any]],
+        owner: str | None = None,
     ) -> bool:
         """
         Set waypoints on a device.
@@ -297,20 +302,22 @@ class CommandPublisher:
         Args:
             device_id: The device ID in "user/device" format
             waypoints: List of waypoint dictionaries
+            owner: Human-readable owner name for log messages
 
         Returns:
             True if the command was sent successfully
         """
-        return await self.send_command(device_id, Command.set_waypoints(waypoints))
+        return await self.send_command(device_id, Command.set_waypoints(waypoints), owner=owner)
 
-    async def clear_waypoints(self, device_id: str) -> bool:
+    async def clear_waypoints(self, device_id: str, owner: str | None = None) -> bool:
         """
         Clear all waypoints on a device.
 
         Args:
             device_id: The device ID in "user/device" format
+            owner: Human-readable owner name for log messages
 
         Returns:
             True if the command was sent successfully
         """
-        return await self.send_command(device_id, Command.clear_waypoints())
+        return await self.send_command(device_id, Command.clear_waypoints(), owner=owner)
