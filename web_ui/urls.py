@@ -12,6 +12,7 @@ urlpatterns = [
     path('profile/', views.profile, name='profile'),
     path('profile/download-cert/', views.download_my_cert, name='download_my_cert'),
     path('profile/download-ca/', views.download_ca_cert, name='download_ca_cert'),
+    path('geofences/', views.geofences, name='geofences'),
     path('admin-panel/', views.admin_panel, name='admin_panel'),
     path('about/', views.about, name='about'),
     path('health/', views.health, name='health'),

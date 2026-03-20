@@ -1,0 +1,709 @@
+{% load static %}
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Geofences - My Tracks</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🗺️</text></svg>">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+    <style>
+        :root {
+            --bg: #1a1a2e;
+            --card-bg: #16213e;
+            --input-bg: #0f3460;
+            --text: #e6e6e6;
+            --text-muted: #a0a0b0;
+            --accent: #4e9af1;
+            --accent-hover: #6bb0ff;
+            --error: #e74c3c;
+            --success: #27ae60;
+            --border: #2a2a4a;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            padding-top: 2rem;
+            padding-bottom: 3rem;
+        }
+
+        .page-container {
+            width: 100%;
+            max-width: 800px;
+            padding: 0 2rem;
+        }
+
+        /* ── Header ── */
+        .page-header {
+            margin-bottom: 1.5rem;
+        }
+
+        .back-link {
+            color: var(--accent);
+            text-decoration: none;
+            font-size: 0.875rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .back-link:hover { color: var(--accent-hover); text-decoration: underline; }
+
+        .page-header h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+
+        /* ── Cards ── */
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem 2rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .section-title {
+            font-size: 1rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: var(--text);
+            margin-bottom: 1.25rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid var(--accent);
+        }
+
+        /* ── Map ── */
+        #geofence-map {
+            width: 100%;
+            height: 360px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            margin-bottom: 1rem;
+        }
+
+        #geofence-map.draw-mode {
+            cursor: crosshair !important;
+        }
+
+        /* ── Draw toolbar ── */
+        .map-toolbar {
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+            margin-bottom: 0.75rem;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.5rem 1rem;
+            border-radius: 7px;
+            font-size: 0.875rem;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            transition: background 0.15s, color 0.15s;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+        }
+
+        .btn-primary:hover { background: var(--accent-hover); }
+
+        .btn-secondary {
+            background: var(--input-bg);
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+
+        .btn-danger {
+            background: rgba(231, 76, 60, 0.15);
+            color: var(--error);
+            border: 1px solid rgba(231, 76, 60, 0.35);
+        }
+
+        .btn-danger:hover { background: rgba(231, 76, 60, 0.25); }
+
+        .btn-sm {
+            padding: 0.3rem 0.65rem;
+            font-size: 0.8rem;
+        }
+
+        .draw-hint {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            font-style: italic;
+        }
+
+        /* ── Waypoint form (shown after drawing or clicking Edit) ── */
+        #waypoint-form-panel {
+            display: none;
+            background: var(--input-bg);
+            border: 1px solid var(--accent);
+            border-radius: 8px;
+            padding: 1rem 1.25rem;
+            margin-bottom: 1rem;
+        }
+
+        #waypoint-form-panel.visible {
+            display: block;
+        }
+
+        .form-panel-title {
+            font-size: 0.875rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--accent);
+            margin-bottom: 0.875rem;
+        }
+
+        .form-row {
+            display: flex;
+            gap: 0.75rem;
+            margin-bottom: 0.875rem;
+            flex-wrap: wrap;
+        }
+
+        .form-field {
+            display: flex;
+            flex-direction: column;
+            gap: 0.3rem;
+            flex: 1;
+            min-width: 100px;
+        }
+
+        .form-field.label-field { flex: 2; min-width: 140px; }
+
+        .form-field label {
+            font-size: 0.75rem;
+            font-weight: 500;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+        }
+
+        .form-field input {
+            padding: 0.5rem 0.75rem;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-size: 0.9rem;
+            transition: border-color 0.15s;
+        }
+
+        .form-field input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .form-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        /* ── Waypoints table ── */
+        .waypoints-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.875rem;
+        }
+
+        .waypoints-table th {
+            text-align: left;
+            padding: 0.5rem 0.75rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .waypoints-table td {
+            padding: 0.65rem 0.75rem;
+            border-bottom: 1px solid var(--border);
+            vertical-align: middle;
+        }
+
+        .waypoints-table tr:last-child td { border-bottom: none; }
+
+        .waypoints-table tr.highlighted td {
+            background: rgba(78, 154, 241, 0.08);
+        }
+
+        .muted { color: var(--text-muted); }
+
+        .empty-state {
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.875rem;
+            padding: 2rem 0;
+        }
+
+        /* ── Sync section ── */
+        .sync-row {
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .sync-row select {
+            padding: 0.5rem 0.75rem;
+            background: var(--input-bg);
+            border: 1px solid var(--border);
+            border-radius: 7px;
+            color: var(--text);
+            font-size: 0.875rem;
+            flex: 1;
+            min-width: 150px;
+        }
+
+        .sync-row select:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .sync-note {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-top: 0.75rem;
+        }
+
+        /* ── Messages ── */
+        .message {
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            font-size: 0.875rem;
+        }
+
+        .message.success {
+            background: rgba(39, 174, 96, 0.15);
+            border: 1px solid var(--success);
+            color: var(--success);
+        }
+
+        .message.error {
+            background: rgba(231, 76, 60, 0.15);
+            border: 1px solid var(--error);
+            color: var(--error);
+        }
+
+        @media (max-width: 600px) {
+            .page-container { padding: 0 1rem; }
+            .card { padding: 1.25rem; }
+            .form-row { flex-direction: column; }
+            .form-field { min-width: unset; }
+        }
+    </style>
+</head>
+<body>
+<div class="page-container">
+    <div class="page-header">
+        <a href="{% url 'web_ui:profile' %}#locations" class="back-link">← Profile</a>
+        <h1>Geofences</h1>
+    </div>
+
+    <!-- Map card -->
+    <div class="card">
+        <div class="section-title">Map</div>
+
+        <div class="map-toolbar">
+            <button type="button" class="btn btn-primary" id="draw-btn">+ Add geofence</button>
+            <button type="button" class="btn btn-secondary" id="cancel-draw-btn" style="display:none;">Cancel</button>
+            <span class="draw-hint" id="draw-hint"></span>
+        </div>
+
+        <div id="geofence-map"></div>
+
+        <!-- New / edit waypoint form -->
+        <div id="waypoint-form-panel">
+            <div class="form-panel-title" id="form-panel-title">New Geofence</div>
+            <form method="post" id="waypoint-form">
+                {% csrf_token %}
+                <input type="hidden" name="form_type" id="form-type-field" value="add_waypoint">
+                <input type="hidden" name="waypoint_id" id="form-waypoint-id">
+                <div class="form-row">
+                    <div class="form-field label-field">
+                        <label for="form-label">Label</label>
+                        <input type="text" name="label" id="form-label" placeholder="e.g. Home, Work" required>
+                    </div>
+                    <div class="form-field">
+                        <label for="form-lat">Latitude</label>
+                        <input type="number" name="latitude" id="form-lat" step="0.0000001" required>
+                    </div>
+                    <div class="form-field">
+                        <label for="form-lon">Longitude</label>
+                        <input type="number" name="longitude" id="form-lon" step="0.0000001" required>
+                    </div>
+                    <div class="form-field">
+                        <label for="form-radius">Radius (m)</label>
+                        <input type="number" name="radius" id="form-radius" min="10" max="50000" value="100">
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Save</button>
+                    <button type="button" class="btn btn-secondary" id="form-cancel-btn">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Waypoints table card -->
+    <div class="card">
+        <div class="section-title">Your Geofences</div>
+
+        {% if waypoints %}
+        <table class="waypoints-table" id="waypoints-table">
+            <thead>
+                <tr>
+                    <th>Label</th>
+                    <th>Center</th>
+                    <th>Radius</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for wp in waypoints %}
+                <tr data-wp-id="{{ wp.pk }}"
+                    data-label="{{ wp.label }}"
+                    data-lat="{{ wp.latitude }}"
+                    data-lon="{{ wp.longitude }}"
+                    data-radius="{{ wp.radius }}">
+                    <td><span class="device-name">{{ wp.label }}</span></td>
+                    <td class="muted">{{ wp.latitude|floatformat:5 }}°, {{ wp.longitude|floatformat:5 }}°</td>
+                    <td class="muted">{{ wp.radius }} m</td>
+                    <td>
+                        <div style="display:flex; gap:0.4rem; justify-content:flex-end;">
+                            <button type="button" class="btn btn-secondary btn-sm edit-btn">Edit</button>
+                            <form method="post" style="display:inline;" onsubmit="return confirm('Delete this geofence?');">
+                                {% csrf_token %}
+                                <input type="hidden" name="form_type" value="delete_waypoint">
+                                <input type="hidden" name="waypoint_id" value="{{ wp.pk }}">
+                                <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="empty-state">No geofences yet. Use the map above to draw your first one.</p>
+        {% endif %}
+    </div>
+
+    <!-- Sync card -->
+    <div class="card">
+        <div class="section-title">Sync to Device</div>
+        {% if devices %}
+        <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="form_type" value="sync_to_device">
+            <div class="sync-row">
+                <select name="device_id" required>
+                    {% for device in devices %}
+                    <option value="{{ device.pk }}">{{ device.name|default:device.device_id }}</option>
+                    {% endfor %}
+                </select>
+                <button type="submit" class="btn btn-primary">Sync all waypoints →</button>
+            </div>
+        </form>
+        <p class="sync-note">Pushes all active geofences to the selected device via the setWaypoints command. Removing a geofence here does not automatically remove it from your device — sync to apply changes.</p>
+        {% else %}
+        <p class="muted">No devices linked to your account.</p>
+        {% endif %}
+    </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script>
+(function() {
+    // ── Waypoint data from server ──────────────────────────────────────────
+    const serverWaypoints = [
+        {% for wp in waypoints %}
+        {
+            id: {{ wp.pk }},
+            label: "{{ wp.label|escapejs }}",
+            lat: parseFloat("{{ wp.latitude }}"),
+            lon: parseFloat("{{ wp.longitude }}"),
+            radius: {{ wp.radius }},
+        },
+        {% endfor %}
+    ];
+    {% if user_profile and user_profile.home_latitude and user_profile.home_longitude %}
+    const homeLat = parseFloat("{{ user_profile.home_latitude }}");
+    const homeLon = parseFloat("{{ user_profile.home_longitude }}");
+    const homeLabel = "{{ user_profile.home_label|escapejs }}";
+    {% else %}
+    const homeLat = null;
+    const homeLon = null;
+    const homeLabel = null;
+    {% endif %}
+
+    // ── Map setup ─────────────────────────────────────────────────────────
+    const defaultCenter = homeLat !== null ? [homeLat, homeLon] : [20, 0];
+    const defaultZoom = homeLat !== null ? 14 : 2;
+
+    const map = L.map('geofence-map', { zoomControl: true, attributionControl: false });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+    map.setView(defaultCenter, defaultZoom);
+
+    // Home pin
+    if (homeLat !== null) {
+        const homeIcon = L.divIcon({
+            html: '🏠',
+            className: '',
+            iconSize: [20, 20],
+            iconAnchor: [10, 10],
+        });
+        L.marker([homeLat, homeLon], { icon: homeIcon })
+            .bindTooltip(homeLabel || 'Home', { permanent: false })
+            .addTo(map);
+    }
+
+    // Render existing waypoints as circles
+    const circleLayer = {};  // wp id → L.circle
+    serverWaypoints.forEach(function(wp) {
+        const circle = L.circle([wp.lat, wp.lon], {
+            radius: wp.radius,
+            color: '#4e9af1',
+            fillColor: '#4e9af1',
+            fillOpacity: 0.12,
+            weight: 2,
+        }).bindTooltip(wp.label, { permanent: false }).addTo(map);
+        circleLayer[wp.id] = circle;
+    });
+
+    if (serverWaypoints.length > 0) {
+        // Fit map to show all waypoints (+ home if set)
+        const allCircles = Object.values(circleLayer);
+        if (allCircles.length === 1) {
+            const c = allCircles[0];
+            map.fitBounds(c.getBounds(), { padding: [40, 40] });
+        } else if (allCircles.length > 1) {
+            let bounds = allCircles[0].getBounds();
+            allCircles.slice(1).forEach(function(c) { bounds.extend(c.getBounds()); });
+            map.fitBounds(bounds, { padding: [40, 40] });
+        }
+    }
+
+    // ── Draw mode state machine ────────────────────────────────────────────
+    // States: 'idle' | 'placing-center' | 'placing-radius'
+    let drawState = 'idle';
+    let drawCenter = null;      // LatLng
+    let previewCircle = null;   // L.circle (rubber-band preview)
+    let previewMarker = null;   // L.circleMarker at center
+
+    const mapEl = document.getElementById('geofence-map');
+    const drawBtn = document.getElementById('draw-btn');
+    const cancelDrawBtn = document.getElementById('cancel-draw-btn');
+    const drawHint = document.getElementById('draw-hint');
+
+    function enterDrawMode() {
+        drawState = 'placing-center';
+        mapEl.classList.add('draw-mode');
+        drawBtn.style.display = 'none';
+        cancelDrawBtn.style.display = '';
+        drawHint.textContent = 'Click on the map to place the geofence center.';
+        hideForm();
+    }
+
+    function cancelDraw() {
+        drawState = 'idle';
+        mapEl.classList.remove('draw-mode');
+        drawBtn.style.display = '';
+        cancelDrawBtn.style.display = 'none';
+        drawHint.textContent = '';
+        if (previewCircle) { map.removeLayer(previewCircle); previewCircle = null; }
+        if (previewMarker) { map.removeLayer(previewMarker); previewMarker = null; }
+        drawCenter = null;
+    }
+
+    drawBtn.addEventListener('click', enterDrawMode);
+    cancelDrawBtn.addEventListener('click', cancelDraw);
+
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && drawState !== 'idle') cancelDraw();
+    });
+
+    map.on('click', function(e) {
+        if (drawState === 'placing-center') {
+            drawCenter = e.latlng;
+            drawState = 'placing-radius';
+            drawHint.textContent = 'Click again to set the radius.';
+
+            previewMarker = L.circleMarker(drawCenter, {
+                radius: 5, color: '#4e9af1', fillColor: '#4e9af1', fillOpacity: 1, weight: 2,
+            }).addTo(map);
+            previewCircle = L.circle(drawCenter, {
+                radius: 50,
+                color: '#4e9af1', fillColor: '#4e9af1', fillOpacity: 0.15, weight: 2,
+                dashArray: '6 4',
+            }).addTo(map);
+
+        } else if (drawState === 'placing-radius') {
+            const radius = Math.round(drawCenter.distanceTo(e.latlng));
+            const finalRadius = Math.max(10, radius);
+
+            // Fix the preview circle (remove dash)
+            if (previewCircle) { map.removeLayer(previewCircle); }
+            previewCircle = L.circle(drawCenter, {
+                radius: finalRadius,
+                color: '#4e9af1', fillColor: '#4e9af1', fillOpacity: 0.15, weight: 2,
+            }).addTo(map);
+
+            // Populate form
+            showNewForm(drawCenter.lat, drawCenter.lng, finalRadius);
+            drawState = 'idle';
+            mapEl.classList.remove('draw-mode');
+            drawBtn.style.display = '';
+            cancelDrawBtn.style.display = 'none';
+            drawHint.textContent = '';
+        }
+    });
+
+    map.on('mousemove', function(e) {
+        if (drawState === 'placing-radius' && drawCenter && previewCircle) {
+            const radius = Math.max(10, Math.round(drawCenter.distanceTo(e.latlng)));
+            previewCircle.setRadius(radius);
+        }
+    });
+
+    // ── Waypoint form helpers ──────────────────────────────────────────────
+    const formPanel = document.getElementById('waypoint-form-panel');
+    const formTitle = document.getElementById('form-panel-title');
+    const formTypeField = document.getElementById('form-type-field');
+    const formWaypointId = document.getElementById('form-waypoint-id');
+    const formLabel = document.getElementById('form-label');
+    const formLat = document.getElementById('form-lat');
+    const formLon = document.getElementById('form-lon');
+    const formRadius = document.getElementById('form-radius');
+    const formCancelBtn = document.getElementById('form-cancel-btn');
+
+    // Edit circle for currently-open edit (not a drawn preview)
+    let editCircle = null;
+    let editHighlightedRow = null;
+
+    function showNewForm(lat, lon, radius) {
+        formTitle.textContent = 'New Geofence';
+        formTypeField.value = 'add_waypoint';
+        formWaypointId.value = '';
+        formLabel.value = '';
+        formLat.value = lat.toFixed(7);
+        formLon.value = lon.toFixed(7);
+        formRadius.value = radius;
+        formPanel.classList.add('visible');
+        formLabel.focus();
+    }
+
+    function showEditForm(wpId, label, lat, lon, radius) {
+        clearEditHighlight();
+        formTitle.textContent = 'Edit Geofence';
+        formTypeField.value = 'edit_waypoint';
+        formWaypointId.value = wpId;
+        formLabel.value = label;
+        formLat.value = lat;
+        formLon.value = lon;
+        formRadius.value = radius;
+        formPanel.classList.add('visible');
+        formLabel.focus();
+
+        // Highlight the row
+        const row = document.querySelector('[data-wp-id="' + wpId + '"]');
+        if (row) {
+            row.classList.add('highlighted');
+            editHighlightedRow = row;
+        }
+
+        // Pan to circle
+        const circle = circleLayer[wpId];
+        if (circle) {
+            map.fitBounds(circle.getBounds(), { padding: [60, 60], maxZoom: 16 });
+            circle.setStyle({ color: '#f39c12', fillColor: '#f39c12' });
+            editCircle = circle;
+        }
+
+        // Scroll form panel into view
+        formPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    function hideForm() {
+        formPanel.classList.remove('visible');
+        clearEditHighlight();
+        if (previewCircle && drawState === 'idle') {
+            map.removeLayer(previewCircle);
+            previewCircle = null;
+        }
+        if (previewMarker) {
+            map.removeLayer(previewMarker);
+            previewMarker = null;
+        }
+    }
+
+    function clearEditHighlight() {
+        if (editHighlightedRow) {
+            editHighlightedRow.classList.remove('highlighted');
+            editHighlightedRow = null;
+        }
+        if (editCircle) {
+            editCircle.setStyle({ color: '#4e9af1', fillColor: '#4e9af1' });
+            editCircle = null;
+        }
+    }
+
+    formCancelBtn.addEventListener('click', function() {
+        cancelDraw();
+        hideForm();
+    });
+
+    // ── Edit buttons ───────────────────────────────────────────────────────
+    document.querySelectorAll('.edit-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            const row = btn.closest('tr');
+            showEditForm(
+                row.dataset.wpId,
+                row.dataset.label,
+                row.dataset.lat,
+                row.dataset.lon,
+                row.dataset.radius
+            );
+        });
+    });
+
+    // Live update of preview/edit circle when radius input changes
+    formRadius.addEventListener('input', function() {
+        const r = parseInt(formRadius.value) || 0;
+        if (r < 10) return;
+        if (editCircle) {
+            editCircle.setRadius(r);
+        } else if (previewCircle && drawState === 'idle') {
+            previewCircle.setRadius(r);
+        }
+    });
+})();
+</script>
+</body>
+</html>
