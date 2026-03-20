@@ -386,6 +386,68 @@
             color: #27ae60;
         }
 
+        .status-pill.offline {
+            background: rgba(160, 160, 176, 0.15);
+            color: var(--text-muted);
+        }
+
+        .devices-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.875rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .devices-table th {
+            text-align: left;
+            padding: 0.5rem 0.75rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .devices-table td {
+            padding: 0.6rem 0.75rem;
+            border-bottom: 1px solid var(--border);
+            vertical-align: middle;
+        }
+
+        .devices-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .device-name { font-weight: 500; }
+        .device-id { color: var(--text-muted); font-size: 0.8rem; }
+        .muted { color: var(--text-muted); }
+
+        .coord-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+
+        .use-last-location {
+            margin-bottom: 1.25rem;
+        }
+
+        .use-last-btn {
+            background: none;
+            border: 1px dashed var(--accent);
+            color: var(--accent);
+            border-radius: 6px;
+            padding: 0.4rem 0.75rem;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .use-last-btn:hover {
+            background: rgba(78, 154, 241, 0.1);
+        }
+
         @media (max-width: 600px) {
             .profile-container {
                 padding: 0.75rem;
@@ -503,6 +565,84 @@
                     <input type="email" name="email" id="id_email" value="{{ user.email }}">
                 </div>
                 <button type="submit" class="submit-btn">Save Profile</button>
+            </form>
+
+            <hr class="section-divider">
+
+            <h3 class="section-title">My Devices</h3>
+            {% if devices %}
+            <table class="devices-table">
+                <thead>
+                    <tr>
+                        <th>Device</th>
+                        <th>Status</th>
+                        <th>Last Seen</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for device in devices %}
+                    <tr>
+                        <td>
+                            <span class="device-name">{{ device.name|default:device.device_id }}</span>
+                            {% if device.name %}<span class="device-id"> ({{ device.device_id }})</span>{% endif %}
+                        </td>
+                        <td>
+                            {% if device.is_online %}
+                                <span class="status-pill active">online</span>
+                            {% else %}
+                                <span class="status-pill offline">offline</span>
+                            {% endif %}
+                        </td>
+                        <td class="muted">{{ device.last_seen|date:"Y-m-d H:i" }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="cert-none">No devices linked to your account yet.</p>
+            {% endif %}
+
+            <hr class="section-divider">
+
+            <h3 class="section-title">Home Location</h3>
+            {% if home_location_success %}
+            <div class="message success">{{ home_location_success }}</div>
+            {% endif %}
+            {% if home_location_error %}
+            <div class="message error">{{ home_location_error }}</div>
+            {% endif %}
+            <form method="post" action="{% url 'web_ui:profile' %}">
+                {% csrf_token %}
+                <input type="hidden" name="form_type" value="home_location">
+                <div class="form-group">
+                    <label for="id_home_label">Label</label>
+                    <input type="text" name="home_label" id="id_home_label"
+                           value="{{ user_profile.home_label }}" maxlength="100">
+                </div>
+                <div class="coord-row">
+                    <div class="form-group">
+                        <label for="id_home_latitude">Latitude</label>
+                        <input type="number" name="home_latitude" id="id_home_latitude"
+                               value="{{ user_profile.home_latitude|default:'' }}"
+                               step="0.0000000001" min="-90" max="90" placeholder="e.g. 41.194">
+                    </div>
+                    <div class="form-group">
+                        <label for="id_home_longitude">Longitude</label>
+                        <input type="number" name="home_longitude" id="id_home_longitude"
+                               value="{{ user_profile.home_longitude|default:'' }}"
+                               step="0.0000000001" min="-180" max="180" placeholder="e.g. -73.888">
+                    </div>
+                </div>
+                {% if last_location %}
+                <div class="use-last-location">
+                    <button type="button" class="use-last-btn"
+                            data-lat="{{ last_location.latitude }}"
+                            data-lon="{{ last_location.longitude }}">
+                        Use my last known location ({{ last_location.latitude }}, {{ last_location.longitude }})
+                    </button>
+                </div>
+                {% endif %}
+                <button type="submit" class="submit-btn">Save Home Location</button>
             </form>
 
             <hr class="section-divider">
@@ -714,6 +854,13 @@
                 document.getElementById('id_new_password').focus();
             });
         })();
+        // Use last known location shortcut
+        document.querySelectorAll('.use-last-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.getElementById('id_home_latitude').value = this.dataset.lat;
+                document.getElementById('id_home_longitude').value = this.dataset.lon;
+            });
+        });
     </script>
 </body>
 </html>

@@ -17,8 +17,8 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.utils import timezone as tz
 
-from app.models import (CertificateAuthority, ClientCertificate, Location,
-                        ServerCertificate)
+from app.models import (CertificateAuthority, ClientCertificate, Device,
+                        Location, ServerCertificate, UserProfile)
 from app.pki import (ALLOWED_KEY_SIZES, DEFAULT_CA_VALIDITY_DAYS,
                      DEFAULT_CERT_VALIDITY_DAYS, VALIDITY_PRESETS)
 from app.pki import decrypt_private_key as pki_decrypt_private_key
@@ -257,14 +257,36 @@ def home(request: HttpRequest) -> HttpResponse:
 
 @login_required
 def profile(request: HttpRequest) -> HttpResponse:
-    """User profile page for editing name, email, and password."""
+    """User profile page for editing name, email, password, and home location."""
     context: dict[str, object] = {}
+    user_profile, _ = UserProfile.objects.get_or_create(user=request.user)
 
     if request.method == 'POST':
         form_type = request.POST.get('form_type')
         user = request.user
 
-        if form_type == 'profile':
+        if form_type == 'home_location':
+            lat_str = request.POST.get('home_latitude', '').strip()
+            lon_str = request.POST.get('home_longitude', '').strip()
+            label = request.POST.get('home_label', '').strip() or 'Home'
+            try:
+                lat = float(lat_str) if lat_str else None
+                lon = float(lon_str) if lon_str else None
+                if (lat is None) != (lon is None):
+                    raise ValueError("Both latitude and longitude are required")
+                if lat is not None and not (-90 <= lat <= 90):
+                    raise ValueError("Latitude must be between -90 and 90")
+                if lon is not None and not (-180 <= lon <= 180):
+                    raise ValueError("Longitude must be between -180 and 180")
+                user_profile.home_latitude = lat  # type: ignore[assignment]
+                user_profile.home_longitude = lon  # type: ignore[assignment]
+                user_profile.home_label = label
+                user_profile.save(update_fields=['home_latitude', 'home_longitude', 'home_label'])
+                context['home_location_success'] = 'Home location saved.'
+            except ValueError as e:
+                context['home_location_error'] = str(e)
+
+        elif form_type == 'profile':
             user.first_name = request.POST.get('first_name', '')
             user.last_name = request.POST.get('last_name', '')
             user.email = request.POST.get('email', '')
@@ -316,6 +338,19 @@ def profile(request: HttpRequest) -> HttpResponse:
         context['ca_meta'] = get_certificate_metadata(
             active_ca.certificate_pem.encode()
         )
+
+    # My Devices
+    context['devices'] = Device.objects.filter(owner=request.user).order_by('-last_seen')
+
+    # Home location
+    context['user_profile'] = user_profile
+    last_location = (
+        Location.objects
+        .filter(device__owner=request.user)
+        .order_by('-timestamp')
+        .first()
+    )
+    context['last_location'] = last_location
 
     return render(request, 'web_ui/profile.html', context)
 
@@ -441,7 +476,7 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
                         user.save()
                     role = "administrator" if is_admin else "user"
                     logger.info("[http] User '%s' created '%s' (role=%s) via admin panel",
-                                 request.user.username, username, role)
+                                request.user.username, username, role)
                     context['create_success'] = f"User '{username}' created as {role}."
                 except Exception as e:
                     context['create_error'] = str(e)

@@ -19,6 +19,7 @@ from asgiref.sync import sync_to_async
 from channels.layers import get_channel_layer
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes
+from django.contrib.auth.models import User
 
 from app.models import Device, Location, OwnTracksMessage
 from app.mqtt.handlers import OwnTracksMessageHandler
@@ -85,13 +86,17 @@ def save_location_to_db(location_data: dict[str, Any]) -> dict[str, Any] | None:
         )
 
         # Mark device as online (receiving location = device is connected)
-        # Also store mqtt_user from topic for command routing
+        # Also store mqtt_user from topic for command routing, and resolve owner
         mqtt_user = location_data.get("mqtt_user", "")
         updates: dict[str, object] = {}
         if not device.is_online:
             updates["is_online"] = True
         if mqtt_user and device.mqtt_user != mqtt_user:
             updates["mqtt_user"] = mqtt_user
+        if mqtt_user and device.owner_id is None:
+            owner = User.objects.filter(username=mqtt_user).first()
+            if owner is not None:
+                updates["owner"] = owner
         if updates:
             Device.objects.filter(pk=device.pk).update(**updates)
 
