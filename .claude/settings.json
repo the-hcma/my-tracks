@@ -14,7 +14,11 @@
       "Bash(GRAPHITE_PROFILE=thehcma gt create -a -m \"fix\\(phase9/step4\\): wire CommandPublisher to running MQTT broker for sync-to-device\" --no-interactive)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(GRAPHITE_PROFILE=thehcma gt create -m \"fix\\(phase9/step4\\): correct setWaypoints payload format per OwnTracks protocol; improve command logging\" --no-interactive)",
-      "Bash(GRAPHITE_PROFILE=thehcma gt create -a -m \"fix\\(mqtt\\): log Django owner username instead of MQTT user in command logs:*)"
+      "Bash(GRAPHITE_PROFILE=thehcma gt create -a -m \"fix\\(mqtt\\): log Django owner username instead of MQTT user in command logs:*)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); [print\\(k,'''':'''',v\\) for k,v in d.get\\(''''scripts'''',{}\\).items\\(\\)]\")",
+      "Bash(GRAPHITE_PROFILE=thehcma gt create -a -m \"feat\\(phase9/step2\\): persist transitions and sync incoming waypoints from device\")",
+      "Read(//Users/hcma/work/ai/my-tracks/**)",
+      "Bash(GRAPHITE_PROFILE=thehcma gt modify -a --no-edit)"
     ]
   }
 }
