@@ -1,6 +1,6 @@
 # My Tracks — Implementation Plan
 
-**Last Updated**: March 19, 2026
+**Last Updated**: March 20, 2026
 
 ## Overview
 
@@ -740,28 +740,25 @@ Geofences tab on the profile page (not a separate page):
 
 Two-part feature: admin-managed SMTP configuration and per-user geofence transition rules that trigger email notifications.
 
-**Step 1: SMTP configuration (admin)**
+**Step 1: SMTP configuration (admin)** ✅ (PR #521)
 
-- **`SmtpConfig` singleton model** — one row, fields: `host`, `port` (default 587), `username`, `password` (encrypted at rest via Django's `make_password` / a dedicated secrets field), `use_tls` (bool, default True), `from_address`, `updated_at`. Enforced as singleton via `save()` override or `get_or_create(pk=1)`.
-- **Admin panel section** — new "Email / SMTP" card on `/admin-panel/`, visible only to staff users. Form fields for all `SmtpConfig` fields + a "Recipient" field used only for the test. CSRF-protected POST to a dedicated endpoint (`/admin/smtp/`).
-- **"Send test email" button** — fires `POST /admin/smtp/test/` with a `to` address. Django view connects to the SMTP server using the stored config, sends a fixed test message (`subject: "my-tracks SMTP test"`, `body: "SMTP is configured correctly."`), and returns JSON `{"ok": true}` or `{"ok": false, "error": "..."}`. The page shows an inline success/error banner without a full reload (small `fetch()` call).
-- **`get_smtp_backend()`** helper in `app/notifications.py` — constructs an `django.core.mail.backends.smtp.EmailBackend` from the stored `SmtpConfig`; returns `None` if no config exists. All email sending goes through this helper.
+- **`SmtpConfig` singleton model** — `host`, `port`, `username`, `encrypted_password` (Fernet-encrypted BinaryField), `use_tls`, `use_ssl`, `from_address`, `updated_at`. Singleton enforced via `save()` + `get()` classmethod.
+- **Admin panel "Email" tab** — port `<select>` (587/465/25/2525) infers TLS mode automatically. Password field never echoes stored value. "Send test email" fires `POST /admin-panel/smtp-test/` → JSON, inline result without page reload.
+- **Friendly error messages** — `smtp_friendly_error()` in `app/notifications.py` translates `socket.gaierror`, `ConnectionRefusedError`, `TimeoutError`, and `SMTPAuthenticationError` into readable strings.
+- **Server identity in test email** — cert SANs from the active `ServerCertificate` included in the body so the recipient can confirm the sender.
 
-**Step 2: Geofence transition actions**
+**Step 2: Geofence transition actions** ✅ (PR #521)
 
-- **`TransitionAction` model** — fields: `user` (FK User), `waypoint` (FK `Waypoint`, null=True — null means "any geofence"), `event` (CharField, choices: `enter` / `leave` / `any`), `action_type` (CharField, choices: `email`), `email_address` (EmailField), `is_active` (bool, default True), `created_at`.
-- **Geofences page UI** — new "Automations" section below the waypoints table. Lists existing rules in a table (geofence, event, action, address, active toggle, delete). "Add rule" form: geofence dropdown (options: each waypoint label + "Any geofence"), event dropdown (Enter / Leave / Either), email address input.
-- **Email content** — subject: `"[my-tracks] {username} {entered|left} {waypoint label}"`. Body: `"{username} {entered|left} {waypoint label} at {timestamp} (device: {device name})."`. Sent from `SmtpConfig.from_address`.
-- **Rule evaluation** — in `save_transition_to_db()` (or a post-save signal), after the `Transition` row is created, query `TransitionAction.objects.filter(user=device.owner, is_active=True)` and match against the event. For each match, call `send_transition_email()` from `app/notifications.py` using `get_smtp_backend()`. Failures are logged but do not raise (same pattern as WebSocket broadcast).
-- **`app/notifications.py`** — `get_smtp_backend()`, `send_transition_email(transition, action)`, and `send_test_email(to, smtp_config)` as the three public functions.
+- **`TransitionAction` model** — `user` (FK), `waypoint` (FK, null = "any geofence"), `event` (`enter`/`leave`/`any`), `action_type` (`email`), `email_address`, `is_active`.
+- **Automations UI** — on the profile page Geofences tab, above Recent Transitions. Table of rules with per-rule Test button (disabled + tooltip when SMTP not configured) and Delete. "Add rule" form: geofence dropdown + event dropdown + email address.
+- **Rich email body** — subject `[my-tracks] {display_name} {entered|left} {waypoint}`. Body includes event type, timestamp (UTC), device name, and straight-line distance to geofence center (Haversine, in m or km).
+- **Rule evaluation** — `_fire_transition_actions()` in `app/mqtt/plugin.py` called after `Transition.objects.create()`; catches all exceptions so SMTP failure never interrupts MQTT processing.
 
-**Tests**
-- `SmtpConfig` singleton enforcement
-- `get_smtp_backend()` returns None when unconfigured
-- `send_transition_email()` with mocked backend: correct subject/body/recipient
-- Rule matching: enter-only rule not fired on leave; `waypoint=None` rule fires for any geofence
-- Admin SMTP form: only staff can access; test endpoint returns correct JSON on success and on `SMTPException`
-- Geofences page: add/delete automation rule; rule appears in context
+**Tests** (in `tests/python/test_transition_actions.py` and `test_web_ui.py::TestAdminPanelSmtp`)
+- `SmtpConfig` singleton enforcement; SMTP save/update/password-preserve/missing-host
+- `send_transition_email()`: correct subject, recipient, leave verb, skip when no SMTP
+- Rule matching: enter-only not fired on leave; null-waypoint fires for any geofence; inactive rule not fired; SMTP failure does not propagate
+- Geofences view: add/delete action, ownership guard (404 for other user's waypoint/action), GET includes actions in context
 
 ### Phase 11: Friends & Location Sharing
 
