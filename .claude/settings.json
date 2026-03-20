@@ -18,7 +18,11 @@
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); [print\\(k,'''':'''',v\\) for k,v in d.get\\(''''scripts'''',{}\\).items\\(\\)]\")",
       "Bash(GRAPHITE_PROFILE=thehcma gt create -a -m \"feat\\(phase9/step2\\): persist transitions and sync incoming waypoints from device\")",
       "Read(//Users/hcma/work/ai/my-tracks/**)",
-      "Bash(GRAPHITE_PROFILE=thehcma gt modify -a --no-edit)"
+      "Bash(GRAPHITE_PROFILE=thehcma gt modify -a --no-edit)",
+      "Bash(find docs:*)",
+      "Bash(find . -name PLAN*.md -not -path ./.claude/*)",
+      "Bash(GRAPHITE_PROFILE=thehcma gt create -a -m \"docs: mark Phase 9 Step 2 complete in implementation plan\")",
+      "Bash(GRAPHITE_PROFILE=thehcma gt ls -s)"
     ]
   }
 }
