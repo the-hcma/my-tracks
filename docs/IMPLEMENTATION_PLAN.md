@@ -764,12 +764,16 @@ Two-part feature: admin-managed SMTP configuration and per-user geofence transit
 
 Backward-compatible sharing model layered on top of the existing single-user visibility:
 
-- Add explicit ownership and sharing entities (`FriendRequest`, `FriendConnection` with per-direction share toggles)
-- Keep OwnTracks ingestion (`POST /api/locations/`) unchanged; enforce visibility on read paths (`/api/locations/`, `/api/devices/`, device locations)
-- Friend APIs: send/list/accept/decline/remove requests + share preference updates
-- Extend MQTT ACL so subscribe access supports approved friend visibility while preserving own-topic publish constraints
-- Replace global WebSocket fan-out with visibility-aware delivery (only owner + authorized friends receive updates)
-- Tests for model constraints, API filtering, MQTT ACL, and WebSocket visibility behavior
+- **Step 1** ✅ — `FriendRequest` model (directional, pending/accepted/declined, `unique_together`) and `DeviceShare` model (per-device grant) with migration
+- **Step 2** ✅ — Friends API: `FriendRequestViewSet` (send/accept/decline/cancel), `FriendViewSet` (list/remove friends with cascade DeviceShare cleanup), `DeviceShareViewSet` (grant/revoke per-device access to a friend)
+- **Step 3** ✅ — Read-path visibility: `DeviceViewSet` and `LocationViewSet` `get_queryset()` restricted to owner + friends with active DeviceShare; device filter returns 404 for inaccessible devices (no existence leak)
+- **Step 4** — MQTT ACL + CARD messages for mobile app friend visibility:
+  - The OwnTracks mobile app subscribes to `owntracks/+/+` wildcard ([booklet: friends](https://owntracks.org/booklet/features/friends/)). amqtt's `Action.RECEIVE` hook (`_topic_filtering` called per subscriber before each delivery) enables per-message filtering without requiring specific per-topic subscriptions.
+  - Subscribe ACL: allow `owntracks/+/+` wildcard for any authenticated user (so the app's default subscription is accepted); publish ACL unchanged (own topics only).
+  - Receive filter: new `action='receive'` branch in `check_topic_access()` — allow if `topic_user == subscriber` (own device) or `DeviceShare` row exists for that device and subscriber. Deny otherwise.
+  - CARD messages ([booklet: card](https://owntracks.org/booklet/features/card/)): when a new device is first seen (initial location received), publish a retained `{"_type": "card", "name": username}` to `owntracks/{user}/{device}/info` so the mobile app can display friend names on the map.
+- **Step 5** — WebSocket per-user groups: each authenticated WebSocket client joins `locations-{user_id}` group; `plugin.py` fans out to owner + all `DeviceShare.shared_with` users instead of the global `locations` group
+- **Step 6** — Frontend Friends UI: Friends tab on profile page with pending request list, add-friend form, friends list with per-device share checkboxes, and Remove Friend button
 
 ## Key Files
 
@@ -799,6 +803,14 @@ app/mqtt/
 - **MQTT v3.1.1 required**: amqtt only supports protocol level 4 (v3.1.1). OwnTracks Android defaults to v3.1 — reconfigure with `{"_type": "configuration", "mqttProtocolLevel": 4}`. The broker logs a warning when a v3.1 client connects.
 - **Django ORM in async**: Use `sync_to_async` wrapper
 - **SQLite async tests**: Use `@pytest.mark.django_db(transaction=True)`
+- **amqtt RECEIVE filter**: `_topic_filtering()` is called with `Action.RECEIVE` for each (subscriber, message) pair in the broadcast loop — allows per-subscriber message filtering even under wildcard subscriptions. See `amqtt/broker.py` lines ~993–1007.
+
+## OwnTracks Protocol References
+
+- [JSON message types](https://owntracks.org/booklet/tech/json/) — `location`, `lwt`, `transition`, `card` payload schemas
+- [Friends feature](https://owntracks.org/booklet/features/friends/) — how the mobile app discovers and displays friends (wildcard `owntracks/+/+` subscribe + broker ACL)
+- [CARD messages](https://owntracks.org/booklet/features/card/) — retained `owntracks/{user}/{device}/info` messages for friend name/photo display
+- [Broker configuration](https://owntracks.org/booklet/guide/broker/) — topic structure and ACL design for multi-user deployments
 
 ## Future Enhancements
 
