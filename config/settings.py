@@ -1,5 +1,5 @@
 """
-Django settings for my_tracks project.
+Django settings for my-tracks project.
 
 Generated for Django 5.0, using Python 3.12+.
 For more information on this file, see

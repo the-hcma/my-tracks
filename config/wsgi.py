@@ -1,5 +1,5 @@
 """
-WSGI config for my_tracks project.
+WSGI config for my-tracks project.
 
 It exposes the WSGI callable as a module-level variable named ``application``.
 

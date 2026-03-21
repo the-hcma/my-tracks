@@ -360,8 +360,8 @@ if [ "$mqtt_tls_port" -ge 0 ]; then
 import os, sys
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
 import django; django.setup()
-from my_tracks.models import ServerCertificate, CertificateAuthority
-from my_tracks.pki import get_certificate_fingerprint, get_certificate_subject, get_certificate_expiry
+from app.models import ServerCertificate, CertificateAuthority
+from app.pki import get_certificate_fingerprint, get_certificate_subject, get_certificate_expiry
 from datetime import UTC, datetime
 cert = ServerCertificate.objects.filter(is_active=True).first()
 if not cert:

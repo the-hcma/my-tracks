@@ -13,7 +13,7 @@ from hamcrest import (assert_that, contains_string, equal_to, greater_than,
                       not_none)
 
 from app.mqtt.broker import (MQTTBroker, TLSConfig, _CRLBroker,
-                                   create_and_start_broker, get_default_config)
+                             create_and_start_broker, get_default_config)
 
 
 class TestGetDefaultConfig:

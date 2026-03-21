@@ -153,7 +153,7 @@ From here you can:
 - **Read the API docs**: [API.md](API.md)
 - **Run tests**: `uv run pytest`
 - **Check types**: `uv run pyright`
-- **Sort imports**: `uv run isort my_tracks config web_ui`
+- **Sort imports**: `uv run isort app config web_ui`
 - **Run TypeScript tests**: `npm run test`
 - **Run ESLint**: `npm run lint`
 
@@ -186,13 +186,13 @@ uv run python manage.py createsuperuser
 uv run pytest
 
 # Run Python tests with coverage
-uv run pytest --cov=my_tracks --cov-fail-under=90
+uv run pytest --cov=app --cov-fail-under=90
 
 # Check types
 uv run pyright
 
 # Sort imports
-uv run isort my_tracks config web_ui
+uv run isort app config web_ui
 
 # Run TypeScript tests
 npm run test

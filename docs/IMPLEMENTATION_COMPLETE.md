@@ -23,7 +23,7 @@ My Tracks — a self-hosted location tracking backend for OwnTracks — has been
    - `wsgi.py` - WSGI application
    - `asgi.py` - ASGI application
 
-3. **Tracker App** (`my_tracks/`)
+3. **Tracker App** (`app/`)
    - `__init__.py` - App package initialization
    - `models.py` - Device & Location models with full type hints
    - `serializers.py` - DRF serializers for OwnTracks format
@@ -197,8 +197,8 @@ my-tracks/
 │       ├── urls.py
 │       ├── wsgi.py
 │       └── asgi.py
-├── Tracker App (8 files in my_tracks/)
-│   └── my_tracks/
+├── Tracker App (8 files in app/)
+│   └── app/
 │       ├── __init__.py
 │       ├── models.py
 │       ├── serializers.py

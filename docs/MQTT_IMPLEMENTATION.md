@@ -65,8 +65,8 @@ Add MQTT broker support to my-tracks for OwnTracks app connectivity, enabling:
 
 ### Phase 1: Basic MQTT Broker (PR #1)
 - [ ] Add `amqtt` dependency to pyproject.toml
-- [ ] Create `my_tracks/mqtt/broker.py` - broker configuration
-- [ ] Create `my_tracks/mqtt/plugin.py` - message handler plugin
+- [ ] Create `app/mqtt/broker.py` - broker configuration
+- [ ] Create `app/mqtt/plugin.py` - message handler plugin
 - [ ] Update `my-tracks-server` to start both HTTP and MQTT
 - [ ] Basic tests for broker startup/shutdown
 
@@ -99,7 +99,7 @@ Add MQTT broker support to my-tracks for OwnTracks app connectivity, enabling:
 ## File Structure
 
 ```
-my_tracks/
+app/
 ├── mqtt/
 │   ├── __init__.py
 │   ├── broker.py          # amqtt broker configuration
@@ -157,14 +157,14 @@ MQTT_CONFIG = {
     },
     "plugins": {
         # Custom auth plugin using Django users
-        "my_tracks.mqtt.auth.DjangoAuthPlugin": {},
+        "app.mqtt.auth.DjangoAuthPlugin": {},
         # Custom handler plugin for OwnTracks messages
-        "my_tracks.mqtt.handlers.OwnTracksHandlerPlugin": {},
+        "app.mqtt.handlers.OwnTracksHandlerPlugin": {},
     },
     "topic-check": {
         "enabled": True,
         # Users can only publish/subscribe to their own topics
-        "plugins": ["my_tracks.mqtt.auth.DjangoTopicACL"],
+        "plugins": ["app.mqtt.auth.DjangoTopicACL"],
     },
 }
 ```

@@ -221,16 +221,16 @@ uv run pytest --lf
 
 ```bash
 # Run tests with coverage
-uv run pytest --cov=my_tracks
+uv run pytest --cov=app
 
 # Generate HTML coverage report
-uv run pytest --cov=my_tracks --cov-report=html
+uv run pytest --cov=app --cov-report=html
 
 # Show coverage for specific module
-uv run pytest --cov=my_tracks.models --cov-report=term-missing
+uv run pytest --cov=app.models --cov-report=term-missing
 
 # Coverage threshold (fail if below 90%)
-uv run pytest --cov=my_tracks --cov-fail-under=90
+uv run pytest --cov=app --cov-fail-under=90
 ```
 
 ### Frontend Tests
@@ -271,25 +271,25 @@ uv run python manage.py test --keepdb
 
 ```bash
 # Sort all imports
-uv run isort my_tracks config web_ui
+uv run isort app config web_ui
 
 # Sort specific file
-uv run isort my_tracks/models.py
+uv run isort app/models.py
 
 # Check without modifying
-uv run isort --check-only my_tracks config web_ui
+uv run isort --check-only app config web_ui
 
 # Show diff
-uv run isort --diff my_tracks config web_ui
+uv run isort --diff app config web_ui
 ```
 
 ### Combined Quality Checks
 
 ```bash
 # Run all quality checks
-uv run isort --check-only my_tracks config web_ui
+uv run isort --check-only app config web_ui
 uv run pyright
-uv run pytest --cov=my_tracks --cov-fail-under=90
+uv run pytest --cov=app --cov-fail-under=90
 ```
 
 ### Type Checking
@@ -299,13 +299,13 @@ uv run pytest --cov=my_tracks --cov-fail-under=90
 uv run pyright
 
 # Check specific file
-uv run pyright my_tracks/models.py
+uv run pyright app/models.py
 
 # Run isort to sort imports
-uv run isort my_tracks config web_ui
+uv run isort app config web_ui
 
 # Check imports without modifying
-uv run isort --check-only my_tracks config web_ui
+uv run isort --check-only app config web_ui
 ```
 
 ## API Testing
@@ -530,7 +530,7 @@ echo "SELECT COUNT(*) FROM my_tracks_location;" | uv run python manage.py dbshel
 ```bash
 # Interactive shell with models loaded
 uv run python manage.py shell
->>> from my_tracks.models import Device, Location
+>>> from app.models import Device, Location
 >>> Device.objects.all()
 >>> Location.objects.count()
 
@@ -623,9 +623,9 @@ sudo systemctl restart my-tracks
 ### Run Full Test Suite
 
 ```bash
-uv run isort --check-only my_tracks config web_ui
+uv run isort --check-only app config web_ui
 uv run pyright
-uv run pytest --cov=my_tracks --cov-report=html
+uv run pytest --cov=app --cov-report=html
 uv run python manage.py check --deploy
 ```
 

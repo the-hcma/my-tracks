@@ -77,6 +77,112 @@ step() { printf '%s   · %s%s\n' "$_c_step" "$1" "$_c_reset"; }
 # ask: prints a blank line then a cyan prompt; caller reads the response with read -r.
 ask()  { printf '\n%s  ? %s%s' "$_c_ask" "$1" "$_c_reset"; }
 
+_rebuild_health_url() {
+    # (Re)compute health_url from current active_https_port and _cert_domain.
+    # Called once during config load and again if ports change interactively.
+    if [ -n "$_cert_domain" ] && [ "$_cert_domain" != "localhost" ] && [ "$_cert_domain" != "127.0.0.1" ]; then
+        if [ "$active_https_port" = "443" ]; then
+            health_url="https://${_cert_domain}/api/health/"
+        else
+            health_url="https://${_cert_domain}:${active_https_port}/api/health/"
+        fi
+    else
+        health_url="https://localhost:${active_https_port}/api/health/"
+    fi
+}
+
+_env_replace() {
+    # Replace a key=value line in the env file.  If the key doesn't exist, append it.
+    local key="$1" value="$2"
+    if grep -qE "^${key}=" "$env_file" 2>/dev/null; then
+        sed "s|^${key}=.*|${key}=${value}|" "$env_file" > "${env_file}.tmp" \
+            && mv "${env_file}.tmp" "$env_file"
+    else
+        echo "${key}=${value}" >> "$env_file"
+    fi
+}
+
+_prompt_new_port() {
+    # Prompt the user for an alternative port.  Loops until a free port is entered.
+    local label="$1" current="$2"
+    local new_port
+    while true; do
+        printf '%s  ? New %s port (current: %s): %s' "$_c_ask" "$label" "$current" "$_c_reset" >&2
+        read -r new_port
+        if ! [[ "$new_port" =~ ^[0-9]+$ ]] || [ "$new_port" -lt 1 ] || [ "$new_port" -gt 65535 ]; then
+            printf '%s    Invalid port number%s\n' "$_c_err" "$_c_reset" >&2
+            continue
+        fi
+        if (true >/dev/tcp/127.0.0.1/"$new_port") 2>/dev/null; then
+            printf '%s    Port %s is also in use — try another%s\n' "$_c_warn" "$new_port" "$_c_reset" >&2
+            continue
+        fi
+        echo "$new_port"
+        return
+    done
+}
+
+validate_ports_available() {
+    # Check that all host ports needed by the stack are free before starting
+    # Docker/Podman.  Loops: detect conflicts → offer to reassign → revalidate,
+    # until every port is free or the user aborts.  Updates active_* globals
+    # and .env.production when the user chooses new ports.
+    local specs=(
+        "HTTPS:active_https_port:HTTPS_PORT"
+        "HTTP:active_http_port:HTTP_PORT"
+        "MQTT-TLS:active_mqtt_tls_port:MQTT_TLS_PORT"
+    )
+
+    while true; do
+        local busy_specs=()
+        for spec in "${specs[@]}"; do
+            IFS=':' read -r label var_name _ <<< "$spec"
+            local current="${!var_name}"
+            if (true >/dev/tcp/127.0.0.1/"$current") 2>/dev/null; then
+                busy_specs+=("$spec")
+            fi
+        done
+
+        if [ ${#busy_specs[@]} -eq 0 ]; then
+            local port_summary=""
+            for spec in "${specs[@]}"; do
+                IFS=':' read -r label var_name _ <<< "$spec"
+                port_summary="${port_summary:+$port_summary, }${label}=${!var_name}"
+            done
+            step "All ports available ($port_summary)"
+            return 0
+        fi
+
+        printf '\n%s  ── Port conflict ──────────────────────────────────────────────────%s\n' \
+            "$_c_warn" "$_c_reset" >&2
+        for spec in "${busy_specs[@]}"; do
+            IFS=':' read -r label var_name _ <<< "$spec"
+            printf '%s  ⚠  %s port %s is already in use%s\n' \
+                "$_c_warn" "$label" "${!var_name}" "$_c_reset" >&2
+        done
+
+        printf '\n%s  ? Change conflicting ports? [Y/n]: %s' "$_c_ask" "$_c_reset" >&2
+        local choice
+        read -r choice
+        if [[ "$choice" =~ ^[Nn] ]]; then
+            die "Cannot start stack — port(s) already in use"
+        fi
+
+        echo "" >&2
+        for spec in "${busy_specs[@]}"; do
+            IFS=':' read -r label var_name env_key <<< "$spec"
+            local new_port
+            new_port="$(_prompt_new_port "$label" "${!var_name}")"
+            printf -v "$var_name" '%s' "$new_port"
+            _env_replace "$env_key" "$new_port"
+            step "Updated ${env_key}=${new_port} in .env.production"
+        done
+        echo "" >&2
+
+        info "Re-checking ports..."
+    done
+}
+
 install_hint() {
     # Return OS-appropriate install command for a given logical package name.
     # Maps logical names to distro-specific package names.
@@ -1686,19 +1792,7 @@ load_config_from_env() {
     active_http_port="${active_http_port:-$default_http_port}"
     active_mqtt_tls_port="$(env_get "MQTT_TLS_PORT")"
     active_mqtt_tls_port="${active_mqtt_tls_port:-$default_mqtt_tls_port}"
-    # Real domain cert → use the actual domain name so the Host header matches
-    # ALLOWED_HOSTS and TLS SNI is correct. Port 443 is the default for HTTPS
-    # so it's omitted from the URL. Self-signed/localhost → use localhost with
-    # the non-standard port.
-    if [ -n "$_cert_domain" ] && [ "$_cert_domain" != "localhost" ] && [ "$_cert_domain" != "127.0.0.1" ]; then
-        if [ "$active_https_port" = "443" ]; then
-            health_url="https://${_cert_domain}/api/health/"
-        else
-            health_url="https://${_cert_domain}:${active_https_port}/api/health/"
-        fi
-    else
-        health_url="https://localhost:${active_https_port}/api/health/"
-    fi
+    _rebuild_health_url
 
     db_user="$(env_get "POSTGRES_USER")"
     db_user="${db_user:-mytracks}"
@@ -2405,6 +2499,9 @@ cmd_start() {
     # When the repo lives under a restricted home directory (e.g., 0700),
     # Docker cannot traverse the path to bind-mount files directly.
     stage_bind_mounts
+
+    validate_ports_available
+    _rebuild_health_url
 
     info "Building container image"
     compose build
