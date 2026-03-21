@@ -30,11 +30,12 @@ def api_client() -> APIClient:
 
 
 @pytest.fixture
-def sample_device(db: Any) -> Device:
-    """Create a sample device for testing."""
+def sample_device(db: Any, user: Any) -> Device:
+    """Create a sample device owned by the default test user."""
     return Device.objects.create(
         device_id='TEST01',
-        name='Test Device'
+        name='Test Device',
+        owner=user,
     )
 
 
@@ -850,12 +851,14 @@ class TestDeviceAPI:
     def test_get_device_detail_includes_mqtt_topic_id(
         self,
         auth_api_client: APIClient,
+        user: Any,
     ) -> None:
         """Test that device detail returns mqtt_topic_id from mqtt_user + device_id."""
         device = Device.objects.create(
             device_id="myphone",
             name="My Phone",
             mqtt_user="alice",
+            owner=user,
         )
 
         response = auth_api_client.get(f'/api/devices/{device.device_id}/')
@@ -867,11 +870,13 @@ class TestDeviceAPI:
     def test_get_device_detail_mqtt_topic_id_empty_when_no_user(
         self,
         auth_api_client: APIClient,
+        user: Any,
     ) -> None:
         """Test that mqtt_topic_id is empty when mqtt_user is not set."""
         device = Device.objects.create(
             device_id="httpdevice",
             name="HTTP Device",
+            owner=user,
         )
 
         response = auth_api_client.get(f'/api/devices/{device.device_id}/')
