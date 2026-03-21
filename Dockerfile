@@ -42,7 +42,7 @@ WORKDIR /app
 
 COPY --from=python-build --chown=app:app /app/.venv .venv/
 COPY --from=python-build --chown=app:app /app/config config/
-COPY --from=python-build --chown=app:app /app/my_tracks my_tracks/
+COPY --from=python-build --chown=app:app /app/app app/
 COPY --from=python-build --chown=app:app /app/web_ui web_ui/
 COPY --from=python-build --chown=app:app /app/manage.py manage.py
 COPY --from=python-build --chown=app:app /app/staticfiles staticfiles/
