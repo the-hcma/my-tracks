@@ -50,7 +50,7 @@ Comprehensive pytest test suite for models, API, and OwnTracks compatibility.
 ### Running Tests
 ```bash
 uv run pytest                      # Run all tests
-uv run pytest --cov=my_tracks      # With coverage
+uv run pytest --cov=app      # With coverage
 ```
 
 ## 👥 Development Workflow
@@ -85,7 +85,7 @@ my-tracks/
 │   ├── urls.py              # Main URL routing
 │   ├── wsgi.py              # WSGI entry point
 │   └── asgi.py              # ASGI entry point
-├── my_tracks/                # Location tracking app
+├── app/                      # Location tracking app
 │   ├── models.py            # Device & Location models
 │   ├── serializers.py       # DRF serializers for OwnTracks
 │   ├── views.py             # API viewsets

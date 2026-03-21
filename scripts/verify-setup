@@ -94,19 +94,19 @@ class SetupVerifier:
         self.check_file_exists("config/wsgi.py")
         self.check_file_exists("config/asgi.py")
 
-        # my_tracks app directory
-        self.check_directory_exists("my_tracks")
-        self.check_file_exists("my_tracks/__init__.py")
-        self.check_file_exists("my_tracks/models.py")
-        self.check_file_exists("my_tracks/serializers.py")
-        self.check_file_exists("my_tracks/views.py")
-        self.check_file_exists("my_tracks/urls.py")
-        self.check_file_exists("my_tracks/admin.py")
-        self.check_file_exists("my_tracks/apps.py")
+        # app directory
+        self.check_directory_exists("app")
+        self.check_file_exists("app/__init__.py")
+        self.check_file_exists("app/models.py")
+        self.check_file_exists("app/serializers.py")
+        self.check_file_exists("app/views.py")
+        self.check_file_exists("app/urls.py")
+        self.check_file_exists("app/admin.py")
+        self.check_file_exists("app/apps.py")
 
         # Migrations
-        self.check_directory_exists("my_tracks/migrations")
-        self.check_file_exists("my_tracks/migrations/__init__.py")
+        self.check_directory_exists("app/migrations")
+        self.check_file_exists("app/migrations/__init__.py")
 
         # Optional files
         self.check_file_exists(".env", required=False)

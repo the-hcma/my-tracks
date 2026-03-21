@@ -333,7 +333,7 @@ Package the application as a production-ready container image deployable on a Ce
 
 **Step 6: Semantic Versioning** ✅ (PR #354)
 - `pyproject.toml` is single source of truth for version
-- `get_version()` utility in `my_tracks/utils.py` via `importlib.metadata`
+- `get_version()` utility in `app/utils.py` via `importlib.metadata`
 - Version displayed on About page and `/api/health/` endpoint
 - `./scripts/release patch|minor|major` script (Typer CLI): bumps version, commits, tags, pushes
 - Supports `--dry-run` and `--skip-push`

@@ -33,7 +33,7 @@ When testing, use these URLs:
 
 ```bash
 # Run all tests with coverage
-uv run pytest --cov=my_tracks --cov-fail-under=90
+uv run pytest --cov=app --cov-fail-under=90
 
 # Run specific test file
 uv run pytest tests/python/test_tracker.py -v
@@ -112,16 +112,16 @@ done
 ## Coverage Requirements
 
 - **Minimum coverage**: 90%
-- Run coverage check: `uv run pytest --cov=my_tracks --cov-fail-under=90`
+- Run coverage check: `uv run pytest --cov=app --cov-fail-under=90`
 
 ## Pre-PR Checklist
 
 Before creating a pull request:
 
 - [ ] All Python tests pass: `uv run pytest`
-- [ ] Coverage ≥ 90%: `uv run pytest --cov=my_tracks --cov-fail-under=90`
+- [ ] Coverage ≥ 90%: `uv run pytest --cov=app --cov-fail-under=90`
 - [ ] Type checking passes: `uv run pyright`
-- [ ] Imports sorted: `uv run isort --check-only my_tracks config web_ui`
+- [ ] Imports sorted: `uv run isort --check-only app config web_ui`
 - [ ] All TypeScript tests pass: `npm run test`
 - [ ] ESLint passes: `npm run lint`
 - [ ] No pytest warnings

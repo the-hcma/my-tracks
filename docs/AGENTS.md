@@ -26,8 +26,9 @@ This document defines the four specialized agents for the My Tracks project.
 7. **Create feature branch**: NEVER commit or push to main - always create a feature branch
 
 **PR Submission Time Window** (CRITICAL):
-- ❌ **NEVER submit PRs (`gt submit`) before 6 PM local time**
-- ✅ Only push branches and open PRs after 6 PM
+- ❌ **NEVER submit PRs (`gt submit`) before 6 PM local time on weekdays (Monday–Friday)**
+- ✅ Only push branches and open PRs after 6 PM on weekdays
+- ✅ PRs may be submitted at any time on weekends (Saturday and Sunday)
 - Rationale: During working hours the user is actively using the running server; CI/merge queue activity can disrupt it
 
 **Pull Request Workflow** (CRITICAL):
@@ -83,9 +84,9 @@ This document defines the four specialized agents for the My Tracks project.
 **Step 1 — Local checks** (catch issues before pushing):
 ```bash
 uv run pyright                                      # type errors
-uv run isort --check-only --diff my_tracks config web_ui   # import order
-uv run flake8 --config dev-tooling/.flake8 my_tracks config  # PEP 8 + unused imports/vars
-uv run pytest --cov=my_tracks --cov-fail-under=90   # tests + coverage
+uv run isort --check-only --diff app config web_ui   # import order
+uv run flake8 --config dev-tooling/.flake8 app config  # PEP 8 + unused imports/vars
+uv run pytest --cov=app --cov-fail-under=90   # tests + coverage
 ```
 Do not proceed if any of these fail. Fix first.
 
@@ -116,10 +117,10 @@ gh api repos/{owner}/{repo}/pulls/{pr} --method PATCH --field title="..." --fiel
 Do not declare a PR ready until Steps 3, 4, and 5 all pass.
 
 - ✅ All tests passing
-- ✅ **90% minimum code coverage** (`uv run pytest --cov=my_tracks --cov-fail-under=90`)
+- ✅ **90% minimum code coverage** (`uv run pytest --cov=app --cov-fail-under=90`)
 - ✅ **Pyright type checking passes** (`uv run pyright`) - enforced by CI/CD
 - ✅ **All functions have complete type signatures** (parameters and return types) - enforced by Pyright
-- ✅ **Imports sorted with isort** (`uv run isort --check-only my_tracks config web_ui`)
+- ✅ **Imports sorted with isort** (`uv run isort --check-only app config web_ui`)
 - ✅ No pytest warnings
 - ✅ VS Code Problems panel clear
 - ✅ **All test assertions use PyHamcrest** (`assert_that()` — no naked `assert` statements)
@@ -141,6 +142,11 @@ Do not declare a PR ready until Steps 3, 4, and 5 all pass.
 - ✅ Manual testing should be done by user on their running server
 - ❌ Do not run curl/http commands against port 8080 during automated testing
 - Rationale: Prevents interference with user's running server, avoids port conflicts
+
+**Test Concurrency**:
+- Tests may be run by multiple agents simultaneously (e.g., parallel agent sessions)
+- Tests use OS-allocated ports (`port=0`) and isolated databases, so concurrent runs do not conflict
+- Rationale: Agents working on different PRs should not have to wait for each other's test suites
 **After PR is merged**:
 1. Sync with remote: `gt sync --force`
 2. Apply any pending migrations: `uv run python manage.py migrate`
@@ -358,10 +364,10 @@ Do not declare a PR ready until Steps 3, 4, and 5 all pass.
 - **Imports MUST be sorted** using isort (PEP 8 import ordering)
 - Import order: standard library, third-party, local application
 - **All imports MUST be at module level** — no local/lazy imports inside functions or methods
-  - ✅ `from my_tracks.models import Device` at top of file
-  - ❌ `from my_tracks.models import Device` inside a function body
+  - ✅ `from app.models import Device` at top of file
+  - ❌ `from app.models import Device` inside a function body
   - `TYPE_CHECKING` guard imports are acceptable (they are module-level by nature)
-  - When moving imports to module level, update test patches to target the importing module (e.g., `patch.object(apps_module, "MQTTBroker", ...)` instead of `patch("my_tracks.mqtt.broker.MQTTBroker", ...)`)
+  - When moving imports to module level, update test patches to target the importing module (e.g., `patch.object(apps_module, "MQTTBroker", ...)` instead of `patch("app.mqtt.broker.MQTTBroker", ...)`)
   - Rationale: Local imports hide dependencies, complicate patching in tests, and violate PEP 8
 - Run `isort .` to automatically sort imports before committing
 - Run `find . -name "*.py" -type f -exec sed -i '' 's/^[[:space:]]*$//' {} +` to remove trailing whitespace
@@ -510,7 +516,7 @@ Passwords must never appear in shell command arguments — they end up in bash h
 - **NEVER use naked `assert` statements** — always use `assert_that()` with PyHamcrest matchers
 - Cover all normal use cases with various input sizes
 - Verify percentile calculation accuracy against known values
-- **Achieve minimum 90% code coverage** (verified with `uv run pytest --cov=my_tracks --cov-fail-under=90`)
+- **Achieve minimum 90% code coverage** (verified with `uv run pytest --cov=app --cov-fail-under=90`)
 - Document test scenarios clearly
 
 **Mandatory Testing Approach**:
@@ -545,7 +551,7 @@ Passwords must never appear in shell command arguments — they end up in bash h
 
 **Quality Gates**:
 - [ ] All traditional unit tests pass
-- [ ] **90% minimum code coverage achieved** (run `uv run pytest --cov=my_tracks --cov-fail-under=90`)
+- [ ] **90% minimum code coverage achieved** (run `uv run pytest --cov=app --cov-fail-under=90`)
 - [ ] **VS Code Problems panel is clear** (no errors in test files)
 - [ ] **Tests run without warnings** (no PytestWarnings or configuration issues)
 - [ ] **All test assertions use PyHamcrest** (no naked `assert` — use `assert_that()` with matchers)

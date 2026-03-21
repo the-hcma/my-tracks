@@ -25,7 +25,7 @@ SEMVER_RE = r"^\d+\.\d+\.\d+$"
 
 
 class TestGetVersion:
-    """Tests for the get_version() helper in my_tracks.utils."""
+    """Tests for the get_version() helper in app.utils."""
 
     def test_returns_string(self) -> None:
         assert_that(get_version(), is_(not_none()))

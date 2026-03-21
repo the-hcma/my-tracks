@@ -174,7 +174,7 @@ my-tracks/
 │   ├── urls.py              # URL routing
 │   ├── asgi.py              # ASGI configuration
 │   └── wsgi.py              # WSGI configuration
-├── my_tracks/                # Location tracking app
+├── app/                      # Location tracking app
 │   ├── __init__.py
 │   ├── admin.py             # Admin configuration
 │   ├── apps.py              # App configuration
@@ -200,7 +200,7 @@ my-tracks/
 uv run pytest
 
 # With coverage (90% minimum required)
-uv run pytest --cov=my_tracks --cov-fail-under=90
+uv run pytest --cov=app --cov-fail-under=90
 
 # TypeScript tests
 npm run test
@@ -218,7 +218,7 @@ This project follows PEP 8 guidelines with additional tooling:
 uv run pyright
 
 # Import sorting
-uv run isort my_tracks config web_ui
+uv run isort app config web_ui
 
 # Shell script linting
 shellcheck scripts/my-tracks-server

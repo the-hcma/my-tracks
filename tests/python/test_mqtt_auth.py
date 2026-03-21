@@ -10,8 +10,8 @@ from hamcrest import assert_that, contains_string, equal_to, has_length, is_
 
 from app.mqtt import auth as auth_module
 from app.mqtt.auth import (DjangoAuthPlugin, authenticate_by_cert,
-                                 authenticate_user, check_topic_access,
-                                 get_auth_config)
+                           authenticate_user, check_topic_access,
+                           get_auth_config)
 from app.mqtt.broker import get_default_config
 
 User = get_user_model()
@@ -72,10 +72,11 @@ def _make_session(
 
 def _make_ssl_object(cn: str) -> MagicMock:
     """Build a mock ssl.SSLObject whose peer cert has the given CN."""
+    from datetime import UTC, datetime, timedelta
+
     from cryptography import x509
     from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.hazmat.primitives.asymmetric import rsa
-    from datetime import UTC, datetime, timedelta
 
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     cert = (

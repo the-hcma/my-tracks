@@ -27,10 +27,9 @@ from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 from hamcrest import assert_that, equal_to, is_, not_none
 
 from app.mqtt.broker import MQTTBroker, TLSConfig
-from app.pki import (generate_ca_certificate,
-                           generate_client_certificate, generate_crl,
-                           generate_server_certificate,
-                           get_certificate_serial_number)
+from app.pki import (generate_ca_certificate, generate_client_certificate,
+                     generate_crl, generate_server_certificate,
+                     get_certificate_serial_number)
 
 _TEST_KEY_SIZE = 2048
 

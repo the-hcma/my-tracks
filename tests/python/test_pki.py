@@ -19,17 +19,16 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from app.models import (CertificateAuthority, ClientCertificate,
-                              ServerCertificate)
+                        ServerCertificate)
 from app.pki import (ALLOWED_KEY_SIZES, DEFAULT_CERT_VALIDITY_DAYS,
-                           VALIDITY_PRESETS, _derive_fernet_key_from,
-                           decrypt_private_key, encrypt_private_key,
-                           generate_ca_certificate,
-                           generate_client_certificate, generate_crl,
-                           generate_pkcs12, generate_server_certificate,
-                           get_certificate_expiry, get_certificate_fingerprint,
-                           get_certificate_metadata, get_certificate_sans,
-                           get_certificate_serial_number,
-                           get_certificate_subject, reencrypt_private_key)
+                     VALIDITY_PRESETS, _derive_fernet_key_from,
+                     decrypt_private_key, encrypt_private_key,
+                     generate_ca_certificate, generate_client_certificate,
+                     generate_crl, generate_pkcs12,
+                     generate_server_certificate, get_certificate_expiry,
+                     get_certificate_fingerprint, get_certificate_metadata,
+                     get_certificate_sans, get_certificate_serial_number,
+                     get_certificate_subject, reencrypt_private_key)
 
 
 @pytest.mark.django_db

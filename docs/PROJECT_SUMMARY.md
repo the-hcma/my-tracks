@@ -26,23 +26,23 @@ A self-hosted location tracking backend for the [OwnTracks](https://owntracks.or
 
 ### Key Components
 
-1. **Device Management** (`my_tracks.models.Device`)
+1. **Device Management** (`app.models.Device`)
    - Unique device identification
    - Automatic device registration
    - Last seen tracking
 
-2. **Location Tracking** (`my_tracks.models.Location`)
+2. **Location Tracking** (`app.models.Location`)
    - Comprehensive location metadata
    - Timestamp indexing for efficient queries
    - Support for all OwnTracks fields
 
-3. **REST API** (`my_tracks.views`)
+3. **REST API** (`app.views`)
    - OwnTracks HTTP protocol compatibility
    - Location submission endpoint
    - Query endpoints with filtering
    - Pagination support
 
-4. **Data Validation** (`my_tracks.serializers`)
+4. **Data Validation** (`app.serializers`)
    - OwnTracks format transformation
    - Coordinate validation (-90/+90 lat, -180/+180 lon)
    - Battery level validation (0-100)
@@ -83,7 +83,7 @@ my-tracks/
 │   ├── urls.py               # URL routing
 │   ├── wsgi.py               # WSGI entry point
 │   └── asgi.py               # ASGI entry point
-├── my_tracks/                 # Location tracking app
+├── app/                       # Location tracking app
 │   ├── models.py             # Device & Location models
 │   ├── serializers.py        # DRF serializers
 │   ├── views.py              # API viewsets
@@ -268,7 +268,7 @@ uv sync --all-extras
 uv run pytest
 
 # Run with coverage
-uv run pytest --cov=my_tracks --cov-report=html
+uv run pytest --cov=app --cov-report=html
 
 # Run specific test file
 uv run pytest tests/python/test_tracker.py
@@ -288,15 +288,15 @@ uv run pyright
 ### Import Sorting
 
 ```bash
-uv run isort my_tracks config web_ui
+uv run isort app config web_ui
 ```
 
 ### Check All
 
 ```bash
-uv run isort --check-only my_tracks config web_ui
+uv run isort --check-only app config web_ui
 uv run pyright
-uv run pytest --cov=my_tracks --cov-fail-under=90
+uv run pytest --cov=app --cov-fail-under=90
 ```
 
 ## Production Deployment

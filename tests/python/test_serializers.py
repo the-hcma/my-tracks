@@ -1,5 +1,5 @@
 """
-Test suite for my_tracks serializers.
+Test suite for app serializers.
 
 Covers DeviceSerializer, LocationSerializer, UserSerializer,
 UserProfileSerializer, ChangePasswordSerializer, and certificate serializers.
@@ -20,13 +20,12 @@ from rest_framework import serializers, status
 from rest_framework.test import APIRequestFactory
 
 from app.models import (CertificateAuthority, ClientCertificate, Device,
-                               Location, ServerCertificate, UserProfile)
+                        Location, ServerCertificate, UserProfile)
 from app.serializers import (CertificateAuthoritySerializer,
-                                    ChangePasswordSerializer,
-                                    ClientCertificateSerializer,
-                                    DeviceSerializer, LocationSerializer,
-                                    ServerCertificateSerializer,
-                                    UserProfileSerializer, UserSerializer)
+                             ChangePasswordSerializer,
+                             ClientCertificateSerializer, DeviceSerializer,
+                             LocationSerializer, ServerCertificateSerializer,
+                             UserProfileSerializer, UserSerializer)
 
 factory = APIRequestFactory()
 

@@ -14,9 +14,9 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from hamcrest import (assert_that, calling, close_to, contains_string, equal_to,
-                     greater_than, has_entries, has_key, is_, is_not, less_than,
-                     none, not_none)
+from hamcrest import (assert_that, calling, close_to, contains_string,
+                      equal_to, greater_than, has_entries, has_key, is_,
+                      is_not, less_than, none, not_none)
 
 # Import generate-tail as a module (it has a hyphen in the name and no .py extension)
 _loader = importlib.machinery.SourceFileLoader(
