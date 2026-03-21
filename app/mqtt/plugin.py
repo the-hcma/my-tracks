@@ -7,8 +7,11 @@ to WebSocket clients.
 """
 
 import logging
+import os
 import ssl
 from dataclasses import dataclass
+from datetime import datetime
+from datetime import timezone as _tz
 from typing import TYPE_CHECKING, Any
 
 from amqtt.broker import BrokerContext
@@ -19,6 +22,7 @@ from asgiref.sync import sync_to_async
 from channels.layers import get_channel_layer
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes
+from django.conf import settings
 from django.contrib.auth.models import User
 
 from app.models import Device, Location, OwnTracksMessage, Transition, Waypoint
@@ -177,6 +181,17 @@ def save_lwt_to_db(lwt_data: dict[str, Any]) -> dict[str, Any] | None:
     except Exception:
         logger.exception("Failed to process LWT for device")
         return None
+
+
+def _format_event_ts(ts: datetime) -> str:
+    """Format an event timestamp for log output.
+
+    Uses UTC if the LOG_UTC env var is set; otherwise converts to the real
+    system timezone (Django overrides TZ to UTC, so bare astimezone() won't work).
+    """
+    if os.environ.get('LOG_UTC'):
+        return ts.astimezone(_tz.utc).strftime('%Y%m%d-%H:%M:%S')
+    return ts.astimezone(settings.SYSTEM_TIMEZONE).strftime('%Y%m%d-%H:%M:%S')
 
 
 def _fire_transition_actions(transition: Transition) -> None:
@@ -501,12 +516,15 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
         transport = transition_data.get("transport", "mqtt")
         identity = transition_data.get("tls_identity", "")
 
+        ts = transition_data.get("timestamp")
+        ts_str = _format_event_ts(ts) if isinstance(ts, datetime) else "unknown"
         logger.info(
-            "[%s] Transition: device=%s, event=%s, region=%s%s",
+            "[%s] Transition: device=%s, event=%s, region=%s, at=%s%s",
             transport,
             transition_data.get("device"),
             transition_data.get("event"),
             transition_data.get("description"),
+            ts_str,
             identity,
         )
 
