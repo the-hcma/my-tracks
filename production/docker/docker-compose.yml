@@ -3,7 +3,7 @@ services:
     build:
       context: ../..
     image: ghcr.io/the-hcma/my-tracks:latest
-    env_file: ${PROJECT_ENV_FILE:-../../.env.production}
+    env_file: ${PROJECT_ENV_FILE:-../run/.env.production}
     environment:
       - LOG_FILE=/app/logs/my-tracks.log
     volumes:

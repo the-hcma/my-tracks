@@ -42,25 +42,25 @@ The `my-tracks-production-container-manager` script auto-detects whichever engin
 ```bash
 git clone https://github.com/the-hcma/my-tracks.git
 cd my-tracks
-./scripts/deploy
+./production/scripts/my-tracks-production-container-manager --start
 ```
 
 The interactive setup will:
-1. Generate a `SECRET_KEY`
-2. Ask for your hostname
-3. Choose database: containerized PostgreSQL or external (provide `DATABASE_URL`)
-4. Create self-signed TLS certificates (or use your own)
-5. Start the stack (postgres container only starts for containerized DB)
-6. Create an initial admin user
+1. Generate TLS certificates (self-signed or bring-your-own)
+2. Generate a `SECRET_KEY` and `production/run/.env.production`
+3. Choose database: containerized PostgreSQL (transient or persistent) or external (provide `DATABASE_URL`)
+4. Choose ports (standard 443/80 or custom, with conflict detection)
+5. Build the container image and start the stack
+6. Wait for the health check and print access URLs + useful commands
 
-Once running, visit `https://your-host` to log in.
+Once running, visit the URL shown in the banner to log in.
 
 ## Configuration Reference
 
-All configuration is in `.env.production`. The `deploy` script creates this file during first-time setup. You can also copy from the template:
+All configuration is in `production/run/.env.production`. The container manager script creates this file during first-time setup. You can also copy from the template:
 
 ```bash
-cp examples/.env.production.example .env.production
+cp examples/.env.production.example production/run/.env.production
 ```
 
 ### Required Variables
@@ -92,9 +92,9 @@ My Tracks supports two database configurations:
 
 ### Containerized PostgreSQL (Default)
 
-The `deploy` script can start a PostgreSQL container alongside the application. This is the simplest setup but data lives in a Docker volume — if you remove the volume (`docker compose down -v`), the data is lost.
+The container manager can start a PostgreSQL container alongside the application. You choose between **transient** (data in a Docker volume, wiped on `--stop`) or **persistent** (data on host filesystem, survives restarts).
 
-The deploy script auto-generates credentials and constructs a `DATABASE_URL` pointing to the container:
+The script auto-generates credentials and constructs a `DATABASE_URL` pointing to the container:
 ```
 DATABASE_URL=postgresql://mytracks:<generated>@postgres:5432/mytracks
 ```
@@ -103,7 +103,7 @@ The containerized postgres is defined in `production/docker/docker-compose.postg
 
 ### External PostgreSQL (Recommended for Production)
 
-For persistent, production-grade storage, use an external PostgreSQL instance (managed database, separate server, etc.). During `./scripts/deploy` setup, choose option 2 and provide your `DATABASE_URL`:
+For production-grade storage with full control, use an external PostgreSQL instance (managed database, separate server, etc.). During setup, choose "External PostgreSQL" and provide your `DATABASE_URL`:
 
 ```
 DATABASE_URL=postgresql://myuser:mypassword@db.example.com:5432/mytracks
@@ -113,15 +113,20 @@ When using an external database:
 - The containerized postgres service is **not started**
 - `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` variables are not needed
 - Backups must be managed through your database provider's tools
-- The `./scripts/deploy --backup` command is not available
+- Backups are not automated by the container manager
 
 ### Database Backup (Containerized Only)
 
+Use the compose `exec` command to run `pg_dump`:
+
 ```bash
-./scripts/deploy --backup
+docker compose --env-file production/run/.env.production \
+  -f production/docker/docker-compose.yml \
+  -f production/docker/docker-compose.postgres-production.yml \
+  exec -T postgres pg_dump -U mytracks mytracks | gzip > backup-$(date +%Y%m%d).sql.gz
 ```
 
-Creates a timestamped dump in `backups/`. For external databases, use your provider's backup tools (e.g., `pg_dump`, RDS snapshots, etc.).
+For external databases, use your provider's backup tools (e.g., `pg_dump`, RDS snapshots, etc.).
 
 ## TLS Certificates (HTTPS)
 
@@ -131,23 +136,16 @@ Nginx requires `fullchain.pem` and `privkey.pem` in the `CERTS_DIR` directory.
 
 ### Option A: Self-Signed (Quick Start)
 
-The `deploy` script offers to generate self-signed certificates. These work for testing but browsers will show a security warning.
-
-```bash
-mkdir -p certs
-openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-  -keyout certs/privkey.pem -out certs/fullchain.pem \
-  -subj "/CN=your.domain.com"
-```
+The container manager offers to generate self-signed certificates during `--start`. These work for testing but browsers will show a security warning. Certificates are stored in `production/var/certs/`.
 
 ### Option B: Let's Encrypt (Recommended)
 
 The stack includes an optional Certbot service. To issue a certificate:
 
 1. **Ensure DNS** points your domain to the host's public IP
-2. **Start nginx** with self-signed certs first (so port 80 is listening):
+2. **Start the stack** with self-signed certs first (so port 80 is listening):
    ```bash
-   ./scripts/deploy
+   ./production/scripts/my-tracks-production-container-manager --start
    ```
 3. **Issue the certificate:**
    ```bash
@@ -184,49 +182,45 @@ docker compose exec nginx nginx -s reload
 ### Update to Latest Version
 
 ```bash
-./scripts/deploy --update
+./production/scripts/my-tracks-production-container-manager --start
 ```
 
-This pulls the latest container image, runs database migrations, and restarts the stack.
-
-### Database Backup
-
-```bash
-./scripts/deploy --backup
-```
-
-Creates a timestamped, gzipped dump in `backups/`:
-
-```
-backups/my-tracks-20260223-143000.sql.gz
-```
-
-### Restore from Backup
-
-```bash
-gunzip -c backups/my-tracks-20260223-143000.sql.gz | \
-  docker compose exec -T postgres psql -U mytracks mytracks
-```
+This rebuilds the container image from the latest source, runs database migrations, and (re)starts the stack. Existing `production/run/.env.production` and certificates are preserved.
 
 ### View Logs
 
 ```bash
-./scripts/deploy --logs           # tail all services
-docker compose logs -f my-tracks   # single service
-docker compose logs -f nginx       # nginx only
-```
+# Application log (on the host filesystem)
+tail -f production/var/log/my-tracks.log
 
-### Check Status
+# Container logs
+docker compose --env-file production/run/.env.production \
+  -f production/docker/docker-compose.yml logs -f my-tracks
 
-```bash
-./scripts/deploy --status
+# Nginx container logs
+docker compose --env-file production/run/.env.production \
+  -f production/docker/docker-compose.yml logs -f nginx
 ```
 
 ### Stop / Start
 
 ```bash
-./scripts/deploy --stop
-docker compose up -d      # start again
+# Stop and destroy volumes (transient data lost)
+./production/scripts/my-tracks-production-container-manager --stop
+
+# Stop but preserve data (compose down without -v)
+docker compose --env-file production/run/.env.production \
+  -f production/docker/docker-compose.yml down
+
+# Start again
+./production/scripts/my-tracks-production-container-manager --start
+```
+
+### Fresh Start
+
+```bash
+# Tear down, wipe config/certs, then reconfigure and start
+./production/scripts/my-tracks-production-container-manager --start --freshen-up
 ```
 
 ## Releasing New Versions
@@ -386,7 +380,7 @@ df -h
 ```
 
 **External PostgreSQL:**
-- Verify the `DATABASE_URL` in `.env.production` is correct
+- Verify the `DATABASE_URL` in `production/run/.env.production` is correct
 - Ensure the external database is reachable from the Docker host
 - Check your database provider's status page
 
@@ -394,10 +388,10 @@ df -h
 
 ```bash
 # Verify certificate files exist
-ls -la certs/
+ls -la production/var/certs/
 
 # Check certificate details
-openssl x509 -in certs/fullchain.pem -noout -text | head -20
+openssl x509 -in production/var/certs/fullchain.pem -noout -text | head -20
 
 # Test TLS connection
 openssl s_client -connect your.host:443 -servername your.host </dev/null
@@ -406,11 +400,10 @@ openssl s_client -connect your.host:443 -servername your.host </dev/null
 ### Reset Everything
 
 ```bash
-./scripts/deploy --stop
-docker compose down -v    # WARNING: deletes database volume!
-rm .env.production
-./scripts/deploy                  # fresh start
+./production/scripts/my-tracks-production-container-manager --freshen-up
 ```
+
+This interactively prompts before deleting each item (config, certs, database data).
 
 ## Local Testing
 
@@ -554,11 +547,15 @@ When using the containerized PostgreSQL, the banner shows a `psql` command to co
 
 ```bash
 # Docker
-docker compose --env-file .env.production -f production/docker/docker-compose.yml -f production/docker/docker-compose.postgres-testing.yml \
+docker compose --env-file production/run/.env.production \
+  -f production/docker/docker-compose.yml \
+  -f production/docker/docker-compose.postgres-production.yml \
   exec postgres psql -U mytracks mytracks
 
 # Podman
-podman compose --env-file .env.production -f production/docker/docker-compose.yml -f production/docker/docker-compose.postgres-testing.yml \
+podman compose --env-file production/run/.env.production \
+  -f production/docker/docker-compose.yml \
+  -f production/docker/docker-compose.postgres-production.yml \
   exec postgres psql -U mytracks mytracks
 ```
 
@@ -568,8 +565,8 @@ podman compose --env-file .env.production -f production/docker/docker-compose.ym
 # Stop containers and remove volumes
 ./production/scripts/my-tracks-production-container-manager --stop
 
-# Optionally remove generated files
-rm -rf .env.production certs/
+# Full cleanup (prompts before deleting each item)
+./production/scripts/my-tracks-production-container-manager --freshen-up
 
 # macOS only: stop Colima when done
 colima stop
