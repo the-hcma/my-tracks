@@ -215,7 +215,44 @@ SESSION_SAVE_EVERY_REQUEST = True  # Reset expiry on each request (sliding windo
 
 # Logging configuration
 import logging
+import os
 import time
+from datetime import datetime, timedelta
+from datetime import timezone as _tz
+from zoneinfo import ZoneInfo
+
+
+# Django sets os.environ['TZ'] = TIME_ZONE and calls time.tzset() after loading
+# this module, which makes time.localtime() return UTC when TIME_ZONE='UTC'.
+# Detect the real system timezone now, before Django overrides it.
+def _detect_system_timezone() -> ZoneInfo | _tz:
+    # 1. TZ env var (Docker, explicit config) — still original before Django overrides
+    tz_env = os.environ.get('TZ')
+    if tz_env and tz_env != 'UTC':
+        try:
+            return ZoneInfo(tz_env)
+        except (KeyError, ValueError):
+            pass
+    # 2. /etc/localtime symlink (macOS, most Linux)
+    try:
+        link = os.readlink('/etc/localtime')
+        idx = link.find('/zoneinfo/')
+        if idx != -1:
+            return ZoneInfo(link[idx + len('/zoneinfo/'):])
+    except OSError:
+        pass
+    # 3. /etc/timezone plain-text file (Debian/Ubuntu)
+    try:
+        tz_name = Path('/etc/timezone').read_text().strip()
+        if tz_name:
+            return ZoneInfo(tz_name)
+    except (OSError, KeyError, ValueError):
+        pass
+    # 4. Fallback: fixed offset from current localtime (no DST transitions)
+    return _tz(timedelta(seconds=time.localtime().tm_gmtoff))
+
+SYSTEM_TIMEZONE = _detect_system_timezone()
+del _detect_system_timezone
 
 # Add custom TRACE level (below DEBUG)
 TRACE_LEVEL = 5
@@ -275,19 +312,15 @@ class AmqttConnectionFilter(logging.Filter):
         return True
 
 
-# Custom formatter that uses local time instead of UTC
+# Custom formatter that uses the real system timezone for log timestamps.
+# We cannot rely on time.localtime() because Django overrides TZ to UTC.
 class LocalTimeFormatter(logging.Formatter):
     def formatTime(self, record: logging.LogRecord, datefmt: str | None = None) -> str:
-        """Override formatTime to use local time instead of UTC."""
-        ct = self.converter(record.created)
+        tz = _tz.utc if os.environ.get('LOG_UTC') else SYSTEM_TIMEZONE
+        dt = datetime.fromtimestamp(record.created, tz=tz)
         if datefmt:
-            s = time.strftime(datefmt, ct)
-        else:
-            s = time.strftime("%Y-%m-%d %H:%M:%S", ct)
-            s = "%s,%03d" % (s, record.msecs)
-        return s
-
-    converter = time.localtime  # Use local time instead of gmtime
+            return dt.strftime(datefmt)
+        return dt.strftime("%Y-%m-%d %H:%M:%S") + ",%03d" % record.msecs
 
 # Optional file logging: set LOG_FILE env var to enable (e.g., /app/logs/my-tracks.log)
 LOG_FILE: str = str(config('LOG_FILE', default=''))

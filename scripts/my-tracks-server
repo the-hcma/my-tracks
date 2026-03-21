@@ -1,25 +1,27 @@
 #!/usr/bin/env bash
 #
-# Start the Django development server with embedded MQTT broker
+# Start the My Tracks server with embedded MQTT broker
 #
 # Usage:
 #   ./my-tracks-server [OPTIONS]
 #
 # Options:
-#   --http-port PORT          Set HTTP server port (default: 8080, 0 = OS allocates, -1 = disabled)
+#   --http-port PORT     Set HTTP server port (default: 8080, 0 = OS allocates, -1 = disabled)
 #   --mqtt-port PORT     Set MQTT broker port (default: 1883, 0 = OS allocates, -1 = disabled)
 #   --mqtt-tls-port PORT Set MQTT TLS port (default: 8883, -1 = disabled)
-#   --log-level LEVEL    Set Django log level (trace, debug, info, warning, error, critical)
+#   --log-level LEVEL    Set log level (trace, debug, info, warning, error, critical)
 #                        Default: warning (info when using --console)
+#   --log-utc            Print log timestamps in UTC instead of local timezone
 #   --console            Output logs to console in addition to file (dual logging)
 #   -h, --help           Show this help message
 #
 # Examples:
 #   ./my-tracks-server                    # Start with default (port 8080, MQTT 1883)
-#   ./my-tracks-server --http-port 18080       # Start on port 18080 for testing
+#   ./my-tracks-server --http-port 18080  # Start on port 18080 for testing
 #   ./my-tracks-server --mqtt-port -1     # Disable MQTT broker
 #   ./my-tracks-server --mqtt-port 0      # MQTT broker on OS-allocated port
 #   ./my-tracks-server --log-level debug  # Debug level, logs to file
+#   ./my-tracks-server --log-utc          # Log timestamps in UTC
 #   ./my-tracks-server --console          # Info level (default for console), logs to BOTH console AND file
 #   ./my-tracks-server --http-port 18080 --log-level debug --console  # Testing port, debug level, dual logging
 
@@ -125,6 +127,7 @@ mqtt_port=1883
 mqtt_tls_port=8883
 log_level="WARNING"
 log_to_console=false
+log_utc=false
 
 # Parse command line arguments
 log_level_explicitly_set=false
@@ -146,6 +149,10 @@ while [[ $# -gt 0 ]]; do
             log_level=$(echo "$2" | tr '[:lower:]' '[:upper:]')
             log_level_explicitly_set=true
             shift 2
+            ;;
+        --log-utc)
+            log_utc=true
+            shift
             ;;
         --console)
             log_to_console=true
@@ -316,8 +323,11 @@ if [ -f "$log_file" ]; then
     mv "$log_file" "logs/my-tracks.log.1"
 fi
 
-# Export Django logging configuration
+# Export logging configuration
 export DJANGO_LOG_LEVEL="$log_level"
+if [ "$log_utc" = true ]; then
+    export LOG_UTC=1
+fi
 
 # Write runtime configuration file (avoids using env vars for ports)
 runtime_config="config/.runtime-config.json"
@@ -463,7 +473,9 @@ display_server_info() {
         echo "🔒 MQTT TLS: disabled (no active server certificate)"
         echo ""
     fi
-    echo "📝 Log level: $log_level"
+    local log_tz
+    log_tz=$([ "$log_utc" = true ] && echo "UTC" || echo "local time")
+    echo "📝 Log level: $log_level  |  Timestamps: $log_tz"
 }
 
 if [ "$log_to_console" = true ]; then
