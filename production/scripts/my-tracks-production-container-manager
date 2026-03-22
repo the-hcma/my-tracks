@@ -1437,9 +1437,10 @@ Options:
   -h, --help             Show this help message
 
 TLS certificates (configured interactively on first --start):
-  a) Copy existing certs — provide paths to fullchain.pem + privkey.pem
-     (Let's Encrypt, custom CA, or any trusted cert). Domain is auto-detected
-     from the certificate; ALLOWED_HOSTS and nginx server_name are set accordingly.
+  a) Import existing certs — provide paths to fullchain.pem + privkey.pem
+     (Let's Encrypt, custom CA, or any trusted cert). You will be asked whether
+     to copy or symlink the files. Domain is auto-detected from the certificate;
+     ALLOWED_HOSTS and nginx server_name are set accordingly.
      Standard ports 443/80 are used automatically.
   b) Generate self-signed cert — fast start; browser will show a security warning.
      Runs on localhost with dev-friendly ports (${default_https_port}/${default_http_port}).
@@ -1981,13 +1982,13 @@ validate_cert_key_pair() {
     fi
 }
 
-# Prompt the user for a directory containing TLS certificate files and copy
-# them into $CERTS_DIR. Loops until valid files are found or the user Ctrl-C's.
-# Validates the cert/key pair, checks expiry, and sets _cert_domain, _cert_type,
-# _cert_expiry. Uses cp -L to dereference symlinks (certbot stores symlinks).
+# Prompt the user for a directory containing TLS certificate files, then ask
+# whether to copy or symlink them into $CERTS_DIR. Loops until valid files are
+# found or the user Ctrl-C's. Validates the cert/key pair, checks expiry, and
+# sets _cert_domain, _cert_type, _cert_expiry.
 import_external_certs() {
     echo ""
-    echo "  ── Copy TLS Certificates into $CERTS_DIR/ ───────────────────────────"
+    echo "  ── Import TLS Certificates into $CERTS_DIR/ ─────────────────────────"
     echo "  Provide the directory containing your TLS certificate files."
     echo "  The directory must contain:"
     echo "    fullchain.pem  — certificate chain (cert + intermediates)"
@@ -2056,13 +2057,67 @@ import_external_certs() {
     _cert_domain="$(detect_domain_from_cert "$fullchain_path")"
     step "Domain: $_cert_domain"
 
+    echo ""
+    echo "  How should the certificate files be placed in $CERTS_DIR/?"
+    echo "    a) Link  — symlinks are created; renewals in the source take effect immediately"
+    echo "    b) Copy  — files are duplicated; changes in the source are not reflected"
+    echo ""
+    local link_choice
+    while true; do
+        printf '%s  ? Choose [a (default)]: %s' "$_c_ask" "$_c_reset"
+        read -r link_choice
+        link_choice="${link_choice:-a}"
+        echo ""
+        case "$link_choice" in
+            [Aa]|[Bb]) break ;;
+            *) echo "  Please enter a (link) or b (copy)." ;;
+        esac
+    done
+
     mkdir -p "$CERTS_DIR"
-    # Use install to set permissions atomically — avoids a window where privkey.pem
-    # is world-readable between cp and chmod.
-    install -m 644 "$fullchain_path" "$CERTS_DIR/fullchain.pem"
-    install -m 600 "$privkey_path"   "$CERTS_DIR/privkey.pem"
-    _cert_type="imported"
-    info "Certificates copied to $CERTS_DIR/"
+    while true; do
+        if [[ "$link_choice" =~ ^[Bb] ]]; then
+            # Use install to set permissions atomically — avoids a window where
+            # privkey.pem is world-readable between cp and chmod.
+            install -m 644 "$fullchain_path" "$CERTS_DIR/fullchain.pem"
+            install -m 600 "$privkey_path"   "$CERTS_DIR/privkey.pem"
+            _cert_type="imported"
+        else
+            ln -sf "$fullchain_path" "$CERTS_DIR/fullchain.pem"
+            ln -sf "$privkey_path"   "$CERTS_DIR/privkey.pem"
+            _cert_type="linked"
+        fi
+
+        local missing_dest=()
+        [ -f "$CERTS_DIR/fullchain.pem" ] || missing_dest+=("fullchain.pem")
+        [ -f "$CERTS_DIR/privkey.pem"   ] || missing_dest+=("privkey.pem")
+
+        if [ ${#missing_dest[@]} -eq 0 ]; then
+            if [[ "$link_choice" =~ ^[Bb] ]]; then
+                info "Certificates copied to $CERTS_DIR/"
+            else
+                info "Certificates symlinked: $CERTS_DIR/ → $cert_dir/"
+            fi
+            break
+        fi
+
+        echo ""
+        echo "  ✘  The following files are missing from $CERTS_DIR/ after the operation:"
+        for f in "${missing_dest[@]}"; do echo "       $f"; done
+        echo ""
+        while true; do
+            printf '%s  ? Retry or abort? [r (default)/a]: %s' "$_c_ask" "$_c_reset"
+            local retry_choice
+            read -r retry_choice
+            retry_choice="${retry_choice:-r}"
+            echo ""
+            case "$retry_choice" in
+                [Rr]) break ;;
+                [Aa]) echo "  Aborted."; return 1 ;;
+                *) echo "  Please enter r (retry) or a (abort)." ;;
+            esac
+        done
+    done
 }
 
 # TLS certificate setup step, called from cmd_start before create_env_file.
@@ -2081,7 +2136,7 @@ setup_tls_certs() {
 
     echo ""
     echo "  ── TLS Certificate Setup ────────────────────────────────────────────"
-    echo "    a) Copy existing certs (Let's Encrypt or other)  — browser-trusted"
+    echo "    a) Import existing certs (Let's Encrypt or other)  — browser-trusted"
     echo "    b) Generate self-signed cert  — browser will show a security warning"
     echo ""
     printf "  Choose [b (default)]: "
