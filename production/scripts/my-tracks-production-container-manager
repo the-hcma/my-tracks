@@ -573,18 +573,20 @@ compose() {
     # to the repo's parent instead of the repo root).
     # PROJECT_ENV_FILE is exported so docker-compose.yml can reference it.
     export PROJECT_ENV_FILE="$env_file"
+    local env_file_args=()
+    [ -f "$env_file" ] && env_file_args=("--env-file" "$env_file")
     if [ "$container_engine" = "podman" ]; then
         # Filter the "Executing external compose provider" banner that podman emits
         # when delegating to docker-compose. It can't be suppressed via env vars —
         # filtering stderr is the only reliable approach without modifying containers.conf.
-        $compose_cmd --env-file "$env_file" \
+        $compose_cmd "${env_file_args[@]}" \
             "${compose_files[@]}" \
             "$@" 2> >(grep -v 'Executing external compose provider' >&2)
     else
         # BUILDKIT_PROGRESS=plain avoids the blue-tinted BuildKit progress bars
         # that are hard to read on dark-background terminals.
         BUILDKIT_PROGRESS=plain \
-        $compose_cmd --env-file "$env_file" \
+        $compose_cmd "${env_file_args[@]}" \
             "${compose_files[@]}" \
             "$@"
     fi
