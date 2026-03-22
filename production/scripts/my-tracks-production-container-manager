@@ -102,8 +102,30 @@ _env_replace() {
     fi
 }
 
+_prompt_port() {
+    # Prompt for a port number.  Loops until the user enters a valid, free port.
+    # $1 = label (e.g. "HTTPS"), $2 = default value (accepted on empty input).
+    local label="$1" default="$2"
+    local port
+    while true; do
+        printf '%s  ? %s port [%s]: %s' "$_c_ask" "$label" "$default" "$_c_reset" >&2
+        read -r port
+        port="${port:-$default}"
+        if ! [[ "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+            printf '%s    Invalid port number%s\n' "$_c_err" "$_c_reset" >&2
+            continue
+        fi
+        if (true >/dev/tcp/127.0.0.1/"$port") 2>/dev/null; then
+            printf '%s    Port %s is already in use — try another%s\n' "$_c_warn" "$port" "$_c_reset" >&2
+            continue
+        fi
+        echo "$port"
+        return
+    done
+}
+
 _prompt_new_port() {
-    # Prompt the user for an alternative port.  Loops until a free port is entered.
+    # Prompt the user for a replacement port.  Loops until a free port is entered.
     local label="$1" current="$2"
     local new_port
     while true; do
@@ -175,7 +197,7 @@ validate_ports_available() {
             new_port="$(_prompt_new_port "$label" "${!var_name}")"
             printf -v "$var_name" '%s' "$new_port"
             _env_replace "$env_key" "$new_port"
-            step "Updated ${env_key}=${new_port} in .env.production"
+            step "Updated ${env_key}=${new_port} in $env_file"
         done
         echo "" >&2
 
@@ -1429,7 +1451,7 @@ Default ports (chosen to avoid conflicts with dev server):
 
 Database:
   By default, a containerized PostgreSQL is started (transient, data in Docker volume).
-  To use an external PostgreSQL, set DATABASE_URL in .env.production and omit
+  To use an external PostgreSQL, set DATABASE_URL in $env_file and omit
   POSTGRES_USER/POSTGRES_PASSWORD/POSTGRES_DB.
 EOF
 }
@@ -1569,7 +1591,7 @@ create_env_file() {
     # import destination.
     local sqlite_import_mode="${2:-}"
 
-    info "Generating .env.production"
+    info "Generating $env_file"
 
     local raw_db_result db_result
     if [ -n "$sqlite_import_mode" ]; then
@@ -1609,45 +1631,29 @@ create_env_file() {
     local use_https_port="$default_https_port"
     local use_http_port="$default_http_port"
     if [ -n "$_cert_domain" ] && [ "$_cert_domain" != "localhost" ] && [ "$_cert_domain" != "127.0.0.1" ]; then
-        # Check if standard ports are already occupied on this host.
         local port443_busy="false" port80_busy="false"
-        nc -z 127.0.0.1 443 >/dev/null 2>&1 && port443_busy="true"
-        nc -z 127.0.0.1 80  >/dev/null 2>&1 && port80_busy="true"
+        (true >/dev/tcp/127.0.0.1/443) 2>/dev/null && port443_busy="true"
+        (true >/dev/tcp/127.0.0.1/80)  2>/dev/null && port80_busy="true"
 
         echo "" >&2
         echo "  ── Port configuration ──────────────────────────────────────────────────" >&2
 
         local port_choice
         if [ "$port443_busy" = "true" ] || [ "$port80_busy" = "true" ]; then
-            # Standard ports occupied — recommend non-standard.
             [ "$port443_busy" = "true" ] && \
                 printf '%s  ⚠  Port 443 is already in use on this host%s\n' "$_c_warn" "$_c_reset" >&2
             [ "$port80_busy" = "true" ] && \
                 printf '%s  ⚠  Port 80 is already in use on this host%s\n'  "$_c_warn" "$_c_reset" >&2
-            printf '%s  Suggested: %s (HTTPS) / %s (HTTP)  — standard ports are occupied%s\n' \
+            printf '%s  Suggested: %s (HTTPS) / %s (HTTP)  — avoids occupied standard ports%s\n' \
                 "$_c_step" "$default_https_port" "$default_http_port" "$_c_reset" >&2
             printf '\n%s  ? Use these ports? [Y/n]: %s' "$_c_ask" "$_c_reset" >&2
             read -r port_choice
             echo "" >&2
             if [[ "$port_choice" =~ ^[Nn] ]]; then
-                # Warn: proceeding with occupied ports will likely cause a bind failure.
-                printf '\n%s  ⚠  Port 443 and/or 80 are already in use — the container will likely fail to start.%s\n' \
-                    "$_c_warn" "$_c_reset" >&2
-                printf '%s  ? Proceed with 443/80 anyway? [y/N]: %s' "$_c_ask" "$_c_reset" >&2
-                local confirm_override
-                read -r confirm_override
-                echo "" >&2
-                if [[ "$confirm_override" =~ ^[Yy] ]]; then
-                    use_https_port="443"
-                    use_http_port="80"
-                else
-                    info "Aborting. Free up ports 443/80 or use the suggested ports."
-                    exit 1
-                fi
+                use_https_port="$(_prompt_port "HTTPS" "$default_https_port")"
+                use_http_port="$(_prompt_port "HTTP" "$default_http_port")"
             fi
-            # else keep defaults (8443/8080)
         else
-            # Standard ports free — recommend them for a real domain.
             printf '%s  Suggested: 443 (HTTPS) / 80 (HTTP)  — standard ports for a public server%s\n' \
                 "$_c_step" "$_c_reset" >&2
             printf '\n%s  ? Use these ports? [Y/n]: %s' "$_c_ask" "$_c_reset" >&2
@@ -1656,8 +1662,10 @@ create_env_file() {
             if [[ ! "$port_choice" =~ ^[Nn] ]]; then
                 use_https_port="443"
                 use_http_port="80"
+            else
+                use_https_port="$(_prompt_port "HTTPS" "$default_https_port")"
+                use_http_port="$(_prompt_port "HTTP" "$default_http_port")"
             fi
-            # else keep defaults (8443/8080)
         fi
     fi
 
@@ -2117,7 +2125,7 @@ print_banner() {
     done
 
     local health_response
-    health_response="$(curl -sk "$health_url" 2>/dev/null)"
+    health_response="$(curl -sk --max-time 4 --connect-timeout 4 "$health_url" 2>/dev/null)"
 
     echo ""
     echo "╔══════════════════════════════════════════════════════════════╗"
@@ -2195,7 +2203,7 @@ print_internal_db_banner() {
     echo "    $compose_manual${compose_files_display} exec postgres psql -U ${db_user} ${db_name}"
     echo ""
     echo "     For persistent storage, use an external PostgreSQL instead:"
-    echo "       1. Set DATABASE_URL in .env.production"
+    echo "       1. Set DATABASE_URL in $env_file"
     echo "          (e.g., postgresql://user:pass@your-db-host:5432/mytracks)"
     echo "       2. Remove POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB entries"
     echo "       3. Restart with --freshen-up"
@@ -2264,7 +2272,7 @@ cmd_start() {
     if [ ! -f "$env_file" ] && [ -f "$old_env_file" ]; then
         mkdir -p "$(dirname "$env_file")"
         mv "$old_env_file" "$env_file"
-        step "Migrated .env.production → $env_file"
+        step "Migrated $old_env_file → $env_file"
     fi
 
     if [ "$freshen_up" = "true" ]; then
@@ -2280,8 +2288,8 @@ cmd_start() {
                 pg_data_dir="$(env_get "POSTGRES_DATA_DIR")"
                 echo ""
                 echo "  ── Persistent PostgreSQL data detected ─────────────────────────────────"
-                echo "  .env.production and $pg_data_dir are a matched pair."
-                echo "  Generating a new .env.production will make the existing database"
+                echo "  $env_file and $pg_data_dir are a matched pair."
+                echo "  Generating a new $env_file will make the existing database"
                 echo "  permanently inaccessible (credentials will no longer match)."
                 echo ""
                 printf "  Delete $pg_data_dir AND continue with freshen-up? [y/N]: "
@@ -2334,13 +2342,13 @@ cmd_start() {
         # runs --freshen-up, which will prompt before deleting var/db/ too.
         if [ -d "$prod_dir/var/db" ]; then
             die "Found $prod_dir/var/db/ but no $env_file.
-  The database credentials (POSTGRES_PASSWORD) are stored in .env.production —
-  without it the PostgreSQL data at var/db/ cannot be accessed.
+  The database credentials (POSTGRES_PASSWORD) are stored in $env_file —
+  without it the PostgreSQL data at $prod_dir/var/db/ cannot be accessed.
   Options:
-    • Restore .env.production from a backup to recover the database.
+    • Restore $env_file from a backup to recover the database.
     • Run --freshen-up to wipe var/db/ and start fresh (data will be lost)."
         fi
-        info "No .env.production found — creating one"
+        info "No $env_file found — creating one"
         if [ -n "$import_sqlite" ]; then
             source_secret_key="$(extract_source_secret_key)"
             sqlite_import_mode="1"
@@ -2584,10 +2592,12 @@ cmd_start() {
     fi
 
     local max_attempts=5
-    info "Waiting for health check (${health_url}, up to $((max_attempts * 2))s)..."
+    local timeout=4
+    info "Waiting for health check (${health_url}, up to $((max_attempts * timeout))s)..."
     local attempts=0
     while [ $attempts -lt $max_attempts ]; do
-        if curl -sk "${curl_resolve_opts[@]}" "$health_url" 2>/dev/null | grep -q '"status"'; then
+        if curl -sk --max-time "$timeout" --connect-timeout "$timeout" \
+                "${curl_resolve_opts[@]}" "$health_url" 2>/dev/null | grep -q '"status"'; then
             break
         fi
         attempts=$((attempts + 1))
@@ -2595,9 +2605,9 @@ cmd_start() {
     done
 
     if [ $attempts -ge $max_attempts ]; then
-        # Capture the last curl response and error to explain the failure.
         local last_response last_curl_err
-        last_response=$(curl -sk "${curl_resolve_opts[@]}" "$health_url" 2>/tmp/curl_err_$$ || true)
+        last_response=$(curl -sk --max-time "$timeout" --connect-timeout "$timeout" \
+            "${curl_resolve_opts[@]}" "$health_url" 2>/tmp/curl_err_$$ || true)
         last_curl_err=$(cat /tmp/curl_err_$$ 2>/dev/null); rm -f /tmp/curl_err_$$
 
         printf '\n%sWARNING: Health check did not pass within %ds.%s\n' \
@@ -2660,7 +2670,7 @@ cmd_freshen_up() {
     if [ -f "$env_file" ]; then
         if [ "$has_persistent_data" = "true" ]; then
             echo "  • $env_file  (credentials including POSTGRES_PASSWORD)"
-            echo "  • $pg_data_dir  (your database — paired with .env.production)"
+            echo "  • $pg_data_dir  (your database — paired with $env_file)"
             echo "  • Docker volumes  (all container data)"
         else
             echo "  • $env_file  (credentials, secret key, ports)"
@@ -2703,17 +2713,15 @@ cmd_freshen_up() {
     # .env.production (catastrophic if lost — confirm individually with warning)
     if [ -f "$env_file" ]; then
         echo ""
-        printf '%s  ╔═══════════════════════════════════════════════════════════════════════╗\n' "$_c_warn"
-        printf '%s  ║  ⚠  WARNING — POTENTIALLY CATASTROPHIC                               ║\n' "$_c_warn"
-        printf '%s  ║  .env.production contains SECRET_KEY and POSTGRES_PASSWORD.           ║\n' "$_c_warn"
-        printf '%s  ║  Losing it makes your PostgreSQL database permanently inaccessible.   ║\n' "$_c_warn"
-        printf '%s  ║  There is no way to recover the database without this file.           ║\n' "$_c_warn"
-        printf '%s  ╚═══════════════════════════════════════════════════════════════════════╝%s\n' "$_c_warn" "$_c_reset"
+        printf '%s  ⚠  WARNING — POTENTIALLY CATASTROPHIC%s\n' "$_c_warn" "$_c_reset"
+        printf '%s  %s contains SECRET_KEY and POSTGRES_PASSWORD.%s\n' "$_c_warn" "$env_file" "$_c_reset"
+        printf '%s  Losing it makes your PostgreSQL database permanently inaccessible.%s\n' "$_c_warn" "$_c_reset"
+        printf '%s  There is no way to recover the database without this file.%s\n' "$_c_warn" "$_c_reset"
         if [ "$has_persistent_data" = "true" ]; then
             echo ""
-            echo "  .env.production and PostgreSQL data at $pg_data_dir must be deleted"
+            echo "  $env_file and PostgreSQL data at $pg_data_dir must be deleted"
             echo "  together — one without the other leaves the database inaccessible."
-            ask "Delete .env.production AND $pg_data_dir (paired)? [y/N]: "
+            ask "Delete $env_file AND $pg_data_dir (paired)? [y/N]: "
             local confirm_env_pg
             read -r confirm_env_pg
             echo ""
@@ -2721,14 +2729,14 @@ cmd_freshen_up() {
                 info "Tearing down stack and volumes"
                 setup_compose_files
                 compose down -v 2>/dev/null || true
-                try_rm ".env.production" "$env_file" && info "Removed $env_file"
+                try_rm "$env_file" "$env_file" && info "Removed $env_file"
                 try_rm "PostgreSQL data" "$pg_data_dir" \
                     && info "Removed persistent PostgreSQL data at $pg_data_dir"
             else
-                info "Skipped .env.production and PostgreSQL data — keeping both."
+                info "Skipped $env_file and PostgreSQL data — keeping both."
             fi
         else
-            ask "Delete .env.production ($env_file)? [y/N]: "
+            ask "Delete $env_file? [y/N]: "
             local confirm_env
             read -r confirm_env
             echo ""
@@ -2736,9 +2744,9 @@ cmd_freshen_up() {
                 info "Tearing down stack and volumes"
                 setup_compose_files
                 compose down -v 2>/dev/null || true
-                try_rm ".env.production" "$env_file" && info "Removed $env_file"
+                try_rm "$env_file" "$env_file" && info "Removed $env_file"
             else
-                info "Skipped .env.production."
+                info "Skipped $env_file."
             fi
         fi
     fi
@@ -2827,7 +2835,7 @@ cmd_update_certs() {
     check_prerequisites
 
     if [ ! -f "$env_file" ]; then
-        die "No .env.production found. Run --start first to set up the stack."
+        die "No $env_file found. Run --start first to set up the stack."
     fi
     load_config_from_env
     setup_compose_files

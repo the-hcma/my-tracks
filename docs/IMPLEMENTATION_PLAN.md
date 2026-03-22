@@ -325,11 +325,11 @@ Package the application as a production-ready container image deployable on a Ce
 - Security headers (HSTS, X-Frame-Options), login rate limiting, static file caching
 - `.env.production.example` template with all configuration variables
 
-**Step 5: Deployment Script** ✅ (PR #359)
-- `./scripts/deploy` interactive first-time setup (secret generation, TLS certs, admin user)
-- `./scripts/deploy --update` pulls latest image, migrates, restarts
-- `./scripts/deploy --backup` timestamped gzipped `pg_dump`
-- `./scripts/deploy --status`, `--stop`, `--logs` convenience commands
+**Step 5: Container Manager** ✅ (PR #359)
+- `./production/scripts/my-tracks-production-container-manager --start` interactive first-time setup (secret generation, TLS certs, port selection, database config)
+- `--start --freshen-up` tears down and reconfigures from scratch
+- `--stop` stops the stack and removes volumes
+- `--freshen-up` (standalone) interactive cleanup of config/certs/data
 
 **Step 6: Semantic Versioning** ✅ (PR #354)
 - `pyproject.toml` is single source of truth for version

@@ -65,9 +65,9 @@ class TestQuickStart:
         text = DEPLOYMENT_MD.read_text()
         assert_that(text, contains_string("## Quick Start"))
 
-    def test_mentions_deploy_command(self) -> None:
+    def test_mentions_container_manager(self) -> None:
         text = DEPLOYMENT_MD.read_text()
-        assert_that(text, contains_string("scripts/deploy"))
+        assert_that(text, contains_string("my-tracks-production-container-manager"))
 
 
 class TestConfigurationReference:
@@ -147,23 +147,19 @@ class TestOperations:
 
     def test_documents_update(self) -> None:
         text = DEPLOYMENT_MD.read_text()
-        assert_that(text, contains_string("--update"))
+        assert_that(text, contains_string("Update to Latest Version"))
 
     def test_documents_backup(self) -> None:
         text = DEPLOYMENT_MD.read_text()
-        assert_that(text, contains_string("--backup"))
-
-    def test_documents_restore(self) -> None:
-        text = DEPLOYMENT_MD.read_text()
-        assert_that(text, contains_string("Restore from Backup"))
+        assert_that(text, contains_string("pg_dump"))
 
     def test_documents_logs(self) -> None:
         text = DEPLOYMENT_MD.read_text()
-        assert_that(text, contains_string("--logs"))
+        assert_that(text, contains_string("View Logs"))
 
-    def test_documents_status(self) -> None:
+    def test_documents_freshen_up(self) -> None:
         text = DEPLOYMENT_MD.read_text()
-        assert_that(text, contains_string("--status"))
+        assert_that(text, contains_string("--freshen-up"))
 
     def test_documents_stop(self) -> None:
         text = DEPLOYMENT_MD.read_text()
