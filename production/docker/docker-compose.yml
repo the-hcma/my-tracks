@@ -9,6 +9,7 @@ services:
     volumes:
       - app-data:/app/data
       - ${APP_LOGS_DIR:-app-logs}:/app/logs
+      - ${CERTS_DIR:-../../certs}:/run/certs:ro
     restart: unless-stopped
     # Ports are internal — nginx handles external access.
     # MQTT TLS (8883) is exposed directly via nginx stream passthrough.

@@ -8,15 +8,15 @@ import os
 import sys
 import threading
 from datetime import UTC, datetime
-from pathlib import PurePath
+from pathlib import Path, PurePath
 from typing import Any
 
 from amqtt.errors import BrokerError
 from django.apps import AppConfig
 
 from app.mqtt.broker import MQTTBroker, TLSConfig
-from config.runtime import (CONFIG_FILE, get_mqtt_port, get_mqtt_tls_port,
-                            update_runtime_config)
+from config.runtime import (CONFIG_FILE, get_http_port, get_mqtt_port,
+                            get_mqtt_tls_port, update_runtime_config)
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,7 @@ def _stop_mqtt_broker() -> None:
 def _log_cert_info(server_cert_pem: bytes, ca_cert_pem: bytes) -> None:
     """Log server certificate details and warn if expiry is near."""
     from app.pki import (get_certificate_expiry, get_certificate_fingerprint,
-                         get_certificate_serial_number,
+                         get_certificate_sans, get_certificate_serial_number,
                          get_certificate_subject)
 
     cn = get_certificate_subject(server_cert_pem)
@@ -73,11 +73,14 @@ def _log_cert_info(server_cert_pem: bytes, ca_cert_pem: bytes) -> None:
     serial = get_certificate_serial_number(server_cert_pem)
     expiry = get_certificate_expiry(server_cert_pem)
     ca_cn = get_certificate_subject(ca_cert_pem)
+    sans = get_certificate_sans(server_cert_pem)
 
     logger.info(
         "TLS server certificate: CN=%s  serial=%s  CA=%s  expires=%s  fingerprint=%s",
         cn, format(serial, 'X'), ca_cn, expiry.strftime("%Y-%m-%d %H:%M UTC"), fingerprint,
     )
+    if sans:
+        logger.info("TLS server certificate SANs: %s", ", ".join(sans))
 
     days_remaining = (expiry - datetime.now(UTC)).days
     if days_remaining < 0:
@@ -89,6 +92,54 @@ def _log_cert_info(server_cert_pem: bytes, ca_cert_pem: bytes) -> None:
     elif days_remaining < 30:
         logger.warning(
             "TLS server certificate expires in %d day(s) — consider renewing soon",
+            days_remaining,
+        )
+
+
+_WEB_CERT_PATH = Path("/run/certs/fullchain.pem")
+
+
+def _log_web_cert_info() -> None:
+    """Log web TLS certificate details if the cert is mounted at the standard path."""
+    if not _WEB_CERT_PATH.exists():
+        logger.info("Web TLS certificate not mounted at %s — HTTPS frontend cert info unavailable", _WEB_CERT_PATH)
+        return
+
+    from app.pki import (get_certificate_expiry, get_certificate_fingerprint,
+                         get_certificate_issuer, get_certificate_sans,
+                         get_certificate_subject, is_certificate_self_signed)
+
+    cert_pem = _WEB_CERT_PATH.read_bytes()
+
+    cn = get_certificate_subject(cert_pem)
+    fingerprint = get_certificate_fingerprint(cert_pem)
+    expiry = get_certificate_expiry(cert_pem)
+    sans = get_certificate_sans(cert_pem)
+
+    if is_certificate_self_signed(cert_pem):
+        cert_type = "self-signed"
+    else:
+        cert_type = f"imported (CA: {get_certificate_issuer(cert_pem)})"
+
+    https_port = os.environ.get("HTTPS_PORT", "")
+    port_info = f"  port={https_port}" if https_port else ""
+    logger.info(
+        "Web TLS certificate: CN=%s  type=%s%s  expires=%s  fingerprint=%s",
+        cn, cert_type, port_info, expiry.strftime("%Y-%m-%d %H:%M UTC"), fingerprint,
+    )
+    if sans:
+        logger.info("Web TLS certificate SANs: %s", ", ".join(sans))
+
+    days_remaining = (expiry - datetime.now(UTC)).days
+    if days_remaining < 0:
+        logger.warning(
+            "Web TLS certificate EXPIRED %d day(s) ago — "
+            "clients will reject HTTPS connections",
+            abs(days_remaining),
+        )
+    elif days_remaining < 30:
+        logger.warning(
+            "Web TLS certificate expires in %d day(s) — consider renewing soon",
             days_remaining,
         )
 
@@ -349,6 +400,15 @@ class MyTracksConfig(AppConfig):
         if _is_management_command():
             logger.debug("Management command detected — skipping MQTT broker startup")
             return
+
+        _log_web_cert_info()
+
+        http_port = get_http_port()
+        https_port = os.environ.get("HTTPS_PORT", "")
+        if https_port:
+            logger.info("Web server listening on HTTP port %d (HTTPS %s via nginx)", http_port, https_port)
+        else:
+            logger.info("Web server listening on HTTP port %d", http_port)
 
         mqtt_port = get_mqtt_port()
         mqtt_tls_port = get_mqtt_tls_port()

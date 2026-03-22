@@ -1180,11 +1180,13 @@ class TestLogCertInfo:
         with patch.object(apps_module, "logger") as mock_log:
             apps_module._log_cert_info(srv_pem, ca_pem)
 
-        mock_log.info.assert_called_once()
-        msg = mock_log.info.call_args[0][0] % mock_log.info.call_args[0][1:]
-        assert_that(msg, contains_string("myhost"))
-        assert_that(msg, contains_string("Log Test CA"))
-        assert_that(msg, contains_string("fingerprint="))
+        assert mock_log.info.call_count == 2
+        cert_msg = mock_log.info.call_args_list[0][0][0] % mock_log.info.call_args_list[0][0][1:]
+        assert_that(cert_msg, contains_string("myhost"))
+        assert_that(cert_msg, contains_string("Log Test CA"))
+        assert_that(cert_msg, contains_string("fingerprint="))
+        sans_msg = mock_log.info.call_args_list[1][0][0] % mock_log.info.call_args_list[1][0][1:]
+        assert_that(sans_msg, contains_string("myhost"))
         mock_log.warning.assert_not_called()
 
     def test_warns_when_expiry_near(self) -> None:
@@ -1269,7 +1271,7 @@ class TestLogCertInfo:
         with patch.object(apps_module, "logger") as mock_log:
             apps_module._log_cert_info(srv_pem, ca_pem)
 
-        mock_log.info.assert_called_once()
+        assert mock_log.info.call_count == 2
         mock_log.warning.assert_not_called()
 
 
