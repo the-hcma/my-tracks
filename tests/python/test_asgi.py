@@ -1180,7 +1180,7 @@ class TestLogCertInfo:
         with patch.object(apps_module, "logger") as mock_log:
             apps_module._log_cert_info(srv_pem, ca_pem)
 
-        assert mock_log.info.call_count == 2
+        assert_that(mock_log.info.call_count, equal_to(2))
         cert_msg = mock_log.info.call_args_list[0][0][0] % mock_log.info.call_args_list[0][0][1:]
         assert_that(cert_msg, contains_string("myhost"))
         assert_that(cert_msg, contains_string("Log Test CA"))
@@ -1271,7 +1271,7 @@ class TestLogCertInfo:
         with patch.object(apps_module, "logger") as mock_log:
             apps_module._log_cert_info(srv_pem, ca_pem)
 
-        assert mock_log.info.call_count == 2
+        assert_that(mock_log.info.call_count, equal_to(2))
         mock_log.warning.assert_not_called()
 
 
