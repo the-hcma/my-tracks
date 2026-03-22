@@ -355,13 +355,14 @@ tls_cert_ca=""
 tls_cert_fingerprint=""
 tls_cert_expiry=""
 tls_cert_days_remaining=""
+tls_cert_sans=""
 if [ "$mqtt_tls_port" -ge 0 ]; then
     tls_info=$(python3 -c "
 import os, sys
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
 import django; django.setup()
 from app.models import ServerCertificate, CertificateAuthority
-from app.pki import get_certificate_fingerprint, get_certificate_subject, get_certificate_expiry
+from app.pki import get_certificate_fingerprint, get_certificate_subject, get_certificate_expiry, get_certificate_sans
 from datetime import UTC, datetime
 cert = ServerCertificate.objects.filter(is_active=True).first()
 if not cert:
@@ -371,11 +372,13 @@ pem = cert.certificate_pem.encode('utf-8')
 expiry = get_certificate_expiry(pem)
 days = (expiry - datetime.now(UTC)).days
 ca_cn = get_certificate_subject(ca.certificate_pem.encode('utf-8')) if ca else 'unknown'
+sans = get_certificate_sans(pem)
 print(get_certificate_subject(pem))
 print(ca_cn)
 print(get_certificate_fingerprint(pem))
 print(expiry.strftime('%Y-%m-%d %H:%M UTC'))
 print(days)
+print(', '.join(sans))
 " 2>/dev/null || true)
     if [ -n "$tls_info" ]; then
         tls_cert_cn=$(echo "$tls_info" | sed -n '1p')
@@ -383,8 +386,46 @@ print(days)
         tls_cert_fingerprint=$(echo "$tls_info" | sed -n '3p')
         tls_cert_expiry=$(echo "$tls_info" | sed -n '4p')
         tls_cert_days_remaining=$(echo "$tls_info" | sed -n '5p')
+        tls_cert_sans=$(echo "$tls_info" | sed -n '6p')
     fi
 fi
+
+# Check for a web service TLS certificate (nginx/HTTPS frontend)
+web_cert_cn=""
+web_cert_type=""
+web_cert_expiry=""
+web_cert_fingerprint=""
+web_cert_sans=""
+web_cert_days_remaining=""
+_web_cert_candidates=(
+    "${CERTS_DIR:-}/fullchain.pem"
+    "/etc/nginx/certs/fullchain.pem"
+)
+for _candidate in "${_web_cert_candidates[@]}"; do
+    if [ -n "$_candidate" ] && [ -f "$_candidate" ]; then
+        _wc_subject=$(openssl x509 -noout -subject -in "$_candidate" 2>/dev/null)
+        _wc_issuer=$(openssl x509 -noout -issuer -in "$_candidate" 2>/dev/null)
+        web_cert_cn=$(printf '%s' "$_wc_subject" | sed 's/.*[Cc][Nn]\s*=\s*//' | sed 's/[[:space:]]*,.*//')
+        web_cert_expiry=$(openssl x509 -noout -enddate -in "$_candidate" 2>/dev/null | sed 's/notAfter=//')
+        web_cert_fingerprint=$(openssl x509 -noout -fingerprint -sha256 -in "$_candidate" 2>/dev/null | sed 's/.*Fingerprint=//')
+        web_cert_sans=$(openssl x509 -noout -text -in "$_candidate" 2>/dev/null \
+            | grep -A1 "Subject Alternative Name" | tail -1 \
+            | sed 's/^[[:space:]]*//' | sed 's/DNS://g; s/IP Address://g')
+        _wc_expiry_epoch=$(openssl x509 -noout -enddate -in "$_candidate" 2>/dev/null \
+            | sed 's/notAfter=//' | xargs -I{} date -j -f "%b %d %H:%M:%S %Y %Z" "{}" "+%s" 2>/dev/null \
+            || openssl x509 -noout -enddate -in "$_candidate" 2>/dev/null \
+            | sed 's/notAfter=//' | xargs -I{} date -d "{}" "+%s" 2>/dev/null || echo "0")
+        _now_epoch=$(date +%s)
+        web_cert_days_remaining=$(( (_wc_expiry_epoch - _now_epoch) / 86400 ))
+        _wc_issuer_cn=$(printf '%s' "$_wc_issuer" | sed 's/.*[Cc][Nn]\s*=\s*//' | sed 's/[[:space:]]*,.*//')
+        if [ "$_wc_subject" = "$_wc_issuer" ]; then
+            web_cert_type="self-signed"
+        else
+            web_cert_type="imported (CA: $_wc_issuer_cn)"
+        fi
+        break
+    fi
+done
 
 # Get all local IP addresses (non-loopback)
 get_local_ips() {
@@ -463,6 +504,7 @@ display_server_info() {
         fi
         echo "   Cert:    CN=$tls_cert_cn  CA=$tls_cert_ca"
         echo "   Expires: $tls_cert_expiry  Fingerprint: $tls_cert_fingerprint"
+        [ -n "$tls_cert_sans" ] && echo "   SANs:    $tls_cert_sans"
         if [ -n "$tls_cert_days_remaining" ] && [ "$tls_cert_days_remaining" -lt 0 ] 2>/dev/null; then
             echo "   ⚠️  EXPIRED ${tls_cert_days_remaining#-} day(s) ago — clients will reject connections"
         elif [ -n "$tls_cert_days_remaining" ] && [ "$tls_cert_days_remaining" -lt 30 ] 2>/dev/null; then
@@ -471,6 +513,26 @@ display_server_info() {
         echo ""
     elif [ "$mqtt_tls_port" -ge 0 ]; then
         echo "🔒 MQTT TLS: disabled (no active server certificate)"
+        echo ""
+    fi
+    if [ -n "$web_cert_cn" ]; then
+        local https_port="${HTTPS_PORT:-443}"
+        echo "🌐 Web TLS:"
+        echo "   Port:    $https_port (host) → 443 (nginx)"
+        if [ ${#local_ips[@]} -gt 0 ] && [ "${local_ips[0]}" != "unknown" ]; then
+            for ip in "${local_ips[@]}"; do
+                echo "   Address: $ip:$https_port"
+            done
+        fi
+        echo "   Type:    $web_cert_type"
+        echo "   Cert:    CN=$web_cert_cn"
+        echo "   Expires: $web_cert_expiry  Fingerprint: $web_cert_fingerprint"
+        [ -n "$web_cert_sans" ] && echo "   SANs:    $web_cert_sans"
+        if [ -n "$web_cert_days_remaining" ] && [ "$web_cert_days_remaining" -lt 0 ] 2>/dev/null; then
+            echo "   ⚠️  EXPIRED ${web_cert_days_remaining#-} day(s) ago — clients will reject connections"
+        elif [ -n "$web_cert_days_remaining" ] && [ "$web_cert_days_remaining" -lt 30 ] 2>/dev/null; then
+            echo "   ⚠️  Expires in $web_cert_days_remaining day(s) — consider renewing soon"
+        fi
         echo ""
     fi
     local log_tz

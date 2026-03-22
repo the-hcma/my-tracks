@@ -156,6 +156,21 @@ def get_certificate_subject(cert_pem: bytes) -> str:
     return str(cert.subject)
 
 
+def get_certificate_issuer(cert_pem: bytes) -> str:
+    """Get the issuer common name of a PEM-encoded certificate."""
+    cert = x509.load_pem_x509_certificate(cert_pem)
+    cn_attrs = cert.issuer.get_attributes_for_oid(NameOID.COMMON_NAME)
+    if cn_attrs:
+        return str(cn_attrs[0].value)
+    return str(cert.issuer)
+
+
+def is_certificate_self_signed(cert_pem: bytes) -> bool:
+    """Return True if the certificate is self-signed (issuer == subject)."""
+    cert = x509.load_pem_x509_certificate(cert_pem)
+    return cert.issuer == cert.subject
+
+
 def get_certificate_expiry(cert_pem: bytes) -> datetime:
     """Get the expiry datetime of a PEM-encoded certificate."""
     cert = x509.load_pem_x509_certificate(cert_pem)
