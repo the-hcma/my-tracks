@@ -50,7 +50,8 @@ jobs:
             echo "Closing PR #${pr}: \"${title}\" (reason: merged by Graphite merge queue at ${merge_time})"
             gh api "repos/${REPO}/pulls/${pr}" \
               --method PATCH \
-              --field state=closed
+              --field state=closed \
+              --silent
 
             closed_count=$((closed_count + 1))
             summary_rows="${summary_rows}| #${pr} | ${title} | ${merge_time} |\n"
