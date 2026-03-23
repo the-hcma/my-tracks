@@ -26,7 +26,12 @@
       "Bash(grep -E \"\\\\.py$\")",
       "Bash(ls -1 /Users/hcma/work/ai/my-tracks/tests/python/*.py)",
       "Bash(xargs basename:*)",
-      "Bash(GRAPHITE_PROFILE=thehcma gt create -a -m \"feat\\(phase10/step1\\): SMTP configuration in admin panel with test email\")"
+      "Bash(GRAPHITE_PROFILE=thehcma gt create -a -m \"feat\\(phase10/step1\\): SMTP configuration in admin panel with test email\")",
+      "Bash(git commit:*)",
+      "Bash(git pull:*)",
+      "Bash(GRAPHITE_PROFILE=thehcma gt create 03-22-ci_add_merged-pr-closer_workflow -m \"ci: add merged-pr-closer workflow to auto-close Graphite-merged PRs\")",
+      "Bash(GRAPHITE_PROFILE=thehcma gt modify -m \"ci: add merged-pr-closer workflow to auto-close Graphite-merged PRs\")",
+      "Bash(GRAPHITE_PROFILE=thehcma gt modify -a -m \"ci: add merged-pr-closer workflow to auto-close Graphite-merged PRs\")"
     ]
   }
 }
