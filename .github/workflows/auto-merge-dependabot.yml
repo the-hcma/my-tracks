@@ -17,17 +17,6 @@ jobs:
     if: github.actor == 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
-      # Approve to satisfy the branch protection rule
-      # "require approval of the most recent reviewable push".
-      # GITHUB_TOKEN (github-actions[bot]) is a different actor from
-      # dependabot[bot], so this approval is accepted by GitHub.
-      - name: Approve Dependabot PR
-        run: gh pr review --approve "$PR_NUMBER" --repo "$REPO"
-        env:
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          REPO: ${{ github.repository }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Add merge-mq label to enter merge queue
         run: gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "merge-mq"
         env:
