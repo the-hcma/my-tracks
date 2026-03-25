@@ -14,6 +14,7 @@ from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from django.conf import settings
 from django.contrib.auth.models import User
+from django.db.models import QuerySet
 from django.http import HttpResponse as DjangoHttpResponse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -59,8 +60,18 @@ class LocationViewSet(viewsets.ModelViewSet):
     - Filter by device, date range, etc.
     """
 
-    queryset = Location.objects.all()
     serializer_class = LocationSerializer
+
+    def get_queryset(self) -> QuerySet[Location]:
+        """Return locations for devices owned by or shared with the current user."""
+        from django.db.models import Q
+        user = self.request.user
+        if not user.is_authenticated:
+            return Location.objects.all()
+        allowed_devices = Device.objects.filter(
+            Q(owner=user) | Q(shares__shared_with=user)
+        ).distinct()
+        return Location.objects.filter(device__in=allowed_devices)
 
     def get_permissions(self) -> list[object]:
         """Allow unauthenticated OwnTracks device POSTs; require auth for reads."""
@@ -201,13 +212,12 @@ class LocationViewSet(viewsets.ModelViewSet):
         """
         queryset = self.get_queryset()
 
-        # Filter by device
+        # Filter by device — use the already-restricted queryset so inaccessible
+        # devices return 404 (same as non-existent, no existence leak).
         device_id = request.query_params.get('device')
         if device_id:
-            try:
-                device = Device.objects.get(device_id=device_id)
-                queryset = queryset.filter(device=device)
-            except Device.DoesNotExist:
+            queryset = queryset.filter(device__device_id=device_id)
+            if not queryset.exists():
                 return Response(
                     {
                         'error': f"Expected valid device ID, got '{device_id}' which does not exist"
@@ -221,7 +231,7 @@ class LocationViewSet(viewsets.ModelViewSet):
 
         if start_time:
             try:
-                start_timestamp = int(start_time)
+                start_timestamp = int(str(start_time))
                 start_dt = datetime.fromtimestamp(start_timestamp, tz=UTC)
                 queryset = queryset.filter(timestamp__gte=start_dt)
             except (ValueError, OSError) as e:
@@ -248,7 +258,7 @@ class LocationViewSet(viewsets.ModelViewSet):
 
         if end_time:
             try:
-                end_timestamp = int(end_time)
+                end_timestamp = int(str(end_time))
                 end_dt = datetime.fromtimestamp(end_timestamp, tz=UTC)
                 queryset = queryset.filter(timestamp__lte=end_dt)
             except (ValueError, OSError) as e:
@@ -276,7 +286,7 @@ class LocationViewSet(viewsets.ModelViewSet):
         resolution = request.query_params.get('resolution')
         if resolution is not None:
             try:
-                resolution_seconds = int(resolution)
+                resolution_seconds = int(str(resolution))
                 # Get all matching locations ordered by timestamp (ascending for thinning)
                 all_locations = list(queryset.order_by('timestamp'))
                 if all_locations:
@@ -327,14 +337,22 @@ class DeviceViewSet(viewsets.ReadOnlyModelViewSet):
     ViewSet for managing devices.
 
     Provides read-only endpoints for:
-    - GET /devices/: List all devices
+    - GET /devices/: List all devices owned by or shared with the current user
     - GET /devices/{id}/: Get device details
     - GET /devices/{id}/locations/: Get locations for specific device
     """
 
-    queryset = Device.objects.all()
     serializer_class = DeviceSerializer
     lookup_field = 'device_id'
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self) -> QuerySet[Device]:
+        """Return devices owned by or shared with the current user."""
+        from django.db.models import Q
+        user = self.request.user
+        return Device.objects.filter(
+            Q(owner=user) | Q(shares__shared_with=user)
+        ).distinct()
 
     @action(detail=True, methods=['get'])
     def locations(self, request: Request, device_id: str | None = None) -> Response:
