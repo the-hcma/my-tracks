@@ -47,6 +47,8 @@ This document defines the four specialized agents for the My Tracks project.
 - ❌ Skip waiting for CI/CD checks
 - ❌ **NEVER merge PRs directly** (`gh pr merge`, GitHub merge button, etc.) — always use the `merge-mq` label to submit to the merge queue
 
+> See [GRAPHITE.md](./GRAPHITE.md) for the full Graphite workflow reference (branch naming, stack creation, navigation, submission, troubleshooting, and advanced rebasing).
+
 **Branch Workflow** (CRITICAL - Use Graphite CLI):
 - ✅ **ALWAYS** use Graphite CLI for branch and PR management
 - ✅ **ALWAYS** use non-interactive mode flags to prevent terminal hangs:
