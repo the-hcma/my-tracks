@@ -22,12 +22,7 @@
     "forceConsistentCasingInFileNames": true,
     "declaration": false,
     "outDir": "./web_ui/static/web_ui/js",
-    "rootDir": "./web_ui/static/web_ui/ts",
-    "ignoreDeprecations": "6.0",
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["./web_ui/static/web_ui/ts/*"]
-    }
+    "rootDir": "./web_ui/static/web_ui/ts"
   },
   "include": [
     "web_ui/static/web_ui/ts/**/*.ts"
