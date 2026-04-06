@@ -178,7 +178,7 @@ jobs:
         ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
     - name: Lint GitHub Actions workflows
-      uses: rhysd/actionlint@v1.7.11
+      uses: rhysd/actionlint@v1.7.12
 
   shell-test:
     name: Shell Script Tests
