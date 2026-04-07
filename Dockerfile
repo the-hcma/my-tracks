@@ -3,13 +3,15 @@
 # ── Stage 1: Frontend build ─────────────────────────────────────────────────
 FROM node:22-slim AS frontend
 
+RUN corepack enable && corepack prepare pnpm@10.28.0 --activate
+
 WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci --ignore-scripts
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile --ignore-scripts
 COPY tsconfig.json ./
 COPY dev-tooling/esbuild.config.mjs dev-tooling/
 COPY web_ui/static/web_ui/ts/ web_ui/static/web_ui/ts/
-RUN npm run build
+RUN pnpm run build
 
 # ── Stage 2: Python build ───────────────────────────────────────────────────
 FROM ghcr.io/astral-sh/uv:python3.14-bookworm-slim AS python-build

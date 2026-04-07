@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "TypeScript frontend for My Tracks OwnTracks backend",
   "private": true,
+  "packageManager": "pnpm@10.28.0",
   "scripts": {
     "build": "node dev-tooling/esbuild.config.mjs",
     "build:watch": "node dev-tooling/esbuild.config.mjs --watch",
