@@ -340,9 +340,9 @@ cat > "$runtime_config" << EOF
 EOF
 
 # Build frontend assets (TypeScript → JavaScript/CSS)
-if [ -f "package.json" ] && command -v npm &>/dev/null; then
+if [ -f "package.json" ] && command -v pnpm &>/dev/null; then
     echo "🔨 Building frontend assets..."
-    npm run build --silent 2>&1 || { echo "❌ Frontend build failed"; exit 1; }
+    pnpm run build --silent 2>&1 || { echo "❌ Frontend build failed"; exit 1; }
 fi
 
 # Collect static files for whitenoise (required for ASGI static file serving)
