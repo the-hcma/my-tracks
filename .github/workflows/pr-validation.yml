@@ -6,8 +6,10 @@ on:
   # the merge queue already validates the integrated state before landing; a
   # second run after the merge would duplicate work without adding any new
   # signal.
+  # `edited` catches base-branch changes (e.g. restacking onto a different
+  # parent) which fire `edited`, not `synchronize`.
   pull_request:
-    types: [opened, reopened, synchronize]
+    types: [opened, reopened, synchronize, edited]
     branches-ignore:
       - '**/graphite-base/**'
   schedule:
@@ -20,6 +22,7 @@ jobs:
   frontend:
     name: Frontend (TypeScript)
     runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.action != 'edited' || github.event.changes.base != null
     steps:
     - uses: actions/checkout@v6
       with:
@@ -54,6 +57,7 @@ jobs:
   backend-lint:
     name: Backend Lint
     runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.action != 'edited' || github.event.changes.base != null
     steps:
     - uses: actions/checkout@v6
       with:
@@ -101,6 +105,7 @@ jobs:
   backend-test:
     name: Backend Tests
     runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.action != 'edited' || github.event.changes.base != null
     steps:
     - uses: actions/checkout@v6
       with:
@@ -153,6 +158,7 @@ jobs:
   secret-scan:
     name: Secret Scan
     runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.action != 'edited' || github.event.changes.base != null
     steps:
     - uses: actions/checkout@v6
       with:
@@ -182,6 +188,7 @@ jobs:
   workflow-lint:
     name: Workflow Lint (actionlint)
     runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.action != 'edited' || github.event.changes.base != null
     steps:
     - uses: actions/checkout@v6
       with:
@@ -193,6 +200,7 @@ jobs:
   shell-test:
     name: Shell Script Tests
     runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.action != 'edited' || github.event.changes.base != null
     steps:
     - uses: actions/checkout@v6
       with:
