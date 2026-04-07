@@ -17,8 +17,8 @@ jobs:
     if: github.actor == 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
-      - name: Add merge-mq label to enter merge queue
-        run: gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "merge-mq"
+      - name: Add merge-mq and merge-it labels to enter merge queue
+        run: gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "merge-mq,merge-it"
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
