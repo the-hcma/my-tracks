@@ -648,8 +648,8 @@ cd my-tracks
 uv sync
 
 # Install frontend dependencies and build
-npm ci
-npm run build
+pnpm install --frozen-lockfile
+pnpm run build
 
 # Configure environment
 cp examples/.env.production.example .env
