@@ -183,7 +183,7 @@ Evolution plan for My Tracks, a self-hosted location tracking backend for the Ow
     - One-click cert issuance from users table for users without a cert
     - CRL section: revoked certs table, revocation count, CRL download button
     - Prominent section titles across all pages (admin panel, profile, about)
-    - Auto-build frontend assets (`npm run build`) on server startup
+    - Auto-build frontend assets (`pnpm run build`) on server startup
     - `WHITENOISE_USE_FINDERS = True` in DEBUG mode for direct static file serving
 
 11. **Server Script Fix** ✅ (PR #309)
@@ -293,7 +293,7 @@ Full TLS integration: server certificate presentation + client certificate authe
 
 26. **CI Shell Test Fix** ✅ (PR #343)
     - Changed `test_valid_log_levels` from "wait for success" to "fast negative check" (2s timeout)
-    - Prevents CI timeout caused by `npm build` / `collectstatic` consuming the 5s window
+    - Prevents CI timeout caused by `pnpm run build` / `collectstatic` consuming the 5s window
 
 ## Upcoming Work
 

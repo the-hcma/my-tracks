@@ -237,16 +237,16 @@ uv run pytest --cov=app --cov-fail-under=90
 
 ```bash
 # Run TypeScript tests
-npm run test
+pnpm run test
 
 # Run tests in watch mode
-npm run test:watch
+pnpm run test:watch
 
 # Run ESLint
-npm run lint
+pnpm run lint
 
 # Build TypeScript
-npm run build
+pnpm run build
 ```
 
 ### Backend Tests

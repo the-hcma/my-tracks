@@ -46,13 +46,13 @@ uv run pytest tests/python/test_tracker.py::TestLocationAPI::test_create_locatio
 
 ```bash
 # Run TypeScript tests
-npm run test
+pnpm run test
 
 # Run with watch mode
-npm run test:watch
+pnpm run test:watch
 
 # Run ESLint
-npm run lint
+pnpm run lint
 ```
 
 ## Manual Testing
@@ -122,8 +122,8 @@ Before creating a pull request:
 - [ ] Coverage ≥ 90%: `uv run pytest --cov=app --cov-fail-under=90`
 - [ ] Type checking passes: `uv run pyright`
 - [ ] Imports sorted: `uv run isort --check-only app config web_ui`
-- [ ] All TypeScript tests pass: `npm run test`
-- [ ] ESLint passes: `npm run lint`
+- [ ] All TypeScript tests pass: `pnpm run test`
+- [ ] ESLint passes: `pnpm run lint`
 - [ ] No pytest warnings
 - [ ] VS Code Problems panel is clear
 - [ ] Shell scripts pass shellcheck

@@ -165,7 +165,7 @@ List all registered devices.
 my-tracks/
 ├── manage.py                 # Management script
 ├── pyproject.toml            # Python dependencies (uv)
-├── package.json              # Frontend dependencies (npm)
+├── package.json              # Frontend dependencies (pnpm)
 ├── scripts/
 │   └── my-tracks-server      # Server startup script
 ├── config/                   # Project configuration directory
@@ -203,10 +203,10 @@ uv run pytest
 uv run pytest --cov=app --cov-fail-under=90
 
 # TypeScript tests
-npm run test
+pnpm run test
 
 # TypeScript linting
-npm run lint
+pnpm run lint
 ```
 
 ### Code Style
