@@ -154,8 +154,8 @@ From here you can:
 - **Run tests**: `uv run pytest`
 - **Check types**: `uv run pyright`
 - **Sort imports**: `uv run isort app config web_ui`
-- **Run TypeScript tests**: `npm run test`
-- **Run ESLint**: `npm run lint`
+- **Run TypeScript tests**: `pnpm run test`
+- **Run ESLint**: `pnpm run lint`
 
 ### Production
 
@@ -195,13 +195,13 @@ uv run pyright
 uv run isort app config web_ui
 
 # Run TypeScript tests
-npm run test
+pnpm run test
 
 # Run ESLint
-npm run lint
+pnpm run lint
 
 # Build TypeScript
-npm run build
+pnpm run build
 ```
 
 ## Troubleshooting

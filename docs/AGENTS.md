@@ -135,7 +135,7 @@ Do not declare a PR ready until Steps 3, 4, and 5 all pass.
   - Checks for pending migrations
 **Directory Layout Rules**:
 - ❌ **NEVER move** `tsconfig.json`, `tsconfig.test.json`, `eslint.config.mjs`, `pyrightconfig.json`, or `vitest.config.ts` out of the project root — these are discovered by VS Code and IDE tooling by walking up from source files; moving them silently breaks IDE integration (type checking, linting, test discovery).
-- ✅ Only move config files that are invoked explicitly by path (e.g., `dev-tooling/esbuild.config.mjs` called via `node dev-tooling/esbuild.config.mjs`) or that support a `--config` flag set in CI/npm scripts (e.g., `dev-tooling/.flake8` via `flake8 --config dev-tooling/.flake8`).
+- ✅ Only move config files that are invoked explicitly by path (e.g., `dev-tooling/esbuild.config.mjs` called via `node dev-tooling/esbuild.config.mjs`) or that support a `--config` flag set in CI/pnpm scripts (e.g., `dev-tooling/.flake8` via `flake8 --config dev-tooling/.flake8`).
 - Rationale: Tool config discovery and IDE integration depend on root-level placement; build script invocations do not.
 
 **Server Management**:

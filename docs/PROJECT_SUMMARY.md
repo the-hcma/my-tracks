@@ -66,7 +66,7 @@ my-tracks/
 ├── AGENTS.md                  # Agent workflow definitions
 ├── AGENT_MODELS.md            # Agent model assignments
 ├── pyproject.toml             # Python dependencies (uv)
-├── package.json               # Frontend dependencies (npm)
+├── package.json               # Frontend dependencies (pnpm)
 ├── manage.py                  # Management script
 ├── scripts/
 │   ├── my-tracks-server       # Server startup script
@@ -208,8 +208,8 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync --all-extras
 
 # 3. Install frontend dependencies
-npm install
-npm run build
+pnpm install
+pnpm run build
 
 # 4. Initialize database
 cp examples/.env.example .env
