@@ -11,7 +11,7 @@ dependencies = [
     "psycopg2-binary>=2.9.9",
     "gunicorn>=21.2.0",
     "channels>=4.0.0",
-    "daphne>=4.0.0",
+    "daphne>=4.2.1",
     "whitenoise>=6.11.0",
     "typer>=0.15.0",
     "amqtt",
