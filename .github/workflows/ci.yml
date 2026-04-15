@@ -20,7 +20,7 @@ jobs:
   frontend:
     name: Frontend (TypeScript)
     runs-on: ubuntu-latest
-    if: github.actor != 'graphite-app[bot]' || github.event.pull_request.draft == true
+    if: github.actor != 'graphite-app[bot]' || (github.event.pull_request.draft == true && !startsWith(github.head_ref, 'gtmq_merge_'))
     steps:
     - uses: actions/checkout@v6
       with:
@@ -55,7 +55,7 @@ jobs:
   backend-lint:
     name: Backend Lint
     runs-on: ubuntu-latest
-    if: github.actor != 'graphite-app[bot]' || github.event.pull_request.draft == true
+    if: github.actor != 'graphite-app[bot]' || (github.event.pull_request.draft == true && !startsWith(github.head_ref, 'gtmq_merge_'))
     steps:
     - uses: actions/checkout@v6
       with:
@@ -100,7 +100,7 @@ jobs:
   backend-test:
     name: Backend Tests
     runs-on: ubuntu-latest
-    if: github.actor != 'graphite-app[bot]' || github.event.pull_request.draft == true
+    if: github.actor != 'graphite-app[bot]' || (github.event.pull_request.draft == true && !startsWith(github.head_ref, 'gtmq_merge_'))
     steps:
     - uses: actions/checkout@v6
       with:
@@ -153,7 +153,7 @@ jobs:
   secret-scan:
     name: Secret Scan
     runs-on: ubuntu-latest
-    if: github.actor != 'graphite-app[bot]' || github.event.pull_request.draft == true
+    if: github.actor != 'graphite-app[bot]' || (github.event.pull_request.draft == true && !startsWith(github.head_ref, 'gtmq_merge_'))
     steps:
     - uses: actions/checkout@v6
       with:
@@ -183,7 +183,7 @@ jobs:
   workflow-lint:
     name: Workflow Lint (actionlint)
     runs-on: ubuntu-latest
-    if: github.actor != 'graphite-app[bot]' || github.event.pull_request.draft == true
+    if: github.actor != 'graphite-app[bot]' || (github.event.pull_request.draft == true && !startsWith(github.head_ref, 'gtmq_merge_'))
     steps:
     - uses: actions/checkout@v6
       with:
@@ -195,7 +195,7 @@ jobs:
   shell-test:
     name: Shell Script Tests
     runs-on: ubuntu-latest
-    if: github.actor != 'graphite-app[bot]' || github.event.pull_request.draft == true
+    if: github.actor != 'graphite-app[bot]' || (github.event.pull_request.draft == true && !startsWith(github.head_ref, 'gtmq_merge_'))
     steps:
     - uses: actions/checkout@v6
       with:
