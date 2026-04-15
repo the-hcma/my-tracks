@@ -76,3 +76,9 @@ dev = [
     "shellcheck-py>=0.9.0",
     "pip-audit>=2.7.0",
 ]
+
+# amqtt==0.10.x requires pyyaml<6.0 and amqtt==0.11.x requires pyyaml==6.0.2.
+# Without this floor, uv can backtrack amqtt to 0.10.x and then select
+# pyyaml==5.4.1, which has no Python 3.14 wheel and fails to build from source.
+[tool.uv]
+constraint-dependencies = ["pyyaml>=6.0"]
