@@ -2,6 +2,9 @@ version = 1
 revision = 3
 requires-python = ">=3.14"
 
+[manifest]
+constraints = [{ name = "pyyaml", specifier = ">=6.0" }]
+
 [[package]]
 name = "amqtt"
 version = "0.11.3"
