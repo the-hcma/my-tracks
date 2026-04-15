@@ -596,9 +596,9 @@ Package the application as a production-ready container image deployable on a Ce
     gate before the service is exposed on port 443.
 
     **Note**: all scan integrations below are **new** — none exist in the current
-    `pr-validation.yml` or anywhere else in the project.
+    `ci.yml` or anywhere else in the project.
 
-    **Per-PR CI additions** (new steps in `pr-validation.yml`):
+    **Per-PR CI additions** (new steps in `ci.yml`):
     1. **Python dependency CVE audit** — new step in `backend-lint` job:
        ```yaml
        - name: Audit Python dependencies for CVEs
@@ -641,7 +641,7 @@ Package the application as a production-ready container image deployable on a Ce
 
     **Files changed**:
     - `pyproject.toml`: add `pip-audit` as a dev dependency
-    - `.github/workflows/pr-validation.yml`: add `pip-audit` step to `backend-lint` job,
+    - `.github/workflows/ci.yml`: add `pip-audit` step to `backend-lint` job,
       add `manage.py check --deploy` step to `backend-test` job, add `secret-scan` job
     - `.github/workflows/security-scan.yml`: new weekly scheduled workflow for
       `docker scout cves`
@@ -654,7 +654,7 @@ Package the application as a production-ready container image deployable on a Ce
     undetected until runtime failures.
 
     **What was done**:
-    - Added `workflow-lint` job to `pr-validation.yml` using `rhysd/actionlint@v1.7.11`;
+    - Added `workflow-lint` job to `ci.yml` using `rhysd/actionlint@v1.7.11`;
       lints all `.github/workflows/` files on every PR; auto-updated by Dependabot
     - Fixed script injection vulnerability in `cleanup-branch-on-merge.yml`:
       `github.event.pull_request.head.ref` was interpolated directly into a shell script;
@@ -663,7 +663,7 @@ Package the application as a production-ready container image deployable on a Ce
       repo-root certbot copies from being accidentally committed
 
     **Files changed**:
-    - `.github/workflows/pr-validation.yml`: new `workflow-lint` job
+    - `.github/workflows/ci.yml`: new `workflow-lint` job
     - `.github/workflows/cleanup-branch-on-merge.yml`: script injection fix
     - `.gitignore`: anchored domain-cert patterns
 

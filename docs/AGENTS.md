@@ -13,7 +13,7 @@ This document defines the four specialized agents for the My Tracks project.
 **CRITICAL**: All changes MUST go through pull requests - direct pushes to main are blocked by branch protection.
 
 **At the start of every session**, before doing anything else:
-1. **Sync main**: `GRAPHITE_PROFILE=thehcma gt sync --force` — pulls latest main and restacks all local branches. This prevents stale-base-ref ejections from the merge queue when other PRs have merged since your last session.
+1. **Sync main**: `gt sync --force` — pulls latest main and restacks all local branches. This prevents stale-base-ref ejections from the merge queue when other PRs have merged since your last session.
 
 **Before creating any pull request**, the following workflow MUST be completed:
 
@@ -24,12 +24,6 @@ This document defines the four specialized agents for the My Tracks project.
 5. **Final verification**: All agents confirm VS Code Problems panel is clear
 6. **Coverage verification**: Run `uv run pytest --cov=app --cov-fail-under=90` and ensure it passes
 7. **Create feature branch**: NEVER commit or push to main - always create a feature branch
-
-**PR Submission Time Window** (CRITICAL):
-- ❌ **NEVER submit PRs (`gt submit`) before 6 PM local time on weekdays (Monday–Friday)**
-- ✅ Only push branches and open PRs after 6 PM on weekdays
-- ✅ PRs may be submitted at any time on weekends (Saturday and Sunday)
-- Rationale: During working hours the user is actively using the running server; CI/merge queue activity can disrupt it
 
 **Pull Request Workflow** (CRITICAL):
 
@@ -94,12 +88,12 @@ Do not proceed if any of these fail. Fix first.
 
 **Step 2 — Submit via Graphite** (pushes branches and updates PRs):
 ```bash
-GRAPHITE_PROFILE=thehcma gt submit --no-interactive --publish
+gt submit --no-interactive --publish
 ```
 
 **Step 3 — Verify stack health locally**:
 ```bash
-GRAPHITE_PROFILE=thehcma gt log short
+gt log short
 ```
 Check: correct parent order, no "needs restack", no diverged branch warnings for branches you touched.
 
@@ -126,7 +120,7 @@ Do not declare a PR ready until Steps 3, 4, and 5 all pass.
 - ✅ No pytest warnings
 - ✅ VS Code Problems panel clear
 - ✅ **All test assertions use PyHamcrest** (`assert_that()` — no naked `assert` statements)
-- ✅ **CI/CD pipeline passes** (GitHub Actions at `.github/workflows/pr-validation.yml`)
+- ✅ **CI/CD pipeline passes** (GitHub Actions at `.github/workflows/ci.yml`)
   - Verifies Python 3.14 is used (latest stable)
   - Runs all tests with coverage check
   - **Validates type annotations with Pyright (blocks PR if types missing)**
@@ -461,7 +455,7 @@ Passwords must never appear in shell command arguments — they end up in bash h
 - [ ] **All test assertions use PyHamcrest** (no naked `assert` — use `assert_that()` with matchers)
 - [ ] **No hardcoded ports in tests** (use port `0` for OS allocation — never `1883`, `8080`, etc.)
 - [ ] **Test mock data matches real-world values** (e.g., `sys.argv` in tests must match actual process invocations, not idealized versions)
-- [ ] **CI/CD pipeline passes** (GitHub Actions workflow at `.github/workflows/pr-validation.yml`)
+- [ ] **CI/CD pipeline passes** (GitHub Actions workflow at `.github/workflows/ci.yml`)
 
 ## Agent 2b: Secondary Critique Agent (GPT-5)
 
@@ -498,7 +492,7 @@ Passwords must never appear in shell command arguments — they end up in bash h
 - **Verify all test assertions use PyHamcrest** (no naked `assert` — must use `assert_that()` with matchers)
 - **Verify no hardcoded ports in tests** (use port `0` for OS allocation — never `1883`, `8080`, etc.)
 - **Verify test mock data matches real-world values** (e.g., `sys.argv` in tests must match actual process invocations, not idealized versions)
-- **Verify CI/CD pipeline passes** (check GitHub Actions at `.github/workflows/pr-validation.yml`)
+- **Verify CI/CD pipeline passes** (check GitHub Actions at `.github/workflows/ci.yml`)
 
 **When to Use**:
 - After primary critic review
@@ -559,4 +553,4 @@ Passwords must never appear in shell command arguments — they end up in bash h
 - [ ] **All test assertions use PyHamcrest** (no naked `assert` — use `assert_that()` with matchers)
 - [ ] **No hardcoded ports** (use port `0` — never `1883`, `8080`, etc.)
 - [ ] **Mock data matches real-world values** (verify against actual process invocations)
-- [ ] **CI/CD pipeline passes** (GitHub Actions workflow at `.github/workflows/pr-validation.yml`)
+- [ ] **CI/CD pipeline passes** (GitHub Actions workflow at `.github/workflows/ci.yml`)

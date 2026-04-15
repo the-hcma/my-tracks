@@ -7,6 +7,7 @@ import logging
 import os
 import sys
 import threading
+import warnings
 from datetime import UTC, datetime
 from pathlib import Path, PurePath
 from typing import Any
@@ -359,6 +360,58 @@ def trigger_tls_reload(reason: str = "configuration changed") -> None:
 _ASGI_SERVER_BINARIES = {'daphne', 'uvicorn'}
 
 
+def _fatal_db_error(message: str) -> None:
+    """Abort with a fatal database error message.
+
+    Logs the message (for log files / console), then calls os._exit(1)
+    which terminates all threads instantly.
+    """
+    logger.critical(message)
+    os._exit(1)
+
+
+def _check_database_ready() -> None:
+    """Abort with a clear message if migrations have not been run.
+
+    Detects two conditions:
+    - The ``django_migrations`` table is absent (``migrate`` has never been run)
+    - One or more migrations are pending (``migrate`` needs to be re-run)
+
+    In either case the process exits immediately with a message that shows
+    the exact command to fix it.
+    """
+    from django.db import OperationalError, connection
+    from django.db.migrations.executor import MigrationExecutor
+    from django.db.migrations.recorder import MigrationRecorder
+
+    try:
+        has_table = MigrationRecorder(connection).has_table()
+    except OperationalError:
+        has_table = False
+
+    if not has_table:
+        _fatal_db_error(
+            "Database tables are missing — migrations have never been run.\n"
+            "Create the dev database with:\n"
+            "  uv run python manage.py migrate"
+        )
+
+    try:
+        executor = MigrationExecutor(connection)
+        pending = executor.migration_plan(executor.loader.graph.leaf_nodes())
+    except Exception:
+        return  # can't determine pending state; proceed and let the DB error surface naturally
+
+    if pending:
+        pending_list = "\n  ".join(f"{m.app_label}.{m.name}" for m, _ in pending)
+        _fatal_db_error(
+            "Unapplied migrations detected — run migrations before starting the server:\n"
+            f"  {pending_list}\n"
+            "Apply them with:\n"
+            "  uv run python manage.py migrate"
+        )
+
+
 def _is_management_command() -> bool:
     """Detect if the process is running a management command (not the server).
 
@@ -370,6 +423,9 @@ def _is_management_command() -> bool:
     - Django's runserver appears as sys.argv[1] via manage.py
     - If neither matches and there's a command arg, it's a management command
     """
+    # Running under pytest (including xdist workers whose argv[0] is '-c').
+    if "pytest" in sys.modules or os.environ.get("PYTEST_XDIST_WORKER"):
+        return True
     prog = PurePath(sys.argv[0]).stem
     if prog in _ASGI_SERVER_BINARIES:
         return False
@@ -400,6 +456,15 @@ class MyTracksConfig(AppConfig):
         if _is_management_command():
             logger.debug("Management command detected — skipping MQTT broker startup")
             return
+
+        # Check DB synchronously here, before Daphne starts binding ports,
+        # so a fatal error prints and exits before any other output appears.
+        # The RuntimeWarning about DB access during app init is suppressed
+        # because it's a false alarm — by the time ready() runs, all apps are
+        # loaded and the migration framework works correctly.
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=RuntimeWarning)
+            _check_database_ready()
 
         _log_web_cert_info()
 

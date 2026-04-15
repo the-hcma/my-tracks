@@ -32,12 +32,13 @@ set -e
 readonly POLL_INTERVAL_SECONDS=0.25
 # Wait time to allow port to be fully released by OS
 readonly PORT_RELEASE_WAIT_SECONDS=1
-# Wait time for server startup before checking status
-readonly SERVER_STARTUP_WAIT_SECONDS=1
+# Maximum time (seconds) to wait for Daphne to bind its listening port
+readonly SERVER_STARTUP_TIMEOUT_SECONDS=15
 
 # Server process PID (set when daphne starts)
 server_pid=""
 cleanup_done=false
+startup_failed=false
 
 # Graceful process termination: SIGTERM first, wait, then SIGKILL
 # Usage: graceful_kill PID [WAIT_SECONDS]
@@ -114,12 +115,69 @@ cleanup() {
     fi
     # Clean up runtime config file
     rm -f "config/.runtime-config.json"
+    if [ "$startup_failed" = true ]; then
+        exit 1
+    fi
     echo "👋 Server stopped"
     exit 0
 }
 
 # Trap CTRL-C and TERM to exit cleanly
 trap cleanup INT TERM EXIT
+
+# Wait for server to become ready by polling for the "Listening" log line.
+# Returns 0 on success (sets display_http_port for port-0 mode), 1 on failure.
+# Exits early if the server process dies (e.g. fatal DB error).
+wait_for_server_ready() {
+    local pid=$1
+    local log=$2
+    local max_iterations=$(( SERVER_STARTUP_TIMEOUT_SECONDS * 4 ))  # 4 checks per 0.25s tick
+    local i=0
+
+    while [ $i -lt $max_iterations ]; do
+        # If the server died, reap it so any buffered output (via tee)
+        # finishes writing to the log, then show the error.
+        if ! kill -0 "$pid" 2>/dev/null; then
+            wait "$pid" 2>/dev/null
+            _show_startup_failure "$log"
+            return 1
+        fi
+
+        # Daphne prints "Listening on TCP address 0.0.0.0:<port>" once bound.
+        if grep -q 'Listening on TCP address' "$log" 2>/dev/null; then
+            # Detect the actual port when the caller used port 0.
+            if [ "$http_port" = "0" ]; then
+                detected_http_port=$(grep -o 'Listening on TCP address [0-9.]*:\([0-9]*\)' "$log" | head -1 | grep -o '[0-9]*$')
+                if [ -n "$detected_http_port" ]; then
+                    display_http_port="$detected_http_port"
+                fi
+            fi
+            return 0
+        fi
+
+        sleep "$POLL_INTERVAL_SECONDS"
+        i=$((i + 1))
+    done
+
+    # Timed out — server didn't bind within the window.
+    _show_startup_failure "$log"
+    return 1
+}
+
+# Print the last meaningful log lines when the server fails to start.
+_show_startup_failure() {
+    local log=$1
+    echo ""
+    echo "❌ Server failed to start:"
+    echo ""
+    if [ -s "$log" ]; then
+        # Show log lines that contain the actual error (skip noise like
+        # "Starting server at ..." which appears before the crash).
+        tail -20 "$log" | grep -v '^\s*$'
+    else
+        echo "   (no log output — check that the database exists)"
+    fi
+}
 
 # Default values
 http_port=8080
@@ -551,15 +609,10 @@ if [ "$log_to_console" = true ]; then
     daphne -b 0.0.0.0 -p "$http_port" --verbosity 0 config.asgi:application > >(tee -a "$log_file") 2>&1 &
     server_pid=$!
     
-    # Wait for daphne to start and report the port
-    sleep "$SERVER_STARTUP_WAIT_SECONDS"
-    
-    # Detect actual port from log file if port was 0
-    if [ "$http_port" = "0" ]; then
-        detected_http_port=$(grep -o 'Listening on TCP address [0-9.]*:\([0-9]*\)' "$log_file" 2>/dev/null | head -1 | grep -o '[0-9]*$')
-        if [ -n "$detected_http_port" ]; then
-            display_http_port="$detected_http_port"
-        fi
+    # Wait for daphne to bind its port (or die trying).
+    if ! wait_for_server_ready "$server_pid" "$log_file"; then
+        startup_failed=true
+        exit 1
     fi
     
     # Show server info after we know the actual port
@@ -581,15 +634,10 @@ else
     daphne -b 0.0.0.0 -p "$http_port" --verbosity 0 config.asgi:application >> "$log_file" 2>&1 &
     server_pid=$!
     
-    # Wait for daphne to start and report the port
-    sleep "$SERVER_STARTUP_WAIT_SECONDS"
-    
-    # Detect actual port from log file if port was 0
-    if [ "$http_port" = "0" ]; then
-        detected_http_port=$(grep -o 'Listening on TCP address [0-9.]*:\([0-9]*\)' "$log_file" 2>/dev/null | head -1 | grep -o '[0-9]*$')
-        if [ -n "$detected_http_port" ]; then
-            display_http_port="$detected_http_port"
-        fi
+    # Wait for daphne to bind its port (or die trying).
+    if ! wait_for_server_ready "$server_pid" "$log_file"; then
+        startup_failed=true
+        exit 1
     fi
     
     display_server_info "$display_http_port"
