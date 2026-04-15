@@ -11,8 +11,8 @@ on:
     branches-ignore:
       - '**/graphite-base/**'
   schedule:
-    # Weekly full suite — catches new CVEs and regressions between PRs.
-    # Thursday 07:00 UTC (offset from Monday docker scout scan to spread alerts).
+    # Weekly full suite — catches regressions between PRs.
+    # Thursday 07:00 UTC. CVEs are checked daily in cve-check.yml.
     - cron: '0 7 * * 4'
   workflow_dispatch:
 
@@ -96,9 +96,6 @@ jobs:
 
     - name: Check for pending migrations
       run: uv run python manage.py makemigrations --check --dry-run
-
-    - name: Audit Python dependencies for CVEs
-      run: uv run pip-audit --ignore-vuln CVE-2026-4539  # pygments 2.19.2 — no fix released yet
 
   backend-test:
     name: Backend Tests

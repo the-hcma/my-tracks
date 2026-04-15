@@ -2,7 +2,7 @@
   "permissions": {
     "allow": [
       "Bash(grep -rn \"\\\\./my-tracks-server\\\\|\\\\./setup\\\\|\\\\./verify-setup\\\\|\\\\./generate-tail\\\\|\\\\./deploy\\\\|\\\\./release\" --include=*.md --include=*.toml --include=*.yml --include=*.yaml .)",
-      "Bash(npm run:*)",
+      "Bash(pnpm run:*)",
       "Bash(GRAPHITE_PROFILE=thehcma gt checkout 03-18-fix_rootless-podman-privileged-port-check)",
       "Bash(for pr:*)",
       "Bash(do)",
