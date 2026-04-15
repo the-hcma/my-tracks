@@ -697,40 +697,34 @@ dependencies = [
     { name = "pyasn1" },
     { name = "pygments" },
     { name = "pyopenssl" },
-    { name = "pytest" },
     { name = "python-decouple" },
     { name = "typer" },
     { name = "ujson" },
     { name = "whitenoise" },
 ]
 
-[package.optional-dependencies]
+[package.dev-dependencies]
 dev = [
     { name = "black" },
+    { name = "coverage-enable-subprocess" },
     { name = "flake8" },
     { name = "isort" },
     { name = "mypy" },
     { name = "netifaces" },
     { name = "pip-audit" },
+    { name = "pyhamcrest" },
     { name = "pyright" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "pytest-django" },
-    { name = "shellcheck-py" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "coverage-enable-subprocess" },
-    { name = "pyhamcrest" },
     { name = "pytest-xdist" },
+    { name = "shellcheck-py" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "amqtt" },
-    { name = "black", marker = "extra == 'dev'", specifier = ">=23.7.0" },
     { name = "cbor2", specifier = "==5.9.0" },
     { name = "channels", specifier = ">=4.0.0" },
     { name = "cryptography", specifier = "==46.0.7" },
@@ -738,37 +732,36 @@ requires-dist = [
     { name = "dj-database-url", specifier = ">=3.1.2" },
     { name = "django", specifier = "==6.0.4" },
     { name = "djangorestframework", specifier = ">=3.14.0" },
-    { name = "flake8", marker = "extra == 'dev'", specifier = ">=7.3.0" },
     { name = "gunicorn", specifier = ">=21.2.0" },
     { name = "h2", specifier = ">=4.3.0" },
-    { name = "isort", marker = "extra == 'dev'", specifier = ">=8.0.1" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.5.0" },
-    { name = "netifaces", marker = "extra == 'dev'", specifier = ">=0.11.0" },
-    { name = "pip-audit", marker = "extra == 'dev'", specifier = ">=2.7.0" },
     { name = "priority", specifier = ">=2.0.0" },
     { name = "psycopg2-binary", specifier = ">=2.9.11" },
     { name = "pyasn1", specifier = "==0.6.3" },
     { name = "pygments", specifier = "==2.20.0" },
     { name = "pyopenssl", specifier = "==26.0.0" },
-    { name = "pyright", marker = "extra == 'dev'", specifier = ">=1.1.408" },
-    { name = "pytest", specifier = "==9.0.3" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.0" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.21.0" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
-    { name = "pytest-django", marker = "extra == 'dev'", specifier = ">=4.5.0" },
     { name = "python-decouple", specifier = ">=3.8" },
-    { name = "shellcheck-py", marker = "extra == 'dev'", specifier = ">=0.9.0" },
     { name = "typer", specifier = ">=0.15.0" },
     { name = "ujson", specifier = "==5.12.0" },
     { name = "whitenoise", specifier = ">=6.11.0" },
 ]
-provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "black", specifier = ">=23.7.0" },
     { name = "coverage-enable-subprocess", specifier = ">=1.0" },
+    { name = "flake8", specifier = ">=7.3.0" },
+    { name = "isort", specifier = ">=8.0.1" },
+    { name = "mypy", specifier = ">=1.5.0" },
+    { name = "netifaces", specifier = ">=0.11.0" },
+    { name = "pip-audit", specifier = ">=2.7.0" },
     { name = "pyhamcrest", specifier = ">=2.1.0" },
+    { name = "pyright", specifier = ">=1.1.408" },
+    { name = "pytest", specifier = ">=9.0.3" },
+    { name = "pytest-asyncio", specifier = ">=0.21.0" },
+    { name = "pytest-cov", specifier = ">=4.1.0" },
+    { name = "pytest-django", specifier = ">=4.5.0" },
     { name = "pytest-xdist", specifier = ">=3.8.0" },
+    { name = "shellcheck-py", specifier = ">=0.9.0" },
 ]
 
 [[package]]

@@ -1,4 +1,4 @@
-name: PR Validation
+name: CI
 
 on:
   # Run on every PR (including Graphite merge queue staging branches, which also
@@ -75,7 +75,7 @@ jobs:
         REQUIRED_VERSION="3.14"
         if [ "$CURRENT_VERSION" != "$REQUIRED_VERSION" ]; then
           echo "❌ Python version mismatch: using $CURRENT_VERSION but required $REQUIRED_VERSION"
-          echo "Please update .github/workflows/pr-validation.yml and pyproject.toml to use Python $CURRENT_VERSION"
+          echo "Please update .github/workflows/ci.yml and pyproject.toml to use Python $CURRENT_VERSION"
           exit 1
         fi
         echo "✅ Using Python $CURRENT_VERSION (latest stable)"
@@ -231,6 +231,9 @@ jobs:
 
     - name: Install shellcheck
       run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+    - name: Set up database
+      run: uv run python manage.py migrate
 
     - name: Run shell script tests
       run: ./tests/bash/test-my-tracks-server

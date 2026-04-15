@@ -3,28 +3,27 @@
 Reference guide for working with Graphite (`gt`) for creating, navigating, and managing stacked pull requests.
 
 > **Project requirements:**
-> - All `gt` commands must be prefixed with `GRAPHITE_PROFILE=thehcma` (authentication will fail otherwise)
 > - Always include `--publish` when submitting PRs (omitting it creates draft PRs instead of ready-for-review)
-> - Run `GRAPHITE_PROFILE=thehcma gt sync --force` at the start of every session before any other work
+> - Run `gt sync --force` at the start of every session before any other work
 
 ## Quick Reference
 
 | I want to... | Command |
 |--------------|---------|
-| Sync main at session start | `GRAPHITE_PROFILE=thehcma gt sync --force` |
-| Create a new branch/PR (stage all) | `GRAPHITE_PROFILE=thehcma gt create --all -m "message"` |
-| Amend current branch (stage all) | `GRAPHITE_PROFILE=thehcma gt modify --all -m "message"` |
+| Sync main at session start | `gt sync --force` |
+| Create a new branch/PR (stage all) | `gt create --all -m "message"` |
+| Amend current branch (stage all) | `gt modify --all -m "message"` |
 | Navigate up the stack | `gt up` |
 | Navigate down the stack | `gt down` |
 | Jump to top of stack | `gt top` |
 | Jump to bottom of stack | `gt bottom` |
-| View stack structure | `GRAPHITE_PROFILE=thehcma gt log short` |
-| Submit current branch | `GRAPHITE_PROFILE=thehcma gt submit --no-interactive --publish` |
-| Submit entire stack | `GRAPHITE_PROFILE=thehcma gt submit --stack --no-interactive --publish` |
-| Rebase stack on trunk | `GRAPHITE_PROFILE=thehcma gt restack` |
-| Change branch parent | `GRAPHITE_PROFILE=thehcma gt track --parent <branch>` |
-| Rename current branch | `GRAPHITE_PROFILE=thehcma gt rename <new-name>` |
-| Move branch in stack | `GRAPHITE_PROFILE=thehcma gt move` |
+| View stack structure | `gt log short` |
+| Submit current branch | `gt submit --no-interactive --publish` |
+| Submit entire stack | `gt submit --stack --no-interactive --publish` |
+| Rebase stack on trunk | `gt restack` |
+| Change branch parent | `gt track --parent <branch>` |
+| Rename current branch | `gt rename <new-name>` |
+| Move branch in stack | `gt move` |
 | Switch branches | `gt checkout <branch>` |
 | Check working tree | `gt status` |
 | View changes | `gt diff` |
@@ -69,7 +68,7 @@ auth-bugfix/handle-401-status-codes
 **CRITICAL**: Before any other work, sync main:
 
 ```bash
-GRAPHITE_PROFILE=thehcma gt sync --force
+gt sync --force
 ```
 
 This pulls the latest `main` and restacks all local branches. Skipping this causes stale-base-ref ejections from the merge queue when other PRs have merged since your last session.
@@ -80,15 +79,15 @@ This pulls the latest `main` and restacks all local branches. Skipping this caus
 
 ### Basic Workflow
 
-1. Stage and create: `GRAPHITE_PROFILE=thehcma gt create --all -m "feat: description"`
+1. Stage and create: `gt create --all -m "feat: description"`
 2. Repeat for each PR in the stack
-3. Submit: `GRAPHITE_PROFILE=thehcma gt submit --stack --no-interactive --publish`
+3. Submit: `gt submit --stack --no-interactive --publish`
 
 Alternatively, stage manually then create:
 
 ```bash
 git add <files>
-GRAPHITE_PROFILE=thehcma gt create branch-name -m "commit message"
+gt create branch-name -m "commit message"
 ```
 
 ### Handle Untracked Branches (common with worktrees)
@@ -96,26 +95,26 @@ GRAPHITE_PROFILE=thehcma gt create branch-name -m "commit message"
 Before creating branches, check if the current branch is tracked:
 
 ```bash
-GRAPHITE_PROFILE=thehcma gt branch info
+gt branch info
 ```
 
 If you see "ERROR: Cannot perform this operation on untracked branch":
 
 **Option A (Recommended): Track temporarily, then re-parent**
-1. Track current branch: `GRAPHITE_PROFILE=thehcma gt track -p main`
+1. Track current branch: `gt track -p main`
 2. Create your stack normally with `gt create`
 3. After creating ALL branches, re-parent your first new branch onto main:
    ```bash
-   GRAPHITE_PROFILE=thehcma gt checkout <first-branch-of-your-stack>
-   GRAPHITE_PROFILE=thehcma gt track -p main
-   GRAPHITE_PROFILE=thehcma gt restack
+   gt checkout <first-branch-of-your-stack>
+   gt track -p main
+   gt restack
    ```
 
 **Option B: Stash changes and start from main**
 1. `git stash`
 2. `git checkout main && git pull`
 3. `git checkout -b temp-working && git stash pop`
-4. `GRAPHITE_PROFILE=thehcma gt track -p main && GRAPHITE_PROFILE=thehcma gt create ...`
+4. `gt track -p main && gt create ...`
 
 ---
 
@@ -135,7 +134,7 @@ gt top
 gt bottom
 
 # View the full stack structure
-GRAPHITE_PROFILE=thehcma gt log short
+gt log short
 ```
 
 ---
@@ -146,31 +145,31 @@ GRAPHITE_PROFILE=thehcma gt log short
 
 ```bash
 # Stage all changes and amend
-GRAPHITE_PROFILE=thehcma gt modify --all -m "updated commit message"
+gt modify --all -m "updated commit message"
 
 # Or stage selectively
 git add <files>
-GRAPHITE_PROFILE=thehcma gt modify -m "updated commit message"
+gt modify -m "updated commit message"
 ```
 
 ### Reorder Branches
 
-Use `GRAPHITE_PROFILE=thehcma gt move` to reorder branches in the stack.
+Use `gt move` to reorder branches in the stack.
 
 ### Re-parent a Stack
 
 If you created a stack on top of a feature branch but want it based on main:
 
 ```bash
-GRAPHITE_PROFILE=thehcma gt checkout <first-branch>
-GRAPHITE_PROFILE=thehcma gt track --parent main
-GRAPHITE_PROFILE=thehcma gt restack
+gt checkout <first-branch>
+gt track --parent main
+gt restack
 ```
 
 ### Rename a Branch
 
 ```bash
-GRAPHITE_PROFILE=thehcma gt rename new-branch-name
+gt rename new-branch-name
 ```
 
 ---
@@ -197,14 +196,14 @@ git diff HEAD
 ### Verify Stack is Rooted on Main
 
 ```bash
-GRAPHITE_PROFILE=thehcma gt log short
+gt log short
 ```
 
 If the first branch has a parent other than `main`:
 ```bash
-GRAPHITE_PROFILE=thehcma gt checkout <first-branch>
-GRAPHITE_PROFILE=thehcma gt track -p main
-GRAPHITE_PROFILE=thehcma gt restack
+gt checkout <first-branch>
+gt track -p main
+gt restack
 ```
 
 ### Run Validation
@@ -218,7 +217,7 @@ uv run flake8 --config dev-tooling/.flake8 app config
 uv run pytest --cov=app --cov-fail-under=90
 ```
 
-If validation fails, fix the issue and amend: `GRAPHITE_PROFILE=thehcma gt modify --all -m "..."`
+If validation fails, fix the issue and amend: `gt modify --all -m "..."`
 
 ### PR Submission Time Window
 
@@ -232,10 +231,10 @@ If validation fails, fix the issue and amend: `GRAPHITE_PROFILE=thehcma gt modif
 
 ```bash
 # Submit current branch only
-GRAPHITE_PROFILE=thehcma gt submit --no-interactive --publish
+gt submit --no-interactive --publish
 
 # Submit entire stack
-GRAPHITE_PROFILE=thehcma gt submit --stack --no-interactive --publish
+gt submit --stack --no-interactive --publish
 ```
 
 **CRITICAL**: Never omit `--publish` — it creates draft PRs instead of ready-for-review PRs.
@@ -264,16 +263,16 @@ PR descriptions must include:
 
 | Problem | Solution |
 |---------|----------|
-| "Cannot perform this operation on untracked branch" | Run `GRAPHITE_PROFILE=thehcma gt track -p main` first |
-| Stack parented on wrong branch | `GRAPHITE_PROFILE=thehcma gt track -p main` then `gt restack` |
+| "Cannot perform this operation on untracked branch" | Run `gt track -p main` first |
+| Stack parented on wrong branch | `gt track -p main` then `gt restack` |
 | PR created as draft | Re-submit with `--publish` flag |
-| Need to reorder PRs | Use `GRAPHITE_PROFILE=thehcma gt move` |
+| Need to reorder PRs | Use `gt move` |
 | Conflicts during restack | Resolve conflicts, then `git rebase --continue` |
 | Want to split a PR | Reset commits (`git reset HEAD^`), re-stage selectively, create new branches |
-| Need to delete a branch (non-interactive) | `GRAPHITE_PROFILE=thehcma gt delete <branch> -f -q` |
+| Need to delete a branch (non-interactive) | `gt delete <branch> -f -q` |
 | `gt restack` hitting unrelated conflicts | Use targeted `git rebase <target>` instead (see below) |
 | Rebase interrupted mid-conflict | Check if files are resolved but unstaged, then `git add` + `git rebase --continue` |
-| Stale-base-ref ejection from merge queue | Run `GRAPHITE_PROFILE=thehcma gt sync --force` to resync |
+| Stale-base-ref ejection from merge queue | Run `gt sync --force` to resync |
 
 ---
 
@@ -309,7 +308,7 @@ git rebase target-branch
 git rebase --skip
 
 # 5. After rebase, sync graphite's tracking
-GRAPHITE_PROFILE=thehcma gt modify --no-edit
+gt modify --no-edit
 ```
 
 ### Recovering from Interrupted Rebase (Context Reset)
@@ -336,13 +335,13 @@ If a rebase was interrupted (e.g., AI agent ran out of context):
 
 ```bash
 # Delete a branch (non-interactive, even if not merged)
-GRAPHITE_PROFILE=thehcma gt delete branch-to-delete -f -q
+gt delete branch-to-delete -f -q
 
 # Also delete all children (upstack)
-GRAPHITE_PROFILE=thehcma gt delete branch-to-delete -f -q --upstack
+gt delete branch-to-delete -f -q --upstack
 
 # Also delete all ancestors (downstack)
-GRAPHITE_PROFILE=thehcma gt delete branch-to-delete -f -q --downstack
+gt delete branch-to-delete -f -q --downstack
 ```
 
 **Flags:**
@@ -352,5 +351,5 @@ GRAPHITE_PROFILE=thehcma gt delete branch-to-delete -f -q --downstack
 **After deleting intermediate branches**, children are automatically restacked onto the parent. If you need to manually update tracking:
 ```bash
 gt checkout child-branch
-GRAPHITE_PROFILE=thehcma gt track --parent new-parent-branch
+gt track --parent new-parent-branch
 ```

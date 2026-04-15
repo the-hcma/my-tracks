@@ -72,3 +72,6 @@ production/run/
 
 # Claude
 .claude/
+.dep-update-state
+.nfs*
+production-testing/.run/

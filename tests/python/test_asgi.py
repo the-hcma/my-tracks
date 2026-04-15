@@ -9,6 +9,7 @@ disconnections are handled gracefully by the ASGI middleware.
 
 import asyncio
 import json
+import os
 import threading
 from pathlib import Path
 from typing import Any
@@ -242,6 +243,7 @@ class TestMqttBrokerStartup:
         with (
             patch.object(apps_module, "CONFIG_FILE", config_file),
             patch.object(apps_module, "_is_management_command", return_value=False),
+            patch.object(apps_module, "_check_database_ready"),
             patch.object(apps_module, "get_mqtt_port", return_value=1883),
             patch.object(apps_module, "get_mqtt_tls_port", return_value=-1),
             patch.object(apps_module._state, "thread", None),
@@ -288,6 +290,7 @@ class TestMqttBrokerStartup:
         with (
             patch.object(apps_module, "CONFIG_FILE", config_file),
             patch.object(apps_module, "_is_management_command", return_value=False),
+            patch.object(apps_module, "_check_database_ready"),
             patch.object(apps_module, "get_mqtt_port", return_value=-1),
             patch.object(apps_module, "get_mqtt_tls_port", return_value=-1),
             patch("threading.Thread") as mock_thread_class,
@@ -313,6 +316,7 @@ class TestMqttBrokerStartup:
         with (
             patch.object(apps_module, "CONFIG_FILE", config_file),
             patch.object(apps_module, "_is_management_command", return_value=False),
+            patch.object(apps_module, "_check_database_ready"),
             patch.object(apps_module, "get_mqtt_port", return_value=0),
             patch.object(apps_module, "get_mqtt_tls_port", return_value=-1),
             patch.object(apps_module._state, "thread", None),
@@ -567,6 +571,34 @@ class TestRunMqttBroker:
         )
 
 
+class TestFatalDbError:
+    """Tests for _fatal_db_error shutdown helper."""
+
+    def test_logs_critical_message(self) -> None:
+        """Logs the message at CRITICAL level."""
+        import app.apps as apps_module
+
+        with (
+            patch("app.apps.logger") as mock_logger,
+            patch("app.apps.os._exit"),
+        ):
+            apps_module._fatal_db_error("something went wrong")
+
+        mock_logger.critical.assert_called_once_with("something went wrong")
+
+    def test_exits_process(self) -> None:
+        """Calls os._exit(1) to terminate the process immediately."""
+        import app.apps as apps_module
+
+        with (
+            patch("app.apps.logger"),
+            patch("app.apps.os._exit") as mock_exit,
+        ):
+            apps_module._fatal_db_error("db missing")
+
+        mock_exit.assert_called_once_with(1)
+
+
 class TestIsManagementCommand:
     """Tests for _is_management_command detection.
 
@@ -622,32 +654,40 @@ class TestIsManagementCommand:
         """The runserver command is not considered a management command."""
         from app.apps import _is_management_command
 
-        with patch("app.apps.sys") as mock_sys:
+        with patch("app.apps.sys") as mock_sys, patch.dict(os.environ):
+            os.environ.pop("PYTEST_XDIST_WORKER", None)
             mock_sys.argv = ["manage.py", "runserver"]
+            mock_sys.modules = {}
             assert_that(_is_management_command(), is_(False))
 
     def test_returns_false_for_real_daphne_argv(self) -> None:
         """Daphne detected via argv[0] binary name with real server argv."""
         from app.apps import _is_management_command
 
-        with patch("app.apps.sys") as mock_sys:
+        with patch("app.apps.sys") as mock_sys, patch.dict(os.environ):
+            os.environ.pop("PYTEST_XDIST_WORKER", None)
             mock_sys.argv = self.REAL_DAPHNE_ARGV
+            mock_sys.modules = {}
             assert_that(_is_management_command(), is_(False))
 
     def test_returns_false_for_real_uvicorn_argv(self) -> None:
         """Uvicorn detected via argv[0] binary name with real server argv."""
         from app.apps import _is_management_command
 
-        with patch("app.apps.sys") as mock_sys:
+        with patch("app.apps.sys") as mock_sys, patch.dict(os.environ):
+            os.environ.pop("PYTEST_XDIST_WORKER", None)
             mock_sys.argv = self.REAL_UVICORN_ARGV
+            mock_sys.modules = {}
             assert_that(_is_management_command(), is_(False))
 
     def test_returns_false_when_no_args(self) -> None:
         """Returns False when sys.argv has no command argument."""
         from app.apps import _is_management_command
 
-        with patch("app.apps.sys") as mock_sys:
+        with patch("app.apps.sys") as mock_sys, patch.dict(os.environ):
+            os.environ.pop("PYTEST_XDIST_WORKER", None)
             mock_sys.argv = ["manage.py"]
+            mock_sys.modules = {}
             assert_that(_is_management_command(), is_(False))
 
     def test_daphne_argv1_is_a_flag_not_binary_name(self) -> None:
