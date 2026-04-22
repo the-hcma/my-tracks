@@ -13,7 +13,7 @@ This document defines the four specialized agents for the My Tracks project.
 **CRITICAL**: All changes MUST go through pull requests - direct pushes to main are blocked by branch protection.
 
 **At the start of every session**, before doing anything else:
-1. **Sync main**: `gt sync --force` — pulls latest main and restacks all local branches. This prevents stale-base-ref ejections from the merge queue when other PRs have merged since your last session.
+1. **Initialize session**: `~/work/ai/repository-helpers/scripts/dev/start-development --refresh` — syncs main with Graphite, prunes merged worktrees/branches, and ensures the background service is running (or installs it via `setup-service` if not yet configured). This replaces the manual `gt sync --force` step.
 
 **Before creating any pull request**, the following workflow MUST be completed:
 
@@ -133,6 +133,9 @@ Do not declare a PR ready until Steps 3, 4, and 5 all pass.
 - Rationale: Tool config discovery and IDE integration depend on root-level placement; build script invocations do not.
 
 **Server Management**:
+- ✅ **Background service**: The server runs as a systemd user service, installed via `~/work/ai/repository-helpers/scripts/setup-service`
+- ✅ **Session init**: `~/work/ai/repository-helpers/scripts/dev/start-development --refresh` at the start of each session — syncs and ensures the service is running
+- ✅ **Service status**: `~/work/ai/repository-helpers/scripts/setup-service --status`
 - ❌ **NEVER start the production server** (`./scripts/my-tracks-server`) during development or testing
 - ✅ Tests run using Django's test framework (no server needed)
 - ✅ Manual testing should be done by user on their running server
@@ -144,9 +147,8 @@ Do not declare a PR ready until Steps 3, 4, and 5 all pass.
 - Tests use OS-allocated ports (`port=0`) and isolated databases, so concurrent runs do not conflict
 - Rationale: Agents working on different PRs should not have to wait for each other's test suites
 **After PR is merged**:
-1. Sync with remote: `gt sync --force`
+1. Initialize session: `~/work/ai/repository-helpers/scripts/dev/start-development --refresh` — pulls the merged commit, prunes the branch, and restarts the service to pick up changes.
 2. Apply any pending migrations: `uv run python manage.py migrate`
-3. Restart the server: `./scripts/my-tracks-server`
 
 **GitHub Actions Polling**:
 - When checking CI/CD status, poll frequently to minimize wait time
