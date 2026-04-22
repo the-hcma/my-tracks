@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# scripts/on-deploy - Build hook called by setup-service before starting/restarting the service.
+#
+# Runs all build and compile steps required to bring the service up to date.
+#
+# Exit code contract (required by setup-service):
+#   0  — steps were executed; service must be restarted to pick up changes.
+#   1  — nothing changed; no restart needed (unused here — always rebuilds for safety).
+#   2+ — unexpected failure; setup-service will abort.
+
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_dir="$(cd "$script_dir/.." && pwd)"
+
+cd "$repo_dir"
+
+# Add uv to PATH if it exists in the standard location
+if [[ -d "$HOME/.local/bin" ]]; then
+    export PATH="$HOME/.local/bin:$PATH"
+fi
+
+echo "Running on-deploy build steps..."
+
+# The local systemd service is a development deployment.
+# Ensure DEBUG=True and that the machine's FQDN is in ALLOWED_HOSTS.
+# If additional public DNS names are needed, add them manually to .env.
+env_file="$repo_dir/.env"
+fqdn="$(hostname --fqdn 2>/dev/null || hostname)"
+echo "  Configuring .env for development..."
+if [[ ! -f "$env_file" ]]; then
+    { echo "DEBUG=True"; echo "ALLOWED_HOSTS=localhost,127.0.0.1,${fqdn}"; } > "$env_file"
+    echo "  Created .env with DEBUG=True and ALLOWED_HOSTS=localhost,127.0.0.1,${fqdn}."
+else
+    if ! grep -q '^DEBUG=' "$env_file"; then
+        echo "DEBUG=True" >> "$env_file"
+        echo "  Added DEBUG=True to .env."
+    elif ! grep -q '^DEBUG=True' "$env_file"; then
+        sed -i 's/^DEBUG=.*/DEBUG=True/' "$env_file"
+        echo "  Set DEBUG=True in .env."
+    else
+        echo "  DEBUG=True already set — no change needed."
+    fi
+
+    if ! grep -q '^ALLOWED_HOSTS=' "$env_file"; then
+        echo "ALLOWED_HOSTS=localhost,127.0.0.1,${fqdn}" >> "$env_file"
+        echo "  Added ALLOWED_HOSTS to .env."
+    elif ! grep -q "^ALLOWED_HOSTS=.*${fqdn}" "$env_file"; then
+        sed -i "s/^ALLOWED_HOSTS=\(.*\)/ALLOWED_HOSTS=\1,${fqdn}/" "$env_file"
+        echo "  Added ${fqdn} to ALLOWED_HOSTS in .env."
+    else
+        echo "  ALLOWED_HOSTS up to date — no change needed."
+    fi
+fi
+
+# Apply any pending database migrations
+echo "  Applying database migrations..."
+uv run python manage.py migrate --noinput
+
+# Build frontend TypeScript assets
+if [[ -f "package.json" ]] && command -v pnpm &>/dev/null; then
+    echo "  Building frontend assets..."
+    pnpm run build --silent
+fi
+
+# Collect static files for WhiteNoise
+echo "  Collecting static files..."
+uv run python manage.py collectstatic --noinput --clear > /dev/null
+
+echo "on-deploy complete."
+
+# Exit 0: code was rebuilt; service must be restarted to pick up changes.
+exit 0
