@@ -48,6 +48,8 @@ uv run python manage.py migrate
 
 ### 1. Start the Server
 
+For a one-off interactive session:
+
 ```bash
 ./scripts/my-tracks-server
 ```
@@ -55,7 +57,7 @@ uv run python manage.py migrate
 The server will start at `http://localhost:8080/`
 
 Options:
-- `--port PORT` - Set server port (default: 8080, use 0 for OS-allocated)
+- `--http-port PORT` - Set HTTP port (default: 8080, use 0 for OS-allocated)
 - `--log-level LEVEL` - Set log level (debug, info, warning, error)
 - `--console` - Output logs to both console AND file (dual mode)
 
@@ -63,6 +65,28 @@ Example with options:
 ```bash
 ./scripts/my-tracks-server --log-level debug --console
 ```
+
+### 2. Install as Background Service (Recommended)
+
+For persistent operation, install as a systemd user service using the
+[repository-helpers](https://github.com/the-hcma/repository-helpers) tooling:
+
+```bash
+# Install (or update) the systemd user service
+~/work/ai/repository-helpers/scripts/setup-service
+
+# Verify everything is configured correctly
+~/work/ai/repository-helpers/scripts/setup-service --status
+```
+
+Once installed, use `start-development` at the start of each session:
+
+```bash
+# Sync main, prune merged branches, and ensure the service is running
+~/work/ai/repository-helpers/scripts/dev/start-development --refresh
+```
+
+Service logs are written to `logs/my-tracks.log` in the repo directory.
 
 ### 2. Test the API
 
@@ -151,6 +175,7 @@ From here you can:
 ### Development
 
 - **Read the API docs**: [API.md](API.md)
+- **Session init**: `~/work/ai/repository-helpers/scripts/dev/start-development --refresh`
 - **Run tests**: `uv run pytest`
 - **Check types**: `uv run pyright`
 - **Sort imports**: `uv run isort app config web_ui`
@@ -167,7 +192,16 @@ From here you can:
 ## Common Commands
 
 ```bash
-# Start development server
+# Session initialization (sync + ensure service running)
+~/work/ai/repository-helpers/scripts/dev/start-development --refresh
+
+# Install/update the systemd user service
+~/work/ai/repository-helpers/scripts/setup-service
+
+# Check service status
+~/work/ai/repository-helpers/scripts/setup-service --status
+
+# Start development server (interactive / one-off)
 ./scripts/my-tracks-server
 
 # Start with debug logging to console (dual mode)
