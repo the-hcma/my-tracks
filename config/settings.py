@@ -40,7 +40,7 @@ APPEND_SLASH = False
 
 ALLOWED_HOSTS: list[str] = [
     host.strip()
-    for host in str(config('ALLOWED_HOSTS', default='localhost,127.0.0.1,mytracks.hcma.info')).split(',')
+    for host in str(config('ALLOWED_HOSTS', default='localhost,127.0.0.1')).split(',')
     if host.strip()
 ]
 

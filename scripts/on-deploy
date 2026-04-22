@@ -28,14 +28,68 @@ sha_file="$HOME/scratch/my-tracks/on-deploy-sha"
 echo "Running on-deploy build steps..."
 
 # The local systemd service is a development deployment.
-# Ensure DEBUG=True and that the machine's FQDN is in ALLOWED_HOSTS.
-# If additional public DNS names are needed, add them manually to .env.
+# Ensure DEBUG=True and that the public domain is in ALLOWED_HOSTS / CSRF_TRUSTED_ORIGINS.
 env_file="$repo_dir/.env"
 fqdn="$(hostname --fqdn 2>/dev/null || hostname)"
 echo "  Configuring .env for development..."
+
+# Resolve the public domain to use for ALLOWED_HOSTS and CSRF_TRUSTED_ORIGINS.
+# Priority: PUBLIC_DOMAIN already in .env > interactive prompt > machine FQDN fallback.
+
+# Returns 0 if the domain resolves via DNS, 1 otherwise.
+_domain_resolves() {
+    local domain="$1"
+    getent hosts "$domain" &>/dev/null
+}
+
+_get_public_domain() {
+    local env_file="$1"
+    local fqdn="$2"
+
+    # Already configured — use it.
+    if [[ -f "$env_file" ]] && grep -q '^PUBLIC_DOMAIN=' "$env_file"; then
+        grep '^PUBLIC_DOMAIN=' "$env_file" | cut -d= -f2-
+        return
+    fi
+
+    # Non-interactive (e.g. systemd ExecStart): fall back to FQDN silently.
+    if [[ ! -t 0 ]]; then
+        echo "$fqdn"
+        return
+    fi
+
+    # Interactive: prompt, validate DNS, and loop until accepted.
+    local domain confirmed
+    while true; do
+        read -r -p "  Public domain for this server (e.g. mytracks.example.com) [${fqdn}]: " domain
+        domain="${domain:-$fqdn}"
+
+        if _domain_resolves "$domain"; then
+            echo "$domain"
+            return
+        fi
+
+        # DNS lookup failed — warn and ask what to do.
+        echo "  ⚠️  Warning: '$domain' did not resolve via DNS." >&2
+        echo "     This may be a typo, or DNS may not be configured yet." >&2
+        read -r -p "  (r)e-enter domain / (k)eep it anyway: " confirmed
+        case "${confirmed,,}" in
+            k|keep) echo "$domain"; return ;;
+            *)      ;;  # loop and re-prompt
+        esac
+    done
+}
+
+public_domain="$(_get_public_domain "$env_file" "$fqdn")"
+
 if [[ ! -f "$env_file" ]]; then
-    { echo "DEBUG=True"; echo "ALLOWED_HOSTS=localhost,127.0.0.1,${fqdn}"; } > "$env_file"
-    echo "  Created .env with DEBUG=True and ALLOWED_HOSTS=localhost,127.0.0.1,${fqdn}."
+    {
+        echo "DEBUG=True"
+        echo "PUBLIC_DOMAIN=${public_domain}"
+        echo "ALLOWED_HOSTS=localhost,127.0.0.1,${public_domain}"
+        echo "CSRF_TRUSTED_ORIGINS=https://${public_domain}"
+    } > "$env_file"
+    echo "  Created .env with DEBUG=True, PUBLIC_DOMAIN=${public_domain}."
 else
     if ! grep -q '^DEBUG=' "$env_file"; then
         echo "DEBUG=True" >> "$env_file"
@@ -47,14 +101,35 @@ else
         echo "  DEBUG=True already set — no change needed."
     fi
 
+    # Persist PUBLIC_DOMAIN so subsequent non-interactive runs reuse it.
+    if ! grep -q '^PUBLIC_DOMAIN=' "$env_file"; then
+        echo "PUBLIC_DOMAIN=${public_domain}" >> "$env_file"
+        echo "  Added PUBLIC_DOMAIN=${public_domain} to .env."
+    else
+        echo "  PUBLIC_DOMAIN already set — no change needed."
+    fi
+
     if ! grep -q '^ALLOWED_HOSTS=' "$env_file"; then
-        echo "ALLOWED_HOSTS=localhost,127.0.0.1,${fqdn}" >> "$env_file"
+        echo "ALLOWED_HOSTS=localhost,127.0.0.1,${public_domain}" >> "$env_file"
         echo "  Added ALLOWED_HOSTS to .env."
-    elif ! grep -q "^ALLOWED_HOSTS=.*${fqdn}" "$env_file"; then
-        sed -i "s/^ALLOWED_HOSTS=\(.*\)/ALLOWED_HOSTS=\1,${fqdn}/" "$env_file"
-        echo "  Added ${fqdn} to ALLOWED_HOSTS in .env."
+    elif ! grep -q "^ALLOWED_HOSTS=.*${public_domain}" "$env_file"; then
+        sed -i "s/^ALLOWED_HOSTS=\(.*\)/ALLOWED_HOSTS=\1,${public_domain}/" "$env_file"
+        echo "  Added ${public_domain} to ALLOWED_HOSTS in .env."
     else
         echo "  ALLOWED_HOSTS up to date — no change needed."
+    fi
+
+    # CSRF_TRUSTED_ORIGINS must include the https:// origin so Django accepts
+    # requests forwarded by the nginx TLS-terminating proxy.
+    csrf_origin="https://${public_domain}"
+    if ! grep -q '^CSRF_TRUSTED_ORIGINS=' "$env_file"; then
+        echo "CSRF_TRUSTED_ORIGINS=${csrf_origin}" >> "$env_file"
+        echo "  Added CSRF_TRUSTED_ORIGINS=${csrf_origin} to .env."
+    elif ! grep -q "^CSRF_TRUSTED_ORIGINS=.*${public_domain}" "$env_file"; then
+        sed -i "s|^CSRF_TRUSTED_ORIGINS=\(.*\)|CSRF_TRUSTED_ORIGINS=\1,${csrf_origin}|" "$env_file"
+        echo "  Added ${csrf_origin} to CSRF_TRUSTED_ORIGINS in .env."
+    else
+        echo "  CSRF_TRUSTED_ORIGINS up to date — no change needed."
     fi
 fi
 
