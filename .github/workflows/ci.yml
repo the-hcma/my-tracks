@@ -1,11 +1,9 @@
 name: CI
 
 on:
-  # Run on every PR (including Graphite merge queue staging branches, which also
-  # open as pull_request events).  We intentionally omit `push: main` because
-  # the merge queue already validates the integrated state before landing; a
-  # second run after the merge would duplicate work without adding any new
-  # signal.
+  # Run on every PR. We intentionally omit `push: main` because the merge
+  # queue already validates the integrated state before landing; a second run
+  # after the merge would duplicate work without adding any new signal.
   pull_request:
     types: [opened, reopened, synchronize]
     branches-ignore:
@@ -17,10 +15,45 @@ on:
   workflow_dispatch:
 
 jobs:
+  guard:
+    name: Guard
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_REF: ${{ github.head_ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          # Skip merge-queue staging branches — the merge queue validates the
+          # integrated state itself; CI there duplicates work.
+          if [[ "$HEAD_REF" == gtmq_merge_* ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Skip when the PR is already merged — Graphite pushes a restack
+          # commit to the next branch after a merge lands, which would otherwise
+          # trigger a redundant CI run on an already-validated diff.
+          pr_number="$PR_NUMBER"
+          if [[ -n "$pr_number" ]]; then
+            state=$(gh pr view "$pr_number" --repo "$REPOSITORY" --json state -q .state)
+            if [[ "$state" == "MERGED" ]]; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
   frontend:
     name: Frontend (TypeScript)
+    needs: guard
+    if: needs.guard.outputs.skip != 'true'
     runs-on: ubuntu-latest
-    if: github.actor != 'graphite-app[bot]' || (github.event.pull_request.draft == true && !startsWith(github.head_ref, 'gtmq_merge_'))
     steps:
     - uses: actions/checkout@v6
       with:
@@ -54,8 +87,9 @@ jobs:
 
   backend-lint:
     name: Backend Lint
+    needs: guard
+    if: needs.guard.outputs.skip != 'true'
     runs-on: ubuntu-latest
-    if: github.actor != 'graphite-app[bot]' || (github.event.pull_request.draft == true && !startsWith(github.head_ref, 'gtmq_merge_'))
     steps:
     - uses: actions/checkout@v6
       with:
@@ -99,8 +133,9 @@ jobs:
 
   backend-test:
     name: Backend Tests
+    needs: guard
+    if: needs.guard.outputs.skip != 'true'
     runs-on: ubuntu-latest
-    if: github.actor != 'graphite-app[bot]' || (github.event.pull_request.draft == true && !startsWith(github.head_ref, 'gtmq_merge_'))
     steps:
     - uses: actions/checkout@v6
       with:
@@ -152,8 +187,9 @@ jobs:
 
   secret-scan:
     name: Secret Scan
+    needs: guard
+    if: needs.guard.outputs.skip != 'true'
     runs-on: ubuntu-latest
-    if: github.actor != 'graphite-app[bot]' || (github.event.pull_request.draft == true && !startsWith(github.head_ref, 'gtmq_merge_'))
     steps:
     - uses: actions/checkout@v6
       with:
@@ -182,8 +218,9 @@ jobs:
 
   workflow-lint:
     name: Workflow Lint (actionlint)
+    needs: guard
+    if: needs.guard.outputs.skip != 'true'
     runs-on: ubuntu-latest
-    if: github.actor != 'graphite-app[bot]' || (github.event.pull_request.draft == true && !startsWith(github.head_ref, 'gtmq_merge_'))
     steps:
     - uses: actions/checkout@v6
       with:
@@ -194,8 +231,9 @@ jobs:
 
   shell-test:
     name: Shell Script Tests
+    needs: guard
+    if: needs.guard.outputs.skip != 'true'
     runs-on: ubuntu-latest
-    if: github.actor != 'graphite-app[bot]' || (github.event.pull_request.draft == true && !startsWith(github.head_ref, 'gtmq_merge_'))
     steps:
     - uses: actions/checkout@v6
       with:
