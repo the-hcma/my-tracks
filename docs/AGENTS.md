@@ -13,7 +13,7 @@ This document defines the four specialized agents for the My Tracks project.
 **CRITICAL**: All changes MUST go through pull requests - direct pushes to main are blocked by branch protection.
 
 **At the start of every session**, before doing anything else:
-1. **Initialize session**: `~/work/ai/repository-helpers/scripts/dev/start-development --refresh` — syncs main with Graphite, prunes merged worktrees/branches, and ensures the background service is running (or installs it via `setup-service` if not yet configured). This replaces the manual `gt sync --force` step.
+1. **Initialize session**: `~/work/ai/repository-helpers/scripts/dev/start-development --refresh` ([repository-helpers](https://github.com/the-hcma/repository-helpers)) — syncs main with Graphite, prunes merged worktrees/branches, and ensures the background service is running (or installs it via `setup-service` if not yet configured). This replaces the manual `gt sync --force` step.
 
 **Before creating any pull request**, the following workflow MUST be completed:
 
@@ -132,7 +132,7 @@ Do not declare a PR ready until Steps 3, 4, and 5 all pass.
 - ✅ Only move config files that are invoked explicitly by path (e.g., `dev-tooling/esbuild.config.mjs` called via `node dev-tooling/esbuild.config.mjs`) or that support a `--config` flag set in CI/pnpm scripts (e.g., `dev-tooling/.flake8` via `flake8 --config dev-tooling/.flake8`).
 - Rationale: Tool config discovery and IDE integration depend on root-level placement; build script invocations do not.
 
-**Server Management**:
+**Server Management** (scripts from [repository-helpers](https://github.com/the-hcma/repository-helpers)):
 - ✅ **Background service**: The server runs as a systemd user service, installed via `~/work/ai/repository-helpers/scripts/setup-service`
 - ✅ **Session init**: `~/work/ai/repository-helpers/scripts/dev/start-development --refresh` at the start of each session — syncs and ensures the service is running
 - ✅ **Service status**: `~/work/ai/repository-helpers/scripts/setup-service --status`
