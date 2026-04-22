@@ -20,6 +20,11 @@ if [[ -d "$HOME/.local/bin" ]]; then
     export PATH="$HOME/.local/bin:$PATH"
 fi
 
+# Record the deployed commit SHA so subsequent runs can skip unchanged builds.
+# Stored in .git/ so it is never committed and is automatically repo-scoped.
+current_sha="$(git rev-parse HEAD 2>/dev/null || true)"
+sha_file="$HOME/scratch/my-tracks/on-deploy-sha"
+
 echo "Running on-deploy build steps..."
 
 # The local systemd service is a development deployment.
@@ -53,6 +58,13 @@ else
     fi
 fi
 
+# Skip the expensive build steps if this commit was already deployed.
+if [[ -n "$current_sha" ]] && [[ -f "$sha_file" ]] && [[ "$(cat "$sha_file")" == "$current_sha" ]]; then
+    echo "  Already deployed at commit ${current_sha:0:7} — skipping build steps."
+    echo "on-deploy complete."
+    exit 1
+fi
+
 # Apply any pending database migrations
 echo "  Applying database migrations..."
 uv run python manage.py migrate --noinput
@@ -67,7 +79,37 @@ fi
 echo "  Collecting static files..."
 uv run python manage.py collectstatic --noinput --clear > /dev/null
 
+# Record the deployed commit so the next run can skip unchanged builds.
+if [[ -n "$current_sha" ]]; then
+    echo "$current_sha" > "$sha_file"
+fi
+
 echo "on-deploy complete."
+
+# Warn if there are no admin (staff) users — the web UI is inaccessible until one is created.
+# Use a heredoc to pass Python to manage.py shell — avoids shell-quoting issues with set -u.
+# Disable set -e locally so exit code 1 (no admin) doesn't abort the script.
+no_admin=false
+uv run python manage.py shell 2>/dev/null << 'PYEOF' || no_admin=true
+import sys
+from django.contrib.auth.models import User
+sys.exit(0 if User.objects.filter(is_staff=True).exists() else 1)
+PYEOF
+if [[ "$no_admin" == true ]]; then
+    fqdn="$(hostname --fqdn 2>/dev/null || hostname)"
+    port="$(grep -oP '(?<=--http-port )\d+' "$repo_dir/etc/systemd/my-tracks.service" 2>/dev/null || echo 8080)"
+    echo ""
+    echo "┌─────────────────────────────────────────────────────────────────┐"
+    echo "│  First-run setup: no admin user found.                          │"
+    echo "│                                                                  │"
+    echo "│  Create one now:                                                 │"
+    echo "│    uv run python manage.py createsuperuser                       │"
+    echo "│                                                                  │"
+    echo "│  Then visit the web UI at:                                       │"
+    echo "│    http://${fqdn}:${port}/                                        │"
+    echo "└─────────────────────────────────────────────────────────────────┘"
+    echo ""
+fi
 
 # Exit 0: code was rebuilt; service must be restarted to pick up changes.
 exit 0

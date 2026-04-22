@@ -1,6 +1,6 @@
 """URL configuration for the Web UI application."""
 
-from django.contrib.auth.views import LoginView, LogoutView
+from django.contrib.auth.views import LogoutView
 from django.urls import path
 
 from . import views
@@ -19,6 +19,6 @@ urlpatterns = [
     path('about/', views.about, name='about'),
     path('health/', views.health, name='health'),
     path('network-info/', views.network_info, name='network_info'),
-    path('login/', LoginView.as_view(template_name='web_ui/login.html'), name='login'),
+    path('login/', views.FirstRunLoginView.as_view(template_name='web_ui/login.html'), name='login'),
     path('logout/', LogoutView.as_view(), name='logout'),
 ]
