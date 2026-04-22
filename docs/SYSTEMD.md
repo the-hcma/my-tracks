@@ -1,0 +1,112 @@
+# Running My Tracks as a systemd User Service
+
+This guide covers how to install, manage, and troubleshoot My Tracks as a
+persistent background service using systemd's user session support.
+
+The service runs under your user account (no root required), starts on boot
+via lingering, and is managed using the `setup-service` script from
+[repository-helpers](https://github.com/the-hcma/repository-helpers).
+
+## Prerequisites
+
+- systemd user session available (`systemctl --user status` returns output)
+- `~/work/ai/repository-helpers` cloned locally
+- My Tracks dependencies installed (`bash scripts/setup`)
+
+## Install the Service
+
+Run `setup-service` from the my-tracks repo directory:
+
+```bash
+~/work/ai/repository-helpers/scripts/setup-service
+```
+
+This will:
+
+1. Read `etc/systemd/my-tracks.service` from the repo, substitute
+   `@@REPO_DIR@@` with the actual repo path, and write the result to
+   `~/.config/systemd/user/my-tracks.service`.
+2. Create the log directory at `~/scratch/my-tracks/`.
+3. Enable systemd lingering so the service starts on boot without a login
+   session.
+4. Run `scripts/on-deploy` — applies pending migrations, builds frontend
+   assets, and collects static files.
+5. Enable and start (or restart) the service.
+
+## Check Status
+
+```bash
+~/work/ai/repository-helpers/scripts/setup-service --status
+```
+
+Or use systemctl directly:
+
+```bash
+systemctl --user status my-tracks
+```
+
+## View Logs
+
+With `--console`, systemd captures logs in the journal. The `--log-file` flag
+also writes them to `~/scratch/my-tracks/my-tracks.log`:
+
+```bash
+# Follow live (journal)
+journalctl --user -u my-tracks -f
+
+# Follow live (log file)
+tail -f ~/scratch/my-tracks/my-tracks.log
+
+# Last 100 lines
+journalctl --user -u my-tracks -n 100
+```
+
+## Start / Stop / Restart Manually
+
+```bash
+systemctl --user start   my-tracks
+systemctl --user stop    my-tracks
+systemctl --user restart my-tracks
+```
+
+## Update After Code Changes
+
+Run `setup-service` again — it re-runs `on-deploy` and restarts the service
+if anything changed:
+
+```bash
+~/work/ai/repository-helpers/scripts/setup-service
+```
+
+At the start of each development session, `start-development --refresh`
+handles this automatically:
+
+```bash
+~/work/ai/repository-helpers/scripts/dev/start-development --refresh
+```
+
+## Service Configuration
+
+The service template lives at [etc/systemd/my-tracks.service](../etc/systemd/my-tracks.service).
+
+Key settings:
+
+| Setting            | Value                                                              |
+|--------------------|--------------------------------------------------------------------|
+| `ExecStart`        | `scripts/my-tracks-server --http-port 8080 --log-level info --console --log-file ~/scratch/my-tracks/my-tracks.log` |
+| `ExecStartPost`    | polls `http://localhost:8080/api/health/` (30 × 1 s) to confirm startup |
+| `Restart`          | `on-failure`                                                       |
+| `RestartSec`       | `5s`                                                               |
+| `WantedBy`         | `default.target` (user session)                                    |
+
+To change startup flags (e.g. a different port), edit
+`etc/systemd/my-tracks.service` and re-run `setup-service`.
+
+## Uninstall
+
+```bash
+systemctl --user stop    my-tracks
+systemctl --user disable my-tracks
+rm ~/.config/systemd/user/my-tracks.service
+systemctl --user daemon-reload
+```

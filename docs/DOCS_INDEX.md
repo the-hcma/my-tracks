@@ -37,7 +37,10 @@ Quick reference for all commonly used commands (server management, testing, depl
 ## 🚢 Deployment
 
 ### [DEPLOYMENT.md](DEPLOYMENT.md)
-Production deployment guide covering PostgreSQL, Nginx, SSL, systemd, and security.
+Production deployment guide covering PostgreSQL, Nginx, SSL, and security (containerized stack).
+
+### [SYSTEMD.md](SYSTEMD.md)
+Run My Tracks as a persistent systemd user service on your local machine using `setup-service` from [repository-helpers](https://github.com/the-hcma/repository-helpers).
 
 ### Server
 Uses Daphne ASGI server for WebSocket support. See [WEBSOCKET.md](WEBSOCKET.md).

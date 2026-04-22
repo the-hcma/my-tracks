@@ -86,7 +86,7 @@ Once installed, use `start-development` at the start of each session:
 ~/work/ai/repository-helpers/scripts/dev/start-development --refresh
 ```
 
-Service logs are written to `logs/my-tracks.log` in the repo directory.
+See [SYSTEMD.md](SYSTEMD.md) for full details (logs, restart, uninstall, etc.).
 
 ### 2. Test the API
 
