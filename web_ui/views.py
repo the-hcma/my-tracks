@@ -13,6 +13,7 @@ from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import (
     UserAttributeSimilarityValidator, get_password_validators,
     validate_password)
+from django.contrib.auth.views import LoginView
 from django.core.exceptions import ValidationError
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -213,6 +214,15 @@ class NetworkState:
 def health(request: HttpRequest) -> JsonResponse:
     """Health check endpoint."""
     return JsonResponse({'status': 'ok'})
+
+
+class FirstRunLoginView(LoginView):
+    """Login view that adds a first-run setup banner when no admin users exist."""
+
+    def get_context_data(self, **kwargs: object) -> dict[str, object]:
+        context = super().get_context_data(**kwargs)
+        context['no_admin'] = not User.objects.filter(is_staff=True).exists()
+        return context
 
 
 @login_required

@@ -141,6 +141,71 @@
         .submit-btn:hover {
             background: var(--accent-hover);
         }
+
+        .first-run-banner {
+            background: rgba(78, 154, 241, 0.1);
+            border: 1px solid var(--accent);
+            border-radius: 8px;
+            padding: 1rem 1.25rem;
+            margin-bottom: 1.5rem;
+            font-size: 0.875rem;
+        }
+
+        .first-run-banner h2 {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--accent);
+            margin-bottom: 0.5rem;
+        }
+
+        .first-run-banner p {
+            color: var(--text-muted);
+            margin-bottom: 0.5rem;
+            line-height: 1.5;
+        }
+
+        .first-run-banner .code-row {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-top: 0.25rem;
+        }
+
+        .first-run-banner code {
+            flex: 1;
+            display: block;
+            background: rgba(0,0,0,0.3);
+            border-radius: 4px;
+            padding: 0.4rem 0.6rem;
+            font-family: monospace;
+            font-size: 0.8rem;
+            color: var(--text);
+            word-break: break-all;
+        }
+
+        .copy-btn {
+            flex-shrink: 0;
+            background: none;
+            border: 1px solid var(--accent);
+            border-radius: 4px;
+            color: var(--accent);
+            cursor: pointer;
+            padding: 0.3rem 0.5rem;
+            font-size: 0.75rem;
+            line-height: 1;
+            transition: background 0.15s, color 0.15s;
+            white-space: nowrap;
+        }
+
+        .copy-btn:hover {
+            background: var(--accent);
+            color: white;
+        }
+
+        .copy-btn.copied {
+            border-color: #2ecc71;
+            color: #2ecc71;
+        }
     </style>
 </head>
 <body>
@@ -150,6 +215,17 @@
                 <h1>My Tracks</h1>
                 <p class="subtitle">OwnTracks Backend</p>
             </div>
+
+            {% if no_admin %}
+            <div class="first-run-banner">
+                <h2>First-time setup</h2>
+                <p>No admin account exists yet. Create one from the server before logging in:</p>
+                <div class="code-row">
+                    <code id="createsuperuser-cmd">uv run python manage.py createsuperuser</code>
+                    <button type="button" class="copy-btn" id="copy-cmd-btn" aria-label="Copy command">Copy</button>
+                </div>
+            </div>
+            {% endif %}
 
             {% if form.errors %}
             <div class="error-messages">
@@ -189,6 +265,35 @@
         </div>
     </div>
     <script>
+        const copyBtn = document.getElementById('copy-cmd-btn');
+        if (copyBtn) {
+            copyBtn.addEventListener('click', function() {
+                const text = document.getElementById('createsuperuser-cmd').textContent;
+                function onCopied() {
+                    copyBtn.textContent = 'Copied!';
+                    copyBtn.classList.add('copied');
+                    setTimeout(function() {
+                        copyBtn.textContent = 'Copy';
+                        copyBtn.classList.remove('copied');
+                    }, 2000);
+                }
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(text).then(onCopied);
+                } else {
+                    // Fallback for non-secure contexts (HTTP on non-localhost).
+                    const ta = document.createElement('textarea');
+                    ta.value = text;
+                    ta.style.position = 'fixed';
+                    ta.style.opacity = '0';
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(ta);
+                    onCopied();
+                }
+            });
+        }
+
         document.getElementById('password-toggle').addEventListener('click', function() {
             const input = document.getElementById('id_password');
             const eyeIcon = document.getElementById('eye-icon');
