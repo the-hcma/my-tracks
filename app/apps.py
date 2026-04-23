@@ -468,12 +468,18 @@ class MyTracksConfig(AppConfig):
 
         _log_web_cert_info()
 
+        from django.conf import settings as django_settings
+
         http_port = get_http_port()
         https_port = os.environ.get("HTTPS_PORT", "")
         if https_port:
             logger.info("Web server listening on HTTP port %d (HTTPS %s via nginx)", http_port, https_port)
         else:
             logger.info("Web server listening on HTTP port %d", http_port)
+
+        public_domain = django_settings.PUBLIC_DOMAIN
+        if public_domain:
+            logger.info("Public domain: %s", public_domain)
 
         mqtt_port = get_mqtt_port()
         mqtt_tls_port = get_mqtt_tls_port()
