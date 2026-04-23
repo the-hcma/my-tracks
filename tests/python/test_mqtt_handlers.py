@@ -1,4 +1,9 @@
 """Tests for the MQTT message handlers."""
+# pyright: reportCallIssue=none
+# pyright: reportOptionalSubscript=none
+# pyright: reportMissingTypeArgument=none
+# pyright: reportArgumentType=none
+# pyright: reportUnknownParameterType=none
 
 import json
 from datetime import UTC, datetime

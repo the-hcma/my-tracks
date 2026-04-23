@@ -1,4 +1,5 @@
 """Tests for web_ui views."""
+# pyright: reportIndexIssue=none
 
 import re
 from pathlib import Path
@@ -2390,7 +2391,7 @@ class TestAdminPanelSmtp:
         config = SmtpConfig(host='smtp.example.com', port=587, from_address='a@b.com')
         config.encrypted_password = encrypt_private_key(b'original-password')
         config.save()
-        original_encrypted = bytes(config.encrypted_password)
+        original_encrypted = bytes(config.encrypted_password)  # type: ignore[arg-type]
 
         admin_logged_in_client.post('/admin-panel/', {
             'form_type': 'save_smtp',
@@ -2401,7 +2402,7 @@ class TestAdminPanelSmtp:
             'smtp_from_address': 'a@b.com',
         })
         config.refresh_from_db()
-        assert_that(bytes(config.encrypted_password), equal_to(original_encrypted))
+        assert_that(bytes(config.encrypted_password), equal_to(original_encrypted))  # type: ignore[arg-type]
 
     def test_save_smtp_missing_host(self, admin_logged_in_client: Client) -> None:
         """POST with blank host shows smtp_error."""
@@ -2694,11 +2695,13 @@ class TestAdminPanelSmtp:
         """Test email body includes the configured PUBLIC_DOMAIN."""
         from unittest.mock import MagicMock
         from django.test import override_settings
+        from django.core.mail import EmailMessage as BaseEmailMessage
+        from django.core.mail.backends.smtp import EmailBackend as SmtpEmailBackend
         from app.models import SmtpConfig
         SmtpConfig(host='smtp.hcma.info', port=25, from_address='a@b.com').save()
-        captured: list = []
+        captured: list[dict[str, str]] = []
 
-        def fake_send(to, backend, from_email, server_names=None):
+        def fake_send(to: str, backend: SmtpEmailBackend, from_email: str, server_names: list[str] | None = None) -> None:
             captured.append({'to': to, 'from_email': from_email})
 
         with override_settings(PUBLIC_DOMAIN='mytracks.example.com'):
@@ -2708,12 +2711,11 @@ class TestAdminPanelSmtp:
             # Call send_test_email_via_backend directly to check the email body
             import smtplib
             from app.notifications import send_test_email_via_backend
-            from django.core.mail.backends.smtp import EmailBackend as SmtpEmailBackend
 
-            sent_messages: list = []
+            sent_messages: list[BaseEmailMessage] = []
 
-            class CapturingBackend:
-                def send_messages(self, messages):
+            class CapturingBackend(SmtpEmailBackend):
+                def send_messages(self, messages: list[BaseEmailMessage]) -> int:  # type: ignore[override]
                     sent_messages.extend(messages)
                     return len(messages)
 

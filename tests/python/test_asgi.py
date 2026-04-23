@@ -938,7 +938,7 @@ class TestClientDisconnectMiddleware:
             # Should not raise or call default handler
             with patch("config.asgi.logger") as mock_logger:
                 assert_that(handler, is_(not_none()))
-                handler(loop, ctx)
+                handler(loop, ctx)  # type: ignore[misc]
                 mock_logger.debug.assert_called_once()
         finally:
             loop.set_exception_handler(original_handler)
@@ -975,7 +975,7 @@ class TestClientDisconnectMiddleware:
                 "exception": RuntimeError("real error"),
             }
             assert_that(handler, is_(not_none()))
-            handler(loop, ctx)
+            handler(loop, ctx)  # type: ignore[misc]
             mock_fallback.assert_called_once_with(loop, ctx)
         finally:
             loop.set_exception_handler(original_handler)
@@ -1011,7 +1011,7 @@ class TestClientDisconnectMiddleware:
             # This should call loop.default_exception_handler which logs to stderr
             # We just verify it doesn't raise
             with patch.object(loop, "default_exception_handler") as mock_default:
-                handler(loop, ctx)
+                handler(loop, ctx)  # type: ignore[misc]
                 mock_default.assert_called_once_with(ctx)
         finally:
             loop.set_exception_handler(original_handler)
@@ -1129,8 +1129,8 @@ class TestLoadTlsConfig:
 
         assert_that(result, is_(not_none()))
         mock_cert_log.assert_called_once_with(srv_pem, ca_pem)
-        assert_that(result.server_cert_pem, equal_to(srv_pem))
-        assert_that(result.ca_cert_pem, equal_to(ca_pem))
+        assert_that(result.server_cert_pem, equal_to(srv_pem))  # type: ignore[union-attr]
+        assert_that(result.ca_cert_pem, equal_to(ca_pem))  # type: ignore[union-attr]
 
 
 class TestRunMqttBrokerTlsBehavior:
@@ -1391,7 +1391,7 @@ class TestTlsReloadSignals:
     """Tests for post_save signals that trigger TLS reload."""
 
     @staticmethod
-    def _create_ca(name: str = "Signal CA") -> tuple[Any, Any, bytes, bytes]:
+    def _create_ca(name: str = "Signal CA") -> tuple[Any, bytes, bytes]:
         """Create a CA model instance, returning (ca_obj, ca_pem, ca_key)."""
         from app.models import CertificateAuthority
         from app.pki import (encrypt_private_key, generate_ca_certificate,
