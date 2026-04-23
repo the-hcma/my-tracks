@@ -1,18 +1,31 @@
 name: CI
 
 on:
-  # Run on every PR. We intentionally omit `push: main` because the merge
-  # queue already validates the integrated state before landing; a second run
-  # after the merge would duplicate work without adding any new signal.
+  # Run on every PR event and on direct pushes to feature branches.
+  # The push trigger catches cases where a branch is restacked without
+  # generating a new PR synchronize event (e.g. `gt sync` when the remote
+  # already has the rebased commit). The concurrency group below deduplicates
+  # simultaneous push + pull_request runs for the same commit.
   pull_request:
     types: [opened, reopened, synchronize]
     branches-ignore:
+      - '**/graphite-base/**'
+  push:
+    branches-ignore:
+      - main
       - '**/graphite-base/**'
   schedule:
     # Weekly full suite — catches regressions between PRs.
     # Thursday 07:00 UTC. CVEs are checked daily in cve-check.yml.
     - cron: '0 7 * * 4'
   workflow_dispatch:
+
+# Cancel any in-progress run for the same branch/PR when a newer one starts.
+# For pull_request events the group is per-PR; for push events it is per-branch.
+# This also deduplicates simultaneous push + pull_request runs for the same SHA.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   guard:
@@ -24,7 +37,7 @@ jobs:
       - id: check
         env:
           GH_TOKEN: ${{ github.token }}
-          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REF: ${{ github.head_ref || github.ref_name }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPOSITORY: ${{ github.repository }}
         run: |
