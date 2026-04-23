@@ -34,7 +34,7 @@ importers:
         specifier: ^0.28.0
         version: 0.28.0
       eslint:
-        specifier: ^10.2.1
+        specifier: 10.2.1
         version: 10.2.1
       globals:
         specifier: ^17.5.0
@@ -43,7 +43,7 @@ importers:
         specifier: ^29.0.2
         version: 29.0.2
       typescript:
-        specifier: ^6.0.3
+        specifier: 6.0.3
         version: 6.0.3
       typescript-eslint:
         specifier: 8.58.2
