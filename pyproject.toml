@@ -39,6 +39,8 @@ dependencies = [
     "shellcheck-py>=0.11.0.1",
     "pip-audit>=2.10.0",
     "idna==3.12",
+    "certifi==2026.4.22",
+    "pathspec==1.1.0",
 ]
 
 [build-system]
@@ -87,7 +89,7 @@ dev = [
     "black>=23.7.0",
     "isort>=8.0.1",
     "mypy>=1.5.0",
-    "pyright>=1.1.408",
+    "pyright>=1.1.409",
     "shellcheck-py>=0.9.0",
     "pip-audit>=2.7.0",
 ]
