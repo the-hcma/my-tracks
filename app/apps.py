@@ -14,6 +14,7 @@ from typing import Any
 
 from amqtt.errors import BrokerError
 from django.apps import AppConfig
+from django.conf import settings as django_settings
 
 from app.mqtt.broker import MQTTBroker, TLSConfig
 from config.runtime import (CONFIG_FILE, get_http_port, get_mqtt_port,
@@ -468,8 +469,6 @@ class MyTracksConfig(AppConfig):
 
         _log_web_cert_info()
 
-        from django.conf import settings as django_settings
-
         http_port = get_http_port()
         https_port = os.environ.get("HTTPS_PORT", "")
         if https_port:
@@ -479,7 +478,7 @@ class MyTracksConfig(AppConfig):
 
         public_domain = django_settings.PUBLIC_DOMAIN
         if public_domain:
-            logger.info("Public domain: %s", public_domain)
+            logger.info("Public URL: https://%s", public_domain)
 
         mqtt_port = get_mqtt_port()
         mqtt_tls_port = get_mqtt_tls_port()
