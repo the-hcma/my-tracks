@@ -11,6 +11,7 @@ import smtplib
 import socket
 from typing import TYPE_CHECKING
 
+from django.conf import settings
 from django.core.mail import EmailMessage
 from django.core.mail.backends.smtp import EmailBackend
 
@@ -57,6 +58,36 @@ def get_smtp_backend(config: "SmtpConfig") -> EmailBackend:
     )
 
 
+def send_test_email_via_backend(
+    to: str, backend: EmailBackend, from_email: str, server_names: list[str] | None = None
+) -> None:
+    """
+    Send a test email using an already-constructed EmailBackend. Raises on failure.
+
+    Args:
+        to: Recipient email address
+        backend: Configured EmailBackend (not yet connected)
+        from_email: From address for the test message
+        server_names: DNS names / IPs from the active server certificate SANs,
+            included in the body so the recipient can identify the sender.
+    """
+    lines = ["SMTP is configured correctly. This is a test message from my-tracks."]
+    public_domain = getattr(settings, 'PUBLIC_DOMAIN', '')
+    if public_domain:
+        lines.append("")
+        lines.append("Public domain: " + public_domain)
+    if server_names:
+        lines.append("")
+        lines.append("Server: " + ", ".join(server_names))
+    EmailMessage(
+        subject="my-tracks SMTP test",
+        body="\n".join(lines),
+        from_email=from_email,
+        to=[to],
+        connection=backend,
+    ).send()
+
+
 def send_test_email(
     to: str, config: "SmtpConfig", server_names: list[str] | None = None
 ) -> None:
@@ -70,18 +101,7 @@ def send_test_email(
             included in the body so the recipient can identify the sender.
     """
     backend = get_smtp_backend(config)
-    lines = ["SMTP is configured correctly. This is a test message from my-tracks."]
-    if server_names:
-        lines.append("")
-        lines.append("Server: " + ", ".join(server_names))
-    msg = EmailMessage(
-        subject="my-tracks SMTP test",
-        body="\n".join(lines),
-        from_email=config.from_address,
-        to=[to],
-        connection=backend,
-    )
-    msg.send()
+    send_test_email_via_backend(to, backend, str(config.from_address), server_names)
     logger.info("Test email sent to %s via %s:%s", to, config.host, config.port)
 
 
@@ -152,16 +172,37 @@ def send_transition_email(transition: "Transition", action: "TransitionAction") 
     )
 
 
-def smtp_friendly_error(exc: Exception) -> str:
+def smtp_friendly_error(exc: Exception, host: str = '') -> str:
     """Translate low-level socket/SMTP exceptions into readable messages."""
+    msg = str(exc)
+    host_str = f" '{host}'" if host else ''
     if isinstance(exc, socket.gaierror):
-        return "Could not resolve hostname — check the SMTP host."
+        return f"Could not resolve hostname{host_str} — check that the SMTP host is correct."
     if isinstance(exc, ConnectionRefusedError):
-        return "Connection refused — check the host and port."
+        return (
+            f"Connection to{host_str} was refused — verify the host and port are correct"
+            f" and that no firewall is blocking the connection."
+        )
     if isinstance(exc, TimeoutError):
-        return "Connection timed out — check the host and port."
+        return (
+            f"Connection to{host_str} timed out — verify the host and port are correct"
+            f" and that no firewall is blocking the connection."
+        )
     if isinstance(exc, smtplib.SMTPAuthenticationError):
-        return "Authentication failed — check the username and password."
+        return f"Authentication failed — check the username and password. ({msg})"
+    if isinstance(exc, smtplib.SMTPNotSupportedError) and "AUTH" in msg:
+        return (
+            "The server does not support SMTP authentication. "
+            "If this is an unauthenticated relay (e.g. a local or internal mail server), "
+            "leave Username and Password blank."
+        )
+    if isinstance(exc, smtplib.SMTPNotSupportedError):
+        return f"The server does not support a required feature — check your TLS/SSL settings. ({msg})"
+    if isinstance(exc, smtplib.SMTPConnectError):
+        return (
+            f"Could not connect to the server{host_str} — verify the host and port are correct"
+            f" and the server is reachable. ({msg})"
+        )
     if isinstance(exc, smtplib.SMTPException):
-        return f"SMTP error: {exc}"
-    return str(exc)
+        return f"SMTP error: {msg}"
+    return msg

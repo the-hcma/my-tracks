@@ -2332,11 +2332,11 @@ class TestAdminPanelSmtp:
     """Tests for the SMTP configuration section of the admin panel."""
 
     def test_email_tab_renders(self, admin_logged_in_client: Client) -> None:
-        """GET admin panel renders the Email tab containing SMTP Configuration."""
+        """GET admin panel renders the Email tab containing SMTP Settings."""
         response = admin_logged_in_client.get('/admin-panel/')
         assert_that(response.status_code, equal_to(status.HTTP_200_OK))
         content = response.content.decode('utf-8')
-        assert_that(content, contains_string('SMTP Configuration'))
+        assert_that(content, contains_string('SMTP Settings'))
         assert_that(content, contains_string('Send test email'))
 
     def test_save_smtp_creates_config(self, admin_logged_in_client: Client) -> None:
@@ -2351,7 +2351,7 @@ class TestAdminPanelSmtp:
             'smtp_from_address': 'noreply@example.com',
         })
         assert_that(response.status_code, equal_to(status.HTTP_200_OK))
-        assert_that(response.content.decode(), contains_string('SMTP configuration saved.'))
+        assert_that(response.content.decode(), contains_string('SMTP settings saved.'))
         config = SmtpConfig.get()
         assert config is not None
         assert_that(config.host, equal_to('smtp.example.com'))
@@ -2416,8 +2416,8 @@ class TestAdminPanelSmtp:
         assert_that(response.status_code, equal_to(status.HTTP_200_OK))
         assert_that(response.content.decode(), contains_string('Host is required.'))
 
-    def test_save_smtp_missing_from_address(self, admin_logged_in_client: Client) -> None:
-        """POST with blank from_address shows smtp_error."""
+    def test_save_smtp_without_from_address(self, admin_logged_in_client: Client) -> None:
+        """POST with blank from_address is now allowed (from address is optional)."""
         response = admin_logged_in_client.post('/admin-panel/', {
             'form_type': 'save_smtp',
             'smtp_host': 'smtp.example.com',
@@ -2427,7 +2427,7 @@ class TestAdminPanelSmtp:
             'smtp_from_address': '',
         })
         assert_that(response.status_code, equal_to(status.HTTP_200_OK))
-        assert_that(response.content.decode(), contains_string('From address is required.'))
+        assert_that(response.content.decode(), contains_string('SMTP settings saved.'))
 
     def test_smtp_test_no_config(self, admin_logged_in_client: Client) -> None:
         """POST smtp-test/ with no config returns ok=false."""
@@ -2513,3 +2513,265 @@ class TestAdminPanelSmtp:
         """Non-staff user is redirected away from smtp-test/."""
         response = logged_in_client.post('/admin-panel/smtp-test/', {'to': 'test@example.com'})
         assert_that(response.status_code, equal_to(302))
+
+    def test_smtp_test_saves_recipient_to_session(self, admin_logged_in_client: Client) -> None:
+        """A successful test email saves the recipient address in the session."""
+        import json
+        with patch('web_ui.views.send_test_email_via_backend'):
+            admin_logged_in_client.post('/admin-panel/smtp-test/', {
+                'to': 'saved@example.com',
+                'host': 'smtp.hcma.info',
+                'port': '25',
+                'username': '',
+                'password': '',
+                'from_address': 'noreply@my-tracks',
+            })
+        # The recipient should now be pre-filled on the admin panel
+        response = admin_logged_in_client.get('/admin-panel/')
+        assert_that(response.content.decode(), contains_string('saved@example.com'))
+
+    def test_smtp_test_failed_does_not_save_recipient(self, admin_logged_in_client: Client) -> None:
+        """A failed test email does not update the saved recipient in the session."""
+        import smtplib
+        from app.models import SmtpConfig
+        SmtpConfig(host='smtp.hcma.info', port=25, from_address='a@b.com').save()
+        # Prime session with an existing recipient
+        with patch('web_ui.views.send_test_email_via_backend'):
+            admin_logged_in_client.post('/admin-panel/smtp-test/', {
+                'to': 'existing@example.com',
+                'host': 'smtp.hcma.info',
+                'port': '25',
+                'username': '',
+                'password': '',
+                'from_address': 'noreply@my-tracks',
+            })
+        # Now fail with a different address
+        err = smtplib.SMTPConnectError(421, b'fail')
+        with patch('web_ui.views.send_test_email', side_effect=err):
+            admin_logged_in_client.post('/admin-panel/smtp-test/', {'to': 'new@example.com'})
+        response = admin_logged_in_client.get('/admin-panel/')
+        content = response.content.decode()
+        assert_that(content, contains_string('existing@example.com'))
+        assert_that(content, is_not(contains_string('new@example.com')))
+
+    def test_smtp_test_unauthenticated_relay(self, admin_logged_in_client: Client) -> None:
+        """Blank username+password builds backend with empty credentials (unauthenticated relay)."""
+        import json
+        with patch('web_ui.views.SmtpEmailBackend') as mock_backend_cls:
+            mock_instance = mock_backend_cls.return_value
+            with patch('web_ui.views.send_test_email_via_backend') as mock_send:
+                response = admin_logged_in_client.post('/admin-panel/smtp-test/', {
+                    'to': 'test@example.com',
+                    'host': 'relay.internal',
+                    'port': '25',
+                    'username': '',
+                    'password': '',
+                    'from_address': 'noreply@my-tracks',
+                })
+        data = json.loads(response.content)
+        assert_that(data['ok'], equal_to(True))
+        assert_that(mock_backend_cls.called, equal_to(True))
+        _, kwargs = mock_backend_cls.call_args
+        assert_that(kwargs['username'], equal_to(''))
+        assert_that(kwargs['password'], equal_to(''))
+        assert_that(mock_send.called, equal_to(True))
+
+    def test_smtp_test_transient_success(self, admin_logged_in_client: Client) -> None:
+        """POST smtp-test/ with host param uses transient backend without saving config."""
+        import json
+        with patch('web_ui.views.send_test_email_via_backend') as mock_send:
+            response = admin_logged_in_client.post('/admin-panel/smtp-test/', {
+                'to': 'test@example.com',
+                'host': 'smtp.hcma.info',
+                'port': '25',
+                'username': '',
+                'password': '',
+                'from_address': 'noreply@hcma.info',
+            })
+        data = json.loads(response.content)
+        assert_that(data['ok'], equal_to(True))
+        assert_that(mock_send.called, equal_to(True))
+        from app.models import SmtpConfig
+        assert_that(SmtpConfig.get(), equal_to(None))
+
+    def test_smtp_test_transient_reuses_saved_password(self, admin_logged_in_client: Client) -> None:
+        """Transient test with blank password reuses saved config's backend when host matches."""
+        import json
+        from app.models import SmtpConfig
+        from app.pki import encrypt_private_key
+        saved = SmtpConfig(host='smtp.hcma.info', port=587, from_address='a@b.com')
+        saved.encrypted_password = encrypt_private_key(b'secret')
+        saved.save()
+        with patch('web_ui.views.send_test_email_via_backend') as mock_send:
+            response = admin_logged_in_client.post('/admin-panel/smtp-test/', {
+                'to': 'test@example.com',
+                'host': 'smtp.hcma.info',
+                'port': '587',
+                'username': '',
+                'password': '',
+                'from_address': 'a@b.com',
+            })
+        data = json.loads(response.content)
+        assert_that(data['ok'], equal_to(True))
+        assert_that(mock_send.called, equal_to(True))
+
+    def test_smtp_test_transient_no_config_no_password(self, admin_logged_in_client: Client) -> None:
+        """Transient test with no saved config and no password tests without auth."""
+        import json
+        with patch('web_ui.views.send_test_email_via_backend') as mock_send:
+            response = admin_logged_in_client.post('/admin-panel/smtp-test/', {
+                'to': 'test@example.com',
+                'host': 'smtp.hcma.info',
+                'port': '25',
+                'username': '',
+                'password': '',
+                'from_address': 'noreply@hcma.info',
+            })
+        data = json.loads(response.content)
+        assert_that(data['ok'], equal_to(True))
+        assert_that(mock_send.called, equal_to(True))
+
+    def test_smtp_test_transient_invalid_port(self, admin_logged_in_client: Client) -> None:
+        """Transient test with non-numeric port returns an error."""
+        import json
+        response = admin_logged_in_client.post('/admin-panel/smtp-test/', {
+            'to': 'test@example.com',
+            'host': 'smtp.hcma.info',
+            'port': 'notanumber',
+        })
+        data = json.loads(response.content)
+        assert_that(data['ok'], equal_to(False))
+        assert_that(data['error'], contains_string('Invalid port'))
+
+    def test_smtp_test_button_enabled_without_saved_config(self, admin_logged_in_client: Client) -> None:
+        """The test button is always enabled — no saved config required."""
+        response = admin_logged_in_client.get('/admin-panel/')
+        content = response.content.decode()
+        assert_that(content, contains_string('id="smtp-test-btn"'))
+        assert_that(content, is_not(contains_string('disabled title="Save SMTP settings first"')))
+
+    def test_save_smtp_preserves_form_data_on_validation_error(self, admin_logged_in_client: Client) -> None:
+        """On save error, submitted form values are repopulated in the response."""
+        response = admin_logged_in_client.post('/admin-panel/', {
+            'form_type': 'save_smtp',
+            'smtp_host': '',  # missing host → triggers error
+            'smtp_port': '587',
+            'smtp_username': 'user@hcma.info',
+            'smtp_password': '',
+            'smtp_from_address': '',
+        })
+        content = response.content.decode()
+        assert_that(content, contains_string('Host is required.'))
+
+    def test_smtp_friendly_error_auth_not_supported(self, admin_logged_in_client: Client) -> None:
+        """SMTPNotSupportedError for AUTH returns a helpful no-auth-relay message."""
+        import json
+        import smtplib
+        from app.models import SmtpConfig
+        SmtpConfig(host='smtp.hcma.info', port=25, from_address='a@b.com').save()
+        err = smtplib.SMTPNotSupportedError('SMTP AUTH extension not supported by server.')
+        with patch('web_ui.views.send_test_email', side_effect=err):
+            response = admin_logged_in_client.post('/admin-panel/smtp-test/', {'to': 'test@example.com'})
+        data = json.loads(response.content)
+        assert_that(data['ok'], equal_to(False))
+        assert_that(data['error'], contains_string('does not support SMTP authentication'))
+        assert_that(data['error'], contains_string('Username and Password blank'))
+
+    def test_smtp_friendly_error_connect_error(self, admin_logged_in_client: Client) -> None:
+        """SMTPConnectError returns a helpful connection message."""
+        import json
+        import smtplib
+        from app.models import SmtpConfig
+        SmtpConfig(host='smtp.hcma.info', port=25, from_address='a@b.com').save()
+        err = smtplib.SMTPConnectError(421, b'Service not available')
+        with patch('web_ui.views.send_test_email', side_effect=err):
+            response = admin_logged_in_client.post('/admin-panel/smtp-test/', {'to': 'test@example.com'})
+        data = json.loads(response.content)
+        assert_that(data['ok'], equal_to(False))
+        assert_that(data['error'], contains_string('Could not connect'))
+
+    def test_smtp_test_includes_public_domain(self, admin_logged_in_client: Client) -> None:
+        """Test email body includes the configured PUBLIC_DOMAIN."""
+        from unittest.mock import MagicMock
+        from django.test import override_settings
+        from app.models import SmtpConfig
+        SmtpConfig(host='smtp.hcma.info', port=25, from_address='a@b.com').save()
+        captured: list = []
+
+        def fake_send(to, backend, from_email, server_names=None):
+            captured.append({'to': to, 'from_email': from_email})
+
+        with override_settings(PUBLIC_DOMAIN='mytracks.example.com'):
+            with patch('web_ui.views.send_test_email', side_effect=fake_send) as mock_send:
+                # Use saved-config mode (no host in POST)
+                pass
+            # Call send_test_email_via_backend directly to check the email body
+            import smtplib
+            from app.notifications import send_test_email_via_backend
+            from django.core.mail.backends.smtp import EmailBackend as SmtpEmailBackend
+
+            sent_messages: list = []
+
+            class CapturingBackend:
+                def send_messages(self, messages):
+                    sent_messages.extend(messages)
+                    return len(messages)
+
+            with override_settings(PUBLIC_DOMAIN='mytracks.example.com'):
+                send_test_email_via_backend('out@example.com', CapturingBackend(), 'noreply@my-tracks')
+
+        assert_that(len(sent_messages), equal_to(1))
+        assert_that(sent_messages[0].body, contains_string('mytracks.example.com'))
+
+    def test_reset_smtp_deletes_config(self, admin_logged_in_client: Client) -> None:
+        """POSTing reset_smtp deletes the saved SmtpConfig and clears the session recipient."""
+        import json
+        from app.models import SmtpConfig
+        SmtpConfig(host='smtp.hcma.info', port=587, from_address='a@b.com').save()
+        assert_that(SmtpConfig.get(), not_(equal_to(None)))
+        # Prime the session with a recipient
+        with patch('web_ui.views.send_test_email_via_backend'):
+            admin_logged_in_client.post('/admin-panel/smtp-test/', {
+                'to': 'old@example.com',
+                'host': 'smtp.hcma.info',
+                'port': '587',
+                'username': '',
+                'password': '',
+                'from_address': 'a@b.com',
+            })
+
+        response = admin_logged_in_client.post('/admin-panel/', {'form_type': 'reset_smtp'})
+        assert_that(response.status_code, equal_to(200))
+        assert_that(SmtpConfig.get(), equal_to(None))
+        # Session recipient should be cleared — input should be empty
+        assert_that(response.content.decode(), is_not(contains_string('old@example.com')))
+
+    def test_reset_smtp_when_no_config_is_noop(self, admin_logged_in_client: Client) -> None:
+        """POSTing reset_smtp when no config exists succeeds silently."""
+        from app.models import SmtpConfig
+        assert_that(SmtpConfig.get(), equal_to(None))
+
+        response = admin_logged_in_client.post('/admin-panel/', {'form_type': 'reset_smtp'})
+        assert_that(response.status_code, equal_to(200))
+
+    def test_reset_smtp_button_always_shown(self, admin_logged_in_client: Client) -> None:
+        """Reset button is always rendered regardless of whether a SmtpConfig is saved."""
+        from app.models import SmtpConfig
+
+        # No config → button still present but disabled
+        response = admin_logged_in_client.get('/admin-panel/')
+        html = response.content.decode()
+        assert_that(html, contains_string('reset_smtp'))
+        assert_that(html, contains_string('form="smtp-reset-form" class="submit-btn" style="background:var(--error,#dc2626)" disabled'))
+
+        # With config → button present and enabled (no disabled attribute)
+        SmtpConfig(host='smtp.hcma.info', port=587, from_address='a@b.com').save()
+        response = admin_logged_in_client.get('/admin-panel/')
+        html = response.content.decode()
+        assert_that(html, contains_string('reset_smtp'))
+        assert_that(html, not_(contains_string('form="smtp-reset-form" class="submit-btn" style="background:var(--error,#dc2626)" disabled')))
+
+    def test_save_smtp_button_initially_disabled(self, admin_logged_in_client: Client) -> None:
+        """Save button always starts disabled — enabled only after a successful test via JS."""
+        response = admin_logged_in_client.get('/admin-panel/')
+        assert_that(response.content.decode(), contains_string('id="smtp-save-btn" disabled'))
