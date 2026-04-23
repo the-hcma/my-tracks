@@ -85,9 +85,11 @@
         <h2>🌐 HTTP Server</h2>
         <div class="endpoint" id="network-info">
             <p><strong>Status:</strong> <span style="color: var(--success-color, #4CAF50);">● Enabled</span></p>
-            <p><strong>URL:</strong> <code><a href="{{ server_url }}/" style="color: inherit;">{{ server_url }}/</a></code></p>
             {% if public_domain %}
-            <p><strong>Public Domain:</strong> <code>{{ public_domain }}</code></p>
+            <p><strong>URL:</strong> <code><a href="https://{{ public_domain }}/" style="color: inherit;">https://{{ public_domain }}/</a></code></p>
+            <p><strong>Local URL:</strong> <code><a href="{{ server_url }}/" style="color: inherit;">{{ server_url }}/</a></code></p>
+            {% else %}
+            <p><strong>URL:</strong> <code><a href="{{ server_url }}/" style="color: inherit;">{{ server_url }}/</a></code></p>
             {% endif %}
             {% if accessible_hosts %}
             <p style="margin-top: 10px;"><strong>Also accessible via:</strong></p>
