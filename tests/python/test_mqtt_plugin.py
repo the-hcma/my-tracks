@@ -1,4 +1,7 @@
 """Tests for the MQTT OwnTracks plugin."""
+# pyright: reportCallIssue=none
+# pyright: reportOptionalSubscript=none
+# pyright: reportArgumentType=none
 
 import json
 import os
@@ -1136,9 +1139,9 @@ class TestExtractTlsInfo:
         result = _extract_tls_info(mock_ssl)
 
         assert_that(result, is_(not_none()))
-        assert_that(result.cn, equal_to("alice"))
+        assert_that(result.cn, equal_to("alice"))  # type: ignore[union-attr]
         # Fingerprint is first 4 bytes of SHA-256 in hex, colon-separated
-        assert_that(len(result.fingerprint.split(":")), equal_to(4))
+        assert_that(len(result.fingerprint.split(":")), equal_to(4))  # type: ignore[union-attr]
 
     def test_returns_none_when_no_peer_cert(self) -> None:
         """Should return None when SSL has no peer certificate."""
@@ -1171,7 +1174,7 @@ class TestExtractTlsInfo:
         result = _extract_tls_info(mock_ssl)
 
         assert_that(result, is_(not_none()))
-        assert_that(result.cn, equal_to("unknown"))
+        assert_that(result.cn, equal_to("unknown"))  # type: ignore[union-attr]
 
 
 class TestClientTLSInfoStr:
@@ -1241,7 +1244,7 @@ class TestPluginTLSClientIdentification:
             )
 
         assert_that(plugin._client_tls["phone-123"], is_(not_none()))
-        assert_that(plugin._client_tls["phone-123"].cn, equal_to("phoneuser"))
+        assert_that(plugin._client_tls["phone-123"].cn, equal_to("phoneuser"))  # type: ignore[union-attr]
 
     @pytest.mark.asyncio
     async def test_on_broker_client_connected_tls_without_client_cert(

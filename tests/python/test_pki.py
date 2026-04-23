@@ -1,4 +1,5 @@
 """Tests for PKI (Certificate Authority, Server Certificate, Client Certificate) functionality."""
+# pyright: reportIndexIssue=none
 from datetime import UTC, datetime
 from io import StringIO
 from typing import Any

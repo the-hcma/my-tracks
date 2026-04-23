@@ -1,4 +1,6 @@
 """Tests for Phase 10 Step 2: TransitionAction model and email firing."""
+# pyright: reportMissingParameterType=none
+# pyright: reportUnknownParameterType=none
 from unittest.mock import MagicMock, patch
 
 import pytest

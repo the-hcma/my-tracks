@@ -4,6 +4,8 @@ Test suite for the generate-tail traffic generator script.
 Tests cover both HTTP and MQTT transport modes, position shifting,
 tail location creation, runtime config reading, and CLI integration.
 """
+# pyright: reportCallIssue=none
+# pyright: reportArgumentType=none
 import importlib.machinery
 import importlib.util
 import json
@@ -24,7 +26,7 @@ _loader = importlib.machinery.SourceFileLoader(
 )
 spec = importlib.util.spec_from_loader("generate_tail", _loader)
 assert_that(spec, is_(not_none()))
-generate_tail = importlib.util.module_from_spec(spec)
+generate_tail = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
 # Prevent auto-venv activation during test import
 with patch.object(sys, "executable", str(Path(__file__).parent.parent.parent / ".venv" / "bin" / "python")):
     _loader.exec_module(generate_tail)

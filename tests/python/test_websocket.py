@@ -46,7 +46,7 @@ class TestLocationConsumer:
             'timestamp_unix': 1705329600
         }
 
-        await channel_layer.group_send(
+        await channel_layer.group_send(  # type: ignore[union-attr]
             "locations",
             {
                 "type": "location_update",
@@ -92,7 +92,7 @@ class TestLocationConsumer:
             'disconnected_at': '2024-01-01T12:00:00+00:00',
         }
 
-        await channel_layer.group_send(
+        await channel_layer.group_send(  # type: ignore[union-attr]
             "locations",
             {
                 "type": "device_status",
