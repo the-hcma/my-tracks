@@ -84,6 +84,8 @@ uv run isort --check-only --diff app config web_ui   # import order
 uv run flake8 --config dev-tooling/.flake8 app config  # PEP 8 + unused imports/vars
 uv run pytest --cov=app --cov-fail-under=90   # tests + coverage
 ```
+The first three checks (`pyright`, `isort`, `flake8`) are independent and **should be run in parallel** to save time — start all three at once and wait for all to complete before proceeding. `pytest` must run separately after the others pass (it is slower and its output is the final gate). `pytest` itself already runs tests in parallel across all available CPU cores via `pytest-xdist` (`-n auto` is set in `pyproject.toml`'s `addopts`) — no extra flags needed.
+
 Do not proceed if any of these fail. Fix first.
 
 **Step 2 — Submit via Graphite** (pushes branches and updates PRs):
