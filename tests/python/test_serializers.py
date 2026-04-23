@@ -4,6 +4,10 @@ Test suite for app serializers.
 Covers DeviceSerializer, LocationSerializer, UserSerializer,
 UserProfileSerializer, ChangePasswordSerializer, and certificate serializers.
 """
+# pyright: reportCallIssue=none
+# pyright: reportIndexIssue=none
+# pyright: reportOptionalSubscript=none
+# pyright: reportArgumentType=none
 import time
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
