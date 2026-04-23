@@ -15,6 +15,8 @@ from django.contrib.auth.password_validation import (
     validate_password)
 from django.contrib.auth.views import LoginView
 from django.core.exceptions import ValidationError
+from django.core.mail import EmailMessage as DjangoEmailMessage
+from django.core.mail.backends.smtp import EmailBackend as SmtpEmailBackend
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone as tz
@@ -25,6 +27,7 @@ from app.models import (CertificateAuthority, ClientCertificate, Device,
                         TransitionAction, UserProfile, Waypoint)
 from app.mqtt.commands import CommandPublisher
 from app.notifications import (get_smtp_backend, send_test_email,
+                               send_test_email_via_backend,
                                smtp_friendly_error)
 from app.pki import (ALLOWED_KEY_SIZES, DEFAULT_CA_VALIDITY_DAYS,
                      DEFAULT_CERT_VALIDITY_DAYS, VALIDITY_PRESETS)
@@ -881,8 +884,6 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
 
             if not host:
                 context['smtp_error'] = 'Host is required.'
-            elif not from_address:
-                context['smtp_error'] = 'From address is required.'
             else:
                 try:
                     port = int(port_raw)
@@ -898,12 +899,23 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
                     if password_raw:
                         config.encrypted_password = pki_encrypt_private_key(password_raw.encode())
                     config.save()
-                    logger.info("[http] Admin '%s' updated SMTP configuration", request.user.username)
-                    context['smtp_success'] = 'SMTP configuration saved.'
+                    logger.info(
+                        "[http] Admin '%s' saved SMTP config: host=%s port=%s username=%s from=%s use_tls=%s use_ssl=%s",
+                        request.user.username, host, port, username or '(none)', from_address, use_tls, use_ssl,
+                    )
+                    context['smtp_success'] = 'SMTP settings saved.'
                 except ValueError:
                     context['smtp_error'] = 'Port must be a number.'
                 except Exception as e:
                     context['smtp_error'] = str(e)
+
+        if form_type == 'reset_smtp':
+            existing = SmtpConfig.get()
+            if existing:
+                existing.delete()
+                logger.info("[http] Admin '%s' reset SMTP configuration.", request.user.username)
+            request.session.pop('smtp_last_test_recipient', None)
+            context['active_tab'] = 'email'
 
     users = list(User.objects.all().order_by('username'))
     user_id_to_active_cert = {
@@ -947,14 +959,31 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
         'ca_success', 'ca_error', 'sc_success', 'sc_error', 'cc_success', 'cc_error',
     ))
     smtp_has_message = any(context.get(k) for k in ('smtp_success', 'smtp_error'))
-    if smtp_has_message:
+    if smtp_has_message or context.get('active_tab') == 'email':
         context['active_tab'] = 'email'
     elif pki_has_message:
         context['active_tab'] = 'pki'
     else:
         context['active_tab'] = 'users'
 
-    context['smtp_config'] = SmtpConfig.get()
+    context['smtp_last_test_recipient'] = request.session.get('smtp_last_test_recipient', '')
+
+    # Repopulate SMTP config context: use saved config normally, but on a save error
+    # return the submitted form data so the user does not lose what they typed.
+    if request.method == 'POST' and request.POST.get('form_type') == 'save_smtp' and 'smtp_error' in context:
+        _ephemeral = SmtpConfig.get() or SmtpConfig()
+        _ephemeral.host = host
+        try:
+            _ephemeral.port = int(port_raw)
+        except ValueError:
+            _ephemeral.port = 587
+        _ephemeral.username = username
+        _ephemeral.from_address = from_address
+        if password_raw:
+            _ephemeral.encrypted_password = pki_encrypt_private_key(password_raw.encode())
+        context['smtp_config'] = _ephemeral
+    else:
+        context['smtp_config'] = SmtpConfig.get()
 
     admin_info = get_server_info(request)
     san_candidates: list[str] = list(admin_info.lan_ips)
@@ -965,6 +994,8 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
     context['default_san_list'] = san_candidates
     context['default_sans'] = ', '.join(san_candidates)
     context['hostname'] = admin_info.hostname
+    context['public_domain'] = settings.PUBLIC_DOMAIN
+    context['smtp_configured'] = SmtpConfig.get() is not None
 
     return render(request, 'web_ui/admin_panel.html', context)
 
@@ -986,7 +1017,6 @@ def action_test(request: HttpRequest) -> JsonResponse:
         request.user.username, action.pk, action.email_address,
     )
     try:
-        from django.core.mail import EmailMessage as DjangoEmailMessage
         backend = get_smtp_backend(config)
         DjangoEmailMessage(
             subject=f"[my-tracks] Test — automation rule for {wp_label}",
@@ -1003,29 +1033,79 @@ def action_test(request: HttpRequest) -> JsonResponse:
         ).send()
         return JsonResponse({'ok': True})
     except Exception as e:
-        return JsonResponse({'ok': False, 'error': smtp_friendly_error(e)})
+        return JsonResponse({'ok': False, 'error': smtp_friendly_error(e, config.host)})
 
 
 @login_required
 @user_passes_test(_is_staff, login_url='/')
 def smtp_test(request: HttpRequest) -> JsonResponse:
-    """Send a test email using the stored SMTP config. Returns JSON."""
+    """Send a test email. Accepts transient form params or falls back to the saved config."""
     if request.method != 'POST':
         return JsonResponse({'ok': False, 'error': 'POST required.'}, status=405)
     to = str(request.POST.get('to', '')).strip()
     if not to:
         return JsonResponse({'ok': False, 'error': 'Recipient address is required.'})
-    config = SmtpConfig.get()
-    if config is None:
-        return JsonResponse({'ok': False, 'error': 'SMTP is not configured yet.'})
+
     active_sc = ServerCertificate.objects.filter(is_active=True).first()
     server_names = (
         get_certificate_sans(active_sc.certificate_pem.encode())
         if active_sc else None
     )
-    logger.info("[http] Admin '%s' sending test email to %s", request.user.username, to)
+
+    # Transient mode: caller provided host → build backend from submitted form fields.
+    # This lets the admin verify settings before committing them to the database.
+    host = str(request.POST.get('host', '')).strip()
+    if host:
+        port_raw = str(request.POST.get('port', '587')).strip()
+        username = str(request.POST.get('username', '')).strip()
+        password = str(request.POST.get('password', ''))
+        from_address = str(request.POST.get('from_address', '')).strip() or (
+            f'noreply@{settings.PUBLIC_DOMAIN}' if settings.PUBLIC_DOMAIN else 'noreply@my-tracks'
+        )
+        try:
+            port = int(port_raw)
+        except ValueError:
+            return JsonResponse({'ok': False, 'error': 'Invalid port number.'})
+        use_ssl = port == 465
+        use_tls = port in (587, 2525)
+        # When password is blank, reuse the saved config’s credentials if the host matches
+        # (admin edited other fields without re-entering an existing password).
+        if not password:
+            saved = SmtpConfig.get()
+            if saved and saved.host == host and saved.encrypted_password:
+                backend: SmtpEmailBackend = get_smtp_backend(saved)
+            else:
+                backend = SmtpEmailBackend(
+                    host=host, port=port, username=username, password='',
+                    use_tls=use_tls, use_ssl=use_ssl, timeout=10, fail_silently=False,
+                )
+        else:
+            backend = SmtpEmailBackend(
+                host=host, port=port, username=username, password=password,
+                use_tls=use_tls, use_ssl=use_ssl, timeout=10, fail_silently=False,
+            )
+        logger.info(
+            "[http] Admin '%s' testing transient SMTP config → %s:%s user=%s to=%s",
+            request.user.username, host, port, username or '(none)', to,
+        )
+        try:
+            send_test_email_via_backend(to, backend, from_address, server_names)
+            request.session['smtp_last_test_recipient'] = to
+            return JsonResponse({'ok': True})
+        except Exception as e:
+            return JsonResponse({'ok': False, 'error': smtp_friendly_error(e, host)})
+
+    # Saved-config mode: use the stored SmtpConfig.
+    config = SmtpConfig.get()
+    if config is None:
+        return JsonResponse({'ok': False, 'error': 'SMTP is not configured yet.'})
+    logger.info(
+        "[http] Admin '%s' sending test email to %s via saved config %s:%s",
+        request.user.username, to, config.host, config.port,
+    )
     try:
         send_test_email(to, config, server_names=server_names)
+        request.session['smtp_last_test_recipient'] = to
         return JsonResponse({'ok': True})
     except Exception as e:
-        return JsonResponse({'ok': False, 'error': smtp_friendly_error(e)})
+        return JsonResponse({'ok': False, 'error': smtp_friendly_error(e, config.host)})
