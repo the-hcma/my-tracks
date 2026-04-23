@@ -44,6 +44,8 @@ ALLOWED_HOSTS: list[str] = [
     if host.strip()
 ]
 
+PUBLIC_DOMAIN: str = str(config('PUBLIC_DOMAIN', default=''))
+
 if DEBUG:
     # Auto-discover and add all local network IPs to ALLOWED_HOSTS in development.
     # Only includes broadcast-capable interfaces (excludes VPN/tunnel adapters).

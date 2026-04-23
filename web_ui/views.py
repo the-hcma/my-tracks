@@ -586,6 +586,7 @@ def about(request: HttpRequest) -> HttpResponse:
         'mqtt_tls_port': mqtt_tls_port,
         'mqtt_tls_enabled': mqtt_tls_enabled,
         'active_sc': active_sc,
+        'public_domain': settings.PUBLIC_DOMAIN,
     }
     return render(request, 'web_ui/about.html', context)
 
