@@ -27,11 +27,24 @@ sha_file="$HOME/scratch/my-tracks/on-deploy-sha"
 
 echo "Running on-deploy build steps..."
 
+# Detect whether we are running from a linked worktree or the primary worktree.
+# This must be done before any .env work so we can decide which .env to use.
+primary_dir="$(git -C "$repo_dir" worktree list --porcelain | awk 'NR==1{print $2}')"
+env_file="$repo_dir/.env"
+primary_env="$primary_dir/.env"
+
 # The local systemd service is a development deployment.
 # Ensure DEBUG=True and that the public domain is in ALLOWED_HOSTS / CSRF_TRUSTED_ORIGINS.
-env_file="$repo_dir/.env"
 fqdn="$(hostname --fqdn 2>/dev/null || hostname)"
 echo "  Configuring .env for development..."
+
+# Feature worktrees: copy the primary worktree's .env so all manually-configured
+# settings (ALLOWED_HOSTS, SECRET_KEY, etc.) carry over without needing to be
+# re-entered. DATABASE_URL will be appended below to redirect to the primary db.
+if [[ "$repo_dir" != "$primary_dir" ]] && [[ -f "$primary_env" ]]; then
+    cp "$primary_env" "$env_file"
+    echo "  Copied .env from primary worktree (settings carry over)."
+fi
 
 # Resolve the public domain to use for ALLOWED_HOSTS and CSRF_TRUSTED_ORIGINS.
 # Priority: PUBLIC_DOMAIN already in .env > interactive prompt > machine FQDN fallback.
@@ -131,6 +144,26 @@ else
     else
         echo "  CSRF_TRUSTED_ORIGINS up to date — no change needed."
     fi
+fi
+
+# Worktree database: when running from a linked worktree, point DATABASE_URL at
+# the primary worktree's db.sqlite3 so all worktrees share the same live database.
+# Without this, Django resolves db.sqlite3 relative to settings.py inside the
+# worktree directory, which won't have any data.
+if [[ "$repo_dir" != "$primary_dir" ]]; then
+    db_url="sqlite:///${primary_dir}/db.sqlite3"
+    if ! grep -q '^DATABASE_URL=' "$env_file"; then
+        echo "DATABASE_URL=${db_url}" >> "$env_file"
+        echo "  Added DATABASE_URL pointing to primary worktree db."
+    elif ! grep -qF "DATABASE_URL=${db_url}" "$env_file"; then
+        sed -i "s|^DATABASE_URL=.*|DATABASE_URL=${db_url}|" "$env_file"
+        echo "  Updated DATABASE_URL to point to primary worktree db."
+    else
+        echo "  DATABASE_URL up to date — no change needed."
+    fi
+    echo "  Using database from main worktree: ${primary_dir}/db.sqlite3"
+else
+    echo "  Using local database: ${repo_dir}/db.sqlite3"
 fi
 
 # Skip the expensive build steps if this commit was already deployed.

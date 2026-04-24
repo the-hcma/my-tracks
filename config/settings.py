@@ -121,9 +121,12 @@ ASGI_APPLICATION: str = 'config.asgi.application'
 
 _SQLITE_DEFAULT = f"sqlite:///{BASE_DIR / 'db.sqlite3'}"
 
+# Use decouple's config() so DATABASE_URL is read from the .env file as well as
+# from the environment — dj_database_url.config() reads os.environ only and
+# would miss DATABASE_URL values written to .env by on-deploy.
 DATABASES: dict[str, Any] = {
-    'default': dj_database_url.config(
-        default=_SQLITE_DEFAULT,
+    'default': dj_database_url.parse(
+        str(config('DATABASE_URL', default=_SQLITE_DEFAULT)),
         conn_max_age=600,
         conn_health_checks=True,
     ),
