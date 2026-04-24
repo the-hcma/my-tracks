@@ -152,6 +152,17 @@
             color: var(--danger, #d32f2f);
         }
 
+        .san-tag.san-tag-locked {
+            background: var(--bg);
+            border-color: var(--text-muted, #888);
+            opacity: 0.8;
+            cursor: default;
+        }
+
+        .san-tag.san-tag-locked .san-label {
+            color: var(--text-muted, #888);
+        }
+
         .san-add-row {
             display: flex;
             gap: 0.4rem;
@@ -1736,27 +1747,32 @@
                 checkHostWarning();
             }
 
-            function renderTag(value) {
+            function renderTag(value, locked) {
                 const tag = document.createElement('span');
-                tag.className = 'san-tag';
-                tag.innerHTML =
-                    '<span class="san-label"></span>' +
-                    '<button type="button" class="san-remove" title="Remove">&times;</button>';
+                tag.className = 'san-tag' + (locked ? ' san-tag-locked' : '');
+                if (locked) {
+                    tag.innerHTML = '<span class="san-label"></span>';
+                    tag.title = 'CN is required in SANs — modern TLS clients check SANs only (RFC 9525)';
+                } else {
+                    tag.innerHTML =
+                        '<span class="san-label"></span>' +
+                        '<button type="button" class="san-remove" title="Remove">&times;</button>';
+                    tag.querySelector('.san-remove').addEventListener('click', function() {
+                        sans.delete(value);
+                        if (value === autoCnValue) autoCnValue = '';
+                        tag.remove();
+                        syncHidden();
+                    });
+                }
                 tag.querySelector('.san-label').textContent = value;
-                tag.querySelector('.san-remove').addEventListener('click', function() {
-                    sans.delete(value);
-                    if (value === autoCnValue) autoCnValue = '';
-                    tag.remove();
-                    syncHidden();
-                });
                 tagsContainer.appendChild(tag);
             }
 
-            function addSan(value) {
+            function addSan(value, locked) {
                 const v = value.trim();
                 if (!v || sans.has(v)) return;
                 sans.add(v);
-                renderTag(v);
+                renderTag(v, locked);
                 syncHidden();
             }
 
@@ -1788,11 +1804,17 @@
             // Keep CN in SANs automatically. When the CN field changes,
             // remove the previous auto-added CN and add the new one.
             // Modern TLS clients check SANs only, not the CN (RFC 9525).
+            // The CN tag is locked (no remove button) because CN-in-SAN is required.
             if (cnInput) {
+                cnInput.addEventListener('keydown', function(e) {
+                    // Prevent Enter from submitting the cert-generate form — the user
+                    // must click "Generate Server Certificate" explicitly.
+                    if (e.key === 'Enter') e.preventDefault();
+                });
                 cnInput.addEventListener('input', function() {
                     const newCn = cnInput.value.trim();
                     if (autoCnValue && autoCnValue !== newCn) removeSan(autoCnValue);
-                    if (newCn) { addSan(newCn); autoCnValue = newCn; }
+                    if (newCn) { addSan(newCn, true); autoCnValue = newCn; }
                     else autoCnValue = '';
                 });
             }
@@ -1802,10 +1824,10 @@
             addSan('{{ san }}');
             {% endfor %}
 
-            /* Seed CN into SANs on load */
+            /* Seed CN into SANs on load — locked because CN must be in SANs */
             if (cnInput && cnInput.value.trim()) {
                 autoCnValue = cnInput.value.trim();
-                addSan(autoCnValue);
+                addSan(autoCnValue, true);
             }
         })();
     </script>
