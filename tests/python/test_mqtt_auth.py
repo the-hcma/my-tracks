@@ -302,6 +302,25 @@ class TestGetDefaultConfigWithAuth:
 class TestDjangoAuthPluginPasswordAuth:
     """Tests for DjangoAuthPlugin password-based authentication (non-TLS)."""
 
+    @pytest.mark.asyncio
+    async def test_password_auth_uses_non_thread_sensitive_executor(
+        self, test_user: Any, mock_plugin_context: MagicMock,
+    ) -> None:
+        """Must not rely on CurrentThreadExecutor (thread_sensitive=False)."""
+        plugin = DjangoAuthPlugin(context=mock_plugin_context)
+        session = _make_session(username="testuser", password="testpass123")
+
+        with patch("app.mqtt.auth.sync_to_async") as mock_sync_to_async:
+            async def _fake_call(*_args: Any, **_kwargs: Any) -> bool:
+                return True
+
+            mock_sync_to_async.return_value = _fake_call
+            result = await plugin.authenticate(session=session)
+
+        assert_that(result, is_(True))
+        mock_sync_to_async.assert_called_once()
+        assert_that(mock_sync_to_async.call_args.kwargs.get("thread_sensitive"), is_(False))
+
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
     async def test_authenticate_valid_user(
@@ -347,6 +366,26 @@ class TestDjangoAuthPluginPasswordAuth:
 
 class TestDjangoAuthPluginCertAuth:
     """Tests for DjangoAuthPlugin cert-based authentication (mTLS)."""
+
+    @pytest.mark.asyncio
+    async def test_tls_auth_uses_non_thread_sensitive_executor(
+        self, test_user: Any, mock_plugin_context: MagicMock,
+    ) -> None:
+        """Must not rely on CurrentThreadExecutor (thread_sensitive=False)."""
+        plugin = DjangoAuthPlugin(context=mock_plugin_context)
+        ssl_obj = _make_ssl_object("testuser")
+        session = _make_session(ssl_object=ssl_obj)
+
+        with patch("app.mqtt.auth.sync_to_async") as mock_sync_to_async:
+            async def _fake_call(*_args: Any, **_kwargs: Any) -> bool:
+                return True
+
+            mock_sync_to_async.return_value = _fake_call
+            result = await plugin.authenticate(session=session)
+
+        assert_that(result, is_(True))
+        mock_sync_to_async.assert_called_once()
+        assert_that(mock_sync_to_async.call_args.kwargs.get("thread_sensitive"), is_(False))
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
@@ -450,6 +489,31 @@ class TestDjangoAuthPluginCertAuth:
 
 class TestDjangoAuthPluginTopicACLs:
     """Tests for topic ACL enforcement via DjangoAuthPlugin."""
+
+    @pytest.mark.asyncio
+    async def test_topic_acl_uses_non_thread_sensitive_executor(
+        self, test_user: Any, mock_plugin_context: MagicMock,
+    ) -> None:
+        """Must not rely on CurrentThreadExecutor (thread_sensitive=False)."""
+        plugin = DjangoAuthPlugin(context=mock_plugin_context)
+        session = MagicMock()
+        session.username = "testuser"
+
+        with patch("app.mqtt.auth.sync_to_async") as mock_sync_to_async:
+            async def _fake_call(*_args: Any, **_kwargs: Any) -> bool:
+                return True
+
+            mock_sync_to_async.return_value = _fake_call
+            result = await plugin.on_broker_client_subscribed(
+                client_id="client1",
+                topic="owntracks/testuser/phone",
+                qos=0,
+                session=session,
+            )
+
+        assert_that(result, is_(True))
+        mock_sync_to_async.assert_called_once()
+        assert_that(mock_sync_to_async.call_args.kwargs.get("thread_sensitive"), is_(False))
 
     @pytest.mark.asyncio
     async def test_on_broker_client_subscribed_allowed(
