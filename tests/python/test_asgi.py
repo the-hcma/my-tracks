@@ -16,7 +16,8 @@ from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from hamcrest import assert_that, contains_string, equal_to, is_, not_none
+from hamcrest import (assert_that, contains_string, equal_to, is_, not_,
+                      not_none)
 
 
 class TestRuntimeConfig:
@@ -1542,3 +1543,93 @@ class TestTlsReloadSignals:
             )
 
         mock_reload.assert_not_called()
+
+
+class TestLogStartupCommit:
+    """Tests for _log_startup_commit startup logging."""
+
+    def test_logs_short_commit_hash(self) -> None:
+        """Logs the short git commit hash at INFO level when git is available."""
+        import app.apps as apps_module
+
+        mock_result = MagicMock()
+        mock_result.stdout = "abc1234\n"
+
+        with patch("app.apps.subprocess.run", return_value=mock_result) as mock_run:
+            with patch.object(apps_module, "logger") as mock_log:
+                apps_module._log_startup_commit()
+
+        mock_run.assert_called_once()
+        mock_log.info.assert_called_once()
+        msg = mock_log.info.call_args[0][0] % mock_log.info.call_args[0][1:]
+        assert_that(msg, contains_string("abc1234"))
+
+    def test_falls_back_to_build_commit_env_when_git_unavailable(self) -> None:
+        """Uses BUILD_COMMIT env var when git is not available (e.g. production Docker image)."""
+        import app.apps as apps_module
+
+        with patch("app.apps.subprocess.run", side_effect=FileNotFoundError("git not found")):
+            with patch.dict("os.environ", {"BUILD_COMMIT": "deadbeef"}):
+                with patch.object(apps_module, "logger") as mock_log:
+                    apps_module._log_startup_commit()
+
+        mock_log.info.assert_called_once()
+        msg = mock_log.info.call_args[0][0] % mock_log.info.call_args[0][1:]
+        assert_that(msg, contains_string("deadbeef"))
+
+    def test_logs_debug_when_git_unavailable_and_no_env(self) -> None:
+        """Logs at DEBUG level when git is unavailable and BUILD_COMMIT is not set."""
+        import app.apps as apps_module
+
+        with patch("app.apps.subprocess.run", side_effect=FileNotFoundError("git not found")):
+            with patch.dict("os.environ", {}, clear=True):
+                with patch.object(apps_module, "logger") as mock_log:
+                    apps_module._log_startup_commit()
+
+        mock_log.info.assert_not_called()
+        mock_log.debug.assert_called_once()
+
+    def test_logs_debug_when_not_a_git_repo(self) -> None:
+        """Logs at DEBUG level when the directory is not a git repo and BUILD_COMMIT not set."""
+        import subprocess
+
+        import app.apps as apps_module
+
+        with patch("app.apps.subprocess.run", side_effect=subprocess.CalledProcessError(128, "git")):
+            with patch.dict("os.environ", {}, clear=True):
+                with patch.object(apps_module, "logger") as mock_log:
+                    apps_module._log_startup_commit()
+
+        mock_log.info.assert_not_called()
+        mock_log.debug.assert_called_once()
+
+    def test_git_takes_priority_over_build_commit_env(self) -> None:
+        """git output is used even when BUILD_COMMIT is also set."""
+        import app.apps as apps_module
+
+        mock_result = MagicMock()
+        mock_result.stdout = "abc1234\n"
+
+        with patch("app.apps.subprocess.run", return_value=mock_result):
+            with patch.dict("os.environ", {"BUILD_COMMIT": "deadbeef"}):
+                with patch.object(apps_module, "logger") as mock_log:
+                    apps_module._log_startup_commit()
+
+        mock_log.info.assert_called_once()
+        msg = mock_log.info.call_args[0][0] % mock_log.info.call_args[0][1:]
+        assert_that(msg, contains_string("abc1234"))
+        assert_that(msg, not_(contains_string("deadbeef")))
+
+    def test_no_log_when_commit_is_empty_and_no_env(self) -> None:
+        """Does not log INFO when git returns empty and BUILD_COMMIT is not set."""
+        import app.apps as apps_module
+
+        mock_result = MagicMock()
+        mock_result.stdout = "\n"
+
+        with patch("app.apps.subprocess.run", return_value=mock_result):
+            with patch.dict("os.environ", {}, clear=True):
+                with patch.object(apps_module, "logger") as mock_log:
+                    apps_module._log_startup_commit()
+
+        mock_log.info.assert_not_called()
