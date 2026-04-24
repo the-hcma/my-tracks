@@ -2,7 +2,7 @@
 # pyright: reportIndexIssue=none
 from datetime import UTC, datetime
 from io import StringIO
-from typing import Any
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
@@ -1154,7 +1154,9 @@ class TestCRLGeneration:
         last_update = crl.last_update_utc
         assert_that(next_update, is_(not_none()))
         assert_that(last_update, is_(not_none()))
-        assert_that((next_update - last_update).days, equal_to(7))  # type: ignore[operator]
+        next_dt = cast(datetime, next_update)
+        last_dt = cast(datetime, last_update)
+        assert_that((next_dt - last_dt).days, equal_to(7))
 
     def test_crl_from_client_cert(self, ca_pair: tuple[bytes, bytes]) -> None:
         """End-to-end: generate client cert, extract serial, put in CRL."""

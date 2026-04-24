@@ -12,7 +12,7 @@ import json
 import math
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -26,7 +26,7 @@ _loader = importlib.machinery.SourceFileLoader(
 )
 spec = importlib.util.spec_from_loader("generate_tail", _loader)
 assert_that(spec, is_(not_none()))
-generate_tail = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+generate_tail = importlib.util.module_from_spec(cast(Any, spec))
 # Prevent auto-venv activation during test import
 with patch.object(sys, "executable", str(Path(__file__).parent.parent.parent / ".venv" / "bin" / "python")):
     _loader.exec_module(generate_tail)
