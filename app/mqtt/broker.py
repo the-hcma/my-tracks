@@ -14,6 +14,7 @@ import asyncio
 import logging
 import ssl
 import tempfile
+import weakref
 from dataclasses import dataclass
 from typing import Any
 
@@ -104,6 +105,12 @@ class _CRLBroker(Broker):
     _crl_pem: bytes | None = None
     _server_cert_sans: list[str] = []
     _original_exception_handler: Any = None
+    # Maps ssl.SSLObject → SNI hostname sent by client in ClientHello.
+    # Populated by the servername callback during the TLS handshake.
+    # WeakKeyDictionary so entries are cleaned up automatically when the
+    # ssl object is garbage-collected (e.g. for connections that fail
+    # before reaching _initialize_client_session).
+    _sni_map: weakref.WeakKeyDictionary[ssl.SSLObject, str] = weakref.WeakKeyDictionary()
 
     @staticmethod
     def _create_ssl_context(listener: Any) -> ssl.SSLContext:
@@ -113,6 +120,19 @@ class _CRLBroker(Broker):
         if _CRLBroker._crl_pem is not None:
             ctx.verify_flags |= ssl.VERIFY_CRL_CHECK_LEAF
             logger.info("CRL enforcement enabled for revocation checking")
+        # Capture the SNI hostname the client advertised in ClientHello.
+        # ssl.SSLObject.server_hostname is None on the server side (it
+        # reflects the client-side constructor parameter, not inbound SNI),
+        # so the only reliable way to read SNI server-side is this callback.
+
+        def _sni_callback(
+            ssl_obj: ssl.SSLSocket | ssl.SSLObject,
+            server_name: str | None,
+            ssl_context: ssl.SSLContext | ssl.SSLSocket,
+        ) -> None:
+            if server_name is not None and isinstance(ssl_obj, ssl.SSLObject):
+                _CRLBroker._sni_map[ssl_obj] = server_name
+        ctx.set_servername_callback(_sni_callback)
         return ctx
 
     async def start(self) -> None:
@@ -157,13 +177,15 @@ class _CRLBroker(Broker):
             ssl_obj = writer.get_ssl_info()
             if ssl_obj is not None:
                 sans = ", ".join(_CRLBroker._server_cert_sans) or "none"
+                sni = _CRLBroker._sni_map.pop(ssl_obj, None) or "not sent"
                 logger.warning(
                     "[mqtt-tls] Client %s:%s completed TLS handshake but "
                     "disconnected before sending MQTT data. The client "
                     "likely rejected the server certificate (hostname not "
                     "in SANs, untrusted CA, or expired cert). "
+                    "Client expected hostname (SNI): %s — "
                     "Server cert SANs: [%s]",
-                    remote_address, remote_port, sans,
+                    remote_address, remote_port, sni, sans,
                 )
             raise
 

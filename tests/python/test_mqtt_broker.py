@@ -733,9 +733,11 @@ class TestTLSConfig:
         broker_instance = _CRLBroker.__new__(_CRLBroker)
         broker_instance.logger = logging.getLogger("amqtt.broker")
 
+        mock_ssl = MagicMock(spec=ssl.SSLObject)
         mock_writer = MagicMock()
-        mock_writer.get_ssl_info.return_value = MagicMock()
+        mock_writer.get_ssl_info.return_value = mock_ssl
         mock_reader = MagicMock()
+        _CRLBroker._sni_map[mock_ssl] = "mqtt.example.com"
 
         broker_logger = logging.getLogger("app.mqtt.broker")
         with (
@@ -757,6 +759,74 @@ class TestTLSConfig:
         assert_that(msg, contains_string("disconnected before sending MQTT data"))
         assert_that(msg, contains_string("mqtt.example.com"))
         assert_that(msg, contains_string("192.168.1.10"))
+        _CRLBroker._server_cert_sans = []
+
+    @pytest.mark.asyncio
+    async def test_tls_disconnect_warning_includes_sni(self) -> None:
+        """Warning message includes the SNI hostname the client expected (from _sni_map)."""
+        from amqtt.errors import AMQTTError
+
+        _CRLBroker._server_cert_sans = ["mqtt.example.com"]
+
+        broker_instance = _CRLBroker.__new__(_CRLBroker)
+        broker_instance.logger = logging.getLogger("amqtt.broker")
+
+        mock_ssl = MagicMock(spec=ssl.SSLObject)
+        mock_writer = MagicMock()
+        mock_writer.get_ssl_info.return_value = mock_ssl
+        mock_reader = MagicMock()
+        _CRLBroker._sni_map[mock_ssl] = "wrong-host.example.com"
+
+        broker_logger = logging.getLogger("app.mqtt.broker")
+        with (
+            patch.object(
+                _CRLBroker.__bases__[0], "_initialize_client_session",
+                new_callable=AsyncMock,
+                side_effect=AMQTTError("No more data"),
+            ),
+            patch.object(broker_logger, "warning") as mock_warn,
+            pytest.raises(AMQTTError),
+        ):
+            await broker_instance._initialize_client_session(
+                mock_reader, mock_writer, "10.0.0.5", 12345,
+            )
+
+        msg = mock_warn.call_args[0][0] % mock_warn.call_args[0][1:]
+        assert_that(msg, contains_string("wrong-host.example.com"))
+        _CRLBroker._server_cert_sans = []
+
+    @pytest.mark.asyncio
+    async def test_tls_disconnect_warning_no_sni(self) -> None:
+        """Warning message says 'not sent' when client sends no SNI (nothing in _sni_map)."""
+        from amqtt.errors import AMQTTError
+
+        _CRLBroker._server_cert_sans = ["mqtt.example.com"]
+
+        broker_instance = _CRLBroker.__new__(_CRLBroker)
+        broker_instance.logger = logging.getLogger("amqtt.broker")
+
+        mock_ssl = MagicMock(spec=ssl.SSLObject)
+        mock_writer = MagicMock()
+        mock_writer.get_ssl_info.return_value = mock_ssl
+        mock_reader = MagicMock()
+        # No entry in _sni_map — client sent no SNI extension
+
+        broker_logger = logging.getLogger("app.mqtt.broker")
+        with (
+            patch.object(
+                _CRLBroker.__bases__[0], "_initialize_client_session",
+                new_callable=AsyncMock,
+                side_effect=AMQTTError("No more data"),
+            ),
+            patch.object(broker_logger, "warning") as mock_warn,
+            pytest.raises(AMQTTError),
+        ):
+            await broker_instance._initialize_client_session(
+                mock_reader, mock_writer, "10.0.0.5", 12345,
+            )
+
+        msg = mock_warn.call_args[0][0] % mock_warn.call_args[0][1:]
+        assert_that(msg, contains_string("not sent"))
         _CRLBroker._server_cert_sans = []
 
     @pytest.mark.asyncio
