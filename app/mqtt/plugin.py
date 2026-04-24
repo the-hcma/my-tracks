@@ -460,7 +460,12 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
             location_data.get("longitude"),
         )
 
-        serialized = await sync_to_async(save_location_to_db)(location_data)
+        # thread_sensitive=False: the MQTT broker runs in its own asyncio loop,
+        # outside Django/ASGI's request lifecycle. The default thread_sensitive=True
+        # would try to use asgiref's CurrentThreadExecutor, which is only set up
+        # per ASGI request and crashes here with "CurrentThreadExecutor already quit
+        # or is broken". thread_sensitive=False routes to the global thread pool.
+        serialized = await sync_to_async(save_location_to_db, thread_sensitive=False)(location_data)
         if serialized is None:
             return
 
@@ -495,7 +500,8 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
             lwt_data.get("device"),
         )
 
-        status_data = await sync_to_async(save_lwt_to_db)(lwt_data)
+        # thread_sensitive=False: same reason as in _handle_location.
+        status_data = await sync_to_async(save_lwt_to_db, thread_sensitive=False)(lwt_data)
         if status_data is None:
             return
 
@@ -528,7 +534,8 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
             identity,
         )
 
-        saved = await sync_to_async(save_transition_to_db)(transition_data)
+        # thread_sensitive=False: same reason as in _handle_location.
+        saved = await sync_to_async(save_transition_to_db, thread_sensitive=False)(transition_data)
         if saved is None:
             return
 
@@ -558,7 +565,8 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
             transport, device_id, count,
         )
 
-        saved = await sync_to_async(save_waypoints_to_db)(waypoint_data)
+        # thread_sensitive=False: same reason as in _handle_location.
+        saved = await sync_to_async(save_waypoints_to_db, thread_sensitive=False)(waypoint_data)
         logger.info(
             "[%s] Waypoints upserted: device=%s, processed=%d",
             transport, device_id, saved,
