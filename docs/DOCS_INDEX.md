@@ -31,6 +31,9 @@ Verification script to check if installation is complete and correct.
 ### [API.md](API.md)
 Complete API reference with all endpoints, parameters, examples, and response formats.
 
+### [ANDROID_CERTS.md](ANDROID_CERTS.md)
+How to install and remove the My Tracks CA and client certificate on Android for MQTT over TLS.
+
 ### [COMMANDS.md](COMMANDS.md)
 Quick reference for all commonly used commands (server management, testing, deployment, etc.).
 
