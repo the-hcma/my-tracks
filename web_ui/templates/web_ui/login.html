@@ -88,16 +88,6 @@
             border-color: var(--accent);
         }
 
-        .error-messages {
-            background: rgba(231, 76, 60, 0.1);
-            border: 1px solid var(--error);
-            border-radius: 8px;
-            padding: 0.75rem 1rem;
-            margin-bottom: 1.25rem;
-            font-size: 0.875rem;
-            color: var(--error);
-        }
-
         .password-wrapper {
             position: relative;
         }
@@ -228,7 +218,7 @@
             {% endif %}
 
             {% if form.errors %}
-            <div class="error-messages">
+            <div class="message error">
                 Invalid username or password.
             </div>
             {% endif %}
@@ -307,5 +297,6 @@
             input.focus();
         });
     </script>
+    <script src="{% static 'web_ui/js/messages.js' %}"></script>
 </body>
 </html>

@@ -2537,6 +2537,7 @@ class TestAdminPanelSmtp:
     def test_smtp_test_failed_does_not_save_recipient(self, admin_logged_in_client: Client) -> None:
         """A failed test email does not update the saved recipient in the session."""
         import smtplib
+
         from app.models import SmtpConfig
         SmtpConfig(host='smtp.hcma.info', port=25, from_address='a@b.com').save()
         # Prime session with an existing recipient
@@ -2601,6 +2602,7 @@ class TestAdminPanelSmtp:
     def test_smtp_test_transient_reuses_saved_password(self, admin_logged_in_client: Client) -> None:
         """Transient test with blank password reuses saved config's backend when host matches."""
         import json
+
         from app.models import SmtpConfig
         from app.pki import encrypt_private_key
         saved = SmtpConfig(host='smtp.hcma.info', port=587, from_address='a@b.com')
@@ -2671,6 +2673,7 @@ class TestAdminPanelSmtp:
         """SMTPNotSupportedError for AUTH returns a helpful no-auth-relay message."""
         import json
         import smtplib
+
         from app.models import SmtpConfig
         SmtpConfig(host='smtp.hcma.info', port=25, from_address='a@b.com').save()
         err = smtplib.SMTPNotSupportedError('SMTP AUTH extension not supported by server.')
@@ -2685,6 +2688,7 @@ class TestAdminPanelSmtp:
         """SMTPConnectError returns a helpful connection message."""
         import json
         import smtplib
+
         from app.models import SmtpConfig
         SmtpConfig(host='smtp.hcma.info', port=25, from_address='a@b.com').save()
         err = smtplib.SMTPConnectError(421, b'Service not available')
@@ -2697,9 +2701,12 @@ class TestAdminPanelSmtp:
     def test_smtp_test_includes_public_domain(self, admin_logged_in_client: Client) -> None:
         """Test email body includes the configured PUBLIC_DOMAIN."""
         from unittest.mock import MagicMock
-        from django.test import override_settings
+
         from django.core.mail import EmailMessage as BaseEmailMessage
-        from django.core.mail.backends.smtp import EmailBackend as SmtpEmailBackend
+        from django.core.mail.backends.smtp import \
+            EmailBackend as SmtpEmailBackend
+        from django.test import override_settings
+
         from app.models import SmtpConfig
         SmtpConfig(host='smtp.hcma.info', port=25, from_address='a@b.com').save()
         captured: list[dict[str, str]] = []
@@ -2713,6 +2720,7 @@ class TestAdminPanelSmtp:
                 pass
             # Call send_test_email_via_backend directly to check the email body
             import smtplib
+
             from app.notifications import send_test_email_via_backend
 
             sent_messages: list[BaseEmailMessage] = []
@@ -2731,6 +2739,7 @@ class TestAdminPanelSmtp:
     def test_reset_smtp_deletes_config(self, admin_logged_in_client: Client) -> None:
         """POSTing reset_smtp deletes the saved SmtpConfig and clears the session recipient."""
         import json
+
         from app.models import SmtpConfig
         SmtpConfig(host='smtp.hcma.info', port=587, from_address='a@b.com').save()
         assert_that(SmtpConfig.get(), not_(equal_to(None)))

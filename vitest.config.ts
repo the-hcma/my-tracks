@@ -9,7 +9,7 @@ export default defineConfig({
             provider: 'v8',
             reporter: ['text', 'html'],
             // Only measure coverage on utility modules (not main.ts which requires full DOM)
-            include: ['web_ui/static/web_ui/ts/utils.ts'],
+            include: ['web_ui/static/web_ui/ts/utils.ts', 'web_ui/static/web_ui/ts/messages.ts'],
             exclude: ['web_ui/static/web_ui/ts/**/*.test.ts'],
         },
     },

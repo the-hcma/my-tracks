@@ -349,26 +349,6 @@
             border-color: var(--accent);
         }
 
-        /* ── Messages ── */
-        .message {
-            padding: 0.75rem 1rem;
-            border-radius: 8px;
-            margin-bottom: 1rem;
-            font-size: 0.875rem;
-        }
-
-        .message.success {
-            background: rgba(39, 174, 96, 0.15);
-            border: 1px solid var(--success);
-            color: var(--success);
-        }
-
-        .message.error {
-            background: rgba(231, 76, 60, 0.15);
-            border: 1px solid var(--error);
-            color: var(--error);
-        }
-
         @media (max-width: 600px) {
             .page-container { padding: 0 1rem; }
             .card { padding: 1.25rem; }
@@ -832,5 +812,6 @@
     });
 })();
 </script>
+<script src="{% static 'web_ui/js/messages.js' %}"></script>
 </body>
 </html>
