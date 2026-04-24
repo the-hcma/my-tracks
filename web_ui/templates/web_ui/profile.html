@@ -211,26 +211,6 @@
             background: var(--accent-hover);
         }
 
-        /* ── Messages ── */
-        .message {
-            padding: 0.75rem 1rem;
-            border-radius: 8px;
-            margin-bottom: 1.25rem;
-            font-size: 0.875rem;
-        }
-
-        .message.success {
-            background: rgba(39, 174, 96, 0.15);
-            border: 1px solid var(--success);
-            color: var(--success);
-        }
-
-        .message.error {
-            background: rgba(231, 76, 60, 0.15);
-            border: 1px solid var(--error);
-            color: var(--error);
-        }
-
         /* ── Password fields ── */
         .password-wrapper {
             position: relative;
@@ -646,13 +626,6 @@
 
             {# ── Account tab ── #}
             <div class="tab-panel" id="tab-account">
-                {% if profile_success %}
-                <div class="message success">{{ profile_success }}</div>
-                {% endif %}
-                {% if profile_error %}
-                <div class="message error">{{ profile_error }}</div>
-                {% endif %}
-
                 <h3 class="section-title">Profile</h3>
                 <form method="post" action="{% url 'web_ui:profile' %}">
                     {% csrf_token %}
@@ -674,6 +647,12 @@
                         <input type="email" name="email" id="id_email" value="{{ user.email }}">
                     </div>
                     <button type="submit" class="submit-btn">Save Profile</button>
+                    {% if profile_success %}
+                    <div class="message success">{{ profile_success }}</div>
+                    {% endif %}
+                    {% if profile_error %}
+                    <div class="message error">{{ profile_error }}</div>
+                    {% endif %}
                 </form>
 
                 <hr class="section-divider">
@@ -767,12 +746,6 @@
 
                 <hr class="section-divider">
 
-                {% if password_success %}
-                <div class="message success">{{ password_success }}</div>
-                {% endif %}
-                {% if password_error %}
-                <div class="message error">{{ password_error }}</div>
-                {% endif %}
                 <h3 class="section-title">Change Password</h3>
                 <form method="post" action="{% url 'web_ui:profile' %}" id="change-password-form" data-username="{{ user.username }}">
                     {% csrf_token %}
@@ -804,6 +777,12 @@
                         </div>
                     </div>
                     <button type="submit" class="submit-btn">Change Password</button>
+                    {% if password_success %}
+                    <div class="message success">{{ password_success }}</div>
+                    {% endif %}
+                    {% if password_error %}
+                    <div class="message error">{{ password_error }}</div>
+                    {% endif %}
                 </form>
             </div>
 
@@ -877,13 +856,6 @@
 
             {# ── Locations tab ── #}
             <div class="tab-panel" id="tab-locations">
-                {% if home_location_success %}
-                <div class="message success">{{ home_location_success }}</div>
-                {% endif %}
-                {% if home_location_error %}
-                <div class="message error">{{ home_location_error }}</div>
-                {% endif %}
-
                 <h3 class="section-title">Home Location</h3>
                 <form method="post" action="{% url 'web_ui:profile' %}">
                     {% csrf_token %}
@@ -920,6 +892,12 @@
                     <button type="submit" class="submit-btn">
                         {% if user_profile.home_latitude and user_profile.home_longitude %}Update{% else %}Save{% endif %} Home Location
                     </button>
+                    {% if home_location_success %}
+                    <div class="message success">{{ home_location_success }}</div>
+                    {% endif %}
+                    {% if home_location_error %}
+                    <div class="message error">{{ home_location_error }}</div>
+                    {% endif %}
                 </form>
 
             </div>
@@ -1685,6 +1663,7 @@
         }, 100);
     })();
     </script>
+    <script src="{% static 'web_ui/js/messages.js' %}"></script>
     <script>
     (function() {
         document.querySelectorAll('.action-test-btn').forEach(function(btn) {
@@ -1709,7 +1688,7 @@
                         result.textContent = 'Sent!';
                         result.style.color = 'var(--success)';
                     } else {
-                        result.textContent = data.error;
+                        result.textContent = data.error || 'Failed.';
                         result.style.color = 'var(--error)';
                     }
                 })
@@ -1720,6 +1699,11 @@
                 .finally(function() {
                     btn.disabled = false;
                     btn.textContent = 'Test';
+                    // Auto-clear result after the same duration as message auto-dismiss
+                    setTimeout(function() {
+                        result.textContent = '';
+                        result.style.color = '';
+                    }, window.AUTO_DISMISS_MS);
                 });
             });
         });

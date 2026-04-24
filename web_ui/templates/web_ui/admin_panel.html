@@ -86,25 +86,6 @@
             border-bottom: 2px solid var(--accent);
         }
 
-        .message {
-            padding: 0.75rem 1rem;
-            border-radius: 8px;
-            margin-bottom: 1.25rem;
-            font-size: 0.875rem;
-        }
-
-        .message.success {
-            background: rgba(39, 174, 96, 0.15);
-            border: 1px solid var(--success);
-            color: var(--success);
-        }
-
-        .message.error {
-            background: rgba(231, 76, 60, 0.15);
-            border: 1px solid var(--error);
-            color: var(--error);
-        }
-
         /* Create user form */
         .form-row {
             display: grid;
@@ -762,13 +743,6 @@
             <div id="tab-users" class="tab-panel {% if active_tab == 'users' %}active{% endif %}" {% if active_tab != 'users' %}style="display:none"{% endif %}>
             <h3 class="section-title">Create User</h3>
 
-            {% if create_success %}
-            <div class="message success">{{ create_success }}</div>
-            {% endif %}
-            {% if create_error %}
-            <div class="message error">{{ create_error }}</div>
-            {% endif %}
-
             <form method="post" action="{% url 'web_ui:admin_panel' %}">
                 {% csrf_token %}
                 <input type="hidden" name="form_type" value="create_user">
@@ -818,6 +792,13 @@
                 </div>
                 <button type="submit" class="submit-btn">Create User</button>
             </form>
+            {% if create_success %}
+            <div class="message success">{{ create_success }}</div>
+            {% endif %}
+            {% if create_error %}
+            <div class="message error">{{ create_error }}</div>
+            {% endif %}
+            <div id="user-action-message"></div>
 
             <div style="margin-top: 2rem;">
             <h3 class="section-title">Users</h3>
@@ -921,13 +902,6 @@
             <div id="tab-pki" class="tab-panel {% if active_tab == 'pki' %}active{% endif %}" {% if active_tab != 'pki' %}style="display:none"{% endif %}>
             <h3 class="section-title">PKI — Certificate Authority</h3>
 
-            {% if ca_success %}
-            <div class="message success">{{ ca_success }}</div>
-            {% endif %}
-            {% if ca_error %}
-            <div class="message error">{{ ca_error }}</div>
-            {% endif %}
-
             {% if active_ca %}
             <div class="ca-status">
                 <div class="ca-status-header">
@@ -1001,6 +975,12 @@
                     </div>
                     <button type="submit" class="submit-btn" {% if active_ca %}onclick="return confirm('This will deactivate the current active CA:\n\n  {{ active_ca.common_name }} (expires {{ active_ca.not_valid_after|date:"Y-m-d" }})\n\nAny certificates issued by it will remain valid, but no new ones can be issued from it.\n\nContinue?')"{% endif %}>Generate CA</button>
                 </form>
+                {% if ca_success %}
+                <div class="message success">{{ ca_success }}</div>
+                {% endif %}
+                {% if ca_error %}
+                <div class="message error">{{ ca_error }}</div>
+                {% endif %}
             </div>
 
             {% if ca_history %}
@@ -1055,13 +1035,6 @@
             <hr class="section-divider" style="margin: 2rem 0; border-color: var(--border);">
 
             <h3 class="section-title">PKI — Server Certificate (MQTT TLS)</h3>
-
-            {% if sc_success %}
-            <div class="message success">{{ sc_success }}</div>
-            {% endif %}
-            {% if sc_error %}
-            <div class="message error">{{ sc_error }}</div>
-            {% endif %}
 
             {% if active_sc %}
             <div class="ca-status">
@@ -1165,6 +1138,12 @@
                     </div>
                     <button type="submit" class="submit-btn" {% if active_sc %}onclick="return confirm('This will deactivate the current active server certificate:\n\n  CN: {{ active_sc.common_name }}\n  Expires: {{ active_sc.not_valid_after|date:"Y-m-d" }}\n  SANs: {{ active_sc.san_entries|join:", " }}\n\nA server restart is required for the new certificate to take effect.\n\nContinue?')"{% endif %}>Generate Server Certificate</button>
                 </form>
+                {% if sc_success %}
+                <div class="message success">{{ sc_success }}</div>
+                {% endif %}
+                {% if sc_error %}
+                <div class="message error">{{ sc_error }}</div>
+                {% endif %}
                 {% else %}
                 <p class="ca-no-active">A CA certificate is required before generating a server certificate.</p>
                 {% endif %}
@@ -1224,13 +1203,6 @@
             <hr class="section-divider" style="margin: 2rem 0; border-color: var(--border);">
 
             <h3 class="section-title">PKI — Client Certificates</h3>
-
-            {% if cc_success %}
-            <div class="message success">{{ cc_success }}</div>
-            {% endif %}
-            {% if cc_error %}
-            <div class="message error">{{ cc_error }}</div>
-            {% endif %}
 
             {% if client_certs %}
             <div class="table-scroll">
@@ -1331,10 +1303,17 @@
                     </div>
                     <button type="submit" class="submit-btn">Issue Client Certificate</button>
                 </form>
+                {% if cc_success %}
+                <div class="message success">{{ cc_success }}</div>
+                {% endif %}
+                {% if cc_error %}
+                <div class="message error">{{ cc_error }}</div>
+                {% endif %}
                 {% else %}
                 <p class="ca-no-active">A CA certificate is required before issuing client certificates.</p>
                 {% endif %}
             </div>
+            <div id="p12-message"></div>
 
             <div style="margin-top: 2rem;">
             <h3 class="section-title">PKI — Certificate Revocation List</h3>
@@ -1460,35 +1439,16 @@
             <div id="smtp-test-result" style="margin-top:0.75rem; font-size:0.9rem"></div>
 
             {% if smtp_success %}
-            <div class="message success" style="margin-top:1.25rem">
-                {{ smtp_success }}
-            </div>
+            <div class="message success">{{ smtp_success }}</div>
             {% endif %}
             {% if smtp_error %}
-            <div class="message error" style="margin-top:1.25rem">
-                {{ smtp_error }}
-            </div>
+            <div class="message error">{{ smtp_error }}</div>
             {% endif %}
 
             <script>
             function smtpSetResult(ok, msg) {
                 var container = document.getElementById('smtp-test-result');
-                var color = ok ? 'var(--success)' : 'var(--error,#dc2626)';
-                var span = document.createElement('span');
-                span.style.color = color;
-                span.textContent = msg;
-                var x = document.createElement('button');
-                x.type = 'button';
-                x.setAttribute('aria-label', 'Dismiss');
-                x.textContent = '\u00d7';
-                x.style.cssText = 'margin-left:0.75rem; background:none; border:none; color:inherit; cursor:pointer; font-size:1rem; line-height:1; padding:0; vertical-align:middle';
-                x.addEventListener('click', function() { container.innerHTML = ''; });
-                span.appendChild(x);
-                container.innerHTML = '';
-                container.appendChild(span);
-                if (!ok) {
-                    setTimeout(function() { if (container.firstChild) container.innerHTML = ''; }, 20000);
-                }
+                window.showMessage(container, ok ? 'success' : 'error', msg);
             }
 
             document.getElementById('smtp-test-btn').addEventListener('click', function() {
@@ -1560,7 +1520,7 @@
     <div class="modal-overlay" id="password-modal">
         <div class="modal-card">
             <h3>Set Password for <strong id="modal-username"></strong></h3>
-            <div id="modal-error" class="message error" style="display:none"></div>
+            <div id="modal-error-container"></div>
             <div class="form-group">
                 <label for="modal-password">New Password</label>
                 <div class="password-wrapper">
@@ -1627,10 +1587,12 @@
                         window.location.reload();
                     } else {
                         const data = await resp.json();
-                        alert(data.error || data.detail || 'Action failed');
+                        const msgContainer = document.getElementById('user-action-message');
+                        if (msgContainer) window.showMessage(msgContainer, 'error', data.error || data.detail || 'Action failed.');
                     }
                 } catch {
-                    alert('Network error');
+                    const msgContainer = document.getElementById('user-action-message');
+                    if (msgContainer) window.showMessage(msgContainer, 'error', 'Network error — please try again.');
                 }
             });
         });
@@ -1658,7 +1620,7 @@
             currentUserId = userId;
             document.getElementById('modal-username').textContent = username;
             document.getElementById('modal-password').value = '';
-            document.getElementById('modal-error').style.display = 'none';
+            document.getElementById('modal-error-container').innerHTML = '';
             const modal = document.getElementById('password-modal');
             modal.classList.add('active');
             document.getElementById('modal-password').focus();
@@ -1680,11 +1642,10 @@
 
         async function submitPassword() {
             const password = document.getElementById('modal-password').value;
-            const errorEl = document.getElementById('modal-error');
+            const errorContainer = document.getElementById('modal-error-container');
 
             if (!password || password.length < 8) {
-                errorEl.textContent = 'Password must be at least 8 characters.';
-                errorEl.style.display = 'block';
+                window.showMessage(errorContainer, 'error', 'Password must be at least 8 characters.', { autoDismiss: false });
                 return;
             }
 
@@ -1704,12 +1665,10 @@
                     window.location.reload();
                 } else {
                     const data = await resp.json();
-                    errorEl.textContent = data.error || 'Failed to set password.';
-                    errorEl.style.display = 'block';
+                    window.showMessage(errorContainer, 'error', data.error || 'Failed to set password.', { autoDismiss: false });
                 }
             } catch {
-                errorEl.textContent = 'Network error.';
-                errorEl.style.display = 'block';
+                window.showMessage(errorContainer, 'error', 'Network error.', { autoDismiss: false });
             }
         }
 
@@ -1717,6 +1676,7 @@
             const password = prompt('Enter a password to protect the .p12 file:');
             if (!password) return;
 
+            const p12Container = document.getElementById('p12-message');
             const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
             try {
                 const resp = await fetch(`/api/admin/pki/client-certs/${certId}/download/`, {
@@ -1730,7 +1690,7 @@
                 });
                 if (!resp.ok) {
                     const data = await resp.json();
-                    alert(data.error || 'Download failed.');
+                    if (p12Container) window.showMessage(p12Container, 'error', data.error || 'Download failed.');
                     return;
                 }
                 const blob = await resp.blob();
@@ -1743,7 +1703,7 @@
                 a.remove();
                 URL.revokeObjectURL(url);
             } catch {
-                alert('Network error while downloading .p12 file.');
+                if (p12Container) window.showMessage(p12Container, 'error', 'Network error while downloading .p12 file.');
             }
         }
 
@@ -1816,19 +1776,6 @@
             {% endfor %}
         })();
     </script>
-    <script>
-        document.querySelectorAll('.message').forEach(function(el) {
-            // Skip the password-modal error div which should not auto-dismiss
-            if (el.id === 'modal-error') return;
-            var btn = document.createElement('button');
-            btn.type = 'button';
-            btn.setAttribute('aria-label', 'Dismiss');
-            btn.textContent = '\u00d7';
-            btn.style.cssText = 'float:right; background:none; border:none; color:inherit; cursor:pointer; font-size:1.1rem; line-height:1; margin-left:0.75rem; padding:0';
-            btn.addEventListener('click', function() { el.remove(); });
-            el.insertBefore(btn, el.firstChild);
-            setTimeout(function() { if (el.parentNode) el.remove(); }, 20000);
-        });
-    </script>
+    <script src="{% static 'web_ui/js/messages.js' %}"></script>
 </body>
 </html>

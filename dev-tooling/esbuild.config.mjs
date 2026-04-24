@@ -6,7 +6,6 @@
 
 import * as esbuild from 'esbuild';
 import { existsSync, mkdirSync } from 'fs';
-import { dirname } from 'path';
 
 const isWatch = process.argv.includes('--watch');
 
@@ -19,9 +18,12 @@ if (!existsSync(outDir)) {
 
 /** @type {esbuild.BuildOptions} */
 const buildOptions = {
-    entryPoints: ['web_ui/static/web_ui/ts/main.ts'],
+    entryPoints: [
+        'web_ui/static/web_ui/ts/main.ts',
+        'web_ui/static/web_ui/ts/messages.ts',
+    ],
     bundle: true,
-    outfile: `${outDir}/main.js`,
+    outdir: outDir,
     format: 'iife',
     target: ['es2022', 'chrome100', 'firefox100', 'safari15'],
     minify: !isWatch,
