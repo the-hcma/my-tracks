@@ -319,6 +319,40 @@ class AmqttConnectionFilter(logging.Filter):
         return True
 
 
+# URL prefixes that are WebSocket-only (no HTTP handler registered).
+# HTTP requests to these paths always 404 — that is expected, not a problem.
+_WS_PREFIXES = ('/ws/',)
+
+
+class WebSocketNotFoundFilter(logging.Filter):
+    """Downgrade django.request 404s for WebSocket-only paths to INFO.
+
+    When a browser (or any HTTP client) sends a plain HTTP request to a
+    WebSocket-only endpoint like /ws/locations/, Django's HTTP handler returns
+    404 and logs it at WARNING via log_response().  That WARNING is misleading
+    because the 404 is expected — the path only exists in the WebSocket URL
+    router, not in the HTTP URL conf.
+
+    This filter intercepts those records, improves the message so the cause
+    is immediately clear, and downgrades the level to INFO so it is visible
+    but does not look like a server-side error.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if getattr(record, 'status_code', None) != 404:
+            return True
+        # django.request formats 404s as msg="%s: %s", args=("Not Found", path)
+        args = getattr(record, 'args', ())
+        path = args[1] if isinstance(args, tuple) and len(args) >= 2 else ''
+        if not str(path).startswith(_WS_PREFIXES):
+            return True
+        record.levelno = logging.INFO
+        record.levelname = 'INFO'
+        record.msg = 'HTTP request to WebSocket-only endpoint (no Upgrade header): %s'
+        record.args = (path,)
+        return True
+
+
 # Custom formatter that uses the real system timezone for log timestamps.
 # We cannot rely on time.localtime() because Django overrides TZ to UTC.
 class LocalTimeFormatter(logging.Formatter):
@@ -369,6 +403,9 @@ LOGGING = {
         'amqtt_connection_filter': {
             '()': 'config.settings.AmqttConnectionFilter',
         },
+        'ws_not_found_filter': {
+            '()': 'config.settings.WebSocketNotFoundFilter',
+        },
     },
     'formatters': {
         'verbose': {
@@ -408,6 +445,12 @@ LOGGING = {
         'transitions.core': {
             'handlers': _all_handlers,
             'level': 'WARNING',
+            'propagate': False,
+        },
+        'django.request': {
+            'handlers': _all_handlers,
+            'level': 'INFO',
+            'filters': ['ws_not_found_filter'],
             'propagate': False,
         },
     },
