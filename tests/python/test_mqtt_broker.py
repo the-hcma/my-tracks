@@ -1,6 +1,7 @@
 """Tests for the MQTT broker module."""
 
 import asyncio
+from typing import Any, cast
 import ipaddress
 import logging
 import os
@@ -523,13 +524,13 @@ class TestTLSConfig:
         assert_that(broker._tls_certfile, is_(not_none()))
         assert_that(broker._tls_keyfile, is_(not_none()))
         assert_that(broker._tls_cafile, is_(not_none()))
-        assert_that(os.path.exists(broker._tls_certfile), is_(True))  # type: ignore[arg-type]
-        assert_that(os.path.exists(broker._tls_keyfile), is_(True))  # type: ignore[arg-type]
-        assert_that(os.path.exists(broker._tls_cafile), is_(True))  # type: ignore[arg-type]
+        assert_that(os.path.exists(cast(str, broker._tls_certfile)), is_(True))
+        assert_that(os.path.exists(cast(str, broker._tls_keyfile)), is_(True))
+        assert_that(os.path.exists(cast(str, broker._tls_cafile)), is_(True))
 
-        with open(broker._tls_certfile, "rb") as f:  # type: ignore[arg-type]
+        with open(cast(str, broker._tls_certfile), "rb") as f:
             assert_that(f.read(), equal_to(tls_config.server_cert_pem))
-        with open(broker._tls_keyfile, "rb") as f:  # type: ignore[arg-type]
+        with open(cast(str, broker._tls_keyfile), "rb") as f:
             assert_that(f.read(), equal_to(tls_config.server_key_pem))
 
         broker._cleanup_tls_files()
@@ -555,7 +556,7 @@ class TestTLSConfig:
             tls_config=tls_config,
             use_owntracks_handler=False,
         )
-        paths: list[str] = [broker._tls_certfile, broker._tls_keyfile, broker._tls_cafile]  # type: ignore[list-item]
+        paths: list[str] = [cast(str, broker._tls_certfile), cast(str, broker._tls_keyfile), cast(str, broker._tls_cafile)]
         for p in paths:
             assert_that(os.path.exists(p), is_(True))
 
@@ -580,7 +581,7 @@ class TestTLSConfig:
             tls_config=tls_config,
             use_owntracks_handler=False,
         )
-        with open(broker._tls_cafile, "rb") as f:  # type: ignore[arg-type]
+        with open(cast(str, broker._tls_cafile), "rb") as f:
             content = f.read()
         assert_that(content, equal_to(b"ca-cert\n" + crl_data))
         broker._cleanup_tls_files()
@@ -897,7 +898,7 @@ class TestReloadTLS:
             use_owntracks_handler=False,
         )
         old_certfile = broker._tls_certfile
-        assert_that(os.path.exists(old_certfile), is_(True))  # type: ignore[arg-type]
+        assert_that(os.path.exists(cast(str, old_certfile)), is_(True))
 
         broker._running = True
         broker._broker = AsyncMock()
@@ -905,7 +906,7 @@ class TestReloadTLS:
         with patch("app.mqtt.broker.Broker", return_value=AsyncMock()):
             await broker.reload_tls(None, mqtt_tls_port=-1)
 
-        assert_that(os.path.exists(old_certfile), is_(False))  # type: ignore[arg-type]
+        assert_that(os.path.exists(cast(str, old_certfile)), is_(False))
 
     @pytest.mark.asyncio
     async def test_reload_updates_config(self) -> None:

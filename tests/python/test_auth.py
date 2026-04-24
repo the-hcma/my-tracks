@@ -2,7 +2,7 @@
 # pyright: reportCallIssue=none
 # pyright: reportArgumentType=none
 
-from typing import Any
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
@@ -563,7 +563,7 @@ class TestCommandApiKeyAuthentication:
         request = self._make_request("Bearer my-secret")
         result = auth.authenticate(request)
         assert_that(result, is_not(None))
-        assert_that(result[1], equal_to("my-secret"))  # type: ignore[index]
+        assert_that(cast(Any, result)[1], equal_to("my-secret"))
 
     @patch("app.auth.get_command_api_key", return_value="my-secret")
     def test_bearer_case_insensitive(self, mock_key: Any) -> None:
@@ -572,7 +572,7 @@ class TestCommandApiKeyAuthentication:
         request = self._make_request("bearer my-secret")
         result = auth.authenticate(request)
         assert_that(result, is_not(None))
-        assert_that(result[1], equal_to("my-secret"))  # type: ignore[index]
+        assert_that(cast(Any, result)[1], equal_to("my-secret"))
 
     @patch("app.auth.get_command_api_key", return_value="my-secret")
     def test_single_word_header_raises(self, mock_key: Any) -> None:
