@@ -5,6 +5,7 @@ import atexit
 import concurrent.futures
 import logging
 import os
+import subprocess
 import sys
 import threading
 import warnings
@@ -435,6 +436,37 @@ def _is_management_command() -> bool:
     return len(sys.argv) >= 2
 
 
+_REPO_ROOT = Path(__file__).parent.parent
+
+
+def _log_startup_commit() -> None:
+    """Log the git commit the server is running from, if available.
+
+    Resolution order:
+    1. ``git rev-parse`` — works in development and worktrees where ``.git`` is present.
+    2. ``BUILD_COMMIT`` env var — set at Docker build time for production images
+       where ``.git`` is not available.
+    """
+    commit: str | None = None
+
+    try:
+        result = subprocess.run(
+            ['git', '-C', str(_REPO_ROOT), 'rev-parse', '--short', 'HEAD'],
+            capture_output=True, text=True, check=True,
+        )
+        commit = result.stdout.strip() or None
+    except Exception:
+        pass
+
+    if commit is None:
+        commit = os.environ.get('BUILD_COMMIT') or None
+
+    if commit:
+        logger.info("Running commit: %s", commit)
+    else:
+        logger.debug("Could not determine git commit (not a git repo, git unavailable, and BUILD_COMMIT not set)")
+
+
 class MyTracksConfig(AppConfig):
     """Configuration for the my_tracks app."""
 
@@ -467,6 +499,7 @@ class MyTracksConfig(AppConfig):
             warnings.filterwarnings("ignore", category=RuntimeWarning)
             _check_database_ready()
 
+        _log_startup_commit()
         _log_web_cert_info()
 
         http_port = get_http_port()

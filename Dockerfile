@@ -52,10 +52,12 @@ COPY --from=python-build --chown=app:app /app/scripts/docker-entrypoint docker-e
 
 RUN mkdir -p /app/logs && chown app:app /app/logs
 
+ARG BUILD_COMMIT=
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    DJANGO_SETTINGS_MODULE=config.settings
+    DJANGO_SETTINGS_MODULE=config.settings \
+    BUILD_COMMIT=${BUILD_COMMIT}
 
 EXPOSE 8080 8883
 
