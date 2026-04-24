@@ -4,6 +4,7 @@ Tests for WebSocket consumer functionality.
 import pytest
 from channels.layers import get_channel_layer
 from channels.testing import WebsocketCommunicator
+from typing import Any, cast
 from hamcrest import assert_that, equal_to, has_key, is_not, none
 
 from config.asgi import application
@@ -38,7 +39,7 @@ class TestLocationConsumer:
 
         # Simulate a location update being broadcast
         channel_layer = get_channel_layer()
-        assert_that(channel_layer, is_not(none()))  # Type guard for Pylance
+        assert_that(channel_layer, is_not(none()))
         test_location = {
             'latitude': '37.774900',
             'longitude': '-122.419400',
@@ -46,7 +47,7 @@ class TestLocationConsumer:
             'timestamp_unix': 1705329600
         }
 
-        await channel_layer.group_send(  # type: ignore[union-attr]
+        await cast(Any, channel_layer).group_send(
             "locations",
             {
                 "type": "location_update",
@@ -92,7 +93,7 @@ class TestLocationConsumer:
             'disconnected_at': '2024-01-01T12:00:00+00:00',
         }
 
-        await channel_layer.group_send(  # type: ignore[union-attr]
+        await cast(Any, channel_layer).group_send(
             "locations",
             {
                 "type": "device_status",

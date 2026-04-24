@@ -3,6 +3,7 @@
 
 import re
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import patch
 
 import netifaces
@@ -582,8 +583,8 @@ class TestThemeCSS:
         assert_that(light_bg, is_(not_none()))
         assert_that(dark_bg, is_(not_none()))
         assert_that(
-            light_bg.group(1).strip(),  # type: ignore[union-attr]
-            is_not(equal_to(dark_bg.group(1).strip())),  # type: ignore[union-attr]
+            cast(Any, light_bg).group(1).strip(),
+            is_not(equal_to(cast(Any, dark_bg).group(1).strip())),
         )
 
     def test_light_and_dark_use_different_text_main(self) -> None:
@@ -598,8 +599,8 @@ class TestThemeCSS:
         assert_that(light_text, is_(not_none()))
         assert_that(dark_text, is_(not_none()))
         assert_that(
-            light_text.group(1).strip(),  # type: ignore[union-attr]
-            is_not(equal_to(dark_text.group(1).strip())),  # type: ignore[union-attr]
+            cast(Any, light_text).group(1).strip(),
+            is_not(equal_to(cast(Any, dark_text).group(1).strip())),
         )
 
 
@@ -1173,7 +1174,7 @@ class TestAdminPanelPKI:
 
         ca = CertificateAuthority.objects.filter(is_active=True).first()
         assert_that(ca, is_(not_none()))
-        assert_that(ca.common_name, equal_to('Test CA'))  # type: ignore[union-attr]
+        assert_that(cast(Any, ca).common_name, equal_to('Test CA'))
 
     def test_generate_ca_shows_active_ca_details(self, admin_logged_in_client: Client) -> None:
         """After generating, the active CA details should appear on the page."""
@@ -1357,7 +1358,7 @@ class TestAdminPanelPKI:
 
         ca = CertificateAuthority.objects.filter(is_active=True).first()
         assert_that(ca, is_(not_none()))
-        assert_that(ca.key_size, equal_to(2048))  # type: ignore[union-attr]
+        assert_that(cast(Any, ca).key_size, equal_to(2048))
 
     def test_generate_ca_default_key_size(self, admin_logged_in_client: Client) -> None:
         """Generating CA without key size should default to 4096."""
@@ -1371,7 +1372,7 @@ class TestAdminPanelPKI:
 
         ca = CertificateAuthority.objects.filter(is_active=True).first()
         assert_that(ca, is_(not_none()))
-        assert_that(ca.key_size, equal_to(4096))  # type: ignore[union-attr]
+        assert_that(cast(Any, ca).key_size, equal_to(4096))
 
     def test_generate_ca_invalid_key_size(self, admin_logged_in_client: Client) -> None:
         """Invalid key size should show an error."""
@@ -1471,7 +1472,7 @@ class TestAdminPanelServerCert:
 
         sc = ServerCertificate.objects.filter(is_active=True).first()
         assert_that(sc, is_(not_none()))
-        assert_that(sc.common_name, equal_to('myserver.local'))  # type: ignore[union-attr]
+        assert_that(cast(Any, sc).common_name, equal_to('myserver.local'))
 
     def test_active_server_cert_details(self, admin_logged_in_client: Client) -> None:
         """After generating, the active server cert details should appear."""
@@ -1533,7 +1534,7 @@ class TestAdminPanelServerCert:
         assert_that(content, contains_string('generated successfully'))
         sc = ServerCertificate.objects.filter(is_active=True).first()
         assert_that(sc, is_(not_none()))
-        assert_that(sc.san_entries, has_item('testserver'))  # type: ignore[union-attr]
+        assert_that(cast(Any, sc).san_entries, has_item('testserver'))
 
     def test_generate_server_cert_invalid_key_size(self, admin_logged_in_client: Client) -> None:
         """Invalid key size should show an error."""
@@ -1685,7 +1686,7 @@ class TestAdminPanelServerCert:
         assert_that(content, contains_string('generated successfully'))
         sc = ServerCertificate.objects.filter(is_active=True).first()
         assert_that(sc, is_(not_none()))
-        san_list: list[str] = sc.san_entries  # type: ignore[union-attr]
+        san_list: list[str] = cast(Any, sc).san_entries
         assert_that(san_list, has_item('10.0.0.1'))
         assert_that(san_list, has_item('192.168.1.1'))
         assert_that(san_list, has_item('mytracks.example.com'))
@@ -1706,7 +1707,7 @@ class TestAdminPanelServerCert:
         })
         sc = ServerCertificate.objects.filter(is_active=True).first()
         assert_that(sc, is_(not_none()))
-        san_list: list[str] = sc.san_entries  # type: ignore[union-attr]
+        san_list: list[str] = cast(Any, sc).san_entries
         testserver_count = sum(1 for s in san_list if s == 'testserver')
         assert_that(testserver_count, equal_to(1))
 
@@ -1782,7 +1783,7 @@ class TestAdminPanelClientCert:
 
         cert = ClientCertificate.objects.filter(user=user, is_active=True).first()
         assert_that(cert, is_(not_none()))
-        assert_that(cert.common_name, equal_to('testuser'))  # type: ignore[union-attr]
+        assert_that(cast(Any, cert).common_name, equal_to('testuser'))
 
     def test_issue_cert_without_user_selection(self, admin_logged_in_client: Client) -> None:
         """Issuing a cert without selecting a user should show an error."""
@@ -2391,7 +2392,8 @@ class TestAdminPanelSmtp:
         config = SmtpConfig(host='smtp.example.com', port=587, from_address='a@b.com')
         config.encrypted_password = encrypt_private_key(b'original-password')
         config.save()
-        original_encrypted = bytes(config.encrypted_password)  # type: ignore[arg-type]
+        assert_that(config.encrypted_password, is_(not_none()))
+        original_encrypted = bytes(cast(Any, config.encrypted_password))
 
         admin_logged_in_client.post('/admin-panel/', {
             'form_type': 'save_smtp',
@@ -2402,7 +2404,8 @@ class TestAdminPanelSmtp:
             'smtp_from_address': 'a@b.com',
         })
         config.refresh_from_db()
-        assert_that(bytes(config.encrypted_password), equal_to(original_encrypted))  # type: ignore[arg-type]
+        assert_that(config.encrypted_password, is_(not_none()))
+        assert_that(bytes(cast(Any, config.encrypted_password)), equal_to(original_encrypted))
 
     def test_save_smtp_missing_host(self, admin_logged_in_client: Client) -> None:
         """POST with blank host shows smtp_error."""
@@ -2723,7 +2726,7 @@ class TestAdminPanelSmtp:
             sent_messages: list[BaseEmailMessage] = []
 
             class CapturingBackend(SmtpEmailBackend):
-                def send_messages(self, messages: list[BaseEmailMessage]) -> int:  # type: ignore[override]
+                def send_messages(self, messages: Any) -> int:
                     sent_messages.extend(messages)
                     return len(messages)
 

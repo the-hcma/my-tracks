@@ -6,6 +6,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import patch
 
 from hamcrest import (assert_that, calling, contains_string, equal_to,
@@ -37,7 +38,7 @@ class TestGetVersion:
         text = PYPROJECT.read_text()
         match = re.search(r'^version\s*=\s*"(\d+\.\d+\.\d+)"', text, re.MULTILINE)
         assert_that(match, is_(not_none()))
-        assert_that(get_version(), equal_to(match.group(1)))  # type: ignore[union-attr]
+        assert_that(get_version(), equal_to(cast(Any, match).group(1)))
 
     def test_returns_unknown_when_package_not_found(self) -> None:
         with patch("app.utils._get_pkg_version", side_effect=Exception("nope")):
@@ -152,16 +153,17 @@ class TestReleaseScriptFunctional:
 # ── Version bump logic (unit-level) ────────────────────────────────────────
 
 
-def _load_release_module() -> object:
+def _load_release_module() -> Any:
     """Load the release script as a Python module (extensionless file).
 
     Since tests run inside the venv already, _ensure_uv is a no-op.
     """
     loader = importlib.machinery.SourceFileLoader("release_mod", str(RELEASE_SCRIPT))
     spec = importlib.util.spec_from_loader("release_mod", loader)
-    assert spec is not None
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    assert_that(spec, is_(not_none()))
+    mod = importlib.util.module_from_spec(cast(Any, spec))
+    assert_that(cast(Any, spec).loader, is_(not_none()))
+    cast(Any, spec).loader.exec_module(mod)
     return mod
 
 
@@ -170,21 +172,21 @@ class TestBumpLogic:
 
     def test_bump_patch(self) -> None:
         mod = _load_release_module()
-        assert_that(mod._bump("1.2.3", mod.BumpPart.patch), equal_to("1.2.4"))  # type: ignore[attr-defined]
+        assert_that(mod._bump("1.2.3", mod.BumpPart.patch), equal_to("1.2.4"))
 
     def test_bump_minor(self) -> None:
         mod = _load_release_module()
-        assert_that(mod._bump("1.2.3", mod.BumpPart.minor), equal_to("1.3.0"))  # type: ignore[attr-defined]
+        assert_that(mod._bump("1.2.3", mod.BumpPart.minor), equal_to("1.3.0"))
 
     def test_bump_major(self) -> None:
         mod = _load_release_module()
-        assert_that(mod._bump("1.2.3", mod.BumpPart.major), equal_to("2.0.0"))  # type: ignore[attr-defined]
+        assert_that(mod._bump("1.2.3", mod.BumpPart.major), equal_to("2.0.0"))
 
     def test_bump_from_zero(self) -> None:
         mod = _load_release_module()
-        assert_that(mod._bump("0.0.0", mod.BumpPart.patch), equal_to("0.0.1"))  # type: ignore[attr-defined]
-        assert_that(mod._bump("0.0.0", mod.BumpPart.minor), equal_to("0.1.0"))  # type: ignore[attr-defined]
-        assert_that(mod._bump("0.0.0", mod.BumpPart.major), equal_to("1.0.0"))  # type: ignore[attr-defined]
+        assert_that(mod._bump("0.0.0", mod.BumpPart.patch), equal_to("0.0.1"))
+        assert_that(mod._bump("0.0.0", mod.BumpPart.minor), equal_to("0.1.0"))
+        assert_that(mod._bump("0.0.0", mod.BumpPart.major), equal_to("1.0.0"))
 
 
 # ── About page shows version ───────────────────────────────────────────────
