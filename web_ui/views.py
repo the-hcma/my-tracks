@@ -716,6 +716,18 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
                     request_host,
                 )
 
+            # Modern TLS clients validate against SANs only — the CN is
+            # ignored for hostname verification (RFC 6125, deprecated in
+            # RFC 9525). Always ensure the CN is also in the SAN list so
+            # that clients connecting by that hostname aren't rejected.
+            if sc_cn and sc_cn not in sc_san_list:
+                sc_san_list.append(sc_cn)
+                logger.info(
+                    "Auto-included CN '%s' in server certificate SANs "
+                    "(CN alone is not checked by modern TLS clients)",
+                    sc_cn,
+                )
+
             active_ca_obj = CertificateAuthority.objects.filter(is_active=True).first()
 
             if not active_ca_obj:

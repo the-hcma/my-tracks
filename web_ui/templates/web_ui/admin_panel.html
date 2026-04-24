@@ -1715,10 +1715,14 @@
             const addBtn = document.getElementById('san-add-btn');
             const hostWarning = document.getElementById('san-host-warning');
             const hostWarningName = document.getElementById('san-host-warning-name');
+            const cnInput = document.getElementById('id_sc_common_name');
             if (!tagsContainer || !hiddenInput) return;
 
             const requestHost = location.hostname;
             const sans = new Set();
+            // Track the CN value that was auto-added so we can replace it
+            // when the CN field changes without removing user-added entries.
+            let autoCnValue = '';
 
             if (hostWarningName) hostWarningName.textContent = requestHost;
 
@@ -1741,6 +1745,7 @@
                 tag.querySelector('.san-label').textContent = value;
                 tag.querySelector('.san-remove').addEventListener('click', function() {
                     sans.delete(value);
+                    if (value === autoCnValue) autoCnValue = '';
                     tag.remove();
                     syncHidden();
                 });
@@ -1752,6 +1757,16 @@
                 if (!v || sans.has(v)) return;
                 sans.add(v);
                 renderTag(v);
+                syncHidden();
+            }
+
+            function removeSan(value) {
+                if (!value || !sans.has(value)) return;
+                sans.delete(value);
+                const tags = tagsContainer.querySelectorAll('.san-tag');
+                tags.forEach(function(tag) {
+                    if (tag.querySelector('.san-label').textContent === value) tag.remove();
+                });
                 syncHidden();
             }
 
@@ -1770,10 +1785,28 @@
                 });
             }
 
+            // Keep CN in SANs automatically. When the CN field changes,
+            // remove the previous auto-added CN and add the new one.
+            // Modern TLS clients check SANs only, not the CN (RFC 9525).
+            if (cnInput) {
+                cnInput.addEventListener('input', function() {
+                    const newCn = cnInput.value.trim();
+                    if (autoCnValue && autoCnValue !== newCn) removeSan(autoCnValue);
+                    if (newCn) { addSan(newCn); autoCnValue = newCn; }
+                    else autoCnValue = '';
+                });
+            }
+
             /* Seed with auto-detected values from server */
             {% for san in default_san_list %}
             addSan('{{ san }}');
             {% endfor %}
+
+            /* Seed CN into SANs on load */
+            if (cnInput && cnInput.value.trim()) {
+                autoCnValue = cnInput.value.trim();
+                addSan(autoCnValue);
+            }
         })();
     </script>
     <script src="{% static 'web_ui/js/messages.js' %}"></script>

@@ -1711,6 +1711,44 @@ class TestAdminPanelServerCert:
         testserver_count = sum(1 for s in san_list if s == 'testserver')
         assert_that(testserver_count, equal_to(1))
 
+    def test_cn_auto_included_in_sans(self, admin_logged_in_client: Client) -> None:
+        """CN is auto-included in SANs — modern TLS clients check SANs only."""
+        from app.models import ServerCertificate
+
+        self._create_ca(admin_logged_in_client)
+        admin_logged_in_client.post('/admin-panel/', {
+            'form_type': 'generate_server_cert',
+            'sc_common_name': 'mqtt.hcma.info',
+            'sc_validity_days': '365',
+            'sc_key_size': '2048',
+            # Deliberately omit the CN from the SAN list
+            'sc_san_entries': '192.168.1.10',
+        })
+        sc = ServerCertificate.objects.filter(is_active=True).first()
+        assert_that(sc, is_(not_none()))
+        san_list: list[str] = cast(Any, sc).san_entries
+        assert_that(san_list, has_item('mqtt.hcma.info'))
+
+    def test_cn_not_duplicated_when_already_in_sans(
+        self, admin_logged_in_client: Client,
+    ) -> None:
+        """CN is not duplicated if already explicitly listed in the SANs."""
+        from app.models import ServerCertificate
+
+        self._create_ca(admin_logged_in_client)
+        admin_logged_in_client.post('/admin-panel/', {
+            'form_type': 'generate_server_cert',
+            'sc_common_name': 'mqtt.hcma.info',
+            'sc_validity_days': '365',
+            'sc_key_size': '2048',
+            'sc_san_entries': 'mqtt.hcma.info, 192.168.1.10',
+        })
+        sc = ServerCertificate.objects.filter(is_active=True).first()
+        assert_that(sc, is_(not_none()))
+        san_list: list[str] = cast(Any, sc).san_entries
+        cn_count = sum(1 for s in san_list if s == 'mqtt.hcma.info')
+        assert_that(cn_count, equal_to(1))
+
     def test_san_host_warning_in_template(self, admin_logged_in_client: Client) -> None:
         """The SAN editor should contain the host warning element."""
         self._create_ca(admin_logged_in_client)
