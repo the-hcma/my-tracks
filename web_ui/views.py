@@ -864,13 +864,19 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
             try:
                 cc = ClientCertificate.objects.get(pk=cc_id)
                 if cc.revoked:
-                    context['cc_error'] = f"Certificate for '{cc.common_name}' is already revoked."
+                    context['cc_error'] = (
+                        f"Certificate for '{cc.common_name}'"
+                        f" (fingerprint={cc.fingerprint}) is already revoked."
+                    )
                 else:
                     cc.revoked = True
                     cc.is_active = False
                     cc.revoked_at = tz.now()
                     cc.save()
-                    context['cc_success'] = f"Certificate for '{cc.common_name}' revoked."
+                    context['cc_success'] = (
+                        f"Certificate for '{cc.common_name}'"
+                        f" (fingerprint={cc.fingerprint}) revoked."
+                    )
             except ClientCertificate.DoesNotExist:
                 context['cc_error'] = 'Client certificate not found.'
 
@@ -882,8 +888,12 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
                     context['cc_error'] = 'Cannot expunge an active certificate. Revoke it first.'
                 else:
                     cc_name = cc.common_name
+                    cc_fingerprint = cc.fingerprint
                     cc.delete()
-                    context['cc_success'] = f"Certificate for '{cc_name}' permanently deleted."
+                    context['cc_success'] = (
+                        f"Certificate for '{cc_name}'"
+                        f" (fingerprint={cc_fingerprint}) permanently deleted."
+                    )
             except ClientCertificate.DoesNotExist:
                 context['cc_error'] = 'Client certificate not found.'
 

@@ -1070,14 +1070,14 @@ class ServerCertificateViewSet(viewsets.ViewSet):
 
         if not cert.is_active:
             return Response(
-                {"error": f"Server cert '{cert.common_name}' is already inactive"},
+                {"error": f"Server cert '{cert.common_name}' (fingerprint={cert.fingerprint}) is already inactive"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         cert.is_active = False
         cert.save()
         return Response(
-            {"detail": f"Server cert '{cert.common_name}' has been deactivated."},
+            {"detail": f"Server cert '{cert.common_name}' (fingerprint={cert.fingerprint}) has been deactivated."},
             status=status.HTTP_200_OK,
         )
 
@@ -1129,9 +1129,10 @@ class ServerCertificateViewSet(viewsets.ViewSet):
             )
 
         cert_name = cert.common_name
+        cert_fingerprint = cert.fingerprint
         cert.delete()
         return Response(
-            {"detail": f"Server cert '{cert_name}' permanently deleted."},
+            {"detail": f"Server cert '{cert_name}' (fingerprint={cert_fingerprint}) permanently deleted."},
             status=status.HTTP_200_OK,
         )
 
@@ -1265,7 +1266,7 @@ class ClientCertificateViewSet(viewsets.ViewSet):
 
         if cert.revoked:
             return Response(
-                {"error": f"Certificate for '{cert.common_name}' is already revoked"},
+                {"error": f"Certificate for '{cert.common_name}' (fingerprint={cert.fingerprint}) is already revoked"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1274,7 +1275,7 @@ class ClientCertificateViewSet(viewsets.ViewSet):
         cert.revoked_at = timezone.now()
         cert.save()
         return Response(
-            {"detail": f"Certificate for '{cert.common_name}' has been revoked."},
+            {"detail": f"Certificate for '{cert.common_name}' (fingerprint={cert.fingerprint}) has been revoked."},
             status=status.HTTP_200_OK,
         )
 
@@ -1296,9 +1297,10 @@ class ClientCertificateViewSet(viewsets.ViewSet):
             )
 
         cert_name = cert.common_name
+        cert_fingerprint = cert.fingerprint
         cert.delete()
         return Response(
-            {"detail": f"Certificate for '{cert_name}' permanently deleted."},
+            {"detail": f"Certificate for '{cert_name}' (fingerprint={cert_fingerprint}) permanently deleted."},
             status=status.HTTP_200_OK,
         )
 
