@@ -15,7 +15,7 @@ class Migration(migrations.Migration):
             name="last_location_at",
             field=models.DateTimeField(
                 blank=True,
-                help_text="Last time a GPS location report was received from this device",
+                help_text="Last time a GPS location fix was received from this device",
                 null=True,
             ),
         ),
