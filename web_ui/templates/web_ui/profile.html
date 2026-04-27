@@ -1159,7 +1159,7 @@
                                 {% endif %}
                             </td>
                             <td class="muted">{{ t.device.name|default:t.device.device_id }}</td>
-                            <td class="muted">{{ t.timestamp|date:"Y-m-d H:i" }}</td>
+                            <td class="muted js-transition-time" data-utc="{{ t.timestamp|date:'c' }}">{{ t.timestamp|date:"Y-m-d H:i" }} <span class="tz-badge">UTC</span></td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -1757,6 +1757,22 @@
 
             cell.textContent = fmt.format(lastSeen) + '\u00a0';
             cell.appendChild(badge);
+        });
+    })();
+
+    // ── Geofences tab: transition timestamps in browser timezone ──────────
+    (function() {
+        var fmt = new Intl.DateTimeFormat(navigator.language, {
+            year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit',
+            timeZoneName: 'short',
+        });
+        document.querySelectorAll('.js-transition-time[data-utc]').forEach(function(cell) {
+            var utc = cell.getAttribute('data-utc');
+            if (!utc) return;
+            var d = new Date(utc);
+            if (isNaN(d.getTime())) return;
+            cell.textContent = fmt.format(d);
         });
     })();
 
