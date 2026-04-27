@@ -199,6 +199,32 @@ class TestLocationSerializerRead:
         data = LocationSerializer(loc).data
         assert_that(data["device_name"], equal_to("fallback01"))
 
+    def test_device_name_includes_owner_prefix(self, db: Any) -> None:
+        """device_name prefixes with 'owner/' when the device has an owner."""
+        owner = User.objects.create_user(username="alice_dn", password="pw")
+        dev = Device.objects.create(device_id="pixel7", name="Pixel 7", owner=owner)
+        loc = Location.objects.create(
+            device=dev,
+            latitude=Decimal("40.0"),
+            longitude=Decimal("-74.0"),
+            timestamp=timezone.now(),
+        )
+        data = LocationSerializer(loc).data
+        assert_that(data["device_name"], equal_to("alice_dn/Pixel 7"))
+
+    def test_device_name_owner_prefix_with_fallback_device_id(self, db: Any) -> None:
+        """device_name uses owner/device_id when name is the auto-generated default."""
+        owner = User.objects.create_user(username="bob_dn", password="pw")
+        dev = Device.objects.create(device_id="tracker01", name="Device tracker01", owner=owner)
+        loc = Location.objects.create(
+            device=dev,
+            latitude=Decimal("40.0"),
+            longitude=Decimal("-74.0"),
+            timestamp=timezone.now(),
+        )
+        data = LocationSerializer(loc).data
+        assert_that(data["device_name"], equal_to("bob_dn/tracker01"))
+
     def test_device_id_display_without_owner(self, location: Location) -> None:
         """device_id_display returns plain device_id when device has no owner."""
         data = LocationSerializer(location).data

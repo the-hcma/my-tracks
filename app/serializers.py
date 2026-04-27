@@ -125,11 +125,15 @@ class LocationSerializer(serializers.ModelSerializer):
     timestamp_unix = serializers.SerializerMethodField()
 
     def get_device_name(self, obj: Location) -> str:
-        """Return the device name for display."""
-        # Return custom name if set, otherwise owner/device_id
-        if obj.device.name and not obj.device.name.startswith('Device '):
-            return obj.device.name
-        return self.get_device_id_display(obj)
+        """Return the device name for display, always prefixed with owner/ when owned."""
+        name = (
+            obj.device.name
+            if (obj.device.name and not obj.device.name.startswith('Device '))
+            else obj.device.device_id
+        )
+        if obj.device.owner_id and obj.device.owner:
+            return f"{obj.device.owner.username}/{name}"
+        return name
 
     def get_device_id_display(self, obj: Location) -> str:
         """Return owner/device_id for display, or just device_id if no owner."""
