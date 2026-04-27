@@ -40,7 +40,7 @@ dependencies = [
     "pip-audit>=2.10.0",
     "idna==3.12",
     "certifi==2026.4.22",
-    "pathspec==1.1.0",
+    "pathspec==1.1.1",
     "pip==26.1",
 ]
 
