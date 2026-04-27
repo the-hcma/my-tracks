@@ -363,13 +363,14 @@ class OwnTracksMessageHandler:
                 transport=transport, tls_identity=tls_identity, tls_cn=tls_cn,
             )
         elif msg_type == "lwt":
-            await self._handle_lwt(message, topic_info, transport=transport)
+            await self._handle_lwt(message, topic_info, transport=transport, mqtt_user=mqtt_user)
         elif msg_type == "transition":
             await self._handle_transition(
                 message, topic_info, transport=transport, tls_identity=tls_identity,
+                mqtt_user=mqtt_user,
             )
         elif msg_type == "waypoints":
-            await self._handle_waypoints(message, topic_info, transport=transport)
+            await self._handle_waypoints(message, topic_info, transport=transport, mqtt_user=mqtt_user)
         else:
             logger.debug("Unhandled OwnTracks message type: %s", msg_type)
 
@@ -412,6 +413,7 @@ class OwnTracksMessageHandler:
         topic_info: dict[str, str],
         *,
         transport: str = "mqtt",
+        mqtt_user: str = "",
     ) -> None:
         """Handle an LWT message."""
         lwt_data = extract_lwt_data(message, topic_info)
@@ -419,6 +421,8 @@ class OwnTracksMessageHandler:
             return
 
         lwt_data["transport"] = transport
+        if mqtt_user:
+            lwt_data["mqtt_user"] = mqtt_user
 
         for callback in self._lwt_callbacks:
             try:
@@ -435,6 +439,7 @@ class OwnTracksMessageHandler:
         *,
         transport: str = "mqtt",
         tls_identity: str = "",
+        mqtt_user: str = "",
     ) -> None:
         """Handle a transition message."""
         transition_data = extract_transition_data(message, topic_info)
@@ -443,6 +448,8 @@ class OwnTracksMessageHandler:
 
         transition_data["transport"] = transport
         transition_data["tls_identity"] = tls_identity
+        if mqtt_user:
+            transition_data["mqtt_user"] = mqtt_user
 
         for callback in self._transition_callbacks:
             try:
@@ -458,6 +465,7 @@ class OwnTracksMessageHandler:
         topic_info: dict[str, str],
         *,
         transport: str = "mqtt",
+        mqtt_user: str = "",
     ) -> None:
         """Handle an incoming waypoint list message from a device."""
         waypoint_data = extract_waypoint_data(message, topic_info)
@@ -465,6 +473,8 @@ class OwnTracksMessageHandler:
             return
 
         waypoint_data["transport"] = transport
+        if mqtt_user:
+            waypoint_data["mqtt_user"] = mqtt_user
 
         for callback in self._waypoint_callbacks:
             try:

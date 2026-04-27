@@ -68,6 +68,13 @@ def get_channel_layer_lazy() -> "BaseChannelLayer | None":
         return None
 
 
+def _device_display(data: dict[str, Any]) -> str:
+    """Return 'owner/device_id' when mqtt_user is known, else plain device_id."""
+    device = data.get("device", "")
+    user = data.get("mqtt_user", "")
+    return f"{user}/{device}" if user else str(device)
+
+
 def save_location_to_db(location_data: dict[str, Any]) -> dict[str, Any] | None:
     """
     Save location data to the database.
@@ -157,7 +164,7 @@ def save_lwt_to_db(lwt_data: dict[str, Any]) -> dict[str, Any] | None:
 
         # Find the device
         try:
-            device = Device.objects.get(device_id=device_id)
+            device = Device.objects.select_related("owner").get(device_id=device_id)
         except Device.DoesNotExist:
             logger.warning("LWT received for unknown device: %s", device_id)
             return None
@@ -183,8 +190,12 @@ def save_lwt_to_db(lwt_data: dict[str, Any]) -> dict[str, Any] | None:
             },
         )
 
+        device_display = (
+            f"{device.owner.username}/{device_id}" if device.owner else device_id
+        )
         return {
             "device_id": device_id,
+            "device_display": device_display,
             "is_online": False,
             "event": "device_offline",
             "disconnected_at": lwt_data["disconnected_at"].isoformat(),
@@ -256,7 +267,7 @@ def save_transition_to_db(transition_data: dict[str, Any]) -> dict[str, Any] | N
     try:
         device_id = transition_data["device"]
         try:
-            device = Device.objects.get(device_id=device_id)
+            device = Device.objects.select_related("owner").get(device_id=device_id)
         except Device.DoesNotExist:
             logger.warning("Transition received for unknown device: %s", device_id)
             return None
@@ -278,9 +289,13 @@ def save_transition_to_db(transition_data: dict[str, Any]) -> dict[str, Any] | N
 
         _fire_transition_actions(transition)
 
+        device_display = (
+            f"{device.owner.username}/{device_id}" if device.owner else device_id
+        )
         return {
             "id": transition.pk,
             "device_id": device_id,
+            "device_display": device_display,
             "event": transition_data["event"],
             "region_id": region_id,
             "description": transition_data.get("description") or "",
@@ -467,7 +482,7 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
         logger.debug(
             "[%s] Processing location: device=%s, lat=%s, lon=%s",
             transport,
-            location_data.get("device"),
+            _device_display(location_data),
             location_data.get("latitude"),
             location_data.get("longitude"),
         )
@@ -509,7 +524,7 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
         logger.info(
             "[%s] Device offline via LWT: device=%s",
             transport,
-            lwt_data.get("device"),
+            _device_display(lwt_data),
         )
 
         # thread_sensitive=False: same reason as in _handle_location.
@@ -520,7 +535,7 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
         logger.info(
             "[%s] Device marked offline: device=%s",
             transport,
-            status_data.get("device_id"),
+            status_data.get("device_display"),
         )
 
         await self._broadcast_device_status(status_data, transport=transport)
@@ -539,7 +554,7 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
         logger.info(
             "[%s] Transition: device=%s, event=%s, region=%s, at=%s%s",
             transport,
-            transition_data.get("device"),
+            _device_display(transition_data),
             transition_data.get("event"),
             transition_data.get("description"),
             ts_str,
@@ -555,7 +570,7 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
             "[%s] Transition saved: id=%s, device=%s, event=%s, waypoint=%s",
             transport,
             saved.get("id"),
-            saved.get("device_id"),
+            saved.get("device_display"),
             saved.get("event"),
             saved.get("waypoint_label") or saved.get("region_id"),
         )
@@ -569,19 +584,19 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
         Upserts Waypoint rows by rid to keep the server in sync with the device.
         """
         transport = waypoint_data.get("transport", "mqtt")
-        device_id = waypoint_data.get("device")
+        device_display = _device_display(waypoint_data)
         count = len(waypoint_data.get("waypoints", []))
 
         logger.info(
             "[%s] Waypoints from device: device=%s, count=%d",
-            transport, device_id, count,
+            transport, device_display, count,
         )
 
         # thread_sensitive=False: same reason as in _handle_location.
         saved = await sync_to_async(save_waypoints_to_db, thread_sensitive=False)(waypoint_data)
         logger.info(
             "[%s] Waypoints upserted: device=%s, processed=%d",
-            transport, device_id, saved,
+            transport, device_display, saved,
         )
 
     async def _broadcast_location(
@@ -635,7 +650,7 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
             logger.info(
                 "[%s] WebSocket broadcast completed for device status: device=%s, online=%s",
                 transport,
-                status_data.get("device_id"),
+                status_data.get("device_display"),
                 status_data.get("is_online"),
             )
         except Exception:
@@ -665,7 +680,7 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
                 "[%s] WebSocket broadcast completed for transition: id=%s, device=%s",
                 transport,
                 transition_data.get("id"),
-                transition_data.get("device_id"),
+                transition_data.get("device_display"),
             )
         except Exception:
             logger.exception("[%s] WebSocket broadcast failed for transition", transport)
