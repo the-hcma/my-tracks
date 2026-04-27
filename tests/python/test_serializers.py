@@ -172,7 +172,7 @@ class TestDeviceSerializer:
     def test_serialized_fields_present(self, device: Device) -> None:
         """All expected fields are present in serialized output."""
         data = DeviceSerializer(device).data
-        for field in ("id", "device_id", "name", "created_at", "last_seen",
+        for field in ("id", "device_id", "name", "owner_username", "created_at", "last_seen",
                       "is_online", "location_count", "mqtt_user", "mqtt_topic_id"):
             assert_that(data, has_key(field))
 
@@ -203,10 +203,23 @@ class TestLocationSerializerRead:
         data = LocationSerializer(loc).data
         assert_that(data["device_name"], equal_to("fallback01"))
 
-    def test_device_id_display(self, location: Location) -> None:
-        """device_id_display returns the device's device_id."""
+    def test_device_id_display_without_owner(self, location: Location) -> None:
+        """device_id_display returns plain device_id when device has no owner."""
         data = LocationSerializer(location).data
         assert_that(data["device_id_display"], equal_to("phone1"))
+
+    def test_device_id_display_with_owner(self, db: Any) -> None:
+        """device_id_display returns 'owner/device_id' when device has an owner."""
+        owner = User.objects.create_user(username="alice_disp", password="pw")
+        dev = Device.objects.create(device_id="pixel", owner=owner)
+        loc = Location.objects.create(
+            device=dev,
+            latitude=Decimal("51.5"),
+            longitude=Decimal("-0.1"),
+            timestamp=timezone.now(),
+        )
+        data = LocationSerializer(loc).data
+        assert_that(data["device_id_display"], equal_to("alice_disp/pixel"))
 
     def test_tid_display_with_tracker_id(self, location: Location) -> None:
         """tid_display returns the tracker_id when present."""
