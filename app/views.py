@@ -590,12 +590,12 @@ class CommandViewSet(viewsets.ViewSet):
 
         Request body:
             {
-                "device_id": "user/device"
+                "device_id": "device_id"  OR  "user/device_id"
             }
 
         Returns:
             200: Dump command sent; waypoints will be merged when the phone responds
-            400: Missing device_id or invalid format
+            400: Missing device_id, device not found, or invalid format
             503: MQTT broker not available
         """
         raw_device_id = request.data.get('device_id')
@@ -605,6 +605,24 @@ class CommandViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         device_id = str(raw_device_id)
+
+        # If no slash, treat as a plain device_id and resolve to owner/device_id.
+        # This matches what the Geofences tab sends ({{ d.device_id }}).
+        if '/' not in device_id:
+            try:
+                if request.user.is_staff:
+                    device = Device.objects.select_related('owner').get(device_id=device_id)
+                else:
+                    device = Device.objects.select_related('owner').get(
+                        device_id=device_id, owner=request.user
+                    )
+            except Device.DoesNotExist:
+                return Response(
+                    {"error": f"Device '{device_id}' not found"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if device.owner:
+                device_id = f"{device.owner.username}/{device_id}"
 
         logger.info(
             "[http] fetchWaypoints (dump) command requested by %s for device %s",

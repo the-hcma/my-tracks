@@ -1,9 +1,12 @@
 """Tests for the Command API views."""
 
+from django.contrib.auth.models import User
 from django.test import TestCase
 from hamcrest import assert_that, equal_to, has_entries, has_key
 from rest_framework import status
 from rest_framework.test import APIClient
+
+from app.models import Device
 
 
 class TestCommandViewSetReportLocation(TestCase):
@@ -165,4 +168,56 @@ class TestCommandViewSetClearWaypoints(TestCase):
         # Since there's no broker running, should get 503
         assert_that(response.status_code, equal_to(status.HTTP_503_SERVICE_UNAVAILABLE))
         assert_that(response.json(), has_key("error"))
+        assert_that(response.json()["error"], equal_to("MQTT broker not available"))
+
+
+class TestCommandViewSetFetchWaypoints(TestCase):
+    """Tests for CommandViewSet fetch_waypoints endpoint."""
+
+    def setUp(self) -> None:
+        """Set up test client and fixtures."""
+        self.client = APIClient()
+        self.user = User.objects.create_user(username="alice_fw", password="pw")
+        self.device = Device.objects.create(device_id="pixel7", owner=self.user)
+        self.client.force_authenticate(user=self.user)
+
+    def test_fetch_waypoints_missing_device_id(self) -> None:
+        """fetch_waypoints without device_id returns 400."""
+        response = self.client.post(
+            "/api/commands/fetch-waypoints/",
+            data={},
+            format="json",
+        )
+        assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
+        assert_that(response.json(), has_entries({"error": "device_id is required"}))
+
+    def test_fetch_waypoints_plain_device_id_not_found(self) -> None:
+        """fetch_waypoints with unknown plain device_id returns 400."""
+        response = self.client.post(
+            "/api/commands/fetch-waypoints/",
+            data={"device_id": "nonexistent"},
+            format="json",
+        )
+        assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
+        assert_that(response.json()["error"], equal_to("Device 'nonexistent' not found"))
+
+    def test_fetch_waypoints_plain_device_id_resolves_to_owner_prefix(self) -> None:
+        """fetch_waypoints with plain device_id resolves to owner/device and attempts command."""
+        # With no broker running the command fails at 503 (broker unavailable),
+        # which proves device lookup and topic resolution succeeded.
+        response = self.client.post(
+            "/api/commands/fetch-waypoints/",
+            data={"device_id": "pixel7"},
+            format="json",
+        )
+        assert_that(response.status_code, equal_to(status.HTTP_503_SERVICE_UNAVAILABLE))
+
+    def test_fetch_waypoints_full_topic_broker_unavailable(self) -> None:
+        """fetch_waypoints with user/device format fails gracefully when no broker."""
+        response = self.client.post(
+            "/api/commands/fetch-waypoints/",
+            data={"device_id": "alice_fw/pixel7"},
+            format="json",
+        )
+        assert_that(response.status_code, equal_to(status.HTTP_503_SERVICE_UNAVAILABLE))
         assert_that(response.json()["error"], equal_to("MQTT broker not available"))
