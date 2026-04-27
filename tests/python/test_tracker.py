@@ -12,11 +12,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 from django.test import Client
 from django.utils import timezone
-from hamcrest import (all_of, assert_that, contains_string, equal_to,
+from hamcrest import (assert_that, contains_string, equal_to,
                       greater_than, greater_than_or_equal_to, has_key,
                       has_length, is_not, less_than, none)
 from rest_framework import status
-from rest_framework.response import Response
 from rest_framework.test import APIClient
 
 from app.models import Device, Location, OwnTracksMessage
