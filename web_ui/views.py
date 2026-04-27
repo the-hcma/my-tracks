@@ -1055,7 +1055,7 @@ def action_test(request: HttpRequest) -> JsonResponse:
         ).send()
         return JsonResponse({'ok': True})
     except Exception as e:
-        return JsonResponse({'ok': False, 'error': smtp_friendly_error(e, config.host)})
+        return JsonResponse({'ok': False, 'error': smtp_friendly_error(e, str(config.host))})
 
 
 @login_required
@@ -1130,4 +1130,4 @@ def smtp_test(request: HttpRequest) -> JsonResponse:
         request.session['smtp_last_test_recipient'] = to
         return JsonResponse({'ok': True})
     except Exception as e:
-        return JsonResponse({'ok': False, 'error': smtp_friendly_error(e, config.host)})
+        return JsonResponse({'ok': False, 'error': smtp_friendly_error(e, str(config.host))})
