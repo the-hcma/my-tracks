@@ -8,23 +8,19 @@ UserProfileSerializer, ChangePasswordSerializer, and certificate serializers.
 # pyright: reportIndexIssue=none
 # pyright: reportOptionalSubscript=none
 # pyright: reportArgumentType=none
-import time
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 from django.contrib.auth.models import User
 from django.utils import timezone
-from hamcrest import (assert_that, calling, contains_string, equal_to,
-                      greater_than, has_entries, has_key, has_length,
-                      instance_of, is_, is_not, none, not_none, raises)
-from rest_framework import serializers, status
+from hamcrest import (assert_that, contains_string, equal_to,
+                      has_key, instance_of, is_, none)
 from rest_framework.test import APIRequestFactory
 
 from app.models import (CertificateAuthority, ClientCertificate, Device,
-                        Location, ServerCertificate, UserProfile)
+                        Location, ServerCertificate)
 from app.serializers import (CertificateAuthoritySerializer,
                              ChangePasswordSerializer,
                              ClientCertificateSerializer, DeviceSerializer,
