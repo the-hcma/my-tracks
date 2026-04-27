@@ -65,6 +65,13 @@ class LocationViewSet(viewsets.ModelViewSet):
             return [AllowAny()]
         return [IsAuthenticated()]
 
+    def get_queryset(self) -> Any:
+        """Restrict to the requesting user's devices; staff see all."""
+        qs = Location.objects.all()
+        if not self.request.user.is_staff:
+            qs = qs.filter(device__owner=self.request.user)
+        return qs
+
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         Handle incoming location data from OwnTracks client.
@@ -198,16 +205,22 @@ class LocationViewSet(viewsets.ModelViewSet):
         """
         queryset = self.get_queryset()
 
-        # Filter by device
-        device_id = request.query_params.get('device')
-        if device_id:
+        # Filter by device — accepts "owner/device_id" or plain "device_id" (scoped to requester)
+        device_param = request.query_params.get('device')
+        if device_param:
             try:
-                device = Device.objects.get(device_id=device_id)
+                if '/' in device_param:
+                    owner_username, dev_id = device_param.split('/', 1)
+                    device = Device.objects.get(owner__username=owner_username, device_id=dev_id)
+                elif not request.user.is_staff:
+                    device = Device.objects.get(device_id=device_param, owner=request.user)
+                else:
+                    device = Device.objects.get(device_id=device_param)
                 queryset = queryset.filter(device=device)
             except Device.DoesNotExist:
                 return Response(
                     {
-                        'error': f"Expected valid device ID, got '{device_id}' which does not exist"
+                        'error': f"Expected valid device ID, got '{device_param}' which does not exist"
                     },
                     status=status.HTTP_404_NOT_FOUND
                 )
@@ -218,7 +231,7 @@ class LocationViewSet(viewsets.ModelViewSet):
 
         if start_time:
             try:
-                start_timestamp = int(start_time)
+                start_timestamp = int(str(start_time))
                 start_dt = datetime.fromtimestamp(start_timestamp, tz=UTC)
                 queryset = queryset.filter(timestamp__gte=start_dt)
             except (ValueError, OSError) as e:
@@ -245,7 +258,7 @@ class LocationViewSet(viewsets.ModelViewSet):
 
         if end_time:
             try:
-                end_timestamp = int(end_time)
+                end_timestamp = int(str(end_time))
                 end_dt = datetime.fromtimestamp(end_timestamp, tz=UTC)
                 queryset = queryset.filter(timestamp__lte=end_dt)
             except (ValueError, OSError) as e:
@@ -273,7 +286,7 @@ class LocationViewSet(viewsets.ModelViewSet):
         resolution = request.query_params.get('resolution')
         if resolution is not None:
             try:
-                resolution_seconds = int(resolution)
+                resolution_seconds = int(str(resolution))
                 # Get all matching locations ordered by timestamp (ascending for thinning)
                 all_locations = list(queryset.order_by('timestamp'))
                 if all_locations:
@@ -329,9 +342,15 @@ class DeviceViewSet(viewsets.ReadOnlyModelViewSet):
     - GET /devices/{id}/locations/: Get locations for specific device
     """
 
-    queryset = Device.objects.all()
     serializer_class = DeviceSerializer
+    permission_classes = [IsAuthenticated]
     lookup_field = 'device_id'
+
+    def get_queryset(self) -> Any:
+        """Restrict to the requesting user's devices; staff see all."""
+        if self.request.user.is_staff:
+            return Device.objects.all()
+        return Device.objects.filter(owner=self.request.user)
 
     @action(detail=True, methods=['get'])
     def locations(self, request: Request, device_id: str | None = None) -> Response:
