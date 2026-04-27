@@ -579,6 +579,74 @@ class CommandViewSet(viewsets.ViewSet):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
+    @action(detail=False, methods=['post'], url_path='fetch-waypoints')
+    def fetch_waypoints(self, request: Request) -> Response:
+        """
+        Request a device to publish its current waypoints.
+
+        Sends a 'dump' command to the device, which causes the phone to publish
+        a '_type: waypoints' MQTT message.  The MQTT plugin automatically merges
+        the returned waypoints into the server Waypoint table (upsert by rid).
+
+        Request body:
+            {
+                "device_id": "user/device"
+            }
+
+        Returns:
+            200: Dump command sent; waypoints will be merged when the phone responds
+            400: Missing device_id or invalid format
+            503: MQTT broker not available
+        """
+        raw_device_id = request.data.get('device_id')
+        if not raw_device_id:
+            return Response(
+                {"error": "device_id is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        device_id = str(raw_device_id)
+
+        logger.info(
+            "[http] fetchWaypoints (dump) command requested by %s for device %s",
+            request.user.username,
+            device_id,
+        )
+
+        publisher = self._get_publisher()
+
+        try:
+            success = async_to_sync(publisher.send_command)(
+                device_id,
+                Command.dump(),
+            )
+        except RuntimeError as e:
+            logger.warning("[http] MQTT broker not available for dump command: %s", e)
+            return Response(
+                {"error": "MQTT broker not available", "detail": str(e)},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        if success:
+            logger.info(
+                "[http] dump command sent to %s (requested by %s)",
+                device_id,
+                request.user.username,
+            )
+            return Response(
+                {
+                    "status": "command_sent",
+                    "device_id": device_id,
+                    "command": "dump",
+                    "note": "waypoints will be merged when the device responds",
+                },
+                status=status.HTTP_200_OK,
+            )
+        logger.warning("[http] dump command failed for %s", device_id)
+        return Response(
+            {"error": "Failed to send command", "device_id": device_id},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
 
 class AccountViewSet(viewsets.ViewSet):
     """

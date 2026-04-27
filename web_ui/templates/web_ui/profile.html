@@ -973,6 +973,17 @@
                             style="width:auto; padding:.45rem 1rem; font-size:.875rem;">+ Add geofence</button>
                     <button type="button" id="gf-cancel-draw-btn" class="submit-btn"
                             style="width:auto; padding:.45rem 1rem; font-size:.875rem; background:var(--input-bg); color:var(--text-muted); display:none;">Cancel</button>
+                    {% if geofence_devices %}
+                    <span style="font-size:.8rem; color:var(--text-muted);">|</span>
+                    <select id="gf-sync-device" style="font-size:.875rem; padding:.35rem .6rem; background:var(--input-bg); color:var(--text); border:1px solid var(--border); border-radius:6px;">
+                        {% for d in geofence_devices %}
+                        <option value="{{ d.device_id }}">{{ d.name|default:d.device_id }}</option>
+                        {% endfor %}
+                    </select>
+                    <button type="button" id="gf-sync-btn" class="submit-btn"
+                            style="width:auto; padding:.45rem 1rem; font-size:.875rem; background:var(--input-bg); color:var(--text); border:1px solid var(--border);"
+                            title="Send dump command to device; phone replies with its waypoints and they are merged here">&#x21ba; Sync from Phone</button>
+                    {% endif %}
                     <span id="gf-draw-hint" style="font-size:.8rem; color:var(--text-muted); font-style:italic;"></span>
                 </div>
 
@@ -1862,6 +1873,55 @@
                         result.style.color = '';
                     }, window.AUTO_DISMISS_MS);
                 });
+            });
+        });
+    })();
+    </script>
+    <script>
+    // ── Geofences tab: Sync from Phone button ─────────────────────────────
+    (function() {
+        var btn = document.getElementById('gf-sync-btn');
+        var sel = document.getElementById('gf-sync-device');
+        var hint = document.getElementById('gf-draw-hint');
+        if (!btn || !sel) return;
+        btn.addEventListener('click', function() {
+            var deviceId = sel.value;
+            if (!deviceId) return;
+            btn.disabled = true;
+            btn.textContent = '\u23f3 Requesting\u2026';
+            fetch('/api/commands/fetch-waypoints/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': '{{ csrf_token }}',
+                },
+                body: JSON.stringify({ device_id: deviceId }),
+            })
+            .then(function(r) {
+                if (r.ok) {
+                    btn.textContent = '\u2713 Sent';
+                    btn.style.borderColor = 'var(--success)';
+                    btn.style.color = 'var(--success)';
+                    if (hint) hint.textContent = 'Waypoints will appear here once the phone responds.';
+                } else {
+                    btn.textContent = '\u2717 Failed';
+                    btn.style.borderColor = 'var(--error)';
+                    btn.style.color = 'var(--error)';
+                }
+            })
+            .catch(function() {
+                btn.textContent = '\u2717 Error';
+                btn.style.borderColor = 'var(--error)';
+                btn.style.color = 'var(--error)';
+            })
+            .finally(function() {
+                setTimeout(function() {
+                    btn.disabled = false;
+                    btn.textContent = '\u21ba Sync from Phone';
+                    btn.style.borderColor = '';
+                    btn.style.color = '';
+                    if (hint) hint.textContent = '';
+                }, 4000);
             });
         });
     })();
