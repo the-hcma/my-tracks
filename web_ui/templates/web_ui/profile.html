@@ -569,6 +569,36 @@
             background: rgba(78, 154, 241, 0.08);
         }
 
+        /* ── Probe button ── */
+        .probe-btn {
+            background: none;
+            border: 1px solid var(--accent);
+            color: var(--accent);
+            border-radius: 6px;
+            padding: 0.25rem 0.6rem;
+            font-size: 0.75rem;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: background 0.15s, color 0.15s;
+        }
+
+        .probe-btn:hover:not(:disabled) {
+            background: rgba(78, 154, 241, 0.15);
+        }
+
+        .probe-btn:disabled {
+            opacity: 0.35;
+            cursor: not-allowed;
+            border-color: var(--border);
+            color: var(--text-muted);
+        }
+
+        .tz-badge {
+            font-size: 0.65rem;
+            color: var(--text-muted);
+            margin-left: 0.25rem;
+        }
+
         /* ── Footer meta ── */
         .meta-info {
             font-size: 0.8rem;
@@ -795,6 +825,7 @@
                             <th>Device</th>
                             <th>Status</th>
                             <th>Last Seen</th>
+                            <th></th>
                         </tr>
                     </thead>
                     <tbody>
@@ -844,7 +875,16 @@
                                     <span class="status-pill offline">offline</span>
                                 {% endif %}
                             </td>
-                            <td class="muted">{{ row.device.last_seen|date:"Y-m-d H:i" }}</td>
+                            <td class="muted js-last-seen" data-utc="{{ row.device.last_seen|date:'c' }}">{{ row.device.last_seen|date:"Y-m-d H:i" }} <span class="tz-badge">UTC</span></td>
+                            <td>
+                                {% if row.device.mqtt_user %}
+                                <button class="probe-btn"
+                                        data-mqtt-topic="{{ row.device.mqtt_user }}/{{ row.device.device_id }}"
+                                        title="Ask device to report its current location">📍 Probe</button>
+                                {% else %}
+                                <button class="probe-btn" disabled title="No MQTT user configured">📍 Probe</button>
+                                {% endif %}
+                            </td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -1664,6 +1704,69 @@
     })();
     </script>
     <script src="{% static 'web_ui/js/messages.js' %}"></script>
+    <script>
+    // ── Devices tab: local-timezone Last Seen ──────────────────────────────
+    (function() {
+        var tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        var fmt = new Intl.DateTimeFormat(navigator.language, {
+            year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit',
+            timeZoneName: 'short',
+        });
+        document.querySelectorAll('.js-last-seen[data-utc]').forEach(function(cell) {
+            var utc = cell.getAttribute('data-utc');
+            if (!utc) return;
+            var d = new Date(utc);
+            if (isNaN(d.getTime())) return;
+            cell.textContent = fmt.format(d);
+        });
+    })();
+
+    // ── Devices tab: per-device probe button ───────────────────────────────
+    (function() {
+        var csrfToken = '{{ csrf_token }}';
+        document.querySelectorAll('.probe-btn[data-mqtt-topic]').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var topic = btn.getAttribute('data-mqtt-topic');
+                if (!topic) return;
+                btn.disabled = true;
+                btn.textContent = '\u23f3 Probing\u2026';
+                fetch('/api/commands/report-location/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken,
+                    },
+                    body: JSON.stringify({ device_id: topic }),
+                })
+                .then(function(r) {
+                    if (r.ok) {
+                        btn.textContent = '\u2713 Sent';
+                        btn.style.borderColor = 'var(--success)';
+                        btn.style.color = 'var(--success)';
+                    } else {
+                        btn.textContent = '\u2717 Failed';
+                        btn.style.borderColor = 'var(--error)';
+                        btn.style.color = 'var(--error)';
+                    }
+                })
+                .catch(function() {
+                    btn.textContent = '\u2717 Error';
+                    btn.style.borderColor = 'var(--error)';
+                    btn.style.color = 'var(--error)';
+                })
+                .finally(function() {
+                    setTimeout(function() {
+                        btn.disabled = false;
+                        btn.textContent = '\ud83d\udccd Probe';
+                        btn.style.borderColor = '';
+                        btn.style.color = '';
+                    }, 3000);
+                });
+            });
+        });
+    })();
+    </script>
     <script>
     (function() {
         document.querySelectorAll('.action-test-btn').forEach(function(btn) {
