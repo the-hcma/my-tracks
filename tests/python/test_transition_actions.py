@@ -4,6 +4,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.test import Client
 from django.utils import timezone
@@ -130,6 +131,79 @@ class TestSendTransitionEmail:
                 send_transition_email(leave_transition, action)
         subject = mock_msg_cls.call_args[1]['subject']
         assert 'left' in subject
+
+    def test_body_includes_owner_prefixed_device(self, setup) -> None:
+        """Email body Device: line should show owner/device_id."""
+        from app.notifications import send_transition_email
+        _, _, _, transition, action = setup
+        with patch('app.notifications.get_smtp_backend', return_value=MagicMock()):
+            with patch('app.notifications.EmailMessage') as mock_msg_cls:
+                mock_msg_cls.return_value = MagicMock()
+                send_transition_email(transition, action)
+        body = mock_msg_cls.call_args[1]['body']
+        assert 'alice/Alice\'s iPhone' in body or 'Device:  alice/' in body or '  Device:   alice/' in body
+
+    def test_body_device_line_has_owner_prefix(self, setup) -> None:
+        """Device: field in body should be 'owner/device_name'."""
+        from app.notifications import send_transition_email
+        user, device, wp, transition, action = setup
+        with patch('app.notifications.get_smtp_backend', return_value=MagicMock()):
+            with patch('app.notifications.EmailMessage') as mock_msg_cls:
+                mock_msg_cls.return_value = MagicMock()
+                send_transition_email(transition, action)
+        body = mock_msg_cls.call_args[1]['body']
+        assert f"  Device:   {user.username}/{device.name}" in body
+
+    def test_body_when_line_includes_utc(self, setup) -> None:
+        """When: field should include UTC timestamp in parens."""
+        from app.notifications import send_transition_email
+        _, _, _, transition, action = setup
+        with patch('app.notifications.get_smtp_backend', return_value=MagicMock()):
+            with patch('app.notifications.EmailMessage') as mock_msg_cls:
+                mock_msg_cls.return_value = MagicMock()
+                send_transition_email(transition, action)
+        body = mock_msg_cls.call_args[1]['body']
+        # UTC time is shown in parens
+        assert 'UTC)' in body
+
+    def test_body_includes_user_line(self, setup) -> None:
+        """Body should include a User: line with the owner's display name."""
+        from app.notifications import send_transition_email
+        user, _, _, transition, action = setup
+        with patch('app.notifications.get_smtp_backend', return_value=MagicMock()):
+            with patch('app.notifications.EmailMessage') as mock_msg_cls:
+                mock_msg_cls.return_value = MagicMock()
+                send_transition_email(transition, action)
+        body = mock_msg_cls.call_args[1]['body']
+        assert '  User:     Alice Smith' in body
+
+    def test_body_includes_sent_by_public_domain(self, setup) -> None:
+        """Body should include Sent by: with PUBLIC_DOMAIN when configured."""
+        from app.notifications import send_transition_email
+        _, _, _, transition, action = setup
+        with patch('app.notifications.get_smtp_backend', return_value=MagicMock()):
+            with patch('app.notifications.EmailMessage') as mock_msg_cls:
+                with patch('app.notifications.settings') as mock_settings:
+                    mock_settings.SYSTEM_TIMEZONE = settings.SYSTEM_TIMEZONE
+                    mock_settings.PUBLIC_DOMAIN = 'tracks.example.com'
+                    mock_msg_cls.return_value = MagicMock()
+                    send_transition_email(transition, action)
+        body = mock_msg_cls.call_args[1]['body']
+        assert '  Sent by:  tracks.example.com' in body
+
+    def test_body_sent_by_falls_back_to_smtp_host(self, setup) -> None:
+        """Body should fall back to SMTP host when PUBLIC_DOMAIN is empty."""
+        from app.notifications import send_transition_email
+        _, _, _, transition, action = setup
+        with patch('app.notifications.get_smtp_backend', return_value=MagicMock()):
+            with patch('app.notifications.EmailMessage') as mock_msg_cls:
+                with patch('app.notifications.settings') as mock_settings:
+                    mock_settings.SYSTEM_TIMEZONE = settings.SYSTEM_TIMEZONE
+                    mock_settings.PUBLIC_DOMAIN = ''
+                    mock_msg_cls.return_value = MagicMock()
+                    send_transition_email(transition, action)
+        body = mock_msg_cls.call_args[1]['body']
+        assert '  Sent by:  smtp.example.com' in body
 
 
 # ---------------------------------------------------------------------------

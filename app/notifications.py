@@ -9,6 +9,7 @@ import logging
 import math
 import smtplib
 import socket
+from datetime import timezone as _utc
 from typing import TYPE_CHECKING
 
 from django.conf import settings
@@ -127,9 +128,17 @@ def send_transition_email(transition: "Transition", action: "TransitionAction") 
     display_name = (
         owner.get_full_name() or owner.username if owner else device_name
     )
+    device_display = (
+        f"{owner.username}/{device_name}" if owner else device_name
+    )
 
     verb = "entered" if transition.event == "enter" else "left"
-    ts_str = transition.timestamp.strftime("%Y-%m-%d %H:%M:%S UTC")
+    local_ts = transition.timestamp.astimezone(settings.SYSTEM_TIMEZONE)
+    utc_ts = transition.timestamp.astimezone(_utc.utc)
+    ts_str = (
+        f"{local_ts.strftime('%Y-%m-%d %H:%M:%S %Z')}"
+        f" ({utc_ts.strftime('%Y-%m-%d %H:%M:%S UTC')})"
+    )
 
     distance_line = ""
     if (
@@ -146,13 +155,18 @@ def send_transition_email(transition: "Transition", action: "TransitionAction") 
         else:
             distance_line = f"Distance from geofence center: {dist_m:.0f} m"
 
+    public_domain = getattr(settings, "PUBLIC_DOMAIN", "")
+    sent_by = public_domain or config.host
+
     subject = f"[my-tracks] {display_name} {verb} {waypoint_label}"
     lines = [
         f"{display_name} {verb} {waypoint_label}.",
         "",
-        f"  Event:  {transition.event}",
-        f"  When:   {ts_str}",
-        f"  Device: {device_name}",
+        f"  Event:    {transition.event}",
+        f"  When:     {ts_str}",
+        f"  User:     {display_name}",
+        f"  Device:   {device_display}",
+        f"  Sent by:  {sent_by}",
     ]
     if distance_line:
         lines.append(f"  {distance_line}")
