@@ -19,6 +19,7 @@ from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status, viewsets
+from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.request import Request
@@ -388,8 +389,13 @@ class CommandViewSet(viewsets.ViewSet):
     All endpoints require a device_id parameter in the request body.
     """
 
-    authentication_classes = [CommandApiKeyAuthentication]
-    # Require authentication only when COMMAND_API_KEY is configured
+    # SessionAuthentication first so browser users (CSRF + session cookie)
+    # are accepted; CommandApiKeyAuthentication handles automated clients
+    # that supply an Authorization: Bearer <key> header.
+    authentication_classes = [SessionAuthentication, CommandApiKeyAuthentication]
+    # Always require an authenticated identity (session user or valid API key).
+    # When no COMMAND_API_KEY is configured the endpoint falls back to AllowAny
+    # so the development setup continues to work without any credentials.
     permission_classes = [IsAuthenticated if get_command_api_key() else AllowAny]
 
     def _get_publisher(self) -> CommandPublisher:
