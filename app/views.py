@@ -68,7 +68,7 @@ class LocationViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self) -> Any:
         """Restrict to the requesting user's devices; staff see all."""
-        qs = Location.objects.all()
+        qs = Location.objects.select_related('device__owner')
         if not self.request.user.is_staff:
             qs = qs.filter(device__owner=self.request.user)
         return qs

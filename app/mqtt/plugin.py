@@ -113,6 +113,7 @@ def save_location_to_db(location_data: dict[str, Any]) -> dict[str, Any] | None:
                     updates["owner"] = owner
         if updates:
             Device.objects.filter(pk=device.pk).update(**updates)
+            device.refresh_from_db()
 
         # Create location from parsed data
         location = Location.objects.create(
