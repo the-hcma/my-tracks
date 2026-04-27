@@ -32,32 +32,37 @@ jobs:
     name: Guard
     runs-on: ubuntu-latest
     outputs:
-      skip: ${{ steps.check.outputs.skip }}
+      skip: ${{ steps.set-skip.outputs.skip }}
     steps:
-      - id: check
+      # Fetch PR state with automatic retries so transient GitHub API errors
+      # (e.g. 504) don't fail the Guard job and block the merge queue.
+      - id: pr-state
+        uses: nick-fields/retry@v3
         env:
           GH_TOKEN: ${{ github.token }}
-          HEAD_REF: ${{ github.head_ref || github.ref_name }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPOSITORY: ${{ github.repository }}
+        with:
+          timeout_seconds: 15
+          max_attempts: 3
+          retry_wait_seconds: 5
+          command: |
+            if [[ -z "$PR_NUMBER" ]]; then exit 0; fi
+            state=$(gh pr view "$PR_NUMBER" --repo "$REPOSITORY" --json state -q .state)
+            echo "state=$state" >> "$GITHUB_OUTPUT"
+
+      - id: set-skip
+        env:
+          HEAD_REF: ${{ github.head_ref || github.ref_name }}
+          PR_STATE: ${{ steps.pr-state.outputs.state }}
         run: |
           # Skip merge-queue staging branches — the merge queue validates the
           # integrated state itself; CI there duplicates work.
-          if [[ "$HEAD_REF" == gtmq_merge_* ]]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
           # Skip when the PR is already merged — Graphite pushes a restack
           # commit to the next branch after a merge lands, which would otherwise
           # trigger a redundant CI run on an already-validated diff.
-          pr_number="$PR_NUMBER"
-          if [[ -n "$pr_number" ]]; then
-            state=$(gh pr view "$pr_number" --repo "$REPOSITORY" --json state -q .state)
-            if [[ "$state" == "MERGED" ]]; then
-              echo "skip=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "skip=false" >> "$GITHUB_OUTPUT"
-            fi
+          if [[ "$HEAD_REF" == gtmq_merge_* ]] || [[ "$PR_STATE" == "MERGED" ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
