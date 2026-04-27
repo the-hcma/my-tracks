@@ -40,7 +40,12 @@ class Device(models.Model):
     )
     last_seen = models.DateTimeField(
         auto_now=True,
-        help_text="Last time location data was received from this device"
+        help_text="Last time any MQTT activity was received from this device"
+    )
+    last_location_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Last time a GPS location fix was received from this device"
     )
     is_online = models.BooleanField(
         default=False,  # type: ignore[reportArgumentType]  # django-stubs issue

@@ -599,6 +599,25 @@
             margin-left: 0.25rem;
         }
 
+        .last-seen-reason {
+            display: inline-block;
+            font-size: 0.6rem;
+            padding: 0.1rem 0.35rem;
+            border-radius: 4px;
+            margin-left: 0.35rem;
+            vertical-align: middle;
+            font-weight: 500;
+            letter-spacing: 0.01em;
+        }
+        .last-seen-reason.location {
+            background: rgba(78, 154, 241, 0.12);
+            color: var(--accent);
+        }
+        .last-seen-reason.connection {
+            background: rgba(128, 128, 128, 0.12);
+            color: var(--text-muted);
+        }
+
         /* ── Footer meta ── */
         .meta-info {
             font-size: 0.8rem;
@@ -875,7 +894,10 @@
                                     <span class="status-pill offline">offline</span>
                                 {% endif %}
                             </td>
-                            <td class="muted js-last-seen" data-utc="{{ row.device.last_seen|date:'c' }}">{{ row.device.last_seen|date:"Y-m-d H:i" }} <span class="tz-badge">UTC</span></td>
+                            <td class="muted js-last-seen"
+                                data-utc="{{ row.device.last_seen|date:'c' }}"
+                                data-location-utc="{{ row.device.last_location_at|date:'c' }}"
+                                >{{ row.device.last_seen|date:"Y-m-d H:i" }} <span class="tz-badge">UTC</span></td>
                             <td>
                                 {% if row.device.mqtt_user %}
                                 <button class="probe-btn"
@@ -1705,9 +1727,8 @@
     </script>
     <script src="{% static 'web_ui/js/messages.js' %}"></script>
     <script>
-    // ── Devices tab: local-timezone Last Seen ──────────────────────────────
+    // ── Devices tab: local-timezone Last Seen + reason badge ───────────────
     (function() {
-        var tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
         var fmt = new Intl.DateTimeFormat(navigator.language, {
             year: 'numeric', month: '2-digit', day: '2-digit',
             hour: '2-digit', minute: '2-digit',
@@ -1716,9 +1737,26 @@
         document.querySelectorAll('.js-last-seen[data-utc]').forEach(function(cell) {
             var utc = cell.getAttribute('data-utc');
             if (!utc) return;
-            var d = new Date(utc);
-            if (isNaN(d.getTime())) return;
-            cell.textContent = fmt.format(d);
+            var lastSeen = new Date(utc);
+            if (isNaN(lastSeen.getTime())) return;
+
+            // Determine reason: location update vs MQTT connection event
+            var locationUtc = cell.getAttribute('data-location-utc');
+            var isLocation = false;
+            if (locationUtc) {
+                var lastLocation = new Date(locationUtc);
+                if (!isNaN(lastLocation.getTime())) {
+                    // Within 5 seconds → last activity was a location report
+                    isLocation = Math.abs(lastSeen.getTime() - lastLocation.getTime()) < 5000;
+                }
+            }
+
+            var badge = document.createElement('span');
+            badge.className = 'last-seen-reason ' + (isLocation ? 'location' : 'connection');
+            badge.textContent = isLocation ? '📍 location' : '📶 connection';
+
+            cell.textContent = fmt.format(lastSeen) + '\u00a0';
+            cell.appendChild(badge);
         });
     })();
 

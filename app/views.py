@@ -422,7 +422,11 @@ class CommandViewSet(viewsets.ViewSet):
             )
         device_id = str(raw_device_id)
 
-        logger.info("[http] reportLocation command requested for device %s", device_id)
+        logger.info(
+            "[http] reportLocation command requested by %s for device %s",
+            request.user.username,
+            device_id,
+        )
 
         publisher = self._get_publisher()
 
@@ -439,7 +443,11 @@ class CommandViewSet(viewsets.ViewSet):
             )
 
         if success:
-            logger.info("[http] reportLocation command sent to %s", device_id)
+            logger.info(
+                "[http] reportLocation command sent to %s (requested by %s)",
+                device_id,
+                request.user.username,
+            )
             return Response(
                 {"status": "command_sent", "device_id": device_id, "command": "reportLocation"},
                 status=status.HTTP_200_OK,

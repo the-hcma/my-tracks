@@ -1119,6 +1119,10 @@ async function fetchAndDisplayTrail(): Promise<void> {
             const data: LocationsApiResponse = await response.json();
             const locations = data.results || [];
 
+            // Clear stale device markers before rendering new results
+            Object.values(deviceMarkers).forEach((marker) => marker.remove());
+            deviceMarkers = {};
+
             // Show summary in activity section (with device names)
             displayHistoricWaypoints(locations, true); // true = show device names
 
@@ -1307,6 +1311,12 @@ async function fetchAndDisplayTrail(): Promise<void> {
 
         // Hide legend when viewing single device
         hideDeviceLegend();
+
+        // Clear stale marker for this device before rendering
+        if (deviceMarkers[selectedDevice]) {
+            deviceMarkers[selectedDevice].remove();
+            delete deviceMarkers[selectedDevice];
+        }
 
         // Update activity section with waypoints
         displayHistoricWaypoints(locations);
