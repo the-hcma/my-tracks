@@ -20,15 +20,14 @@ class Device(models.Model):
     """
     Represents a device (phone/tablet) running OwnTracks.
 
-    Each device is uniquely identified by its device_id, which is sent
-    by the OwnTracks client in location updates.
+    Devices are uniquely identified by (owner, device_id) — two different users
+    may have devices with the same device_id (e.g. both named "pixel7").
     """
 
     device_id = models.CharField(
         max_length=100,
-        unique=True,
         db_index=True,
-        help_text="Unique identifier for the device (from OwnTracks 'tid' field)"
+        help_text="Device identifier sent by OwnTracks (unique per owner)"
     )
     name = models.CharField(
         max_length=200,
@@ -66,6 +65,12 @@ class Device(models.Model):
         ordering = ['-last_seen']
         verbose_name = 'Device'
         verbose_name_plural = 'Devices'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['owner', 'device_id'],
+                name='unique_device_id_per_owner',
+            )
+        ]
 
     def __str__(self) -> str:
         """Return string representation of the device."""
