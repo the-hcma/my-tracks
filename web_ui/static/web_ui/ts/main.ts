@@ -43,6 +43,7 @@ interface TrackLocation {
     battery_level?: number;
     connection_type?: string;
     ip_address?: string;
+    received_via?: string;
     timestamp_unix?: number;
     /** Internal: number of collapsed waypoints at this location */
     _collapsedCount?: number;
@@ -1667,12 +1668,14 @@ function addLogEntry(location: TrackLocation, skipScroll = false): void {
     const vel = location.velocity || 0;
     const batt = location.battery_level || 'N/A';
     const conn = location.connection_type === 'w' ? 'WiFi' : location.connection_type === 'm' ? 'Mobile' : 'N/A';
-    const ip = location.ip_address || 'N/A';
+    // For MQTT locations the IP is the nginx proxy container address, not the device.
+    // Show "MQTT" as the source label instead to avoid confusion.
+    const ipDisplay = location.received_via === 'mqtt' ? 'MQTT' : (location.ip_address || 'N/A');
 
     const deviceColor = getDeviceColor(device);
     const deviceBadge = `<span style="background:${deviceColor};color:white;padding:1px 6px;border-radius:10px;font-size:11px;margin-left:8px;">${device}</span>`;
 
-    entry.innerHTML = `<span class="log-time">${time}</span> | <span class="log-ip">${ip}</span> | <span class="log-coords">${lat}, ${lon}</span> | <span class="log-meta">acc:${acc}m alt:${alt}m vel:${vel}km/h batt:${batt}% ${conn}</span>${deviceBadge}`;
+    entry.innerHTML = `<span class="log-time">${time}</span> | <span class="log-ip">${ipDisplay}</span> | <span class="log-coords">${lat}, ${lon}</span> | <span class="log-meta">acc:${acc}m alt:${alt}m vel:${vel}km/h batt:${batt}% ${conn}</span>${deviceBadge}`;
 
     container.insertBefore(entry, container.firstChild);
 

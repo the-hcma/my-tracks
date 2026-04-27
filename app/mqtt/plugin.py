@@ -127,6 +127,7 @@ def save_location_to_db(location_data: dict[str, Any]) -> dict[str, Any] | None:
             battery_level=location_data.get("battery"),
             connection_type=location_data.get("connection", ""),
             ip_address=location_data.get("client_ip"),
+            received_via='mqtt',
         )
 
         # Serialize for WebSocket broadcast

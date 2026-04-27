@@ -165,6 +165,18 @@ class Location(models.Model):
         help_text="IP address of the client that submitted this location"
     )
 
+    RECEIVED_VIA_CHOICES = [
+        ('http', 'HTTP'),
+        ('mqtt', 'MQTT'),
+    ]
+    received_via = models.CharField(
+        max_length=4,
+        blank=True,
+        default='',
+        choices=RECEIVED_VIA_CHOICES,
+        help_text="Transport used to receive this location: 'http' or 'mqtt'"
+    )
+
     # Tracking metadata
     received_at = models.DateTimeField(
         auto_now_add=True,
