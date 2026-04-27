@@ -24,6 +24,7 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes
 from django.conf import settings
 from django.contrib.auth.models import User
+from django.utils import timezone as dj_tz
 
 from app.models import Device, Location, OwnTracksMessage, Transition, Waypoint
 from app.mqtt.handlers import OwnTracksMessageHandler
@@ -91,8 +92,14 @@ def save_location_to_db(location_data: dict[str, Any]) -> dict[str, Any] | None:
 
         # Mark device as online (receiving location = device is connected)
         # Also store mqtt_user from topic for command routing, and resolve owner
+        # Explicitly update last_seen and last_location_at (auto_now only fires
+        # on .save(), which we never call for existing devices).
         mqtt_user = location_data.get("mqtt_user", "")
-        updates: dict[str, object] = {}
+        now = dj_tz.now()
+        updates: dict[str, object] = {
+            "last_seen": now,
+            "last_location_at": now,
+        }
         if not device.is_online:
             updates["is_online"] = True
         if mqtt_user and device.mqtt_user != mqtt_user:
@@ -154,7 +161,10 @@ def save_lwt_to_db(lwt_data: dict[str, Any]) -> dict[str, Any] | None:
             return None
 
         # Mark device as offline
-        Device.objects.filter(pk=device.pk).update(is_online=False)
+        Device.objects.filter(pk=device.pk).update(
+            is_online=False,
+            last_seen=dj_tz.now(),
+        )
 
         # Store the LWT message for audit
         OwnTracksMessage.objects.create(
