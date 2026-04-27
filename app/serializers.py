@@ -28,14 +28,15 @@ class DeviceSerializer(serializers.ModelSerializer):
 
     location_count = serializers.SerializerMethodField()
     mqtt_topic_id = serializers.SerializerMethodField()
+    owner_username = serializers.CharField(source='owner.username', read_only=True, default='')
 
     class Meta:
         model = Device
         fields = [
-            'id', 'device_id', 'name', 'created_at', 'last_seen',
+            'id', 'device_id', 'name', 'owner_username', 'created_at', 'last_seen',
             'is_online', 'location_count', 'mqtt_user', 'mqtt_topic_id',
         ]
-        read_only_fields = ['id', 'created_at', 'last_seen', 'is_online', 'mqtt_user']
+        read_only_fields = ['id', 'created_at', 'last_seen', 'is_online', 'mqtt_user', 'owner_username']
 
     def get_location_count(self, obj: Device) -> int:
         """Get the total number of locations for this device."""
@@ -125,13 +126,15 @@ class LocationSerializer(serializers.ModelSerializer):
 
     def get_device_name(self, obj: Location) -> str:
         """Return the device name for display."""
-        # Return custom name if set, otherwise just the device_id
+        # Return custom name if set, otherwise owner/device_id
         if obj.device.name and not obj.device.name.startswith('Device '):
             return obj.device.name
-        return obj.device.device_id
+        return self.get_device_id_display(obj)
 
     def get_device_id_display(self, obj: Location) -> str:
-        """Return the device ID for display."""
+        """Return owner/device_id for display, or just device_id if no owner."""
+        if obj.device.owner_id and obj.device.owner:
+            return f"{obj.device.owner.username}/{obj.device.device_id}"
         return obj.device.device_id
 
     def get_tid_display(self, obj: Location) -> str:
