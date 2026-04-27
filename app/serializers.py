@@ -154,7 +154,7 @@ class LocationSerializer(serializers.ModelSerializer):
             'lat', 'lon', 'long', 'tst',
             'accuracy', 'altitude', 'velocity', 'battery_level', 'connection_type',
             'acc', 'alt', 'vel', 'batt', 'conn', '_type',
-            'ip_address', 'received_at'
+            'ip_address', 'received_at', 'received_via'
         ]
         read_only_fields = [
             'id', 'device', 'received_at', 'ip_address',
@@ -265,6 +265,7 @@ class LocationSerializer(serializers.ModelSerializer):
         client_ip = self.context.get('client_ip')
         if client_ip:
             validated_data['ip_address'] = client_ip
+        validated_data['received_via'] = 'http'
 
         return super().create(validated_data)
 
