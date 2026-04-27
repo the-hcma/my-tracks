@@ -100,6 +100,7 @@ interface NetworkInfo {
 interface DeviceInfo {
     device_id: string;
     name: string;
+    owner_username?: string;
 }
 
 /** WebSocket message from server */
@@ -605,10 +606,9 @@ async function refreshDeviceSelector(): Promise<void> {
         const selector = document.getElementById('device-selector') as HTMLSelectElement;
         if (!selector) return;
 
-        // Build display names using the same logic as the backend serializer:
-        // use name if set and not "Device ...", otherwise use device_id
+        // Build display names: prefer owner/device_id combo; fall back to device_id
         const serverDeviceNames = deviceList.map(d =>
-            d.name && !d.name.startsWith('Device ') ? d.name : d.device_id,
+            d.owner_username ? `${d.owner_username}/${d.device_id}` : d.device_id,
         );
 
         // Sort case-insensitively

@@ -30,11 +30,12 @@ def api_client() -> APIClient:
 
 
 @pytest.fixture
-def sample_device(db: Any) -> Device:
-    """Create a sample device for testing."""
+def sample_device(db: Any, user: Any) -> Device:
+    """Create a sample device for testing, owned by the test user."""
     return Device.objects.create(
         device_id='TEST01',
-        name='Test Device'
+        name='Test Device',
+        owner=user,
     )
 
 
@@ -83,10 +84,21 @@ class TestDeviceModel:
         assert_that(str(device), equal_to('DEV003'))
 
     def test_device_unique_constraint(self) -> None:
-        """Test that device_id must be unique."""
-        Device.objects.create(device_id='UNIQUE01')
-        with pytest.raises(Exception):  # IntegrityError
-            Device.objects.create(device_id='UNIQUE01')
+        """Test that (owner, device_id) must be unique per owner."""
+        from django.contrib.auth.models import User
+        from django.db import IntegrityError
+        owner = User.objects.create_user(username='owner_unique01', password='pw')
+        Device.objects.create(device_id='UNIQUE01', owner=owner)
+        with pytest.raises(IntegrityError):
+            Device.objects.create(device_id='UNIQUE01', owner=owner)
+
+    def test_same_device_id_allowed_for_different_owners(self) -> None:
+        """Two users may each have a device with the same device_id."""
+        from django.contrib.auth.models import User
+        owner1 = User.objects.create_user(username='ownerA_unique', password='pw')
+        owner2 = User.objects.create_user(username='ownerB_unique', password='pw')
+        Device.objects.create(device_id='SHARED01', owner=owner1)
+        Device.objects.create(device_id='SHARED01', owner=owner2)  # must not raise
 
 
 @pytest.mark.django_db
@@ -850,12 +862,14 @@ class TestDeviceAPI:
     def test_get_device_detail_includes_mqtt_topic_id(
         self,
         auth_api_client: APIClient,
+        user: Any,
     ) -> None:
         """Test that device detail returns mqtt_topic_id from mqtt_user + device_id."""
         device = Device.objects.create(
             device_id="myphone",
             name="My Phone",
             mqtt_user="alice",
+            owner=user,
         )
 
         response = auth_api_client.get(f'/api/devices/{device.device_id}/')
@@ -867,11 +881,13 @@ class TestDeviceAPI:
     def test_get_device_detail_mqtt_topic_id_empty_when_no_user(
         self,
         auth_api_client: APIClient,
+        user: Any,
     ) -> None:
         """Test that mqtt_topic_id is empty when mqtt_user is not set."""
         device = Device.objects.create(
             device_id="httpdevice",
             name="HTTP Device",
+            owner=user,
         )
 
         response = auth_api_client.get(f'/api/devices/{device.device_id}/')
