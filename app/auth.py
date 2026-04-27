@@ -8,11 +8,33 @@ management is unnecessary.
 import logging
 
 from decouple import config
-from django.contrib.auth.models import AnonymousUser
 from rest_framework import authentication, exceptions
 from rest_framework.request import Request
 
 logger = logging.getLogger(__name__)
+
+
+class _ApiKeyUser:
+    """
+    Minimal user-like sentinel returned when a valid API key is presented.
+
+    DRF's IsAuthenticated checks ``request.user.is_authenticated``; returning
+    AnonymousUser (is_authenticated=False) would silently deny every API-key
+    request even with the correct token.  This sentinel satisfies the check
+    while remaining clearly distinct from a real Django user.
+    """
+
+    is_authenticated = True
+    is_active = True
+    is_anonymous = False
+    is_staff = False
+    username = 'api-key'
+
+    def __str__(self) -> str:
+        return 'api-key'
+
+
+_API_KEY_USER = _ApiKeyUser()
 
 
 def get_command_api_key() -> str:
@@ -73,5 +95,5 @@ class CommandApiKeyAuthentication(authentication.BaseAuthentication):
                 "Invalid API key"
             )
 
-        # Return a simple anonymous user representation with the token
-        return (AnonymousUser(), token)
+        # Return a sentinel that satisfies IsAuthenticated
+        return (_API_KEY_USER, token)

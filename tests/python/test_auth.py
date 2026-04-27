@@ -557,13 +557,15 @@ class TestCommandApiKeyAuthentication:
             assert_that(str(exc.detail), contains_string("Invalid API key"))
 
     @patch("app.auth.get_command_api_key", return_value="my-secret")
-    def test_valid_token_returns_anonymous_user(self, mock_key: Any) -> None:
-        """Returns (AnonymousUser, token) tuple for valid Bearer token."""
+    def test_valid_token_returns_authenticated_user(self, mock_key: Any) -> None:
+        """Returns (_ApiKeyUser, token) tuple for valid Bearer token; user is authenticated."""
         auth = CommandApiKeyAuthentication()
         request = self._make_request("Bearer my-secret")
         result = auth.authenticate(request)
         assert_that(result, is_not(None))
-        assert_that(cast(Any, result)[1], equal_to("my-secret"))
+        user, token = cast(Any, result)
+        assert_that(token, equal_to("my-secret"))
+        assert_that(user.is_authenticated, equal_to(True))
 
     @patch("app.auth.get_command_api_key", return_value="my-secret")
     def test_bearer_case_insensitive(self, mock_key: Any) -> None:
