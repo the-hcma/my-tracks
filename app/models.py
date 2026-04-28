@@ -534,7 +534,7 @@ class Waypoint(models.Model):
     rid = models.CharField(
         max_length=36,
         unique=True,
-        help_text="OwnTracks region ID (UUID4); stable across device syncs"
+        help_text="Content-derived UUID5 (owner + desc + lat + lon + rad); same content always yields the same rid"
     )
     is_active = models.BooleanField(
         default=True,  # type: ignore[reportArgumentType]

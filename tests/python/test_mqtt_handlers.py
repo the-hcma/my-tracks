@@ -614,8 +614,8 @@ class TestExtractWaypointData:
 
         assert_that(result, has_entries(device="phone"))
         assert_that(len(result["waypoints"]), equal_to(2))
-        assert_that(result["waypoints"][0], has_entries(rid="uuid-1", desc="Home", lat=51.5, lon=-0.1, rad=100))
-        assert_that(result["waypoints"][1], has_entries(rid="uuid-2", desc="Work"))
+        assert_that(result["waypoints"][0], has_entries(desc="Home", lat=51.5, lon=-0.1, rad=100))
+        assert_that(result["waypoints"][1], has_entries(desc="Work"))
 
     def test_empty_waypoints_list(self) -> None:
         """Should return empty waypoints list for empty message."""
@@ -630,18 +630,31 @@ class TestExtractWaypointData:
         result = extract_waypoint_data(message, {"user": "alice", "device": "phone"})
         assert_that(result, is_(none()))
 
-    def test_skips_waypoints_without_rid(self) -> None:
-        """Should skip waypoints missing the rid field."""
+    def test_skips_waypoints_missing_lat_or_lon(self) -> None:
+        """Should skip waypoints missing lat or lon."""
         message = {
             "_type": "waypoints",
             "waypoints": [
-                {"desc": "No RID", "lat": 51.5, "lon": -0.1, "rad": 100},
-                {"desc": "Has RID", "lat": 51.6, "lon": -0.2, "rad": 50, "rid": "uuid-1"},
+                {"desc": "No coords", "rad": 100},
+                {"desc": "Only lon", "lon": -0.1, "rad": 100},
+                {"desc": "Has both", "lat": 51.6, "lon": -0.2, "rad": 50},
             ],
         }
         result = extract_waypoint_data(message, {"user": "alice", "device": "phone"})
         assert_that(len(result["waypoints"]), equal_to(1))
-        assert_that(result["waypoints"][0]["rid"], equal_to("uuid-1"))
+        assert_that(result["waypoints"][0]["desc"], equal_to("Has both"))
+
+    def test_accepts_waypoints_without_rid(self) -> None:
+        """Should include Android waypoints that have no rid field."""
+        message = {
+            "_type": "waypoints",
+            "waypoints": [
+                {"desc": "Android geofence", "lat": 51.5, "lon": -0.1, "rad": 100},
+                {"desc": "iOS geofence", "lat": 51.6, "lon": -0.2, "rad": 50, "rid": "uuid-1"},
+            ],
+        }
+        result = extract_waypoint_data(message, {"user": "alice", "device": "phone"})
+        assert_that(len(result["waypoints"]), equal_to(2))
 
     def test_default_radius(self) -> None:
         """Should default radius to 100 when missing."""

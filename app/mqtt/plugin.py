@@ -9,6 +9,7 @@ to WebSocket clients.
 import logging
 import os
 import ssl
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from datetime import timezone as _tz
@@ -337,36 +338,35 @@ def save_waypoints_to_db(waypoint_data: dict[str, Any]) -> int:
 
         valid_wps = [
             wp for wp in waypoint_data.get("waypoints", [])
-            if wp.get("rid") and wp.get("lat") is not None and wp.get("lon") is not None
+            if wp.get("lat") is not None and wp.get("lon") is not None
         ]
         if not valid_wps:
             return 0
 
-        existing_by_rid = {
-            w.rid: w
-            for w in Waypoint.objects.filter(rid__in=[wp["rid"] for wp in valid_wps])
-        }
-
         count = 0
         for wp in valid_wps:
-            rid = wp["rid"]
-            existing = existing_by_rid.get(rid)
-            if existing:
-                existing.label = wp.get("desc") or existing.label
-                existing.latitude = wp["lat"]
-                existing.longitude = wp["lon"]
-                existing.radius = wp.get("rad", existing.radius)
-                existing.save(update_fields=["label", "latitude", "longitude", "radius", "updated_at"])
+            desc = wp.get("desc") or ""
+            lat = float(wp["lat"])
+            lon = float(wp["lon"])
+            rad = int(wp.get("rad", 100))
+            rid = str(uuid.uuid5(
+                uuid.NAMESPACE_DNS,
+                f"{device.owner.pk}:{desc}:{lat:.6f}:{lon:.6f}:{rad}",
+            ))
+            _, created = Waypoint.objects.get_or_create(
+                rid=rid,
+                defaults={
+                    "user": device.owner,
+                    "label": desc,
+                    "latitude": wp["lat"],
+                    "longitude": wp["lon"],
+                    "radius": rad,
+                },
+            )
+            if created:
+                count += 1
             else:
-                Waypoint.objects.create(
-                    user=device.owner,
-                    rid=rid,
-                    label=wp.get("desc") or "",
-                    latitude=wp["lat"],
-                    longitude=wp["lon"],
-                    radius=wp.get("rad", 100),
-                )
-            count += 1
+                logger.debug("Waypoint already known (repeat), skipping: rid=%s", rid)
 
         return count
 
