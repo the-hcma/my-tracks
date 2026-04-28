@@ -265,8 +265,8 @@ class TestCommandPublisher:
         payload_data = json.loads(call_args[0][1].decode("utf-8"))
         assert_that(payload_data["_type"], equal_to("cmd"))
         assert_that(payload_data["action"], equal_to("reportLocation"))
-        # Third arg is QoS
-        assert_that(call_args[0][2], equal_to(1))
+        # Third arg is QoS — default is 0 (fire-and-forget; see send_command docstring)
+        assert_that(call_args[0][2], equal_to(0))
 
     @pytest.mark.asyncio
     async def test_send_command_with_standard_client_sync(self) -> None:

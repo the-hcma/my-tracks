@@ -221,7 +221,7 @@ class CommandPublisher:
         self,
         device_id: str,
         command: Command,
-        qos: int = 1,
+        qos: int = 0,
         owner: str | None = None,
     ) -> bool:
         """
@@ -230,7 +230,17 @@ class CommandPublisher:
         Args:
             device_id: The device ID in "user/device" format
             command: The command to send
-            qos: MQTT QoS level (default: 1 for at-least-once delivery)
+            qos: MQTT QoS level (default: 0 — fire-and-forget).
+                QoS 0 is intentional: commands are best-effort by nature (devices
+                may be offline, backgrounded, or on a poor connection). QoS 1
+                requires the device to send a PUBACK; when it doesn't (e.g. the
+                OwnTracks app is backgrounded), amqtt raises a TimeoutError inside
+                an unattended asyncio task, producing noisy "Task exception was
+                never retrieved" ERROR log lines that cannot be suppressed from
+                application code. Downgrading to QoS 0 eliminates the PUBACK
+                handshake entirely, removing the error at its source without any
+                loss of practical reliability — the server has no retry mechanism
+                for commands regardless of QoS level.
             owner: Human-readable owner name for log messages (e.g. Django username)
 
         Returns:
