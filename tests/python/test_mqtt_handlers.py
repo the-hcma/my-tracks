@@ -692,3 +692,62 @@ class TestHandlerWaypointCallback:
         await handler.handle_message("owntracks/alice/phone", payload)
 
         assert_that(len(received), equal_to(0))
+
+    @pytest.mark.asyncio
+    async def test_mqtt_user_propagated_to_lwt_callback(self) -> None:
+        """Should include mqtt_user in LWT data from the topic."""
+        handler = OwnTracksMessageHandler()
+        received: list[dict] = []
+
+        handler.on_lwt(received.append)
+
+        payload = json.dumps({
+            "_type": "lwt",
+            "tst": 1704067200,
+        }).encode()
+
+        await handler.handle_message("owntracks/alice/phone", payload)
+
+        assert_that(len(received), equal_to(1))
+        assert_that(received[0], has_entries(mqtt_user="alice"))
+
+    @pytest.mark.asyncio
+    async def test_mqtt_user_propagated_to_transition_callback(self) -> None:
+        """Should include mqtt_user in transition data from the topic."""
+        handler = OwnTracksMessageHandler()
+        received: list[dict] = []
+
+        handler.on_transition(received.append)
+
+        payload = json.dumps({
+            "_type": "transition",
+            "event": "enter",
+            "desc": "Home",
+            "rid": "rid-1",
+            "tst": 1704067200,
+        }).encode()
+
+        await handler.handle_message("owntracks/alice/phone", payload)
+
+        assert_that(len(received), equal_to(1))
+        assert_that(received[0], has_entries(mqtt_user="alice"))
+
+    @pytest.mark.asyncio
+    async def test_mqtt_user_propagated_to_waypoints_callback(self) -> None:
+        """Should include mqtt_user in waypoints data from the topic."""
+        handler = OwnTracksMessageHandler()
+        received: list[dict] = []
+
+        handler.on_waypoint(received.append)
+
+        payload = json.dumps({
+            "_type": "waypoints",
+            "waypoints": [
+                {"desc": "Home", "lat": 51.5, "lon": -0.1, "rad": 100, "rid": "uuid-1"},
+            ],
+        }).encode()
+
+        await handler.handle_message("owntracks/alice/phone", payload)
+
+        assert_that(len(received), equal_to(1))
+        assert_that(received[0], has_entries(mqtt_user="alice"))

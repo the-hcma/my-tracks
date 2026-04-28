@@ -332,6 +332,38 @@ class TestSaveLwtToDb(TestCase):
         device = Device.objects.get(device_id="user/alreadyoff")
         assert_that(device.is_online, equal_to(False))
 
+    def test_save_lwt_device_display_includes_owner(self) -> None:
+        """device_display should be 'owner/device_id' when device has an owner."""
+        from django.contrib.auth.models import User
+        owner = User.objects.create_user(username="bob", password="pass")
+        Device.objects.create(device_id="watch", name="Watch", is_online=True, owner=owner)
+
+        result = save_lwt_to_db({
+            "device": "watch",
+            "event": "offline",
+            "connected_at": None,
+            "disconnected_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+        })
+
+        assert_that(result, is_not(none()))
+        assert result is not None
+        assert_that(result["device_display"], equal_to("bob/watch"))
+
+    def test_save_lwt_device_display_no_owner(self) -> None:
+        """device_display should be bare device_id when device has no owner."""
+        Device.objects.create(device_id="orphan", name="Orphan", is_online=True)
+
+        result = save_lwt_to_db({
+            "device": "orphan",
+            "event": "offline",
+            "connected_at": None,
+            "disconnected_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+        })
+
+        assert_that(result, is_not(none()))
+        assert result is not None
+        assert_that(result["device_display"], equal_to("orphan"))
+
 
 @pytest.fixture
 def mock_broker_context() -> MagicMock:
@@ -1439,6 +1471,40 @@ class TestSaveTransitionToDb:
         })
         assert_that(result, is_(none()))
         assert_that(Device.objects.filter(device_id="no-such-device").exists(), is_(False))
+
+    def test_saves_transition_device_display_includes_owner(self, user_and_device: tuple[Any, Device]) -> None:
+        """device_display should be 'owner/device_id' when device has an owner."""
+        user, device = user_and_device
+        ts = datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC)
+
+        result = save_transition_to_db({
+            "device": "phone-tr",
+            "event": "enter",
+            "region_id": "rid-abc",
+            "description": "Work",
+            "timestamp": ts,
+        })
+
+        assert_that(result, is_not(none()))
+        assert result is not None
+        assert_that(result["device_display"], equal_to(f"{user.username}/phone-tr"))
+
+    def test_saves_transition_device_display_no_owner(self) -> None:
+        """device_display should be bare device_id when device has no owner."""
+        Device.objects.create(device_id="lonely", name="Lonely")
+        ts = datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC)
+
+        result = save_transition_to_db({
+            "device": "lonely",
+            "event": "leave",
+            "region_id": "rid-xyz",
+            "description": "Nowhere",
+            "timestamp": ts,
+        })
+
+        assert_that(result, is_not(none()))
+        assert result is not None
+        assert_that(result["device_display"], equal_to("lonely"))
 
 
 @pytest.mark.django_db
