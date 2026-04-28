@@ -753,6 +753,99 @@ class TransitionAction(models.Model):
         return f"{self.user.username}: {wp_label} {self.event} → {self.email_address}"
 
 
+class GlobalAutomationRule(models.Model):
+    """
+    Admin-defined rule that fires when a set of users all meet a geofence condition.
+
+    Condition is evaluated server-side using the latest Location for each watched
+    user (haversine distance to waypoint centre). Fires once when the condition
+    transitions from not-met to met; resets automatically when it is no longer met.
+    Only admins (is_staff) may create these rules.
+    """
+
+    CONDITION_ALL_INSIDE = 'all_inside'
+    CONDITION_ALL_OUTSIDE = 'all_outside'
+    CONDITION_CHOICES = [
+        (CONDITION_ALL_INSIDE, 'All users inside'),
+        (CONDITION_ALL_OUTSIDE, 'All users outside'),
+    ]
+
+    ACTION_EMAIL = 'email'
+    ACTION_WEBHOOK = 'webhook'
+    ACTION_CHOICES = [
+        (ACTION_EMAIL, 'Email'),
+        (ACTION_WEBHOOK, 'Webhook'),
+    ]
+
+    name = models.CharField(
+        max_length=200,
+        help_text="Human-readable label for this rule",
+    )
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='global_automation_rules_created',
+        help_text="Admin who created this rule",
+    )
+    waypoint = models.ForeignKey(
+        Waypoint,
+        on_delete=models.CASCADE,
+        related_name='global_automation_rules',
+        help_text="Geofence this rule watches",
+    )
+    condition = models.CharField(
+        max_length=20,
+        choices=CONDITION_CHOICES,
+        default=CONDITION_ALL_INSIDE,
+        help_text="'all_inside' or 'all_outside'",
+    )
+    users = models.ManyToManyField(
+        User,
+        related_name='global_automation_rules',
+        help_text="Users whose location is evaluated",
+    )
+    action_type = models.CharField(
+        max_length=20,
+        choices=ACTION_CHOICES,
+        default=ACTION_EMAIL,
+    )
+    email_address = models.EmailField(
+        blank=True,
+        help_text="Recipient email address (for email action)",
+    )
+    webhook_url = models.URLField(
+        blank=True,
+        help_text="HTTP endpoint to POST to (for webhook action)",
+    )
+    is_active = models.BooleanField(
+        default=True,  # type: ignore[reportArgumentType]
+        help_text="Whether this rule is currently active",
+    )
+    last_condition_met = models.BooleanField(
+        null=True,
+        default=None,  # type: ignore[reportArgumentType]
+        help_text=(
+            "Tracks fire-once state: None=never evaluated, "
+            "True=condition met (fired), False=condition not met (reset)"
+        ),
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['name']
+        verbose_name = 'Global Automation Rule'
+        verbose_name_plural = 'Global Automation Rules'
+        indexes = [
+            models.Index(fields=['is_active'], name='gar_active_idx'),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.condition})"
+
+
 @receiver(post_save, sender=User)
 def create_user_profile(
     sender: type[User], instance: User, created: bool, **kwargs: Any

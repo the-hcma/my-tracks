@@ -33,6 +33,7 @@ public_domain = getattr(settings, 'PUBLIC_DOMAIN', '')
 - `send_transition_email` — geofence transition notifications (`app/notifications.py`)
 - `send_test_email_via_backend` — SMTP configuration test (`app/notifications.py`)
 - `action_test` — automation rule test email (`web_ui/views.py`)
+- `send_global_automation_email` — global automation rule notifications (`app/notifications.py`)
 - Any future email sending code added to my-tracks
 
 ## Checklist for new email functions

@@ -24,8 +24,9 @@ from django.utils import timezone as tz
 
 from app.apps import get_mqtt_broker
 from app.models import (CertificateAuthority, ClientCertificate, Device,
-                        Location, ServerCertificate, SmtpConfig, Transition,
-                        TransitionAction, UserProfile, Waypoint)
+                        GlobalAutomationRule, Location, ServerCertificate,
+                        SmtpConfig, Transition, TransitionAction, UserProfile,
+                        Waypoint)
 from app.mqtt.commands import CommandPublisher
 from app.notifications import (get_smtp_backend, send_test_email,
                                send_test_email_via_backend,
@@ -954,6 +955,89 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
             request.session.pop('smtp_last_test_recipient', None)
             context['active_tab'] = 'email'
 
+        if form_type == 'add_global_rule':
+            rule_name = str(request.POST.get('rule_name', '')).strip()
+            waypoint_id_raw = str(request.POST.get('rule_waypoint_id', '')).strip()
+            condition = str(request.POST.get('rule_condition', '')).strip()
+            user_ids = request.POST.getlist('rule_user_ids')
+            action_type = str(request.POST.get('rule_action_type', 'email')).strip()
+            email_address = str(request.POST.get('rule_email_address', '')).strip()
+            webhook_url = str(request.POST.get('rule_webhook_url', '')).strip()
+
+            if not rule_name:
+                context['global_rule_error'] = 'Rule name is required.'
+            elif not waypoint_id_raw:
+                context['global_rule_error'] = 'Geofence is required.'
+            elif condition not in (
+                GlobalAutomationRule.CONDITION_ALL_INSIDE,
+                GlobalAutomationRule.CONDITION_ALL_OUTSIDE,
+            ):
+                context['global_rule_error'] = 'Invalid condition.'
+            elif action_type == GlobalAutomationRule.ACTION_EMAIL and not email_address:
+                context['global_rule_error'] = 'Email address is required for email action.'
+            elif action_type == GlobalAutomationRule.ACTION_WEBHOOK and not webhook_url:
+                context['global_rule_error'] = 'Webhook URL is required for webhook action.'
+            else:
+                try:
+                    waypoint_obj = Waypoint.objects.get(pk=int(waypoint_id_raw))
+                    rule = GlobalAutomationRule.objects.create(
+                        name=rule_name,
+                        created_by=request.user,
+                        waypoint=waypoint_obj,
+                        condition=condition,
+                        action_type=action_type,
+                        email_address=email_address if action_type == GlobalAutomationRule.ACTION_EMAIL else '',
+                        webhook_url=webhook_url if action_type == GlobalAutomationRule.ACTION_WEBHOOK else '',
+                        is_active=True,
+                    )
+                    if user_ids:
+                        users_qs = User.objects.filter(pk__in=[int(uid) for uid in user_ids])
+                        rule.users.set(users_qs)
+                    logger.info(
+                        "[http] Admin '%s' created global automation rule '%s' (id=%s)",
+                        request.user.username, rule_name, rule.pk,
+                    )
+                    context['global_rule_success'] = f"Rule '{rule_name}' created."
+                    context['active_tab'] = 'global_rules'
+                except Waypoint.DoesNotExist:
+                    context['global_rule_error'] = 'Waypoint not found.'
+                except ValueError:
+                    context['global_rule_error'] = 'Invalid waypoint or user ID.'
+                except Exception as e:
+                    context['global_rule_error'] = str(e)
+
+        if form_type == 'delete_global_rule':
+            rule_id = request.POST.get('rule_id')
+            try:
+                rule = GlobalAutomationRule.objects.get(pk=rule_id)
+                rule_name = rule.name
+                rule.delete()
+                logger.info(
+                    "[http] Admin '%s' deleted global automation rule '%s' (id=%s)",
+                    request.user.username, rule_name, rule_id,
+                )
+                context['global_rule_success'] = f"Rule '{rule_name}' deleted."
+                context['active_tab'] = 'global_rules'
+            except GlobalAutomationRule.DoesNotExist:
+                context['global_rule_error'] = 'Rule not found.'
+
+        if form_type == 'toggle_global_rule':
+            rule_id = request.POST.get('rule_id')
+            try:
+                rule = GlobalAutomationRule.objects.get(pk=rule_id)
+                rule.is_active = not rule.is_active
+                rule.save(update_fields=['is_active', 'updated_at'])
+                state_str = "enabled" if rule.is_active else "disabled"
+                logger.info(
+                    "[http] Admin '%s' %s global automation rule '%s' (id=%s)",
+                    request.user.username, state_str, rule.name, rule_id,
+                )
+                context['global_rule_success'] = f"Rule '{rule.name}' {state_str}."
+                context['active_tab'] = 'global_rules'
+            except GlobalAutomationRule.DoesNotExist:
+                context['global_rule_error'] = 'Rule not found.'
+
+
     users = list(User.objects.all().order_by('username'))
     user_id_to_active_cert = {
         cc.user_id: cc
@@ -1033,6 +1117,28 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
     context['hostname'] = admin_info.hostname
     context['public_domain'] = settings.PUBLIC_DOMAIN
     context['smtp_configured'] = SmtpConfig.get() is not None
+
+    # Global Automation Rules — admin-only context
+    context['all_waypoints'] = list(
+        Waypoint.objects.select_related('user').order_by('user__username', 'label')
+    )
+    context['all_transitions'] = list(
+        Transition.objects.select_related('device__owner', 'waypoint')
+        .order_by('-timestamp')[:50]
+    )
+    context['global_rules'] = list(
+        GlobalAutomationRule.objects
+        .prefetch_related('users')
+        .select_related('waypoint', 'created_by')
+        .order_by('name')
+    )
+    context['all_users'] = list(User.objects.order_by('username'))
+
+    global_rules_has_message = any(
+        context.get(k) for k in ('global_rule_success', 'global_rule_error')
+    )
+    if global_rules_has_message and not context.get('active_tab'):
+        context['active_tab'] = 'global_rules'
 
     return render(request, 'web_ui/admin_panel.html', context)
 

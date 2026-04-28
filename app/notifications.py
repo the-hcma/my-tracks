@@ -20,7 +20,10 @@ from django.core.mail.backends.smtp import EmailBackend
 from app.pki import decrypt_private_key
 
 if TYPE_CHECKING:
-    from app.models import SmtpConfig, Transition, TransitionAction
+    from django.contrib.auth.models import User
+
+    from app.models import (GlobalAutomationRule, SmtpConfig, Transition,
+                            TransitionAction)
 
 logger = logging.getLogger(__name__)
 
@@ -192,6 +195,115 @@ def send_transition_email(transition: "Transition", action: "TransitionAction") 
     logger.info(
         "Transition email sent to %s: %s %s %s",
         action.email_address, display_name, verb, waypoint_label,
+    )
+
+
+def send_global_automation_email(
+    rule: "GlobalAutomationRule",
+    triggered_by: "User",
+    states: dict[str, str],
+) -> None:
+    """
+    Send a notification email when a GlobalAutomationRule fires. Raises on failure.
+
+    Args:
+        rule: The GlobalAutomationRule that fired.
+        triggered_by: The User whose new location triggered evaluation.
+        states: Mapping of username → 'inside' | 'outside' | 'unknown'.
+    """
+    from app.models import GlobalAutomationRule, SmtpConfig
+    config = SmtpConfig.get()
+    if config is None:
+        logger.debug("send_global_automation_email: no SMTP config, skipping")
+        return
+
+    condition_label = (
+        "inside" if rule.condition == GlobalAutomationRule.CONDITION_ALL_INSIDE
+        else "outside"
+    )
+    now = datetime.now(tz=_utc.utc)
+    local_ts = now.astimezone(settings.SYSTEM_TIMEZONE)
+    ts_str = (
+        f"{local_ts.strftime('%Y-%m-%d %H:%M:%S %Z')}"
+        f" ({now.strftime('%Y-%m-%d %H:%M:%S UTC')})"
+    )
+    public_domain = getattr(settings, "PUBLIC_DOMAIN", "")
+    sent_by = public_domain or config.host
+
+    user_lines = "\n".join(
+        f"      {uname}: {state}" for uname, state in sorted(states.items())
+    )
+    subject = f"[my-tracks] {rule.name} — all {condition_label} {rule.waypoint.label}"
+    body = (
+        f'Global automation rule "{rule.name}" fired.\n'
+        f"\n"
+        f"  Condition:    All users {condition_label} {rule.waypoint.label}\n"
+        f"  Triggered by: {triggered_by.username}\n"
+        f"\n"
+        f"  User states:\n"
+        f"{user_lines}\n"
+        f"\n"
+        f"  Sent at:  {ts_str}\n"
+        f"  Sent by:  {sent_by}"
+    )
+
+    backend = get_smtp_backend(config)
+    EmailMessage(
+        subject=subject,
+        body=body,
+        from_email=config.from_address,
+        to=[rule.email_address],
+        connection=backend,
+    ).send()
+    logger.info(
+        "Global automation email sent to %s (rule=%r, condition=%s)",
+        rule.email_address, rule.name, rule.condition,
+    )
+
+
+def fire_global_automation_webhook(
+    rule: "GlobalAutomationRule",
+    triggered_by: "User",
+    states: dict[str, str],
+) -> None:
+    """
+    Fire an HTTP POST webhook when a GlobalAutomationRule fires.
+
+    Uses stdlib urllib — no additional dependencies. Raises on failure.
+
+    Args:
+        rule: The GlobalAutomationRule that fired.
+        triggered_by: The User whose new location triggered evaluation.
+        states: Mapping of username → 'inside' | 'outside' | 'unknown'.
+    """
+    import json
+    import urllib.request
+
+    payload = {
+        "rule_name": rule.name,
+        "condition": rule.condition,
+        "waypoint": {
+            "label": rule.waypoint.label,
+            "lat": float(str(rule.waypoint.latitude)),
+            "lon": float(str(rule.waypoint.longitude)),
+            "radius": rule.waypoint.radius,
+        },
+        "users_state": states,
+        "triggered_by": triggered_by.username,
+        "timestamp": datetime.now(tz=_utc.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+    }
+    data = json.dumps(payload).encode('utf-8')
+    req = urllib.request.Request(
+        str(rule.webhook_url),
+        data=data,
+        headers={'Content-Type': 'application/json'},
+        method='POST',
+    )
+    with urllib.request.urlopen(req, timeout=5) as resp:  # noqa: S310
+        status = resp.status
+    logger.info(
+        "Global automation webhook fired: url=%s status=%s (rule=%r)",
+        rule.webhook_url, status, rule.name,
     )
 
 
