@@ -136,12 +136,12 @@ class TestRequestLoggingMiddleware:
         assert '_type' in msg
         assert 'result' in msg
 
-    # ── _compact_json helper ──────────────────────────────────────────────
+    # ── _format_json helper ───────────────────────────────────────────────
 
-    def test_compact_json_strips_whitespace(self) -> None:
-        from app.middleware import _compact_json
-        assert _compact_json(b'{"a": 1, "b": 2}') == '{"a":1,"b":2}'
+    def test_format_json_indents_and_sorts_output(self) -> None:
+        from app.middleware import _format_json
+        assert _format_json(b'{"z": 1, "a": 2}') == '{\n  "a": 2,\n  "z": 1\n}'
 
-    def test_compact_json_returns_raw_on_invalid(self) -> None:
-        from app.middleware import _compact_json
-        assert _compact_json(b'not json') == 'not json'
+    def test_format_json_returns_raw_on_invalid(self) -> None:
+        from app.middleware import _format_json
+        assert _format_json(b'not json') == 'not json'

@@ -13,10 +13,10 @@ _HEALTH_PREFIX = '/health/'
 _JSON_CONTENT_TYPES = ('application/json', 'text/json')
 
 
-def _compact_json(data: bytes) -> str:
-    """Return a compact single-line JSON string, or raw text if not valid JSON."""
+def _format_json(data: bytes) -> str:
+    """Return a pretty-printed JSON string (2-space indent, keys sorted), or raw text if not valid JSON."""
     try:
-        return json.dumps(json.loads(data), separators=(',', ':'))
+        return json.dumps(json.loads(data), indent=2, sort_keys=True)
     except (ValueError, UnicodeDecodeError):
         return data.decode('utf-8', errors='replace')
 
@@ -24,9 +24,9 @@ def _compact_json(data: bytes) -> str:
 class RequestLoggingMiddleware:
     """Log each HTTP request, its response status, and JSON bodies at DEBUG level.
 
-    Produces one line per request:
+    Produces one line per request, with bodies pretty-printed:
         GET  /api/locations/ -> 200
-        POST /api/owntracks/ -> 201 | req: {"_type":"location",...} | resp: [{"id":1,...}]
+        POST /api/owntracks/ -> 201 | req: {\n  "_type": "location"\n} | resp: [\n  {"id": 1}\n]
 
     Request bodies are captured only when Content-Type is application/json.
     Response bodies are captured only when the response Content-Type is
@@ -43,7 +43,7 @@ class RequestLoggingMiddleware:
         req_body: str | None = None
         req_ct = request.content_type or ''
         if any(req_ct.startswith(ct) for ct in _JSON_CONTENT_TYPES) and request.body:
-            req_body = _compact_json(request.body)
+            req_body = _format_json(request.body)
 
         response: HttpResponse = self.get_response(request)  # type: ignore[assignment]
 
@@ -53,7 +53,7 @@ class RequestLoggingMiddleware:
             any(resp_ct.startswith(ct) for ct in _JSON_CONTENT_TYPES)
             and not getattr(response, 'streaming', False)
         ):
-            resp_body = _compact_json(response.content)
+            resp_body = _format_json(response.content)
 
         level = TRACE if request.path.startswith(_HEALTH_PREFIX) else logging.DEBUG
 
