@@ -474,16 +474,30 @@ def geofences(request: HttpRequest) -> HttpResponse:
             event = (request.POST.get('event') or 'any').strip()
             email = (request.POST.get('email_address') or '').strip()
             if email and event in ('enter', 'leave', 'any'):
-                waypoint: Waypoint | None = None
-                if wp_id_raw:
-                    waypoint = get_object_or_404(Waypoint, pk=wp_id_raw, user=request.user)
-                TransitionAction.objects.create(
-                    user=request.user,
-                    waypoint=waypoint,
-                    event=event,
-                    action_type=TransitionAction.ACTION_EMAIL,
-                    email_address=email,
-                )
+                if wp_id_raw == 'all':
+                    # Create one rule per geofence owned by this user
+                    user_waypoints = list(
+                        Waypoint.objects.filter(user=request.user, is_active=True)
+                    )
+                    for wp in user_waypoints:
+                        TransitionAction.objects.create(
+                            user=request.user,
+                            waypoint=wp,
+                            event=event,
+                            action_type=TransitionAction.ACTION_EMAIL,
+                            email_address=email,
+                        )
+                else:
+                    waypoint: Waypoint | None = None
+                    if wp_id_raw:
+                        waypoint = get_object_or_404(Waypoint, pk=wp_id_raw, user=request.user)
+                    TransitionAction.objects.create(
+                        user=request.user,
+                        waypoint=waypoint,
+                        event=event,
+                        action_type=TransitionAction.ACTION_EMAIL,
+                        email_address=email,
+                    )
 
         elif form_type == 'delete_action':
             action = get_object_or_404(

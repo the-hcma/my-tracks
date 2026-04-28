@@ -108,3 +108,30 @@ class TestLocationConsumer:
         assert_that(response['data'], equal_to(test_status))
 
         await communicator.disconnect()
+
+    async def test_waypoint_event_broadcast(self):
+        """Test that waypoint sync events are broadcast to connected clients."""
+        communicator = WebsocketCommunicator(application, "/ws/locations/")
+        await communicator.connect()
+
+        # Consume welcome message first
+        welcome = await communicator.receive_json_from()
+        assert_that(welcome['type'], equal_to('welcome'))
+
+        channel_layer = get_channel_layer()
+        assert_that(channel_layer, is_not(none()))
+        test_data = {'device_display': 'alice/phone', 'new_count': 1}
+
+        await cast(Any, channel_layer).group_send(
+            "locations",
+            {
+                "type": "waypoint_event",
+                "data": test_data,
+            }
+        )
+
+        response = await communicator.receive_json_from()
+        assert_that(response['type'], equal_to('waypoint_event'))
+        assert_that(response['data'], equal_to(test_data))
+
+        await communicator.disconnect()

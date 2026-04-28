@@ -1687,3 +1687,34 @@ class TestBroadcastTransition:
 
         assert_that(Waypoint.objects.count(), equal_to(2))
         assert_that(Waypoint.objects.get(label="Home").latitude, equal_to(51.5))
+
+
+@pytest.mark.django_db
+class TestBroadcastWaypoints:
+    """Tests for _broadcast_waypoints WebSocket broadcast."""
+
+    @pytest.fixture
+    def plugin(self, mock_broker_context: MagicMock) -> OwnTracksPlugin:
+        return OwnTracksPlugin(mock_broker_context)
+
+    @pytest.mark.asyncio
+    async def test_broadcast_waypoints_to_channel_layer(self, plugin: OwnTracksPlugin) -> None:
+        """Should broadcast waypoint sync event to channel layer."""
+        mock_layer = AsyncMock()
+        mock_layer.group_send = AsyncMock()
+
+        waypoint_data = {"device_display": "alice/phone", "new_count": 2}
+
+        with patch("app.mqtt.plugin.get_channel_layer_lazy", return_value=mock_layer):
+            await plugin._broadcast_waypoints(waypoint_data)
+
+        mock_layer.group_send.assert_called_once()
+        call_args = mock_layer.group_send.call_args
+        assert_that(call_args[0][0], equal_to("locations"))
+        assert_that(call_args[0][1], has_entries(type="waypoint_event", data=waypoint_data))
+
+    @pytest.mark.asyncio
+    async def test_broadcast_waypoints_no_channel_layer(self, plugin: OwnTracksPlugin) -> None:
+        """Should not raise when channel layer is unavailable."""
+        with patch("app.mqtt.plugin.get_channel_layer_lazy", return_value=None):
+            await plugin._broadcast_waypoints({"device_display": "alice/phone", "new_count": 1})
