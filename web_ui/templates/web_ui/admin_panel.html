@@ -1551,8 +1551,8 @@
                 <tr>
                     <td>{{ wp.user.username }}</td>
                     <td>{{ wp.label }}</td>
-                    <td>{{ wp.latitude }}</td>
-                    <td>{{ wp.longitude }}</td>
+                    <td>{{ wp.latitude|floatformat:6 }}</td>
+                    <td>{{ wp.longitude|floatformat:6 }}</td>
                     <td>{{ wp.radius }}</td>
                 </tr>
                 {% endfor %}
