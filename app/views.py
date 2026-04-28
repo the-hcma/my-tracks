@@ -405,6 +405,36 @@ class CommandViewSet(viewsets.ViewSet):
             return CommandPublisher(mqtt_client=broker.amqtt_broker)
         return CommandPublisher()
 
+    def _resolve_device(self, raw_device_id: str, request: Request) -> tuple[Device, str] | None:
+        """
+        Look up a Device by device_id and return (device, mqtt_topic_id).
+
+        Accepts both ``device_id`` and ``mqtt_user/device_id`` formats; the
+        user-prefix portion of a slash-format input is stripped before the
+        database lookup so the result always reflects the device's stored
+        ``mqtt_user`` field.
+
+        For non-staff users only devices owned by the requesting user are
+        considered.  Staff may access any device.
+
+        Returns ``None`` when no matching device is found.
+        """
+        bare_device_id = raw_device_id.split("/", 1)[1] if "/" in raw_device_id else raw_device_id
+        try:
+            if not request.user.is_authenticated or request.user.is_staff:
+                # Staff see all devices; unauthenticated requests are only possible when
+                # COMMAND_API_KEY is unset (dev/test with AllowAny permission).
+                device = Device.objects.select_related("owner").get(device_id=bare_device_id)
+            else:
+                device = Device.objects.select_related("owner").get(
+                    device_id=bare_device_id, owner=request.user
+                )
+        except Device.DoesNotExist:
+            return None
+
+        mqtt_user = device.mqtt_user or (device.owner.username if device.owner else bare_device_id)
+        return device, f"{mqtt_user}/{device.device_id}"
+
     @action(detail=False, methods=['post'], url_path='report-location')
     def report_location(self, request: Request) -> Response:
         """
@@ -412,12 +442,12 @@ class CommandViewSet(viewsets.ViewSet):
 
         Request body:
             {
-                "device_id": "user/device"
+                "device_id": "device_id"  OR  "mqtt_user/device_id"
             }
 
         Returns:
             200: Command sent successfully
-            400: Missing device_id or invalid format
+            400: Missing device_id or device not found
             503: MQTT broker not available
         """
         raw_device_id = request.data.get('device_id')
@@ -426,7 +456,14 @@ class CommandViewSet(viewsets.ViewSet):
                 {"error": "device_id is required"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        device_id = str(raw_device_id)
+
+        resolved = self._resolve_device(str(raw_device_id), request)
+        if resolved is None:
+            return Response(
+                {"error": f"Device '{raw_device_id}' not found"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        _device, device_id = resolved
 
         logger.info(
             "[http] reportLocation command requested by %s for device %s",
@@ -440,6 +477,7 @@ class CommandViewSet(viewsets.ViewSet):
             success = async_to_sync(publisher.send_command)(
                 device_id,
                 Command.report_location(),
+                owner=request.user.username,
             )
         except RuntimeError as e:
             logger.warning("[http] MQTT broker not available for command: %s", e)
@@ -471,7 +509,7 @@ class CommandViewSet(viewsets.ViewSet):
 
         Request body:
             {
-                "device_id": "user/device",
+                "device_id": "device_id"  OR  "mqtt_user/device_id",
                 "waypoints": [
                     {
                         "desc": "Home",
@@ -484,7 +522,7 @@ class CommandViewSet(viewsets.ViewSet):
 
         Returns:
             200: Command sent successfully
-            400: Missing required fields or invalid format
+            400: Missing required fields, device not found, or invalid format
             503: MQTT broker not available
         """
         raw_device_id = request.data.get('device_id')
@@ -495,7 +533,6 @@ class CommandViewSet(viewsets.ViewSet):
                 {"error": "device_id is required"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        device_id = str(raw_device_id)
 
         if not waypoints or not isinstance(waypoints, list):
             return Response(
@@ -503,12 +540,21 @@ class CommandViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        resolved = self._resolve_device(str(raw_device_id), request)
+        if resolved is None:
+            return Response(
+                {"error": f"Device '{raw_device_id}' not found"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        _device, device_id = resolved
+
         publisher = self._get_publisher()
 
         try:
             success = async_to_sync(publisher.send_command)(
                 device_id,
                 Command.set_waypoints(waypoints),
+                owner=request.user.username,
             )
         except RuntimeError as e:
             logger.warning("MQTT broker not available: %s", e)
@@ -539,12 +585,12 @@ class CommandViewSet(viewsets.ViewSet):
 
         Request body:
             {
-                "device_id": "user/device"
+                "device_id": "device_id"  OR  "mqtt_user/device_id"
             }
 
         Returns:
             200: Command sent successfully
-            400: Missing device_id or invalid format
+            400: Missing device_id or device not found
             503: MQTT broker not available
         """
         raw_device_id = request.data.get('device_id')
@@ -553,7 +599,14 @@ class CommandViewSet(viewsets.ViewSet):
                 {"error": "device_id is required"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        device_id = str(raw_device_id)
+
+        resolved = self._resolve_device(str(raw_device_id), request)
+        if resolved is None:
+            return Response(
+                {"error": f"Device '{raw_device_id}' not found"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        _device, device_id = resolved
 
         publisher = self._get_publisher()
 
@@ -561,6 +614,7 @@ class CommandViewSet(viewsets.ViewSet):
             success = async_to_sync(publisher.send_command)(
                 device_id,
                 Command.clear_waypoints(),
+                owner=request.user.username,
             )
         except RuntimeError as e:
             logger.warning("MQTT broker not available: %s", e)
@@ -590,7 +644,7 @@ class CommandViewSet(viewsets.ViewSet):
 
         Request body:
             {
-                "device_id": "device_id"  OR  "user/device_id"
+                "device_id": "device_id"  OR  "mqtt_user/device_id"
             }
 
         Returns:
@@ -604,25 +658,14 @@ class CommandViewSet(viewsets.ViewSet):
                 {"error": "device_id is required"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        device_id = str(raw_device_id)
 
-        # If no slash, treat as a plain device_id and resolve to owner/device_id.
-        # This matches what the Geofences tab sends ({{ d.device_id }}).
-        if '/' not in device_id:
-            try:
-                if request.user.is_staff:
-                    device = Device.objects.select_related('owner').get(device_id=device_id)
-                else:
-                    device = Device.objects.select_related('owner').get(
-                        device_id=device_id, owner=request.user
-                    )
-            except Device.DoesNotExist:
-                return Response(
-                    {"error": f"Device '{device_id}' not found"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            if device.owner:
-                device_id = f"{device.owner.username}/{device_id}"
+        resolved = self._resolve_device(str(raw_device_id), request)
+        if resolved is None:
+            return Response(
+                {"error": f"Device '{raw_device_id}' not found"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        _device, device_id = resolved
 
         logger.info(
             "[http] fetchWaypoints command requested by %s for device %s",
@@ -636,6 +679,7 @@ class CommandViewSet(viewsets.ViewSet):
             success = async_to_sync(publisher.send_command)(
                 device_id,
                 Command.request_waypoints(),
+                owner=request.user.username,
             )
         except RuntimeError as e:
             logger.warning("[http] MQTT broker not available for waypoints command: %s", e)

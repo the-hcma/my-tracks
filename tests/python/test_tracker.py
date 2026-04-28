@@ -1135,6 +1135,14 @@ class TestHomeView:
 class TestCommandAPI:
     """Tests for Command API endpoints (MQTT commands)."""
 
+    @pytest.fixture(autouse=True)
+    def device(self, db: Any, api_client: APIClient) -> None:
+        """Create a device and authenticate the client as its owner."""
+        from django.contrib.auth.models import User
+        user = User.objects.create_user(username="cmd_test_user", password="pw")
+        Device.objects.create(device_id="device", mqtt_user="user", owner=user)
+        api_client.force_authenticate(user=user)
+
     def test_report_location_success(self, api_client: APIClient) -> None:
         """Test successful report-location command."""
         with patch('app.views.async_to_sync') as mock_a2s:
