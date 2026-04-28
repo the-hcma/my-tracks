@@ -34,6 +34,9 @@ Complete API reference with all endpoints, parameters, examples, and response fo
 ### [ANDROID_CERTS.md](ANDROID_CERTS.md)
 How to install and remove the My Tracks CA and client certificate on Android for MQTT over TLS.
 
+### [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+Common issues and solutions: OwnTracks commands not responding, empty waypoints, wrong MQTT protocol version, TLS errors, PUBACK warnings.
+
 ### [COMMANDS.md](COMMANDS.md)
 Quick reference for all commonly used commands (server management, testing, deployment, etc.).
 
