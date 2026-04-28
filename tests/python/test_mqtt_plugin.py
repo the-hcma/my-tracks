@@ -1518,45 +1518,57 @@ class TestSaveWaypointsToDb:
         return user, device
 
     def test_creates_new_waypoints(self, user_and_device: tuple[Any, Device]) -> None:
-        """Should create Waypoint records for new rids."""
+        """Should create Waypoint records for new content."""
         user, device = user_and_device
         result = save_waypoints_to_db({
             "device": "phone-wp",
             "waypoints": [
-                {"rid": "rid-1", "desc": "Home", "lat": 51.5, "lon": -0.1, "rad": 100},
-                {"rid": "rid-2", "desc": "Work", "lat": 51.52, "lon": -0.08, "rad": 50},
+                {"desc": "Home", "lat": 51.5, "lon": -0.1, "rad": 100},
+                {"desc": "Work", "lat": 51.52, "lon": -0.08, "rad": 50},
             ],
         })
 
         assert_that(result, equal_to(2))
         assert_that(Waypoint.objects.count(), equal_to(2))
-        wp = Waypoint.objects.get(rid="rid-1")
-        assert_that(wp.label, equal_to("Home"))
+        wp = Waypoint.objects.get(label="Home")
+        assert_that(float(wp.latitude), equal_to(51.5))
         assert_that(wp.user, equal_to(user))
 
-    def test_updates_existing_waypoint(self, user_and_device: tuple[Any, Device]) -> None:
-        """Should update lat/lon/radius for existing waypoint by rid."""
-        user, _ = user_and_device
-        Waypoint.objects.create(
-            user=user, label="Old label", latitude=51.0, longitude=0.0, radius=50, rid="rid-1",
-        )
-
-        save_waypoints_to_db({
+    def test_skips_duplicate_waypoint(self, user_and_device: tuple[Any, Device]) -> None:
+        """Should skip and not count a waypoint with identical content (same content hash)."""
+        user, device = user_and_device
+        result1 = save_waypoints_to_db({
             "device": "phone-wp",
-            "waypoints": [{"rid": "rid-1", "desc": "New label", "lat": 51.5, "lon": -0.1, "rad": 200}],
+            "waypoints": [{"desc": "Home", "lat": 51.5, "lon": -0.1, "rad": 100}],
         })
-
-        wp = Waypoint.objects.get(rid="rid-1")
-        assert_that(wp.label, equal_to("New label"))
-        assert_that(float(wp.latitude), equal_to(51.5))
-        assert_that(wp.radius, equal_to(200))
+        assert_that(result1, equal_to(1))
         assert_that(Waypoint.objects.count(), equal_to(1))
+
+        result2 = save_waypoints_to_db({
+            "device": "phone-wp",
+            "waypoints": [{"desc": "Home", "lat": 51.5, "lon": -0.1, "rad": 100}],
+        })
+        assert_that(result2, equal_to(0))
+        assert_that(Waypoint.objects.count(), equal_to(1))
+
+    def test_creates_android_waypoints_without_rid(self, user_and_device: tuple[Any, Device]) -> None:
+        """Should create waypoints from Android devices that send no rid field."""
+        user, device = user_and_device
+        result = save_waypoints_to_db({
+            "device": "phone-wp",
+            "waypoints": [
+                {"desc": "Android geofence", "lat": 51.5, "lon": -0.1, "rad": 150},
+            ],
+        })
+        assert_that(result, equal_to(1))
+        wp = Waypoint.objects.get(label="Android geofence")
+        assert_that(wp.radius, equal_to(150))
 
     def test_returns_zero_for_unknown_device(self) -> None:
         """Should return 0 when device does not exist."""
         result = save_waypoints_to_db({
             "device": "no-such-device",
-            "waypoints": [{"rid": "rid-1", "desc": "Home", "lat": 51.5, "lon": -0.1, "rad": 100}],
+            "waypoints": [{"desc": "Home", "lat": 51.5, "lon": -0.1, "rad": 100}],
         })
         assert_that(result, equal_to(0))
         assert_that(Waypoint.objects.count(), equal_to(0))
@@ -1569,7 +1581,7 @@ class TestSaveWaypointsToDb:
 
         result = save_waypoints_to_db({
             "device": "phone-wp",
-            "waypoints": [{"rid": "rid-1", "desc": "Home", "lat": 51.5, "lon": -0.1, "rad": 100}],
+            "waypoints": [{"desc": "Home", "lat": 51.5, "lon": -0.1, "rad": 100}],
         })
         assert_that(result, equal_to(0))
 
@@ -1578,12 +1590,12 @@ class TestSaveWaypointsToDb:
         result = save_waypoints_to_db({
             "device": "phone-wp",
             "waypoints": [
-                {"rid": "rid-1", "desc": "No lat", "lon": -0.1, "rad": 100},
-                {"rid": "rid-2", "desc": "Good", "lat": 51.5, "lon": -0.1, "rad": 100},
+                {"desc": "No lat", "lon": -0.1, "rad": 100},
+                {"desc": "Good", "lat": 51.5, "lon": -0.1, "rad": 100},
             ],
         })
         assert_that(result, equal_to(1))
-        assert_that(Waypoint.objects.filter(rid="rid-1").exists(), is_(False))
+        assert_that(Waypoint.objects.filter(label="No lat").exists(), is_(False))
 
 
 @pytest.mark.django_db
@@ -1674,4 +1686,4 @@ class TestBroadcastTransition:
         await plugin.on_broker_message_received(client_id="client", message=message)
 
         assert_that(Waypoint.objects.count(), equal_to(2))
-        assert_that(Waypoint.objects.get(rid="rid-a").label, equal_to("Home"))
+        assert_that(Waypoint.objects.get(label="Home").latitude, equal_to(51.5))

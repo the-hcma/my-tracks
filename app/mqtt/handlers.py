@@ -271,14 +271,13 @@ def extract_waypoint_data(
 
     waypoints = [
         {
-            "rid": wp.get("rid"),
             "desc": wp.get("desc", ""),
             "lat": wp.get("lat"),
             "lon": wp.get("lon"),
             "rad": wp.get("rad", 100),
         }
         for wp in raw_waypoints
-        if isinstance(wp, dict) and wp.get("rid")
+        if isinstance(wp, dict) and wp.get("lat") is not None and wp.get("lon") is not None
     ]
 
     return {
