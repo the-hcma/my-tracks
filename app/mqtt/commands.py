@@ -36,8 +36,11 @@ class CommandType(Enum):
     # Set configuration on device
     SET_CONFIGURATION = "setConfiguration"
 
-    # Request device to dump its configuration
+    # Request device to dump its configuration (iOS only — returns configuration message)
     DUMP = "dump"
+
+    # Request device to publish its waypoints list (iOS and Android)
+    WAYPOINTS = "waypoints"
 
     # Restart the OwnTracks app
     RESTART = "restart"
@@ -128,8 +131,13 @@ class Command:
 
     @classmethod
     def dump(cls) -> "Command":
-        """Create a command to request configuration dump from device."""
+        """Create a command to request configuration dump from device (iOS only)."""
         return cls(command_type=CommandType.DUMP)
+
+    @classmethod
+    def request_waypoints(cls) -> "Command":
+        """Create a command to request the device to publish its waypoints (iOS and Android)."""
+        return cls(command_type=CommandType.WAYPOINTS)
 
     @classmethod
     def action(cls, action_name: str, params: dict[str, Any] | None = None) -> "Command":
