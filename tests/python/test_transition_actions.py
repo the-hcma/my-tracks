@@ -384,3 +384,42 @@ class TestGeofencesActionPosts:
         content = response.content.decode()
         assert 'ctx@example.com' in content
         assert 'Automations' in content
+
+    def test_add_action_all_creates_one_rule_per_waypoint(
+        self, logged_in_client: Client, user: User
+    ) -> None:
+        """Submitting waypoint_id='all' should create one TransitionAction per waypoint."""
+        Waypoint.objects.create(
+            user=user, label='Home', latitude='51.5', longitude='-0.1', radius=100
+        )
+        Waypoint.objects.create(
+            user=user, label='Work', latitude='51.52', longitude='-0.08', radius=50
+        )
+        response = logged_in_client.post('/geofences/', {
+            'form_type': 'add_action',
+            'waypoint_id': 'all',
+            'event': 'enter',
+            'email_address': 'all-fences@example.com',
+        })
+        assert response.status_code == 302
+        actions = TransitionAction.objects.filter(
+            user=user, email_address='all-fences@example.com'
+        )
+        assert actions.count() == 2
+        labels = {a.waypoint.label for a in actions if a.waypoint}
+        assert labels == {'Home', 'Work'}
+
+    def test_add_action_all_no_waypoints_creates_nothing(
+        self, logged_in_client: Client, user: User
+    ) -> None:
+        """Submitting waypoint_id='all' with no waypoints creates no actions."""
+        response = logged_in_client.post('/geofences/', {
+            'form_type': 'add_action',
+            'waypoint_id': 'all',
+            'event': 'enter',
+            'email_address': 'nobody@example.com',
+        })
+        assert response.status_code == 302
+        assert not TransitionAction.objects.filter(
+            user=user, email_address='nobody@example.com'
+        ).exists()

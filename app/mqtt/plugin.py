@@ -365,8 +365,9 @@ def save_waypoints_to_db(waypoint_data: dict[str, Any]) -> int:
             )
             if created:
                 count += 1
+                logger.debug("Waypoint created: desc=%r rid=%s", desc, rid)
             else:
-                logger.debug("Waypoint already known (repeat), skipping: rid=%s", rid)
+                logger.debug("Waypoint already known (dup), skipping: desc=%r rid=%s", desc, rid)
 
         return count
 
@@ -595,9 +596,14 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
         # thread_sensitive=False: same reason as in _handle_location.
         saved = await sync_to_async(save_waypoints_to_db, thread_sensitive=False)(waypoint_data)
         logger.info(
-            "[%s] Waypoints upserted: device=%s, processed=%d",
-            transport, device_display, saved,
+            "[%s] Waypoints upserted: device=%s, new=%d, dup=%d",
+            transport, device_display, saved, count - saved,
         )
+        if saved > 0:
+            await self._broadcast_waypoints(
+                {"device_display": device_display, "new_count": saved},
+                transport=transport,
+            )
 
     async def _broadcast_location(
         self,
@@ -655,6 +661,35 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
             )
         except Exception:
             logger.exception("[%s] WebSocket broadcast failed for device status", transport)
+
+    async def _broadcast_waypoints(
+        self,
+        waypoint_data: dict[str, Any],
+        *,
+        transport: str = "mqtt",
+    ) -> None:
+        """Broadcast a waypoint sync event to WebSocket clients."""
+        channel_layer = get_channel_layer_lazy()
+        if channel_layer is None:
+            logger.warning("[%s] WebSocket broadcast skipped: no channel layer", transport)
+            return
+
+        try:
+            await channel_layer.group_send(
+                "locations",
+                {
+                    "type": "waypoint_event",
+                    "data": waypoint_data,
+                },
+            )
+            logger.info(
+                "[%s] WebSocket broadcast completed for waypoints: device=%s, new=%d",
+                transport,
+                waypoint_data.get("device_display"),
+                waypoint_data.get("new_count"),
+            )
+        except Exception:
+            logger.exception("[%s] WebSocket broadcast failed for waypoints", transport)
 
     async def _broadcast_transition(
         self,
