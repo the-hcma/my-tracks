@@ -390,6 +390,11 @@ Do not declare a PR ready until Steps 3, 4, and 5 all pass.
 - API: Return `timestamp_unix` (Unix timestamp) for client-side timezone conversion
 - Rationale: Consistent storage in UTC, flexible display in user's timezone, no timezone confusion
 
+**Coordinate Display**:
+- Always render lat/lon **display values** in templates with `|floatformat:6` (6 decimal places ≈ 0.1 m precision)
+- Do **not** apply `floatformat` to `data-lat`/`data-lon` HTML attributes or values passed to JavaScript — those must retain full precision for map/calculation use
+- Applies to all templates: `profile.html`, `geofences.html`, `admin_panel.html`, and any future templates
+
 ## Agent 2: Primary Critique Agent (Claude)
 
 **Model**: `claude-opus-4.5` (see AGENT_MODELS.md)

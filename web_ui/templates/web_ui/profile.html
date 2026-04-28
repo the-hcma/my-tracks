@@ -947,7 +947,7 @@
                         <button type="button" class="use-last-btn"
                                 data-lat="{{ last_location.latitude }}"
                                 data-lon="{{ last_location.longitude }}">
-                            Use my last known location ({{ last_location.latitude }}, {{ last_location.longitude }})
+                            Use my last known location ({{ last_location.latitude|floatformat:6 }}, {{ last_location.longitude|floatformat:6 }})
                         </button>
                     </div>
                     {% endif %}
@@ -1057,7 +1057,7 @@
                             data-lon="{{ wp.longitude }}"
                             data-radius="{{ wp.radius }}">
                             <td>{{ wp.label }}</td>
-                            <td class="muted">{{ wp.latitude|floatformat:4 }}, {{ wp.longitude|floatformat:4 }}</td>
+                            <td class="muted">{{ wp.latitude|floatformat:6 }}, {{ wp.longitude|floatformat:6 }}</td>
                             <td class="muted">{{ wp.radius }}&thinsp;m</td>
                             <td style="text-align:right; white-space:nowrap;">
                                 <button type="button" class="gf-edit-btn cert-btn"
