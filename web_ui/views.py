@@ -28,6 +28,7 @@ from app.models import (CertificateAuthority, ClientCertificate, Device,
                         SmtpConfig, Transition, TransitionAction, UserProfile,
                         Waypoint)
 from app.mqtt.commands import CommandPublisher
+from app.mqtt.plugin import _get_user_geofence_state
 from app.notifications import (get_smtp_backend, send_test_email,
                                send_test_email_via_backend,
                                smtp_friendly_error)
@@ -1122,16 +1123,60 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
     context['all_waypoints'] = list(
         Waypoint.objects.select_related('user').order_by('user__username', 'label')
     )
-    context['all_transitions'] = list(
-        Transition.objects.select_related('device__owner', 'waypoint')
-        .order_by('-timestamp')[:50]
-    )
-    context['global_rules'] = list(
+
+    global_rules = list(
         GlobalAutomationRule.objects
         .prefetch_related('users')
         .select_related('waypoint', 'created_by')
         .order_by('name')
     )
+    # Annotate each rule with its current live evaluation and tooltip text
+    for rule in global_rules:
+        watched = list(rule.users.all())
+        if not watched:
+            rule.current_met = False  # type: ignore[attr-defined]
+            rule.current_tooltip = "No users are being watched"  # type: ignore[attr-defined]
+            continue
+        states = {u.username: _get_user_geofence_state(u, rule.waypoint) for u in watched}
+        state_values = list(states.values())
+        if rule.condition == GlobalAutomationRule.CONDITION_ALL_INSIDE:
+            met = all(s == 'inside' for s in state_values)
+            if met:
+                tooltip = f"All users are inside {rule.waypoint.label}"
+            else:
+                not_inside = [
+                    f"{u} is {s}" for u, s in states.items() if s != 'inside'
+                ]
+                tooltip = "; ".join(not_inside) if not_inside else "Unknown"
+        else:
+            met = all(s in ('outside', 'unknown') for s in state_values)
+            if met:
+                tooltip = f"All users are outside {rule.waypoint.label}"
+            else:
+                not_outside = [
+                    f"{u} is inside" for u, s in states.items() if s == 'inside'
+                ]
+                tooltip = "; ".join(not_outside) if not_outside else "Unknown"
+        rule.current_met = met  # type: ignore[attr-defined]
+        rule.current_tooltip = tooltip  # type: ignore[attr-defined]
+    context['global_rules'] = global_rules
+
+    # Recent transitions — only for waypoints watched by global rules, last 10
+    watched_wp_ids = {rule.waypoint_id for rule in global_rules}
+    tz_local = settings.SYSTEM_TIMEZONE
+    raw_transitions = (
+        list(
+            Transition.objects
+            .filter(waypoint__in=watched_wp_ids)
+            .select_related('device__owner', 'waypoint')
+            .order_by('-timestamp')[:10]
+        )
+        if watched_wp_ids else []
+    )
+    for tr in raw_transitions:
+        tr.local_time = tr.timestamp.astimezone(tz_local).strftime('%Y-%m-%d %H:%M %Z')  # type: ignore[attr-defined]
+    context['all_transitions'] = raw_transitions
+
     context['all_users'] = list(User.objects.order_by('username'))
 
     global_rules_has_message = any(

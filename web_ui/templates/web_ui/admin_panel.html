@@ -1563,37 +1563,6 @@
             <p class="text-muted">No geofences defined by any user yet.</p>
             {% endif %}
 
-            {# ─── Recent Transitions ─────────────────────────────────────────────── #}
-            <h3 class="section-title" style="margin-top:1.5rem;">Recent Transitions</h3>
-            {% if all_transitions %}
-            <div style="overflow-x:auto;">
-            <table class="user-table">
-                <thead>
-                    <tr>
-                        <th>Owner</th>
-                        <th>Device</th>
-                        <th>Event</th>
-                        <th>Geofence</th>
-                        <th>Time</th>
-                    </tr>
-                </thead>
-                <tbody>
-                {% for tr in all_transitions %}
-                <tr>
-                    <td>{{ tr.device.owner.username|default:"-" }}</td>
-                    <td>{{ tr.device.name|default:tr.device.device_id }}</td>
-                    <td>{{ tr.event }}</td>
-                    <td>{{ tr.waypoint.label|default:"-" }}</td>
-                    <td>{{ tr.timestamp|date:"Y-m-d H:i" }}</td>
-                </tr>
-                {% endfor %}
-                </tbody>
-            </table>
-            </div>
-            {% else %}
-            <p class="text-muted">No transitions recorded yet.</p>
-            {% endif %}
-
             {# ─── Global Automation Rules ─────────────────────────────────────────── #}
             <h3 class="section-title" style="margin-top:1.5rem;">Global Automation Rules</h3>
             {% if global_rules %}
@@ -1607,7 +1576,7 @@
                         <th>Watches</th>
                         <th>Action</th>
                         <th>Active</th>
-                        <th>Last Fired</th>
+                        <th>Currently</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -1627,9 +1596,11 @@
                     </td>
                     <td>{% if rule.is_active %}<span style="color:var(--success)">Yes</span>{% else %}<span style="color:var(--text-muted)">No</span>{% endif %}</td>
                     <td>
-                        {% if rule.last_condition_met is None %}&mdash;
-                        {% elif rule.last_condition_met %}<span style="color:var(--success)">Met</span>
-                        {% else %}<span style="color:var(--text-muted)">Not met</span>{% endif %}
+                        {% if rule.current_met %}
+                            <span style="color:var(--success);cursor:default" title="{{ rule.current_tooltip }}">&#10003; True</span>
+                        {% else %}
+                            <span style="color:var(--error);cursor:default" title="{{ rule.current_tooltip }}">&#10007; False</span>
+                        {% endif %}
                     </td>
                     <td>
                         <form method="post" action="{% url 'web_ui:admin_panel' %}" style="display:inline">
@@ -1742,6 +1713,39 @@
             </script>
             {% else %}
             <p class="text-muted">No geofences defined yet. Users must add geofences in the OwnTracks app before rules can be created.</p>
+            {% endif %}
+
+            {# ─── Recent Transitions (for watched geofences, last 10) ────────────── #}
+            <h3 class="section-title" style="margin-top:1.5rem;">Recent Transitions</h3>
+            {% if all_transitions %}
+            <div style="overflow-x:auto;">
+            <table class="user-table">
+                <thead>
+                    <tr>
+                        <th>Owner</th>
+                        <th>Device</th>
+                        <th>Event</th>
+                        <th>Geofence</th>
+                        <th>Time</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for tr in all_transitions %}
+                <tr>
+                    <td>{{ tr.device.owner.username|default:"-" }}</td>
+                    <td>{{ tr.device.name|default:tr.device.device_id }}</td>
+                    <td>{{ tr.event }}</td>
+                    <td>{{ tr.waypoint.label|default:tr.description|default:"-" }}</td>
+                    <td>{{ tr.local_time }}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            </div>
+            {% elif global_rules %}
+            <p class="text-muted">No transitions recorded yet for watched geofences.</p>
+            {% else %}
+            <p class="text-muted">Add a global automation rule to see transitions here.</p>
             {% endif %}
 
             </div>{# end tab-global_rules #}
