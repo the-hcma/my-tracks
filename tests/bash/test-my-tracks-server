@@ -103,14 +103,14 @@ test_console_flag() {
 }
 
 test_console_default_log_level() {
-    echo -n "Test: Console defaults to INFO log level... "
+    echo -n "Test: Console uses DEBUG log level by default... "
     # shellcheck disable=SC2086
-    if timeout 5 $script $test_common_flags --console 2>&1 | grep -q "Log level: INFO"; then
+    if timeout 5 $script $test_common_flags --console 2>&1 | grep -q "Log level: DEBUG"; then
         echo -e "${green}✓ PASS${nc}"
         ((tests_passed++))
     else
         echo -e "${red}✗ FAIL${nc}"
-        echo "  Expected: 'Log level: INFO' in output"
+        echo "  Expected: 'Log level: DEBUG' in output"
         ((tests_failed++))
     fi
 }
@@ -141,30 +141,29 @@ test_file_logging() {
 }
 
 test_log_rotation() {
-    echo -n "Test: Log rotation works... "
-    
+    echo -n "Test: Log rotation works (size-based, >=10 MB)... "
+
     # Clean up any existing logs
     rm -f logs/my-tracks.log*
-    
-    # Create a test log file
+
+    # Create a log file that exceeds the 10 MB rotation threshold
     mkdir -p logs
-    echo "test log 1" > logs/my-tracks.log
-    
-    # Start server briefly to trigger rotation
-    # Use 8 seconds to allow for collectstatic and server startup
+    truncate --size=11M logs/my-tracks.log
+
+    # Start server briefly so the rotation code executes (runs before daphne starts)
+    # Use 8 seconds to allow for collectstatic and rotation
     # shellcheck disable=SC2086
     timeout 8 $script $test_common_flags > /dev/null 2>&1 || true
-    
-    # Check that old log was rotated to .1
-    # The new my-tracks.log may or may not exist depending on whether daphne started logging
-    if [ -f "logs/my-tracks.log.1" ]; then
+
+    # Check that the oversized log was rotated to .1
+    if [[ -f "logs/my-tracks.log.1" ]]; then
         echo -e "${green}✓ PASS${nc}"
         ((tests_passed++))
     else
         echo -e "${red}✗ FAIL${nc}"
         ((tests_failed++))
     fi
-    
+
     # Clean up test logs
     rm -f logs/my-tracks.log*
 }

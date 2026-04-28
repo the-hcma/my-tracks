@@ -10,7 +10,7 @@
 #   --mqtt-port PORT     Set MQTT broker port (default: 1883, 0 = OS allocates, -1 = disabled)
 #   --mqtt-tls-port PORT Set MQTT TLS port (default: 8883, -1 = disabled)
 #   --log-level LEVEL    Set log level (trace, debug, info, warning, error, critical)
-#                        Default: warning (info when using --console)
+#                        Default: debug
 #   --log-file PATH      Write logs to PATH instead of logs/my-tracks.log
 #   --log-utc            Print log timestamps in UTC instead of local timezone
 #   --console            Output logs to console in addition to file (dual logging)
@@ -21,10 +21,10 @@
 #   ./my-tracks-server --http-port 18080  # Start on port 18080 for testing
 #   ./my-tracks-server --mqtt-port -1     # Disable MQTT broker
 #   ./my-tracks-server --mqtt-port 0      # MQTT broker on OS-allocated port
-#   ./my-tracks-server --log-level debug  # Debug level, logs to file
+#   ./my-tracks-server --log-level info   # Info level, logs to file
 #   ./my-tracks-server --log-file /var/log/my-tracks.log  # Custom log file path
 #   ./my-tracks-server --log-utc          # Log timestamps in UTC
-#   ./my-tracks-server --console          # Info level (default for console), logs to BOTH console AND file
+#   ./my-tracks-server --console          # Debug level (default), logs to BOTH console AND file
 #   ./my-tracks-server --http-port 18080 --log-level debug --console  # Testing port, debug level, dual logging
 
 set -e
@@ -185,13 +185,12 @@ _show_startup_failure() {
 http_port=8080
 mqtt_port=1883
 mqtt_tls_port=8883
-log_level="WARNING"
+log_level="DEBUG"
 log_to_console=false
 log_utc=false
 log_file_override=""
 
 # Parse command line arguments
-log_level_explicitly_set=false
 while [[ $# -gt 0 ]]; do
     case $1 in
         --http-port)
@@ -208,7 +207,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --log-level)
             log_level=$(echo "$2" | tr '[:lower:]' '[:upper:]')
-            log_level_explicitly_set=true
             shift 2
             ;;
         --log-utc)
@@ -234,11 +232,6 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
-
-# If --console is used and log level wasn't explicitly set, default to INFO
-if [ "$log_to_console" = true ] && [ "$log_level_explicitly_set" = false ]; then
-    log_level="INFO"
-fi
 
 # Validate port (0 = OS allocates, negative = disabled)
 if ! [[ "$http_port" =~ ^-?[0-9]+$ ]] || [ "$http_port" -gt 65535 ]; then
@@ -378,20 +371,19 @@ else
     log_file="logs/my-tracks.log"
 fi
 
-# Rotate logs: keep last 5 files
-if [ -f "$log_file" ]; then
-    # Remove oldest log if we already have 5
-    [ -f "${log_file}.5" ] && rm -f "${log_file}.5"
-    
-    # Shift logs: .4 -> .5, .3 -> .4, etc.
-    for i in 4 3 2 1; do
-        if [ -f "${log_file}.${i}" ]; then
-            mv "${log_file}.${i}" "${log_file}.$((i + 1))"
-        fi
-    done
-    
-    # Move current log to .1
-    mv "$log_file" "${log_file}.1"
+# Rotate logs when the file exceeds 10 MB; keep last 5 files.
+readonly log_rotate_max_bytes=10485760
+if [[ -f "$log_file" ]]; then
+    log_size="$(stat --format="%s" "$log_file" 2>/dev/null || echo 0)"
+    if (( log_size >= log_rotate_max_bytes )); then
+        [[ -f "${log_file}.5" ]] && rm -f "${log_file}.5"
+        for i in 4 3 2 1; do
+            if [[ -f "${log_file}.${i}" ]]; then
+                mv "${log_file}.${i}" "${log_file}.$((i + 1))"
+            fi
+        done
+        mv "$log_file" "${log_file}.1"
+    fi
 fi
 
 # Export logging configuration
