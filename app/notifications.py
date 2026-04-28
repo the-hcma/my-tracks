@@ -9,6 +9,7 @@ import logging
 import math
 import smtplib
 import socket
+from datetime import datetime
 from datetime import timezone as _utc
 from typing import TYPE_CHECKING
 
@@ -80,6 +81,14 @@ def send_test_email_via_backend(
     if server_names:
         lines.append("")
         lines.append("Server: " + ", ".join(server_names))
+    now = datetime.now(tz=_utc.utc)
+    local_ts = now.astimezone(settings.SYSTEM_TIMEZONE)
+    ts_str = (
+        f"{local_ts.strftime('%Y-%m-%d %H:%M:%S %Z')}"
+        f" ({now.strftime('%Y-%m-%d %H:%M:%S UTC')})"
+    )
+    lines.append("")
+    lines.append("Sent at: " + ts_str)
     EmailMessage(
         subject="my-tracks SMTP test",
         body="\n".join(lines),

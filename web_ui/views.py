@@ -3,7 +3,8 @@
 import logging
 import os
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta
+from datetime import timezone as _utc
 
 from asgiref.sync import async_to_sync
 from django.conf import settings
@@ -1054,6 +1055,14 @@ def action_test(request: HttpRequest) -> JsonResponse:
     )
     try:
         backend = get_smtp_backend(config)
+        now = datetime.now(tz=_utc.utc)
+        local_ts = now.astimezone(settings.SYSTEM_TIMEZONE)
+        ts_str = (
+            f"{local_ts.strftime('%Y-%m-%d %H:%M:%S %Z')}"
+            f" ({now.strftime('%Y-%m-%d %H:%M:%S UTC')})"
+        )
+        public_domain = getattr(settings, 'PUBLIC_DOMAIN', '')
+        sent_by = public_domain or str(config.host)
         DjangoEmailMessage(
             subject=f"[my-tracks] Test — automation rule for {wp_label}",
             body=(
@@ -1061,7 +1070,9 @@ def action_test(request: HttpRequest) -> JsonResponse:
                 f"  Geofence: {wp_label}\n"
                 f"  Event:    {action.get_event_display()}\n"
                 f"  Recipient: {action.email_address}\n\n"
-                f"If you receive this, the rule is correctly configured."
+                f"If you receive this, the rule is correctly configured.\n\n"
+                f"  Sent at:  {ts_str}\n"
+                f"  Sent by:  {sent_by}"
             ),
             from_email=config.from_address,
             to=[action.email_address],
