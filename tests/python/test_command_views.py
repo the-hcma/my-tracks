@@ -1,23 +1,31 @@
 """Tests for the Command API views."""
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 from django.contrib.auth.models import User
 from django.test import TestCase
-from hamcrest import assert_that, equal_to, has_entries, has_key
+from hamcrest import assert_that, equal_to, has_entries
 from rest_framework import status
 from rest_framework.test import APIClient
 
 from app.models import Device
+from app.views import CommandViewSet
 
 
 class TestCommandViewSetReportLocation(TestCase):
     """Tests for CommandViewSet report_location endpoint."""
 
     def setUp(self) -> None:
-        """Set up test client."""
+        """Set up test user, device, and authenticated client."""
         self.client = APIClient()
+        self.user = User.objects.create_user(username="alice_rl", password="pw")
+        self.device = Device.objects.create(
+            device_id="phone", owner=self.user, mqtt_user="alice_mqtt"
+        )
+        self.client.force_authenticate(user=self.user)
 
     def test_report_location_missing_device_id(self) -> None:
-        """Test report_location without device_id returns 400."""
+        """report_location without device_id returns 400."""
         response = self.client.post(
             "/api/commands/report-location/",
             data={},
@@ -28,7 +36,7 @@ class TestCommandViewSetReportLocation(TestCase):
         assert_that(response.json(), has_entries({"error": "device_id is required"}))
 
     def test_report_location_empty_device_id(self) -> None:
-        """Test report_location with empty device_id returns 400."""
+        """report_location with empty device_id returns 400."""
         response = self.client.post(
             "/api/commands/report-location/",
             data={"device_id": ""},
@@ -38,30 +46,84 @@ class TestCommandViewSetReportLocation(TestCase):
         assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
         assert_that(response.json(), has_entries({"error": "device_id is required"}))
 
-    def test_report_location_broker_unavailable(self) -> None:
-        """Test report_location when broker is unavailable returns 503."""
-        # CommandPublisher without a client will raise RuntimeError
+    def test_report_location_device_not_found(self) -> None:
+        """Unknown device_id returns 400."""
         response = self.client.post(
             "/api/commands/report-location/",
-            data={"device_id": "alice/phone"},
+            data={"device_id": "nonexistent"},
             format="json",
         )
 
-        # Since there's no broker running, should get 503
+        assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
+        assert_that(response.json()["error"], equal_to("Device 'nonexistent' not found"))
+
+    def test_report_location_device_not_found_slash_format(self) -> None:
+        """Unknown device in user/device format returns 400."""
+        response = self.client.post(
+            "/api/commands/report-location/",
+            data={"device_id": "alice_rl/unknown"},
+            format="json",
+        )
+
+        assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
+        assert_that(response.json()["error"], equal_to("Device 'alice_rl/unknown' not found"))
+
+    def test_report_location_broker_unavailable(self) -> None:
+        """Known device reaches MQTT stage and returns 503 when no broker."""
+        response = self.client.post(
+            "/api/commands/report-location/",
+            data={"device_id": "phone"},
+            format="json",
+        )
+
         assert_that(response.status_code, equal_to(status.HTTP_503_SERVICE_UNAVAILABLE))
-        assert_that(response.json(), has_key("error"))
         assert_that(response.json()["error"], equal_to("MQTT broker not available"))
+
+    def test_report_location_uses_mqtt_user_for_topic(self) -> None:
+        """report_location uses the device's stored mqtt_user, not the input prefix."""
+        mock_publisher = MagicMock()
+        mock_publisher.send_command = AsyncMock(return_value=True)
+
+        with patch.object(CommandViewSet, "_get_publisher", return_value=mock_publisher):
+            response = self.client.post(
+                "/api/commands/report-location/",
+                data={"device_id": "wrongprefix/phone"},
+                format="json",
+            )
+
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        assert_that(response.json()["device_id"], equal_to("alice_mqtt/phone"))
+
+    def test_report_location_plain_device_id_resolves_via_db(self) -> None:
+        """Plain device_id (no slash) resolves through DB lookup and uses stored mqtt_user."""
+        mock_publisher = MagicMock()
+        mock_publisher.send_command = AsyncMock(return_value=True)
+
+        with patch.object(CommandViewSet, "_get_publisher", return_value=mock_publisher):
+            response = self.client.post(
+                "/api/commands/report-location/",
+                data={"device_id": "phone"},
+                format="json",
+            )
+
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        assert_that(response.json()["device_id"], equal_to("alice_mqtt/phone"))
 
 
 class TestCommandViewSetSetWaypoints(TestCase):
     """Tests for CommandViewSet set_waypoints endpoint."""
 
     def setUp(self) -> None:
-        """Set up test client."""
+        """Set up test user, device, and authenticated client."""
         self.client = APIClient()
+        self.user = User.objects.create_user(username="alice_sw", password="pw")
+        self.device = Device.objects.create(
+            device_id="phone", owner=self.user, mqtt_user="alice_sw_mqtt"
+        )
+        self.client.force_authenticate(user=self.user)
 
     def test_set_waypoints_missing_device_id(self) -> None:
-        """Test set_waypoints without device_id returns 400."""
+        """set_waypoints without device_id returns 400."""
         response = self.client.post(
             "/api/commands/set-waypoints/",
             data={"waypoints": [{"desc": "Home", "lat": 51.5, "lon": -0.1}]},
@@ -72,10 +134,10 @@ class TestCommandViewSetSetWaypoints(TestCase):
         assert_that(response.json(), has_entries({"error": "device_id is required"}))
 
     def test_set_waypoints_missing_waypoints(self) -> None:
-        """Test set_waypoints without waypoints returns 400."""
+        """set_waypoints without waypoints returns 400."""
         response = self.client.post(
             "/api/commands/set-waypoints/",
-            data={"device_id": "alice/phone"},
+            data={"device_id": "phone"},
             format="json",
         )
 
@@ -85,10 +147,10 @@ class TestCommandViewSetSetWaypoints(TestCase):
         )
 
     def test_set_waypoints_empty_list(self) -> None:
-        """Test set_waypoints with empty list returns 400."""
+        """set_waypoints with empty list returns 400."""
         response = self.client.post(
             "/api/commands/set-waypoints/",
-            data={"device_id": "alice/phone", "waypoints": []},
+            data={"device_id": "phone", "waypoints": []},
             format="json",
         )
 
@@ -98,10 +160,10 @@ class TestCommandViewSetSetWaypoints(TestCase):
         )
 
     def test_set_waypoints_invalid_type(self) -> None:
-        """Test set_waypoints with non-list waypoints returns 400."""
+        """set_waypoints with non-list waypoints returns 400."""
         response = self.client.post(
             "/api/commands/set-waypoints/",
-            data={"device_id": "alice/phone", "waypoints": "not a list"},
+            data={"device_id": "phone", "waypoints": "not a list"},
             format="json",
         )
 
@@ -110,33 +172,64 @@ class TestCommandViewSetSetWaypoints(TestCase):
             response.json(), has_entries({"error": "waypoints must be a non-empty list"})
         )
 
-    def test_set_waypoints_broker_unavailable(self) -> None:
-        """Test set_waypoints when broker is unavailable returns 503."""
-        waypoints = [
-            {"desc": "Home", "lat": 51.5074, "lon": -0.1278, "rad": 100},
-        ]
-
+    def test_set_waypoints_device_not_found(self) -> None:
+        """Unknown device_id returns 400."""
         response = self.client.post(
             "/api/commands/set-waypoints/",
-            data={"device_id": "alice/phone", "waypoints": waypoints},
+            data={
+                "device_id": "nonexistent",
+                "waypoints": [{"desc": "Home", "lat": 51.5, "lon": -0.1}],
+            },
             format="json",
         )
 
-        # Since there's no broker running, should get 503
+        assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
+        assert_that(response.json()["error"], equal_to("Device 'nonexistent' not found"))
+
+    def test_set_waypoints_broker_unavailable(self) -> None:
+        """Known device reaches MQTT stage and returns 503 when no broker."""
+        waypoints = [{"desc": "Home", "lat": 51.5074, "lon": -0.1278, "rad": 100}]
+
+        response = self.client.post(
+            "/api/commands/set-waypoints/",
+            data={"device_id": "phone", "waypoints": waypoints},
+            format="json",
+        )
+
         assert_that(response.status_code, equal_to(status.HTTP_503_SERVICE_UNAVAILABLE))
-        assert_that(response.json(), has_key("error"))
         assert_that(response.json()["error"], equal_to("MQTT broker not available"))
+
+    def test_set_waypoints_uses_mqtt_user_for_topic(self) -> None:
+        """set_waypoints uses the device's stored mqtt_user for the MQTT topic."""
+        mock_publisher = MagicMock()
+        mock_publisher.send_command = AsyncMock(return_value=True)
+        waypoints = [{"desc": "Home", "lat": 51.5074, "lon": -0.1278, "rad": 100}]
+
+        with patch.object(CommandViewSet, "_get_publisher", return_value=mock_publisher):
+            response = self.client.post(
+                "/api/commands/set-waypoints/",
+                data={"device_id": "wrongprefix/phone", "waypoints": waypoints},
+                format="json",
+            )
+
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        assert_that(response.json()["device_id"], equal_to("alice_sw_mqtt/phone"))
 
 
 class TestCommandViewSetClearWaypoints(TestCase):
     """Tests for CommandViewSet clear_waypoints endpoint."""
 
     def setUp(self) -> None:
-        """Set up test client."""
+        """Set up test user, device, and authenticated client."""
         self.client = APIClient()
+        self.user = User.objects.create_user(username="alice_cw", password="pw")
+        self.device = Device.objects.create(
+            device_id="phone", owner=self.user, mqtt_user="alice_cw_mqtt"
+        )
+        self.client.force_authenticate(user=self.user)
 
     def test_clear_waypoints_missing_device_id(self) -> None:
-        """Test clear_waypoints without device_id returns 400."""
+        """clear_waypoints without device_id returns 400."""
         response = self.client.post(
             "/api/commands/clear-waypoints/",
             data={},
@@ -147,7 +240,7 @@ class TestCommandViewSetClearWaypoints(TestCase):
         assert_that(response.json(), has_entries({"error": "device_id is required"}))
 
     def test_clear_waypoints_empty_device_id(self) -> None:
-        """Test clear_waypoints with empty device_id returns 400."""
+        """clear_waypoints with empty device_id returns 400."""
         response = self.client.post(
             "/api/commands/clear-waypoints/",
             data={"device_id": ""},
@@ -157,18 +250,42 @@ class TestCommandViewSetClearWaypoints(TestCase):
         assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
         assert_that(response.json(), has_entries({"error": "device_id is required"}))
 
-    def test_clear_waypoints_broker_unavailable(self) -> None:
-        """Test clear_waypoints when broker is unavailable returns 503."""
+    def test_clear_waypoints_device_not_found(self) -> None:
+        """Unknown device_id returns 400."""
         response = self.client.post(
             "/api/commands/clear-waypoints/",
-            data={"device_id": "alice/phone"},
+            data={"device_id": "nonexistent"},
             format="json",
         )
 
-        # Since there's no broker running, should get 503
+        assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
+        assert_that(response.json()["error"], equal_to("Device 'nonexistent' not found"))
+
+    def test_clear_waypoints_broker_unavailable(self) -> None:
+        """Known device reaches MQTT stage and returns 503 when no broker."""
+        response = self.client.post(
+            "/api/commands/clear-waypoints/",
+            data={"device_id": "phone"},
+            format="json",
+        )
+
         assert_that(response.status_code, equal_to(status.HTTP_503_SERVICE_UNAVAILABLE))
-        assert_that(response.json(), has_key("error"))
         assert_that(response.json()["error"], equal_to("MQTT broker not available"))
+
+    def test_clear_waypoints_uses_mqtt_user_for_topic(self) -> None:
+        """clear_waypoints uses the device's stored mqtt_user for the MQTT topic."""
+        mock_publisher = MagicMock()
+        mock_publisher.send_command = AsyncMock(return_value=True)
+
+        with patch.object(CommandViewSet, "_get_publisher", return_value=mock_publisher):
+            response = self.client.post(
+                "/api/commands/clear-waypoints/",
+                data={"device_id": "wrongprefix/phone"},
+                format="json",
+            )
+
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        assert_that(response.json()["device_id"], equal_to("alice_cw_mqtt/phone"))
 
 
 class TestCommandViewSetFetchWaypoints(TestCase):
@@ -178,7 +295,9 @@ class TestCommandViewSetFetchWaypoints(TestCase):
         """Set up test client and fixtures."""
         self.client = APIClient()
         self.user = User.objects.create_user(username="alice_fw", password="pw")
-        self.device = Device.objects.create(device_id="pixel7", owner=self.user)
+        self.device = Device.objects.create(
+            device_id="pixel7", owner=self.user, mqtt_user="alice_fw_mqtt"
+        )
         self.client.force_authenticate(user=self.user)
 
     def test_fetch_waypoints_missing_device_id(self) -> None:
@@ -201,19 +320,18 @@ class TestCommandViewSetFetchWaypoints(TestCase):
         assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
         assert_that(response.json()["error"], equal_to("Device 'nonexistent' not found"))
 
-    def test_fetch_waypoints_plain_device_id_resolves_to_owner_prefix(self) -> None:
-        """fetch_waypoints with plain device_id resolves to owner/device and attempts command."""
-        # With no broker running the command fails at 503 (broker unavailable),
-        # which proves device lookup and topic resolution succeeded.
+    def test_fetch_waypoints_broker_unavailable(self) -> None:
+        """Known device (plain device_id) reaches MQTT stage and returns 503 when no broker."""
         response = self.client.post(
             "/api/commands/fetch-waypoints/",
             data={"device_id": "pixel7"},
             format="json",
         )
         assert_that(response.status_code, equal_to(status.HTTP_503_SERVICE_UNAVAILABLE))
+        assert_that(response.json()["error"], equal_to("MQTT broker not available"))
 
-    def test_fetch_waypoints_full_topic_broker_unavailable(self) -> None:
-        """fetch_waypoints with user/device format fails gracefully when no broker."""
+    def test_fetch_waypoints_slash_format_broker_unavailable(self) -> None:
+        """fetch_waypoints with user/device format resolves device and returns 503 when no broker."""
         response = self.client.post(
             "/api/commands/fetch-waypoints/",
             data={"device_id": "alice_fw/pixel7"},
@@ -221,3 +339,33 @@ class TestCommandViewSetFetchWaypoints(TestCase):
         )
         assert_that(response.status_code, equal_to(status.HTTP_503_SERVICE_UNAVAILABLE))
         assert_that(response.json()["error"], equal_to("MQTT broker not available"))
+
+    def test_fetch_waypoints_uses_mqtt_user_for_topic(self) -> None:
+        """fetch_waypoints uses the device's stored mqtt_user for the MQTT topic."""
+        mock_publisher = MagicMock()
+        mock_publisher.send_command = AsyncMock(return_value=True)
+
+        with patch.object(CommandViewSet, "_get_publisher", return_value=mock_publisher):
+            response = self.client.post(
+                "/api/commands/fetch-waypoints/",
+                data={"device_id": "wrongprefix/pixel7"},
+                format="json",
+            )
+
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        assert_that(response.json()["device_id"], equal_to("alice_fw_mqtt/pixel7"))
+
+    def test_fetch_waypoints_plain_device_id_uses_mqtt_user(self) -> None:
+        """Plain device_id resolves through DB and uses stored mqtt_user in response."""
+        mock_publisher = MagicMock()
+        mock_publisher.send_command = AsyncMock(return_value=True)
+
+        with patch.object(CommandViewSet, "_get_publisher", return_value=mock_publisher):
+            response = self.client.post(
+                "/api/commands/fetch-waypoints/",
+                data={"device_id": "pixel7"},
+                format="json",
+            )
+
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        assert_that(response.json()["device_id"], equal_to("alice_fw_mqtt/pixel7"))
