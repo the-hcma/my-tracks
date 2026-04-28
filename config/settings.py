@@ -393,6 +393,10 @@ if LOG_FILE:
     }
     _all_handlers.append('file')
 
+# Honour the log level exported by my-tracks-server (or docker-entrypoint).
+# Falls back to INFO so that plain `manage.py runserver` is unaffected.
+_app_log_level: str = config('DJANGO_LOG_LEVEL', default='INFO').upper()
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -420,12 +424,12 @@ LOGGING = {
     'handlers': _handlers,
     'root': {
         'handlers': _all_handlers,
-        'level': 'INFO',
+        'level': _app_log_level,
     },
     'loggers': {
         'app': {
             'handlers': _all_handlers,
-            'level': 'INFO',
+            'level': _app_log_level,
             'propagate': False,
         },
         'django.server': {
