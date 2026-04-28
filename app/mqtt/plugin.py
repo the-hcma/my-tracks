@@ -309,7 +309,13 @@ def _evaluate_global_automations_for_user(user: User) -> None:
         .select_related('waypoint')
     )
 
-    for rule in rules:
+    rule_list = list(rules)
+    logger.debug(
+        "Location update for '%s' — evaluating %d global automation rule(s)",
+        user.username, len(rule_list),
+    )
+
+    for rule in rule_list:
         watched_users = list(rule.users.all())
         states: dict[str, str] = {
             u.username: _get_user_geofence_state(u, rule.waypoint)
@@ -321,6 +327,11 @@ def _evaluate_global_automations_for_user(user: User) -> None:
             condition_met = all(s == 'inside' for s in state_values)
         else:  # CONDITION_ALL_OUTSIDE
             condition_met = all(s in ('outside', 'unknown') for s in state_values)
+
+        logger.debug(
+            "Rule '%s' (id=%s): condition=%s states=%s → met=%s",
+            rule.name, rule.pk, rule.condition, states, condition_met,
+        )
 
         if condition_met and not rule.last_condition_met:
             # Condition newly met — fire
