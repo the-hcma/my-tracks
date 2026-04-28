@@ -1102,6 +1102,41 @@
                 <p class="cert-none">No devices linked to your account.</p>
                 {% endif %}
 
+                {# Add automation rule #}
+                <hr class="section-divider">
+                <h3 class="section-title">Add Automation Rule</h3>
+                <form method="post" action="{% url 'web_ui:geofences' %}"
+                      style="display:flex; gap:.6rem; align-items:flex-end; flex-wrap:wrap;">
+                    {% csrf_token %}
+                    <input type="hidden" name="form_type" value="add_action">
+                    <input type="hidden" name="next_url" value="{% url 'web_ui:profile' %}#geofences">
+                    <div style="flex:1; min-width:120px;">
+                        <label style="display:block; font-size:.75rem; font-weight:600; text-transform:uppercase; letter-spacing:.4px; color:var(--text-muted); margin-bottom:.3rem;">Geofence</label>
+                        <select name="waypoint_id" style="width:100%; padding:.5rem .75rem; background:var(--input-bg); border:1px solid var(--border); border-radius:7px; color:var(--text); font-size:.875rem;">
+                            <option value="">Any geofence</option>
+                            <option value="all">All geofences (one rule each)</option>
+                            {% for wp in waypoints %}
+                            <option value="{{ wp.pk }}">{{ wp.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div style="flex:1; min-width:100px;">
+                        <label style="display:block; font-size:.75rem; font-weight:600; text-transform:uppercase; letter-spacing:.4px; color:var(--text-muted); margin-bottom:.3rem;">Event</label>
+                        <select name="event" style="width:100%; padding:.5rem .75rem; background:var(--input-bg); border:1px solid var(--border); border-radius:7px; color:var(--text); font-size:.875rem;">
+                            <option value="any">Either</option>
+                            <option value="enter">Enter</option>
+                            <option value="leave">Leave</option>
+                        </select>
+                    </div>
+                    <div style="flex:2; min-width:160px;">
+                        <label style="display:block; font-size:.75rem; font-weight:600; text-transform:uppercase; letter-spacing:.4px; color:var(--text-muted); margin-bottom:.3rem;">Recipient email</label>
+                        <input type="email" name="email_address" placeholder="notify@example.com" required
+                               style="width:100%; padding:.5rem .75rem; background:var(--input-bg); border:1px solid var(--border); border-radius:7px; color:var(--text); font-size:.875rem;">
+                    </div>
+                    <button type="submit" class="submit-btn" style="width:auto; padding:.5rem 1.25rem; white-space:nowrap;">+ Add rule</button>
+                </form>
+                <p class="cert-none" style="margin-top:.75rem; font-size:.8rem;">Rules fire when a device owned by your account crosses a geofence boundary. Requires SMTP to be configured by an admin.</p>
+
                 {# Automation rules #}
                 <hr class="section-divider">
                 <h3 class="section-title">Automations</h3>
@@ -1149,7 +1184,8 @@
                 <hr class="section-divider">
                 <h3 class="section-title">Recent Transitions</h3>
                 {% if transitions %}
-                <table class="devices-table">
+                <div style="max-height:calc(5 * 2.6rem + 2.6rem); overflow-y:auto; border:1px solid var(--border); border-radius:7px;">
+                <table class="devices-table" style="margin-bottom:0;">
                     <thead>
                         <tr>
                             <th>Geofence</th>
@@ -1175,41 +1211,10 @@
                         {% endfor %}
                     </tbody>
                 </table>
+                </div>{# /scroll wrapper #}
                 {% else %}
                 <p class="cert-none">No transition events yet.</p>
                 {% endif %}
-
-                <form method="post" action="{% url 'web_ui:geofences' %}"
-                      style="display:flex; gap:.6rem; align-items:flex-end; flex-wrap:wrap; margin-top:1rem;">
-                    {% csrf_token %}
-                    <input type="hidden" name="form_type" value="add_action">
-                    <input type="hidden" name="next_url" value="{% url 'web_ui:profile' %}#geofences">
-                    <div style="flex:1; min-width:120px;">
-                        <label style="display:block; font-size:.75rem; font-weight:600; text-transform:uppercase; letter-spacing:.4px; color:var(--text-muted); margin-bottom:.3rem;">Geofence</label>
-                        <select name="waypoint_id" style="width:100%; padding:.5rem .75rem; background:var(--input-bg); border:1px solid var(--border); border-radius:7px; color:var(--text); font-size:.875rem;">
-                            <option value="">Any geofence</option>
-                            <option value="all">All geofences (one rule each)</option>
-                            {% for wp in waypoints %}
-                            <option value="{{ wp.pk }}">{{ wp.label }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <div style="flex:1; min-width:100px;">
-                        <label style="display:block; font-size:.75rem; font-weight:600; text-transform:uppercase; letter-spacing:.4px; color:var(--text-muted); margin-bottom:.3rem;">Event</label>
-                        <select name="event" style="width:100%; padding:.5rem .75rem; background:var(--input-bg); border:1px solid var(--border); border-radius:7px; color:var(--text); font-size:.875rem;">
-                            <option value="any">Either</option>
-                            <option value="enter">Enter</option>
-                            <option value="leave">Leave</option>
-                        </select>
-                    </div>
-                    <div style="flex:2; min-width:160px;">
-                        <label style="display:block; font-size:.75rem; font-weight:600; text-transform:uppercase; letter-spacing:.4px; color:var(--text-muted); margin-bottom:.3rem;">Recipient email</label>
-                        <input type="email" name="email_address" placeholder="notify@example.com" required
-                               style="width:100%; padding:.5rem .75rem; background:var(--input-bg); border:1px solid var(--border); border-radius:7px; color:var(--text); font-size:.875rem;">
-                    </div>
-                    <button type="submit" class="submit-btn" style="width:auto; padding:.5rem 1.25rem; white-space:nowrap;">+ Add rule</button>
-                </form>
-                <p class="cert-none" style="margin-top:.75rem; font-size:.8rem;">Rules fire when a device owned by your account crosses a geofence boundary. Requires SMTP to be configured by an admin.</p>
 
             </div>{# /tab-geofences #}
 
