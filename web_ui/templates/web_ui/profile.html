@@ -1188,6 +1188,7 @@
                         <label style="display:block; font-size:.75rem; font-weight:600; text-transform:uppercase; letter-spacing:.4px; color:var(--text-muted); margin-bottom:.3rem;">Geofence</label>
                         <select name="waypoint_id" style="width:100%; padding:.5rem .75rem; background:var(--input-bg); border:1px solid var(--border); border-radius:7px; color:var(--text); font-size:.875rem;">
                             <option value="">Any geofence</option>
+                            <option value="all">All geofences (one rule each)</option>
                             {% for wp in waypoints %}
                             <option value="{{ wp.pk }}">{{ wp.label }}</option>
                             {% endfor %}
@@ -1924,6 +1925,33 @@
                 }, 4000);
             });
         });
+    })();
+    </script>
+    <script>
+    // ── Waypoint sync WebSocket listener ────────────────────────────────────
+    // Reloads the geofences tab when new waypoints arrive from a device.
+    (function() {
+        var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        var wsUrl = protocol + '//' + window.location.host + '/ws/locations/';
+        var reconnectDelay = 5000;
+        var ws;
+
+        function connect() {
+            ws = new WebSocket(wsUrl);
+            ws.onmessage = function(e) {
+                try {
+                    var msg = JSON.parse(e.data);
+                    if (msg.type === 'waypoint_event') {
+                        window.location.reload();
+                    }
+                } catch (_) {}
+            };
+            ws.onclose = function() {
+                setTimeout(connect, reconnectDelay);
+            };
+        }
+
+        connect();
     })();
     </script>
 </body>

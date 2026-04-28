@@ -135,3 +135,15 @@ class LocationConsumer(AsyncWebsocketConsumer):
             'type': 'transition',
             'data': event['data']
         }))
+
+    async def waypoint_event(self, event: dict[str, Any]) -> None:
+        """
+        Receive waypoint sync event from channel layer and send to WebSocket.
+
+        Args:
+            event: Dictionary containing waypoint data (device_display, new_count)
+        """
+        await self.send(text_data=json.dumps({
+            'type': 'waypoint_event',
+            'data': event['data']
+        }))
