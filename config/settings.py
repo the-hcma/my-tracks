@@ -296,6 +296,34 @@ class DaphnePortZeroFilter(logging.Filter):
         return True
 
 
+class DaphneHttpProtocolFilter(logging.Filter):
+    """Clean up daphne's raw transport-level log messages.
+
+    daphne emits the HTTP method as a raw bytes object (b'GET') and the
+    client address as a two-element list (['192.168.86.10', 44142]).  This
+    filter normalises those to readable strings so the log lines look like:
+
+        HTTP GET request for 192.168.86.10:44142
+        HTTP 200 response started for 192.168.86.10:44142
+        HTTP close for 192.168.86.10:44142
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = getattr(record, 'args', None)
+        if not args:
+            return True
+        new_args = []
+        for arg in args:
+            if isinstance(arg, bytes):
+                new_args.append(arg.decode('ascii', errors='replace'))
+            elif isinstance(arg, list) and len(arg) == 2:
+                new_args.append(f'{arg[0]}:{arg[1]}')
+            else:
+                new_args.append(arg)
+        record.args = tuple(new_args)
+        return True
+
+
 class AmqttConnectionFilter(logging.Filter):
     """Rewrite amqtt's ambiguous 'connections acquired' messages."""
 
@@ -408,6 +436,9 @@ LOGGING = {
         'daphne_port_zero_filter': {
             '()': 'config.settings.DaphnePortZeroFilter',
         },
+        'daphne_http_protocol_filter': {
+            '()': 'config.settings.DaphneHttpProtocolFilter',
+        },
         'amqtt_connection_filter': {
             '()': 'config.settings.AmqttConnectionFilter',
         },
@@ -459,6 +490,12 @@ LOGGING = {
             'handlers': _all_handlers,
             'level': 'INFO',
             'filters': ['ws_not_found_filter'],
+            'propagate': False,
+        },
+        'daphne.http_protocol': {
+            'handlers': _all_handlers,
+            'level': _app_log_level,
+            'filters': ['daphne_http_protocol_filter'],
             'propagate': False,
         },
     },
