@@ -9,11 +9,10 @@ from pathlib import Path
 from typing import Any, cast
 from unittest.mock import patch
 
-from hamcrest import (assert_that, calling, contains_string, equal_to,
-                      greater_than, has_length, is_, is_not, matches_regexp,
-                      not_none, raises, starts_with)
+from hamcrest import (assert_that, contains_string, equal_to, is_, is_not,
+                      matches_regexp, not_none, starts_with)
 
-from app.utils import get_version
+from app.utils import get_commit_id, get_version
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 RELEASE_SCRIPT = PROJECT_ROOT / "scripts" / "release"
@@ -201,6 +200,58 @@ class TestAboutPageVersion:
         text = template.read_text()
         assert_that(text, contains_string("{{ version }}"))
 
+    def test_about_template_contains_commit_id_tag(self) -> None:
+        template = PROJECT_ROOT / "web_ui" / "templates" / "web_ui" / "about.html"
+        text = template.read_text()
+        assert_that(text, contains_string("{{ commit_id }}"))
+
     def test_about_view_passes_version_context(self) -> None:
         source = (PROJECT_ROOT / "web_ui" / "views.py").read_text()
         assert_that(source, contains_string("'version': get_version()"))
+
+    def test_about_view_passes_commit_id_context(self) -> None:
+        source = (PROJECT_ROOT / "web_ui" / "views.py").read_text()
+        assert_that(source, contains_string("'commit_id': get_commit_id()"))
+
+
+# ── get_commit_id() utility ────────────────────────────────────────────────
+
+
+class TestGetCommitId:
+    """Tests for the get_commit_id() helper in app.utils."""
+
+    def test_returns_string(self) -> None:
+        result = get_commit_id()
+        assert_that(isinstance(result, str), is_(True))
+
+    def test_returns_short_hex_in_git_repo(self) -> None:
+        result = get_commit_id()
+        # In a normal dev environment this should be a non-empty hex string
+        if result:
+            assert_that(result, matches_regexp(r"^[0-9a-f]+$"))
+
+    def test_build_commit_env_var_takes_precedence(self) -> None:
+        """BUILD_COMMIT env var (baked in at Docker build time) is used first."""
+        with patch.dict("os.environ", {"BUILD_COMMIT": "abc1234"}):
+            assert_that(get_commit_id(), equal_to("abc1234"))
+
+    def test_build_commit_env_var_strips_whitespace(self) -> None:
+        with patch.dict("os.environ", {"BUILD_COMMIT": "  abc1234\n"}):
+            assert_that(get_commit_id(), equal_to("abc1234"))
+
+    def test_falls_back_to_git_when_build_commit_unset(self) -> None:
+        mock_result = type("R", (), {"returncode": 0, "stdout": "deadbee\n"})()
+        with patch.dict("os.environ", {}, clear=True):
+            with patch("app.utils.subprocess.run", return_value=mock_result):
+                assert_that(get_commit_id(), equal_to("deadbee"))
+
+    def test_returns_empty_string_when_git_fails(self) -> None:
+        with patch.dict("os.environ", {}, clear=True):
+            with patch("app.utils.subprocess.run", side_effect=FileNotFoundError("no git")):
+                assert_that(get_commit_id(), equal_to(""))
+
+    def test_returns_empty_string_when_git_nonzero(self) -> None:
+        mock_result = type("R", (), {"returncode": 128, "stdout": ""})()
+        with patch.dict("os.environ", {}, clear=True):
+            with patch("app.utils.subprocess.run", return_value=mock_result):
+                assert_that(get_commit_id(), equal_to(""))
