@@ -5,6 +5,8 @@ This module provides shared helpers used across views, serializers,
 and MQTT handlers for common operations like device identification.
 """
 import logging
+import os
+import subprocess
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _get_pkg_version
 
@@ -21,6 +23,33 @@ def get_version() -> str:
         return _get_pkg_version("my-tracks")
     except PackageNotFoundError:
         return "unknown"
+
+
+def get_commit_id() -> str:
+    """Return the short git commit hash of the running code.
+
+    Checks the ``BUILD_COMMIT`` environment variable first — this is set
+    at Docker build time (``ARG BUILD_COMMIT`` / ``ENV BUILD_COMMIT``) so
+    the value is baked in even when the image has no ``.git`` directory.
+
+    Falls back to ``git rev-parse --short HEAD`` for local development.
+    Returns an empty string if neither source is available.
+    """
+    baked = os.environ.get("BUILD_COMMIT", "").strip()
+    if baked:
+        return baked
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return ""
 
 
 def extract_device_id(data: dict[str, object]) -> str | None:

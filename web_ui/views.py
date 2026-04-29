@@ -41,7 +41,7 @@ from app.pki import (generate_ca_certificate, generate_client_certificate,
                      get_certificate_expiry, get_certificate_fingerprint,
                      get_certificate_metadata, get_certificate_sans,
                      get_certificate_serial_number, get_certificate_subject)
-from app.utils import get_version
+from app.utils import get_commit_id, get_version
 from config.runtime import (get_actual_mqtt_port, get_mqtt_port,
                             get_mqtt_tls_port)
 
@@ -594,6 +594,7 @@ def about(request: HttpRequest) -> HttpResponse:
 
     context: dict[str, object] = {
         'version': get_version(),
+        'commit_id': get_commit_id(),
         'server_info': info,
         'hostname': info.hostname,
         'server_port': info.port,
