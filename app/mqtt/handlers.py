@@ -304,6 +304,7 @@ class OwnTracksMessageHandler:
         self._lwt_callbacks: list[LocationCallback] = []
         self._transition_callbacks: list[LocationCallback] = []
         self._waypoint_callbacks: list[LocationCallback] = []
+        self._cmd_callbacks: list[LocationCallback] = []
 
     def on_location(self, callback: LocationCallback) -> None:
         """Register a callback for location messages."""
@@ -320,6 +321,10 @@ class OwnTracksMessageHandler:
     def on_waypoint(self, callback: LocationCallback) -> None:
         """Register a callback for incoming waypoint list messages."""
         self._waypoint_callbacks.append(callback)
+
+    def on_cmd(self, callback: LocationCallback) -> None:
+        """Register a callback for cmd messages from devices."""
+        self._cmd_callbacks.append(callback)
 
     async def handle_message(
         self,
@@ -369,9 +374,19 @@ class OwnTracksMessageHandler:
                 mqtt_user=mqtt_user,
             )
         elif msg_type == "waypoints":
-            await self._handle_waypoints(message, topic_info, transport=transport, mqtt_user=mqtt_user)
+            await self._handle_waypoints(
+                message, topic_info, transport=transport, mqtt_user=mqtt_user
+            )
+        elif msg_type == "cmd":
+            await self._handle_cmd(
+                message, topic_info, topic=topic, transport=transport, mqtt_user=mqtt_user
+            )
         else:
-            logger.debug("Unhandled OwnTracks message type: %s", msg_type)
+            logger.debug(
+                "Unhandled OwnTracks message type: %s, payload: %s",
+                msg_type,
+                json.dumps(message, indent=2, sort_keys=True),
+            )
 
     async def _handle_location(
         self,
@@ -457,6 +472,42 @@ class OwnTracksMessageHandler:
                     await result
             except Exception:
                 logger.exception("Error in transition callback")
+
+    async def _handle_cmd(
+        self,
+        message: dict[str, Any],
+        topic_info: dict[str, str],
+        *,
+        topic: str = "",
+        transport: str = "mqtt",
+        mqtt_user: str = "",
+    ) -> None:
+        """Handle a cmd message published by a device."""
+        action = message.get("action", "")
+        logger.debug(
+            "Received OwnTracks cmd action=%r from topic=%s, payload: %s",
+            action,
+            topic,
+            json.dumps(message, indent=2, sort_keys=True),
+        )
+
+        cmd_data: dict[str, Any] = {
+            "action": action,
+            "user": topic_info["user"],
+            "device": topic_info["device"],
+            "topic": topic,
+            "message": message,
+            "transport": transport,
+            "mqtt_user": mqtt_user,
+        }
+
+        for callback in self._cmd_callbacks:
+            try:
+                result = callback(cmd_data)
+                if inspect.isawaitable(result):
+                    await result
+            except Exception:
+                logger.exception("Error in cmd callback")
 
     async def _handle_waypoints(
         self,

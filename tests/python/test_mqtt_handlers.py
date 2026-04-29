@@ -8,10 +8,11 @@
 import json
 from datetime import UTC, datetime
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from hamcrest import (any_of, assert_that, equal_to, has_entries, has_key,
-                      instance_of, is_, none)
+                      instance_of, is_, is_not, none)
 
 from app.mqtt.handlers import (OwnTracksMessageHandler, extract_location_data,
                                extract_lwt_data, extract_transition_data,
@@ -764,3 +765,124 @@ class TestHandlerWaypointCallback:
 
         assert_that(len(received), equal_to(1))
         assert_that(received[0], has_entries(mqtt_user="alice"))
+
+
+class TestHandlerCmdCallback:
+    """Tests for OwnTracksMessageHandler cmd callback dispatch."""
+
+    @pytest.mark.asyncio
+    async def test_cmd_message_triggers_callback(self) -> None:
+        """Should call on_cmd callback for _type: cmd messages."""
+        handler = OwnTracksMessageHandler()
+        received: list[dict] = []
+
+        handler.on_cmd(received.append)
+
+        payload = json.dumps({
+            "_type": "cmd",
+            "action": "reportLocation",
+        }).encode()
+
+        await handler.handle_message("owntracks/hcma/pixel7pro/cmd", payload)
+
+        assert_that(len(received), equal_to(1))
+        assert_that(received[0], has_entries(
+            action="reportLocation",
+            user="hcma",
+            device="pixel7pro",
+        ))
+
+    @pytest.mark.asyncio
+    async def test_cmd_callback_receives_raw_topic(self) -> None:
+        """Should include the raw MQTT topic in cmd_data."""
+        handler = OwnTracksMessageHandler()
+        received: list[dict] = []
+
+        handler.on_cmd(received.append)
+
+        payload = json.dumps({"_type": "cmd", "action": "reportLocation"}).encode()
+
+        await handler.handle_message("owntracks/hcma/pixel7pro/cmd", payload)
+
+        assert_that(len(received), equal_to(1))
+        assert_that(received[0], has_entries(topic="owntracks/hcma/pixel7pro/cmd"))
+
+    @pytest.mark.asyncio
+    async def test_cmd_callback_receives_full_message(self) -> None:
+        """Should include full parsed message in cmd_data passed to callback."""
+        handler = OwnTracksMessageHandler()
+        received: list[dict] = []
+
+        handler.on_cmd(received.append)
+
+        payload = json.dumps({
+            "_type": "cmd",
+            "action": "reportLocation",
+        }).encode()
+
+        await handler.handle_message("owntracks/alice/phone/cmd", payload)
+
+        assert_that(len(received), equal_to(1))
+        assert_that(received[0]["message"], has_entries(_type="cmd", action="reportLocation"))
+
+    @pytest.mark.asyncio
+    async def test_cmd_callback_receives_transport(self) -> None:
+        """Should propagate transport label to cmd callback."""
+        handler = OwnTracksMessageHandler()
+        received: list[dict] = []
+
+        handler.on_cmd(received.append)
+
+        payload = json.dumps({"_type": "cmd", "action": "reportLocation"}).encode()
+
+        await handler.handle_message(
+            "owntracks/alice/phone/cmd", payload, transport="mqtt-tls"
+        )
+
+        assert_that(received[0], has_entries(transport="mqtt-tls"))
+
+    @pytest.mark.asyncio
+    async def test_cmd_callback_receives_mqtt_user(self) -> None:
+        """Should include mqtt_user derived from topic in cmd callback data."""
+        handler = OwnTracksMessageHandler()
+        received: list[dict] = []
+
+        handler.on_cmd(received.append)
+
+        payload = json.dumps({"_type": "cmd", "action": "reportLocation"}).encode()
+
+        await handler.handle_message("owntracks/alice/phone/cmd", payload)
+
+        assert_that(received[0], has_entries(mqtt_user="alice"))
+
+    @pytest.mark.asyncio
+    async def test_location_does_not_trigger_cmd_callback(self) -> None:
+        """Should not call cmd callback for location messages."""
+        handler = OwnTracksMessageHandler()
+        received: list[dict] = []
+
+        handler.on_cmd(received.append)
+
+        payload = json.dumps({
+            "_type": "location", "lat": 51.5, "lon": -0.1, "tst": 1704067200,
+        }).encode()
+
+        await handler.handle_message("owntracks/alice/phone", payload)
+
+        assert_that(len(received), equal_to(0))
+
+    @pytest.mark.asyncio
+    async def test_unhandled_type_logged_with_json(self) -> None:
+        """Should log unhandled message types including the full JSON payload."""
+        handler = OwnTracksMessageHandler()
+        payload = json.dumps({"_type": "unknown_type", "foo": "bar"}).encode()
+
+        with patch("app.mqtt.handlers.logger") as mock_logger:
+            await handler.handle_message("owntracks/alice/phone", payload)
+
+        debug_calls = [str(call) for call in mock_logger.debug.call_args_list]
+        matching = [
+            c for c in debug_calls
+            if "Unhandled OwnTracks message type" in c and "foo" in c
+        ]
+        assert_that(matching, is_not(equal_to([])))

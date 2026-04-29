@@ -201,6 +201,26 @@ class TestCheckTopicAccess:
         result = check_topic_access("testuser", "owntracks/testuser/phone/event", "publish")
         assert_that(result, is_(True))
 
+    def test_user_can_publish_to_friend_cmd_topic(self, test_user: Any) -> None:
+        """Any authenticated user may publish to another user's /cmd subtopic."""
+        result = check_topic_access("testuser", "owntracks/otheruser/phone/cmd", "publish")
+        assert_that(result, is_(True))
+
+    def test_user_cannot_subscribe_to_friend_cmd_topic(self, test_user: Any) -> None:
+        """Publishing to a friend's /cmd is allowed; subscribing is not."""
+        result = check_topic_access("testuser", "owntracks/otheruser/phone/cmd", "subscribe")
+        assert_that(result, is_(False))
+
+    def test_user_cannot_publish_to_friend_non_cmd_subtopic(self, test_user: Any) -> None:
+        """Cross-user publish is only allowed for /cmd, not other subtopics."""
+        result = check_topic_access("testuser", "owntracks/otheruser/phone/event", "publish")
+        assert_that(result, is_(False))
+
+    def test_user_cannot_publish_to_friend_base_topic(self, test_user: Any) -> None:
+        """Cross-user publish on the base topic (no /cmd) is still denied."""
+        result = check_topic_access("testuser", "owntracks/otheruser/phone", "publish")
+        assert_that(result, is_(False))
+
 
 class TestAuthFailureLogging:
     """Auth failures must be logged at WARNING for security monitoring."""

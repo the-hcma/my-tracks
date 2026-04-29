@@ -164,9 +164,18 @@ def check_topic_access(username: str, topic: str, action: str) -> bool:
         return False
 
     topic_user = match.group(1)
+    subtopic = match.group(3) or ""
 
     # Users can only access their own topics
     if topic_user == username:
+        return True
+
+    # Any authenticated user may publish to another user's /cmd subtopic.
+    # This allows OwnTracks Android to send reportLocation directly to a
+    # friend's device (owntracks/{friend}/{device}/cmd).
+    # TODO: Once a Friend data model exists, restrict this to actual friends
+    # rather than all authenticated users.
+    if action == "publish" and subtopic == "/cmd":
         return True
 
     # Check if user is a superuser (can access all topics)
