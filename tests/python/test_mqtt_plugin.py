@@ -17,13 +17,14 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 from django.test import TestCase
 from hamcrest import (assert_that, contains_string, equal_to, has_entries,
-                      has_length, is_, is_not, none, not_none)
+                      has_item, has_length, is_, is_not, none, not_none)
 
 from app.models import Device, Location, OwnTracksMessage, Transition, Waypoint
 from app.mqtt.plugin import (OwnTracksPlugin, _ClientTLSInfo,
                              _extract_tls_info, get_channel_layer_lazy,
-                             save_location_to_db, save_lwt_to_db,
-                             save_transition_to_db, save_waypoints_to_db)
+                             get_other_devices, save_location_to_db,
+                             save_lwt_to_db, save_transition_to_db,
+                             save_waypoints_to_db)
 
 # Allow sync DB access in async tests for testing purposes
 os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
@@ -1718,3 +1719,197 @@ class TestBroadcastWaypoints:
         """Should not raise when channel layer is unavailable."""
         with patch("app.mqtt.plugin.get_channel_layer_lazy", return_value=None):
             await plugin._broadcast_waypoints({"device_display": "alice/phone", "new_count": 1})
+
+
+@pytest.mark.django_db
+class TestHandleCmdFromDevice:
+    """Tests for OwnTracksPlugin._handle_cmd_from_device."""
+
+    @pytest.fixture
+    def plugin(self, mock_broker_context: MagicMock) -> OwnTracksPlugin:
+        """Create plugin instance for testing."""
+        return OwnTracksPlugin(mock_broker_context)
+
+    @pytest.mark.asyncio
+    async def test_cmd_logs_observed_action(self, plugin: OwnTracksPlugin) -> None:
+        """Should log the observed cmd action at DEBUG level."""
+        cmd_data = {
+            "action": "reportLocation",
+            "user": "hcma",
+            "device": "pixel7pro",
+            "topic": "owntracks/hcma/pixel7pro/cmd",
+            "message": {"_type": "cmd", "action": "reportLocation"},
+            "transport": "mqtt-tls",
+            "mqtt_user": "hcma",
+        }
+
+        with patch("app.mqtt.plugin.logger") as mock_logger, \
+             patch("app.mqtt.plugin.get_other_devices", return_value=[]):
+            await plugin._handle_cmd_from_device(cmd_data)
+
+        mock_logger.debug.assert_called()
+        debug_msg = mock_logger.debug.call_args_list[0][0][0]
+        assert_that(debug_msg, contains_string("Observed cmd action"))
+
+    @pytest.mark.asyncio
+    async def test_cmd_registered_as_plugin_callback(
+        self, mock_broker_context: MagicMock
+    ) -> None:
+        """Plugin should register a cmd callback on init."""
+        plugin = OwnTracksPlugin(mock_broker_context)
+        assert_that(plugin._handler._cmd_callbacks, has_length(1))
+
+    @pytest.mark.asyncio
+    async def test_full_flow_cmd_message_invokes_callback(
+        self, plugin: OwnTracksPlugin
+    ) -> None:
+        """End-to-end: a cmd MQTT message on any /cmd topic invokes the callback."""
+        message = MagicMock()
+        message.topic = "owntracks/hcma/pixel7pro/cmd"
+        message.data = json.dumps({
+            "_type": "cmd",
+            "action": "reportLocation",
+        }).encode()
+
+        with patch("app.mqtt.plugin.logger") as mock_logger, \
+             patch("app.mqtt.plugin.get_other_devices", return_value=[]):
+            await plugin.on_broker_message_received(
+                client_id="test-client",
+                message=message,
+            )
+
+        debug_calls = [str(c) for c in mock_logger.debug.call_args_list]
+        assert_that(
+            any("Observed cmd action" in c for c in debug_calls),
+            is_(True),
+        )
+
+    @pytest.mark.asyncio
+    async def test_report_location_relayed_to_other_devices(
+        self, plugin: OwnTracksPlugin
+    ) -> None:
+        """reportLocation on requester's own topic relays to all other devices."""
+        cmd_data = {
+            "action": "reportLocation",
+            "user": "hcma",
+            "device": "pixel7pro",
+            "topic": "owntracks/hcma/pixel7pro/cmd",
+            "message": {"_type": "cmd", "action": "reportLocation"},
+            "transport": "mqtt",
+            "mqtt_user": "hcma",
+        }
+        other_devices = [("kristen", "pixel7"), ("kristen", "tablet")]
+
+        with patch("app.mqtt.plugin.get_other_devices", return_value=other_devices), \
+             patch("app.mqtt.plugin.CommandPublisher") as mock_publisher_cls:
+            mock_publisher = AsyncMock()
+            mock_publisher.send_command = AsyncMock(return_value=True)
+            mock_publisher_cls.return_value = mock_publisher
+
+            await plugin._handle_cmd_from_device(cmd_data)
+
+        assert_that(mock_publisher.send_command.call_count, equal_to(2))
+        called_ids = {call.args[0] for call in mock_publisher.send_command.call_args_list}
+        assert_that(called_ids, equal_to({"kristen/pixel7", "kristen/tablet"}))
+
+    @pytest.mark.asyncio
+    async def test_report_location_not_relayed_when_no_other_devices(
+        self, plugin: OwnTracksPlugin
+    ) -> None:
+        """reportLocation relay is skipped when there are no other devices."""
+        cmd_data = {
+            "action": "reportLocation",
+            "user": "hcma",
+            "device": "pixel7pro",
+            "topic": "owntracks/hcma/pixel7pro/cmd",
+            "message": {"_type": "cmd", "action": "reportLocation"},
+            "transport": "mqtt",
+            "mqtt_user": "hcma",
+        }
+
+        with patch("app.mqtt.plugin.get_other_devices", return_value=[]), \
+             patch("app.mqtt.plugin.CommandPublisher") as mock_publisher_cls:
+            await plugin._handle_cmd_from_device(cmd_data)
+
+        mock_publisher_cls.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_non_report_location_cmd_not_relayed(
+        self, plugin: OwnTracksPlugin
+    ) -> None:
+        """Only reportLocation triggers relay; other actions are not forwarded."""
+        cmd_data = {
+            "action": "dump",
+            "user": "hcma",
+            "device": "pixel7pro",
+            "topic": "owntracks/hcma/pixel7pro/cmd",
+            "message": {"_type": "cmd", "action": "dump"},
+            "transport": "mqtt",
+            "mqtt_user": "hcma",
+        }
+
+        with patch("app.mqtt.plugin.get_other_devices") as mock_get, \
+             patch("app.mqtt.plugin.CommandPublisher") as mock_publisher_cls:
+            await plugin._handle_cmd_from_device(cmd_data)
+
+        mock_get.assert_not_called()
+        mock_publisher_cls.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_report_location_on_friend_topic_not_relayed(
+        self, plugin: OwnTracksPlugin
+    ) -> None:
+        """reportLocation on a friend's /cmd topic (new app behaviour) is not relayed."""
+        # topic_user (kristen) != mqtt_user (hcma) — new master branch behaviour
+        cmd_data = {
+            "action": "reportLocation",
+            "user": "kristen",
+            "device": "pixel7",
+            "topic": "owntracks/kristen/pixel7/cmd",
+            "message": {"_type": "cmd", "action": "reportLocation"},
+            "transport": "mqtt",
+            "mqtt_user": "hcma",
+        }
+
+        with patch("app.mqtt.plugin.get_other_devices") as mock_get, \
+             patch("app.mqtt.plugin.CommandPublisher") as mock_publisher_cls:
+            await plugin._handle_cmd_from_device(cmd_data)
+
+        mock_get.assert_not_called()
+        mock_publisher_cls.assert_not_called()
+
+
+class TestGetOtherDevices(TestCase):
+    """Tests for get_other_devices DB helper."""
+
+    def test_excludes_requesting_user_devices(self) -> None:
+        """Should not return devices owned by the requesting user."""
+        from django.contrib.auth.models import User
+        user_a = User.objects.create_user(username="hcma_god", password="x")
+        user_b = User.objects.create_user(username="kristen_god", password="x")
+        Device.objects.create(device_id="pixel7pro_god", mqtt_user="hcma_god", owner=user_a)
+        Device.objects.create(device_id="pixel7_god", mqtt_user="kristen_god", owner=user_b)
+
+        result = get_other_devices("hcma_god")
+
+        assert_that(result, has_item(("kristen_god", "pixel7_god")))
+        assert_that(result, is_not(has_item(("hcma_god", "pixel7pro_god"))))
+
+    def test_excludes_devices_with_no_mqtt_user(self) -> None:
+        """Devices with no mqtt_user are excluded (topic cannot be constructed)."""
+        Device.objects.create(device_id="mystery_god", mqtt_user="")
+
+        result = get_other_devices("anyone")
+
+        device_ids = [d[1] for d in result]
+        assert_that(device_ids, is_not(has_item("mystery_god")))
+
+    def test_excludes_requester_and_includes_others(self) -> None:
+        """Returns only other users' devices, not the requesting user's."""
+        from django.contrib.auth.models import User
+        user_a = User.objects.create_user(username="solo_god", password="x")
+        Device.objects.create(device_id="solo_device_god", mqtt_user="solo_god", owner=user_a)
+
+        result = get_other_devices("solo_god")
+
+        assert_that(result, is_not(has_item(("solo_god", "solo_device_god"))))

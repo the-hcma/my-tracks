@@ -29,6 +29,7 @@ from django.utils import timezone as dj_tz
 
 from app.models import (Device, GlobalAutomationRule, Location,
                         OwnTracksMessage, Transition, Waypoint)
+from app.mqtt.commands import Command, CommandPublisher
 from app.mqtt.handlers import OwnTracksMessageHandler
 from app.serializers import LocationSerializer
 
@@ -75,6 +76,24 @@ def _device_display(data: dict[str, Any]) -> str:
     device = data.get("device", "")
     user = data.get("mqtt_user", "")
     return f"{user}/{device}" if user else str(device)
+
+
+def get_other_devices(requesting_user: str) -> list[tuple[str, str]]:
+    """
+    Return (mqtt_user, device_id) pairs for all devices NOT owned by requesting_user.
+
+    Used by the reportLocation relay to find which devices to forward the cmd to.
+    Only returns devices that have an mqtt_user set (so a topic can be constructed).
+
+    TODO: Once a Friend data model exists, restrict this to actual friends of
+    requesting_user rather than all other known devices.
+    """
+    return list(
+        Device.objects
+        .exclude(mqtt_user=requesting_user)
+        .exclude(mqtt_user="")
+        .values_list("mqtt_user", "device_id")
+    )
 
 
 def save_location_to_db(location_data: dict[str, Any]) -> dict[str, Any] | None:
@@ -510,6 +529,7 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
         self._handler.on_lwt(self._handle_lwt)
         self._handler.on_transition(self._handle_transition)
         self._handler.on_waypoint(self._handle_waypoints_from_device)
+        self._handler.on_cmd(self._handle_cmd_from_device)
 
     def _get_handler_writer_ssl(self, client_id: str) -> ssl.SSLObject | None:
         """Try to get the SSL object from a client's handler writer."""
@@ -688,6 +708,76 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
         )
 
         await self._broadcast_transition(saved, transport=transport)
+
+    async def _handle_cmd_from_device(self, cmd_data: dict[str, Any]) -> None:
+        """
+        Handle a cmd message received on a device's /cmd topic.
+
+        ## OwnTracks Android version history — why relay is needed
+
+        In OwnTracks Android ≤ v2.5.4, MessageCmd.annotateFromPreferences()
+        unconditionally overwrote the outgoing topic with the sender's own
+        /cmd topic (preferences.receivedCommandsTopic), regardless of what
+        MapViewModel.sendLocationRequestToCurrentContact() had set.  As a
+        result, a reportLocation request for *any* friend always arrived on
+        the requester's own topic (e.g. owntracks/hcma/pixel7pro/cmd) rather
+        than on the friend's topic.  The server must relay the command to all
+        other known devices to reach the intended recipient.
+
+        This was fixed in v2.5.5 (owntracks/android#2101): from v2.5.5 onward,
+        annotateFromPreferences() is a no-op for MessageCmd, so MapViewModel's
+        `topic = it.id + "/cmd"` is preserved and the message is published
+        directly to the friend's /cmd topic (e.g. owntracks/kristen/pixel7/cmd).
+        The broker delivers it without any server-side relay; our auth fix
+        allows cross-user publish to /cmd subtopics.
+
+        TODO: Once a Friend data model exists, restrict the relay (and the
+        auth allow-list in auth.py) to actual friends rather than all other
+        known devices.
+        """
+        action = cmd_data.get("action", "")
+        transport = cmd_data.get("transport", "mqtt")
+        topic = cmd_data.get("topic", "")
+        requesting_user = cmd_data.get("mqtt_user", "")
+        topic_user = cmd_data.get("user", "")
+
+        logger.debug(
+            "[%s] Observed cmd action=%r on topic=%s",
+            transport,
+            action,
+            topic,
+        )
+
+        # Relay reportLocation to all other devices when the cmd arrived on
+        # the requester's OWN topic — this is the ≤ v2.5.4 app behaviour
+        # described above (fixed in v2.5.5, owntracks/android#2101).
+        if action != "reportLocation" or topic_user != requesting_user:
+            return
+
+        other_devices = await sync_to_async(
+            get_other_devices, thread_sensitive=False
+        )(requesting_user)
+
+        if not other_devices:
+            logger.debug(
+                "[%s] reportLocation relay: no other devices found, nothing to relay",
+                transport,
+            )
+            return
+
+        broker = self.context._broker_instance  # noqa: SLF001
+        publisher = CommandPublisher(mqtt_client=broker)
+        cmd = Command.report_location()
+
+        for mqtt_user, device_id in other_devices:
+            device_topic_id = f"{mqtt_user}/{device_id}"
+            logger.info(
+                "[%s] reportLocation relay: %s → %s",
+                transport,
+                requesting_user,
+                device_topic_id,
+            )
+            await publisher.send_command(device_topic_id, cmd)
 
     async def _handle_waypoints_from_device(self, waypoint_data: dict[str, Any]) -> None:
         """
