@@ -8,7 +8,7 @@ import * as L from 'leaflet';
 import noUiSlider, { type API as NoUiSliderAPI } from 'nouislider';
 import 'nouislider/dist/nouislider.css';
 import { getPreferredTheme, setTheme, toggleTheme } from './theme';
-import { dateAndMinutesToTimestamps, extractResultsList, formatMinutesAsTime, getTodayDateString } from './utils';
+import { dateAndMinutesToTimestamps, extractResultsList, formatMinutesAsTime, getTodayDateString, selectStablePaletteColor } from './utils';
 
 // Configuration passed from Django template
 interface MyTracksConfig {
@@ -149,8 +149,7 @@ const deviceColors: string[] = [
     '#00695c', // Teal - distinct from brown/magenta
     '#ff9800', // Amber - distinct from teal/brown
 ];
-let deviceColorMap: Record<string, string> = {}; // Maps device name to color
-let deviceColorIndex = 0; // Sequential index for color assignment
+let deviceColorMap: Record<string, string> = {}; // Cache: device name -> stable color
 
 // Cache for reverse geocoding results
 const geocodeCache = new Map<string, string>();
@@ -186,7 +185,6 @@ let pollingInterval: ReturnType<typeof setInterval> | null = null;
  */
 function resetDeviceColors(): void {
     deviceColorMap = {};
-    deviceColorIndex = 0;
 }
 
 /**
@@ -237,15 +235,14 @@ function hideDeviceLegend(): void {
 
 /**
  * Get color for a device - assigns colors sequentially for maximum visual difference.
- * Colors are assigned in order of first appearance, using a palette ordered for maximum contrast.
+ * Colors are selected deterministically from the palette based on the device identifier so a
+ * given device always has the same color, regardless of event arrival order.
  * @param deviceName - Name of the device
  * @returns Hex color string
  */
 function getDeviceColor(deviceName: string): string {
     if (!deviceColorMap[deviceName]) {
-        // Assign next color in sequence (palette is ordered for max difference)
-        deviceColorMap[deviceName] = deviceColors[deviceColorIndex % deviceColors.length];
-        deviceColorIndex++;
+        deviceColorMap[deviceName] = selectStablePaletteColor(deviceName, deviceColors);
     }
     return deviceColorMap[deviceName];
 }

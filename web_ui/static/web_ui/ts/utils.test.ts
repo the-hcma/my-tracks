@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
     extractResultsList,
     hashString,
+    selectStablePaletteColor,
     formatTime,
     formatDateForTitle,
     collapseLocations,
@@ -49,6 +50,23 @@ describe('hashString', () => {
     it('handles unicode characters', () => {
         const hash = hashString('日本語テスト');
         expect(hash).toBeGreaterThanOrEqual(0);
+    });
+});
+
+describe('selectStablePaletteColor', () => {
+    it('returns the same color for the same key and palette', () => {
+        const palette = ['#111111', '#222222', '#333333'];
+        expect(selectStablePaletteColor('kristen/pixel7', palette)).toBe(selectStablePaletteColor('kristen/pixel7', palette));
+    });
+
+    it('only returns values from the palette', () => {
+        const palette = ['#111111', '#222222', '#333333', '#444444'];
+        const color = selectStablePaletteColor('hcma/pixel7pro', palette);
+        expect(palette).toContain(color);
+    });
+
+    it('throws for empty palette', () => {
+        expect(() => selectStablePaletteColor('any', [])).toThrow('Palette must not be empty');
     });
 });
 

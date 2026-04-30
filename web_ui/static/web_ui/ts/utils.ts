@@ -31,6 +31,22 @@ export function hashString(str: string): number {
 }
 
 /**
+ * Select a stable color from a palette based on a string key.
+ * The returned color is deterministic for a given key and palette.
+ *
+ * @param key - Identifier used to pick a color (e.g. "kristen/pixel7")
+ * @param palette - Non-empty list of colors
+ * @returns A color string from the palette
+ */
+export function selectStablePaletteColor(key: string, palette: readonly string[]): string {
+    if (palette.length === 0) {
+        throw new Error('Palette must not be empty');
+    }
+    const index = hashString(key) % palette.length;
+    return palette[index];
+}
+
+/**
  * Format a Unix timestamp for display.
  * @param timestamp - Unix timestamp in seconds
  * @param includeDate - Whether to always include the date
