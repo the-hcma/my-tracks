@@ -20,6 +20,10 @@ This document defines the four specialized agents for the My Tracks project.
    ```
    - **`--refresh`** (first): syncs main with Graphite (`gt sync`), prunes merged worktrees and branches, pulls latest main, and ensures the background service is running (or installs it via `setup-service` if not yet configured). Exits immediately — it does **not** prompt for a worktree.
    - **plain** (second): repeats the sync/cleanup, then prompts you to name a new worktree for the upcoming work.
+   - **non-interactive alternative** (second): bypass the prompt by passing a worktree name:
+     ```
+     ~/work/ai/repository-helpers/scripts/dev/start-development --worktree <stack-name> --no-interactive
+     ```
    - Both commands are required: `--refresh` is the only one that checks/starts the service; the plain invocation is the only one that creates the worktree.
    - This replaces the manual `gt sync --force` step.
 
