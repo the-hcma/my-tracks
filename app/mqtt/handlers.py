@@ -379,7 +379,12 @@ class OwnTracksMessageHandler:
             )
         elif msg_type == "cmd":
             await self._handle_cmd(
-                message, topic_info, topic=topic, transport=transport, mqtt_user=mqtt_user
+                message,
+                topic_info,
+                topic=topic,
+                transport=transport,
+                mqtt_user=mqtt_user,
+                tls_cn=tls_cn,
             )
         else:
             logger.debug(
@@ -481,6 +486,7 @@ class OwnTracksMessageHandler:
         topic: str = "",
         transport: str = "mqtt",
         mqtt_user: str = "",
+        tls_cn: str = "",
     ) -> None:
         """Handle a cmd message published by a device."""
         action = message.get("action", "")
@@ -499,6 +505,9 @@ class OwnTracksMessageHandler:
             "message": message,
             "transport": transport,
             "mqtt_user": mqtt_user,
+            # For mqtt-tls, this is the authenticated publisher identity and is a
+            # better indicator of "who sent the cmd" than the topic path.
+            "tls_cn": tls_cn,
         }
 
         for callback in self._cmd_callbacks:
