@@ -163,11 +163,10 @@ let pendingRestoreState: UIState | null = null;
 // WebSocket connection state
 let ws: WebSocket | null = null;
 let wsReconnectAttempts = 0;
-let liveUpdateDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-const liveUpdateDebounceDelay = 500; // 500ms debounce for trail updates
 const maxReconnectAttempts = 5;
 const reconnectDelay = 3000;
 let serverStartupTimestamp: string | null = null; // Track server version
+let lastWebSocketMessageAtMs: number | null = null;
 
 // Track last known IP to detect changes
 let lastKnownIP: string = config.localIp;
@@ -703,7 +702,13 @@ function updateDeviceMarker(location: TrackLocation): void {
     }
 
     // Center map on the marker in live mode only (when a single device is selected or first marker)
-    if (isLiveMode && (selectedDevice === deviceName || !selectedDevice)) {
+    // Avoid re-centering when showing "All Devices" — that creates constant map motion/jank.
+    if (isLiveMode && selectedDevice && selectedDevice === deviceName) {
+        map!.setView(latLng, map!.getZoom());
+    }
+
+    // If we're in live mode with no filter, only center when the very first marker is created.
+    if (isLiveMode && !selectedDevice && Object.keys(deviceMarkers).length === 1) {
         map!.setView(latLng, map!.getZoom());
     }
 }
@@ -857,6 +862,9 @@ function collapseLocations(locations: TrackLocation[]): TrackLocation[] {
 
 // Track locations for incremental trail building (used after reset)
 let incrementalLocations: Record<string, TrackLocation[]> = {};
+// Lightweight live trail state: keep last key + bounded list of points per device
+const liveTrailLastKeyByDevice = new Map<string, string>();
+const liveTrailPointsByDevice: Record<string, [number, number][]> = {};
 
 /**
  * Add a single location incrementally to the map trail.
@@ -970,6 +978,62 @@ function addLocationToTrail(location: TrackLocation): void {
         map!.setView(latLng, 17);
         needsFitBounds = false;
     }
+}
+
+/**
+ * Add a live location to the trail with minimal work.
+ *
+ * Unlike `addLocationToTrail()` (reset-mode), this does NOT rebuild the entire
+ * trail/markers. It appends a point to the existing polyline, skipping points
+ * that collapse to the same rounded coordinate.
+ */
+function addLiveLocationToTrail(location: TrackLocation): void {
+    const deviceName = location.device_name || 'Unknown';
+
+    // Respect device filter
+    if (selectedDevice && deviceName !== selectedDevice) {
+        return;
+    }
+
+    const lat = parseFloat(String(location.latitude));
+    const lon = parseFloat(String(location.longitude));
+    if (isNaN(lat) || isNaN(lon)) return;
+
+    const PRECISION = config.collapsePrecision;
+    const key = `${lat.toFixed(PRECISION)},${lon.toFixed(PRECISION)}`;
+    const prev = liveTrailLastKeyByDevice.get(deviceName);
+    if (prev === key) {
+        return;
+    }
+    liveTrailLastKeyByDevice.set(deviceName, key);
+
+    const latLng: [number, number] = [lat, lon];
+    if (!liveTrailPointsByDevice[deviceName]) {
+        liveTrailPointsByDevice[deviceName] = [];
+    }
+    liveTrailPointsByDevice[deviceName].push(latLng);
+
+    // Bound memory + render cost for very chatty devices
+    const maxPoints = 600;
+    if (liveTrailPointsByDevice[deviceName].length > maxPoints) {
+        liveTrailPointsByDevice[deviceName] = liveTrailPointsByDevice[deviceName].slice(-maxPoints);
+    }
+
+    const points = liveTrailPointsByDevice[deviceName] as L.LatLngTuple[];
+    const deviceColor = getDeviceColor(deviceName);
+
+    if (!deviceTrails[deviceName] || !deviceTrails[deviceName].polyline) {
+        const polyline = L.polyline(points, {
+            color: deviceColor,
+            weight: 3,
+            opacity: 0.7,
+        }).addTo(map!);
+        deviceTrails[deviceName] = { polyline, markers: [] };
+        return;
+    }
+
+    // Update existing polyline with the new bounded set of points
+    deviceTrails[deviceName].polyline!.setLatLngs(points);
 }
 
 // ============================================================================
@@ -1705,12 +1769,6 @@ function addLogEntry(location: TrackLocation, skipScroll = false): void {
  * Clears all markers, trails, and activity log to start fresh from this point forward.
  */
 function resetEvents(): void {
-    // Clear any pending debounce timer to prevent history fetch
-    if (liveUpdateDebounceTimer) {
-        clearTimeout(liveUpdateDebounceTimer);
-        liveUpdateDebounceTimer = null;
-    }
-
     // Clear the activity log
     const container = document.getElementById('log-container');
     if (container) {
@@ -1828,9 +1886,10 @@ async function loadLast30Minutes(): Promise<void> {
 
         // Group locations by device for trail drawing
         const locationsByDevice: Record<string, TrackLocation[]> = {};
+        const markerUpdatedForDevice = new Set<string>();
 
         // Display locations (already newest first from API)
-        locations.forEach((loc, index) => {
+        locations.forEach((loc) => {
             const entry = document.createElement('div');
             entry.className = 'log-entry';
 
@@ -1858,9 +1917,11 @@ async function loadLast30Minutes(): Promise<void> {
 
             container.appendChild(entry);
 
-            // Update device marker (only for latest position of each device)
-            if (index === 0 || !deviceMarkers[device]) {
+            // Update device marker for the newest location per device.
+            // The API is newest-first, so the first time we see a device is its latest.
+            if (!markerUpdatedForDevice.has(device)) {
                 updateDeviceMarker(loc);
+                markerUpdatedForDevice.add(device);
             }
         });
 
@@ -2318,12 +2379,14 @@ function connectWebSocket(): void {
         ws.onopen = (): void => {
             console.log('WebSocket connected');
             wsReconnectAttempts = 0;
+            lastWebSocketMessageAtMs = Date.now();
         };
 
         ws.onmessage = (event: MessageEvent): void => {
             try {
                 const message: WebSocketMessage = JSON.parse(event.data);
                 console.log('WebSocket message received:', message);
+                lastWebSocketMessageAtMs = Date.now();
 
                 // Handle welcome message with server version
                 if (message.type === 'welcome' && message.server_startup) {
@@ -2379,19 +2442,20 @@ function connectWebSocket(): void {
                         return;
                     }
 
-                    console.log(`📍 Scheduling live activity refresh (debounced ${liveUpdateDebounceDelay}ms)`);
-                    // Debounce trail reload to prevent rapid consecutive API calls
-                    // loadLiveActivityHistory() clears and repopulates the log, so we
-                    // don't need to call addLogEntry() here - it would just be overwritten
-                    if (liveUpdateDebounceTimer) {
-                        clearTimeout(liveUpdateDebounceTimer);
-                        console.log('📍 Cleared existing debounce timer');
+                    // Optimistically update the UI immediately so live updates feel responsive.
+                    // We still do a debounced history reload below to reconcile trails and ensure
+                    // state remains consistent even after reconnects.
+                    addLogEntry(location, true);
+                    if (location.timestamp_unix && location.timestamp_unix > (lastTimestamp || 0)) {
+                        lastTimestamp = location.timestamp_unix;
                     }
-                    liveUpdateDebounceTimer = setTimeout(() => {
-                        console.log('📍 Debounce fired, calling loadLiveActivityHistory()');
-                        loadLiveActivityHistory();
-                        liveUpdateDebounceTimer = null;
-                    }, liveUpdateDebounceDelay);
+                    addLiveLocationToTrail(location);
+
+                    // Avoid re-fetching and re-rendering the full last-hour history on every
+                    // incoming message; it clears/rebuilds the DOM and redraws all trails,
+                    // which can make live updates feel laggy. We rely on:
+                    // - `addLogEntry()` + `addLiveLocationToTrail()` for instant incremental updates
+                    // - `refreshLiveActivitySinceLastUpdate()` on reconnect for reconciliation
                 } else if (message.type === 'location' && message.data) {
                     // Not in live mode, but still update the device selector
                     // so new devices appear without needing to switch modes
@@ -2412,6 +2476,7 @@ function connectWebSocket(): void {
         ws.onclose = (): void => {
             console.log('WebSocket disconnected');
             ws = null;
+            lastWebSocketMessageAtMs = null;
 
             // Try to reconnect with exponential backoff
             if (wsReconnectAttempts < maxReconnectAttempts) {
@@ -2428,6 +2493,27 @@ function connectWebSocket(): void {
         console.error('Failed to create WebSocket:', error);
         startPolling();
     }
+}
+
+// If a proxy blocks WS upgrades, the browser can appear "connected" but never
+// receive location messages. Keep a lightweight watchdog so live mode still
+// refreshes via HTTP.
+function startWebSocketWatchdog(): void {
+    const watchdogIntervalMs = 5000;
+    const staleAfterMs = 15000;
+
+    window.setInterval(() => {
+        if (!isLiveMode) return;
+        if (skipHistoryFetch) return;
+
+        const now = Date.now();
+        const last = lastWebSocketMessageAtMs;
+
+        // If we have no WS, or it has gone silent, do an incremental HTTP refresh.
+        if (!ws || ws.readyState !== WebSocket.OPEN || !last || (now - last) > staleAfterMs) {
+            refreshLiveActivitySinceLastUpdate();
+        }
+    }, watchdogIntervalMs);
 }
 
 // ============================================================================
@@ -2823,6 +2909,7 @@ function init(): void {
 
     // Start WebSocket connection for real-time updates
     connectWebSocket();
+    startWebSocketWatchdog();
 
     // Check health immediately and then every 5 seconds
     checkServerHealth();

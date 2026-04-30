@@ -738,7 +738,9 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
         action = cmd_data.get("action", "")
         transport = cmd_data.get("transport", "mqtt")
         topic = cmd_data.get("topic", "")
-        requesting_user = cmd_data.get("mqtt_user", "")
+        # Prefer TLS CN (authenticated identity) as "who published the cmd".
+        # Falling back to mqtt_user (derived from topic) is only safe for non-TLS.
+        requesting_user = cmd_data.get("tls_cn") or cmd_data.get("mqtt_user", "")
         topic_user = cmd_data.get("user", "")
 
         logger.debug(
@@ -751,7 +753,7 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
         # Relay reportLocation to all other devices when the cmd arrived on
         # the requester's OWN topic — this is the ≤ v2.5.4 app behaviour
         # described above (fixed in v2.5.5, owntracks/android#2101).
-        if action != "reportLocation" or topic_user != requesting_user:
+        if action != "reportLocation" or not requesting_user or topic_user != requesting_user:
             return
 
         other_devices = await sync_to_async(
