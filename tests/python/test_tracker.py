@@ -690,6 +690,35 @@ class TestLocationAPI:
         assert_that(response.status_code, equal_to(status.HTTP_200_OK))
         assert_that(response.data, equal_to([]))
 
+        from app.models import Location
+
+        loc = Location.objects.order_by("-timestamp").first()
+        assert_that(loc, is_not(none()))
+        assert_that(loc.ip_address, equal_to("10.0.0.1"))
+
+    def test_create_location_with_x_real_ip(self, api_client: APIClient) -> None:
+        """Test X-Real-IP header is used when X-Forwarded-For is absent."""
+        payload = {
+            "lat": 37.7749,
+            "lon": -122.4194,
+            "tst": int(datetime.now().timestamp()),
+            "tid": "RI",
+        }
+        response = api_client.post(
+            "/api/locations/",
+            payload,
+            format="json",
+            HTTP_X_REAL_IP="203.0.113.9",
+        )
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        assert_that(response.data, equal_to([]))
+
+        from app.models import Location
+
+        loc = Location.objects.order_by("-timestamp").first()
+        assert_that(loc, is_not(none()))
+        assert_that(loc.ip_address, equal_to("203.0.113.9"))
+
     def test_non_location_message_existing_device(
         self, api_client: APIClient, sample_device: Device
     ) -> None:
