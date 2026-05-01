@@ -1620,7 +1620,7 @@ function displayHistoricWaypoints(locations: TrackLocation[], showDeviceNames = 
             entry.className = 'log-entry';
 
             const time = formatTime(loc.timestamp_unix || 0, true);
-            const ip = loc.ip_address || 'N/A';
+            const ip = loc.received_via === 'mqtt' ? 'MQTT' : (loc.ip_address || 'N/A');
             const lat = parseFloat(String(loc.latitude)).toFixed(6);
             const lon = parseFloat(String(loc.longitude)).toFixed(6);
             const acc = loc.accuracy || 'N/A';
@@ -1666,7 +1666,7 @@ function displayHistoricWaypoints(locations: TrackLocation[], showDeviceNames = 
 
             const time = formatTime(loc.timestamp_unix || 0, true);
             const device = loc.device_name || selectedDevice || 'Unknown';
-            const ip = loc.ip_address || 'N/A';
+            const ip = loc.received_via === 'mqtt' ? 'MQTT' : (loc.ip_address || 'N/A');
             const lat = parseFloat(String(loc.latitude)).toFixed(6);
             const lon = parseFloat(String(loc.longitude)).toFixed(6);
             const acc = loc.accuracy || 'N/A';
@@ -1902,7 +1902,9 @@ async function loadLast30Minutes(): Promise<void> {
             const vel = loc.velocity || 0;
             const batt = loc.battery_level || 'N/A';
             const conn = loc.connection_type === 'w' ? 'WiFi' : loc.connection_type === 'm' ? 'Mobile' : 'N/A';
-            const ip = loc.ip_address || 'N/A';
+            // For MQTT locations the IP is often the proxy container address, not the device.
+            // Show "MQTT" as the source label instead to avoid confusion.
+            const ip = loc.received_via === 'mqtt' ? 'MQTT' : (loc.ip_address || 'N/A');
 
             // Group locations by device for trail drawing
             if (!locationsByDevice[device]) {
@@ -2075,7 +2077,7 @@ async function loadLiveActivityHistory(): Promise<void> {
             const vel = loc.velocity || 0;
             const batt = loc.battery_level || 'N/A';
             const conn = loc.connection_type === 'w' ? 'WiFi' : loc.connection_type === 'm' ? 'Mobile' : 'N/A';
-            const ip = loc.ip_address || 'N/A';
+            const ip = loc.received_via === 'mqtt' ? 'MQTT' : (loc.ip_address || 'N/A');
 
             // Group locations by device for trail drawing
             if (!locationsByDevice[device]) {

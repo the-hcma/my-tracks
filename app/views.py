@@ -88,12 +88,9 @@ class LocationViewSet(viewsets.ModelViewSet):
         Raises:
             ValidationError: If payload is invalid
         """
-        # Get client IP address
-        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-        if x_forwarded_for:
-            client_ip = x_forwarded_for.split(',')[0]
-        else:
-            client_ip = request.META.get('REMOTE_ADDR')
+        from app.ip import get_http_client_ip
+
+        client_ip = get_http_client_ip(request.META) or "unknown"
 
         logger.info("[http] Incoming location request from: %s", client_ip)
         logger.debug("Request data: %s, Content-Type: %s", request.data, request.content_type)
