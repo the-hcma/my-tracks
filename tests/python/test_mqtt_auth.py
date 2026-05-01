@@ -2,7 +2,7 @@
 
 import logging
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -492,6 +492,45 @@ class TestDjangoAuthPluginCertAuth:
         session = _make_session(ssl_object=ssl_obj)
         result = await plugin.authenticate(session=session)
         assert_that(result, is_(False))
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.asyncio
+    async def test_tls_handshake_not_done_then_succeeds(
+        self, test_user: Any, mock_plugin_context: MagicMock,
+    ) -> None:
+        """Transient ValueError from getpeercert() must not crash auth."""
+        plugin = DjangoAuthPlugin(context=mock_plugin_context)
+        ssl_obj = _make_ssl_object("testuser")
+        ssl_obj.getpeercert.side_effect = [ValueError("handshake not done yet"), ssl_obj.getpeercert.return_value]
+        session = _make_session(ssl_object=ssl_obj)
+
+        with patch("app.mqtt.auth.asyncio.sleep", new=AsyncMock()):
+            result = await plugin.authenticate(session=session)
+
+        assert_that(result, is_(True))
+        assert_that(session.username, equal_to("testuser"))
+        assert_that(ssl_obj.getpeercert.call_count, equal_to(2))
+
+    @pytest.mark.asyncio
+    async def test_tls_handshake_never_completes_closes_connection(
+        self, db: Any, mock_plugin_context: MagicMock,
+    ) -> None:
+        """If we never obtain a peer cert CN, close the transport to avoid lingering sessions."""
+        plugin = DjangoAuthPlugin(context=mock_plugin_context)
+        ssl_obj = MagicMock()
+        ssl_obj.getpeercert.side_effect = ValueError("handshake not done yet")
+
+        writer = MagicMock()
+        writer.close = MagicMock()
+        writer.wait_closed = AsyncMock()
+        session = _make_session(ssl_object=ssl_obj)
+        session.writer = writer
+
+        with patch("app.mqtt.auth.asyncio.sleep", new=AsyncMock()):
+            result = await plugin.authenticate(session=session)
+
+        assert_that(result, is_(False))
+        writer.close.assert_called()
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
