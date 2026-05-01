@@ -399,7 +399,13 @@ class CommandViewSet(viewsets.ViewSet):
         """Get the command publisher connected to the running MQTT broker."""
         broker = get_mqtt_broker()
         if broker is not None and broker.is_running:
-            return CommandPublisher(mqtt_client=broker.amqtt_broker)
+            amqtt_broker = broker.amqtt_broker
+            if amqtt_broker is not None:
+                return CommandPublisher(mqtt_client=amqtt_broker)
+            logger.warning(
+                "[http] MQTT broker is running but internal publish is unavailable "
+                "(likely restarting/reloading); commands temporarily disabled"
+            )
         return CommandPublisher()
 
     def _resolve_device(self, raw_device_id: str, request: Request) -> tuple[Device, str] | None:
@@ -477,9 +483,12 @@ class CommandViewSet(viewsets.ViewSet):
                 owner=request.user.username,
             )
         except RuntimeError as e:
-            logger.warning("[http] MQTT broker not available for command: %s", e)
+            detail = str(e)
+            if detail == "No MQTT client configured":
+                detail = "MQTT broker restarting; try again shortly"
+            logger.warning("[http] MQTT broker not available for command: %s", detail)
             return Response(
-                {"error": "MQTT broker not available", "detail": str(e)},
+                {"error": "MQTT broker not available", "detail": detail},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
@@ -554,9 +563,12 @@ class CommandViewSet(viewsets.ViewSet):
                 owner=request.user.username,
             )
         except RuntimeError as e:
-            logger.warning("MQTT broker not available: %s", e)
+            detail = str(e)
+            if detail == "No MQTT client configured":
+                detail = "MQTT broker restarting; try again shortly"
+            logger.warning("[http] MQTT broker not available: %s", detail)
             return Response(
-                {"error": "MQTT broker not available", "detail": str(e)},
+                {"error": "MQTT broker not available", "detail": detail},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
@@ -614,9 +626,12 @@ class CommandViewSet(viewsets.ViewSet):
                 owner=request.user.username,
             )
         except RuntimeError as e:
-            logger.warning("MQTT broker not available: %s", e)
+            detail = str(e)
+            if detail == "No MQTT client configured":
+                detail = "MQTT broker restarting; try again shortly"
+            logger.warning("[http] MQTT broker not available: %s", detail)
             return Response(
-                {"error": "MQTT broker not available", "detail": str(e)},
+                {"error": "MQTT broker not available", "detail": detail},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
@@ -679,9 +694,12 @@ class CommandViewSet(viewsets.ViewSet):
                 owner=request.user.username,
             )
         except RuntimeError as e:
-            logger.warning("[http] MQTT broker not available for waypoints command: %s", e)
+            detail = str(e)
+            if detail == "No MQTT client configured":
+                detail = "MQTT broker restarting; try again shortly"
+            logger.warning("[http] MQTT broker not available for waypoints command: %s", detail)
             return Response(
-                {"error": "MQTT broker not available", "detail": str(e)},
+                {"error": "MQTT broker not available", "detail": detail},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 

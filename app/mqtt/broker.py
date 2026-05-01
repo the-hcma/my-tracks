@@ -392,7 +392,12 @@ class MQTTBroker:
 
     @property
     def is_running(self) -> bool:
-        """Check if the broker is running."""
+        """Check if the broker wrapper is running.
+
+        Note: during TLS hot-reload the inner amqtt Broker instance may be
+        temporarily unavailable even while the wrapper remains running.
+        Callers that need internal publish should also check ``amqtt_broker``.
+        """
         return self._running
 
     @property
