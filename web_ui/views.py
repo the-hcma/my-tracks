@@ -29,7 +29,7 @@ from app.models import (CertificateAuthority, ClientCertificate, Device,
                         Waypoint)
 from app.mqtt.commands import CommandPublisher
 from app.mqtt.plugin import _get_user_geofence_state
-from app.notifications import (get_smtp_backend, send_test_email,
+from app.notifications import (_build_email, get_smtp_backend, send_test_email,
                                send_test_email_via_backend,
                                smtp_friendly_error)
 from app.pki import (ALLOWED_KEY_SIZES, DEFAULT_CA_VALIDITY_DAYS,
@@ -1215,7 +1215,7 @@ def action_test(request: HttpRequest) -> JsonResponse:
         )
         public_domain = getattr(settings, 'PUBLIC_DOMAIN', '')
         sent_by = public_domain or str(config.host)
-        DjangoEmailMessage(
+        _build_email(
             subject=f"[my-tracks] Test — automation rule for {wp_label}",
             body=(
                 f"This is a test of your automation rule:\n\n"
@@ -1226,9 +1226,9 @@ def action_test(request: HttpRequest) -> JsonResponse:
                 f"  Sent at:  {ts_str}\n"
                 f"  Sent by:  {sent_by}"
             ),
-            from_email=config.from_address,
             to=[action.email_address],
             connection=backend,
+            from_email=str(config.from_address),
         ).send()
         return JsonResponse({'ok': True})
     except Exception as e:

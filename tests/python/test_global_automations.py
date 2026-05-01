@@ -5,6 +5,7 @@ admin panel view, email and webhook notification helpers."""
 from unittest.mock import MagicMock, patch
 
 import pytest
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.test import Client
 
@@ -361,6 +362,20 @@ class TestSendGlobalAutomationEmail:
             mock_cls.return_value = MagicMock()
             send_global_automation_email(rule, user, states)
         assert mock_cls.call_args[1]['to'] == ['notify@example.com']
+        assert mock_cls.call_args[1]['from_email'] == 'noreply@example.com'
+
+    def test_includes_default_reply_to_when_public_domain_configured(self, setup) -> None:
+        """Reply-To should default to mytracks-no-reply@<PUBLIC_DOMAIN> when configured."""
+        from app.notifications import send_global_automation_email
+        user, rule, states = setup
+        with patch('app.notifications.get_smtp_backend', return_value=MagicMock()), \
+             patch('app.notifications.EmailMessage') as mock_cls, \
+             patch('app.notifications.settings') as mock_settings:
+            mock_settings.SYSTEM_TIMEZONE = settings.SYSTEM_TIMEZONE
+            mock_settings.PUBLIC_DOMAIN = 'tracks.example.com'
+            mock_cls.return_value = MagicMock()
+            send_global_automation_email(rule, user, states)
+        assert mock_cls.call_args[1]['reply_to'] == ['mytracks-no-reply@tracks.example.com']
 
     def test_skips_when_no_smtp_config(self, setup) -> None:
         from app.notifications import send_global_automation_email

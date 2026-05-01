@@ -2773,6 +2773,8 @@ class TestAdminPanelSmtp:
 
         assert_that(len(sent_messages), equal_to(1))
         assert_that(sent_messages[0].body, contains_string('mytracks.example.com'))
+        assert_that(sent_messages[0].from_email, equal_to('noreply@my-tracks'))
+        assert_that(sent_messages[0].reply_to, equal_to(['mytracks-no-reply@mytracks.example.com']))
 
     def test_reset_smtp_deletes_config(self, admin_logged_in_client: Client) -> None:
         """POSTing reset_smtp deletes the saved SmtpConfig and clears the session recipient."""
