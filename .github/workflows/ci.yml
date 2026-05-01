@@ -37,7 +37,7 @@ jobs:
       # Fetch PR state with automatic retries so transient GitHub API errors
       # (e.g. 504) don't fail the Guard job and block the merge queue.
       - id: pr-state
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@v4
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
