@@ -36,6 +36,9 @@ This document defines the four specialized agents for the My Tracks project.
 5. **Final verification**: All agents confirm VS Code Problems panel is clear
 6. **Coverage verification**: Run `uv run pytest --cov=app --cov-fail-under=90` and ensure it passes
 7. **Create feature branch**: NEVER commit or push to main - always create a feature branch
+8. **PR must be ready for review**:
+   - The PR **must not be a draft**
+   - The PR **must have a clear description** (Summary + Test plan at minimum)
 
 **Pull Request Workflow** (CRITICAL):
 
