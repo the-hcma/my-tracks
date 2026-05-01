@@ -79,6 +79,30 @@ def _build_email(
     return msg
 
 
+def _format_footer_courier(*, sent_at: str | None, sent_by: str | None) -> str:
+    parts: list[str] = []
+    if sent_at:
+        parts.append(f"Sent at: {sent_at}")
+    if sent_by:
+        parts.append(f"Sent by: {sent_by}")
+    if not parts:
+        return ""
+    # Best-effort "Courier" formatting: many email clients render indented /
+    # fenced blocks in a monospace font.
+    return "\n".join(["```", *parts, "```"])
+
+
+def _append_footer(
+    body: str, *, sent_at: str | None = None, sent_by: str | None = None
+) -> str:
+    footer = _format_footer_courier(sent_at=sent_at, sent_by=sent_by)
+    if not footer:
+        return body
+    if body.endswith("\n"):
+        return body + "\n" + footer + "\n"
+    return body + "\n\n" + footer + "\n"
+
+
 def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Return the great-circle distance in metres between two WGS-84 points."""
     r = 6_371_000
@@ -141,11 +165,11 @@ def send_test_email_via_backend(
         f"{local_ts.strftime('%Y-%m-%d %H:%M:%S %Z')}"
         f" ({now.strftime('%Y-%m-%d %H:%M:%S UTC')})"
     )
-    lines.append("")
-    lines.append("Sent at: " + ts_str)
+    public_domain = getattr(settings, "PUBLIC_DOMAIN", "")
+    sent_by = public_domain or "my-tracks"
     _build_email(
         subject="my-tracks SMTP test",
-        body="\n".join(lines),
+        body=_append_footer("\n".join(lines), sent_at=ts_str, sent_by=sent_by),
         from_email=from_email,
         to=[to],
         connection=backend,
@@ -219,7 +243,7 @@ def send_transition_email(transition: "Transition", action: "TransitionAction") 
             distance_line = f"Distance from geofence center: {dist_m:.0f} m"
 
     public_domain = getattr(settings, "PUBLIC_DOMAIN", "")
-    sent_by = public_domain or config.host
+    sent_by = public_domain or str(config.host)
 
     subject = f"[my-tracks] {display_name} {verb} {waypoint_label}"
     lines = [
@@ -229,11 +253,10 @@ def send_transition_email(transition: "Transition", action: "TransitionAction") 
         f"  When:     {ts_str}",
         f"  User:     {display_name}",
         f"  Device:   {device_display}",
-        f"  Sent by:  {sent_by}",
     ]
     if distance_line:
         lines.append(f"  {distance_line}")
-    body = "\n".join(lines)
+    body = _append_footer("\n".join(lines), sent_at=ts_str, sent_by=sent_by)
 
     backend = get_smtp_backend(config)
     _build_email(
@@ -279,13 +302,13 @@ def send_global_automation_email(
         f" ({now.strftime('%Y-%m-%d %H:%M:%S UTC')})"
     )
     public_domain = getattr(settings, "PUBLIC_DOMAIN", "")
-    sent_by = public_domain or config.host
+    sent_by = public_domain or str(config.host)
 
     user_lines = "\n".join(
         f"      {uname}: {state}" for uname, state in sorted(states.items())
     )
     subject = f"[my-tracks] {rule.name} — all {condition_label} {rule.waypoint.label}"
-    body = (
+    body = _append_footer(
         f'Global automation rule "{rule.name}" fired.\n'
         f"\n"
         f"  Condition:    All users {condition_label} {rule.waypoint.label}\n"
@@ -293,9 +316,9 @@ def send_global_automation_email(
         f"\n"
         f"  User states:\n"
         f"{user_lines}\n"
-        f"\n"
-        f"  Sent at:  {ts_str}\n"
-        f"  Sent by:  {sent_by}"
+        f"\n",
+        sent_at=ts_str,
+        sent_by=sent_by,
     )
 
     backend = get_smtp_backend(config)

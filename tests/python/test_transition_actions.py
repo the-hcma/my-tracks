@@ -203,7 +203,7 @@ class TestSendTransitionEmail:
                     mock_msg_cls.return_value = MagicMock()
                     send_transition_email(transition, action)
         body = mock_msg_cls.call_args[1]['body']
-        assert '  Sent by:  tracks.example.com' in body
+        assert 'Sent by: tracks.example.com' in body
 
     def test_body_sent_by_falls_back_to_smtp_host(self, setup) -> None:
         """Body should fall back to SMTP host when PUBLIC_DOMAIN is empty."""
@@ -217,7 +217,7 @@ class TestSendTransitionEmail:
                     mock_msg_cls.return_value = MagicMock()
                     send_transition_email(transition, action)
         body = mock_msg_cls.call_args[1]['body']
-        assert '  Sent by:  smtp.example.com' in body
+        assert 'Sent by: smtp.example.com' in body
 
 
 # ---------------------------------------------------------------------------
