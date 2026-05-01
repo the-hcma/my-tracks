@@ -465,11 +465,9 @@ def geofences(request: HttpRequest) -> HttpResponse:
             ]
             mqtt_device_id = f"{device.mqtt_user}/{device.device_id}"
             broker = get_mqtt_broker()
-            publisher = (
-                CommandPublisher(mqtt_client=broker.amqtt_broker)
-                if broker is not None and broker.is_running
-                else CommandPublisher()
-            )
+            publisher = CommandPublisher()
+            if broker is not None and broker.is_running and broker.amqtt_broker is not None:
+                publisher = CommandPublisher(mqtt_client=broker.amqtt_broker)
             async_to_sync(publisher.set_waypoints)(mqtt_device_id, payload, owner=request.user.username)
 
         elif form_type == 'add_action':
