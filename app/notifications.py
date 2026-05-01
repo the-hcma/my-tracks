@@ -28,6 +28,57 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _default_reply_to() -> str | None:
+    """Return the default Reply-To address for outgoing email.
+
+    If PUBLIC_DOMAIN is configured, we use a stable no-reply address on that
+    domain so recipients can reply (if they choose) without exposing the SMTP
+    server hostname.
+    """
+    public_domain = str(getattr(settings, "PUBLIC_DOMAIN", "") or "").strip()
+    if not public_domain:
+        return None
+    return f"mytracks-no-reply@{public_domain}"
+
+
+def _build_email(
+    *,
+    subject: str,
+    body: str,
+    to: list[str],
+    from_email: str,
+    connection: EmailBackend,
+    reply_to: str | None = None,
+) -> EmailMessage:
+    """Create an EmailMessage with required headers enforced.
+
+    Requirements:
+    - Always set From:
+    - Always set Reply-To: (defaults to mytracks-no-reply@<PUBLIC_DOMAIN> when configured)
+    - Best-effort envelope sender: use from_email when supported
+    """
+    reply_to_addr = reply_to or _default_reply_to()
+    msg = EmailMessage(
+        subject=subject,
+        body=body,
+        from_email=from_email,
+        to=to,
+        connection=connection,
+        reply_to=[reply_to_addr] if reply_to_addr else None,
+    )
+
+    # Best-effort envelope sender: Django uses from_email as the SMTP MAIL FROM,
+    # but some backends / message implementations support explicitly setting it.
+    if hasattr(msg, "envelope_sender"):
+        try:
+            setattr(msg, "envelope_sender", from_email)
+        except Exception:
+            # Never let envelope-sender support break delivery.
+            pass
+
+    return msg
+
+
 def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Return the great-circle distance in metres between two WGS-84 points."""
     r = 6_371_000
@@ -92,7 +143,7 @@ def send_test_email_via_backend(
     )
     lines.append("")
     lines.append("Sent at: " + ts_str)
-    EmailMessage(
+    _build_email(
         subject="my-tracks SMTP test",
         body="\n".join(lines),
         from_email=from_email,
@@ -185,11 +236,11 @@ def send_transition_email(transition: "Transition", action: "TransitionAction") 
     body = "\n".join(lines)
 
     backend = get_smtp_backend(config)
-    EmailMessage(
+    _build_email(
         subject=subject,
         body=body,
-        from_email=config.from_address,
-        to=[action.email_address],
+        from_email=str(config.from_address),
+        to=[str(action.email_address)],
         connection=backend,
     ).send()
     logger.info(
@@ -248,11 +299,11 @@ def send_global_automation_email(
     )
 
     backend = get_smtp_backend(config)
-    EmailMessage(
+    _build_email(
         subject=subject,
         body=body,
-        from_email=config.from_address,
-        to=[rule.email_address],
+        from_email=str(config.from_address),
+        to=[str(rule.email_address)],
         connection=backend,
     ).send()
     logger.info(
