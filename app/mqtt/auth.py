@@ -11,6 +11,7 @@ Features:
 - Support for OwnTracks topic format: owntracks/{user}/{device}
 """
 
+import asyncio
 import logging
 import re
 import ssl
@@ -32,7 +33,12 @@ def _extract_cert_cn(ssl_object: ssl.SSLObject) -> str | None:
 
     Returns None if no peer cert is present or the CN cannot be read.
     """
-    der_cert = ssl_object.getpeercert(binary_form=True)
+    try:
+        der_cert = ssl_object.getpeercert(binary_form=True)
+    except ValueError:
+        # Python raises ValueError("handshake not done yet") if we query the
+        # peer cert before the TLS handshake has completed.
+        return None
     if der_cert is None:
         return None
     try:
@@ -43,6 +49,30 @@ def _extract_cert_cn(ssl_object: ssl.SSLObject) -> str | None:
         return str(cn_attrs[0].value) if cn_attrs else None
     except Exception:
         return None
+
+
+async def _close_session_transport(session: Any) -> None:
+    """Best-effort close of an unauthenticated client connection.
+
+    amqtt will typically close connections on auth failure, but if the session
+    transport remains open (e.g. handshake edge cases), explicitly closing it
+    avoids accumulating idle sockets.
+    """
+    writer = getattr(session, "writer", None)
+    if writer is None:
+        return
+
+    try:
+        close = getattr(writer, "close", None)
+        if callable(close):
+            close()
+        wait_closed = getattr(writer, "wait_closed", None)
+        if callable(wait_closed):
+            result = wait_closed()
+            if asyncio.iscoroutine(result) or isinstance(result, asyncio.Future):
+                await result
+    except Exception:
+        logger.exception("[mqtt-tls] Failed to close unauthenticated session transport")
 
 
 def get_django_user(username: str) -> Any:
@@ -235,9 +265,27 @@ class DjangoAuthPlugin(BaseAuthPlugin):
         self, session: Any, ssl_object: ssl.SSLObject,
     ) -> bool:
         """Authenticate via client certificate CN."""
-        cert_cn = _extract_cert_cn(ssl_object)
+        cert_cn: str | None = None
+        # On some TLS transports the handshake may not be complete when amqtt
+        # invokes auth plugins. Retry with a small bounded backoff to avoid
+        # crashing the broker and to allow valid mTLS clients to connect
+        # reliably.
+        #
+        # We keep the total wait time small to avoid tying up broker resources
+        # on unauthenticated connections.
+        max_wait_s = 2.0
+        sleep_s = 0.05
+        elapsed_s = 0.0
+        while elapsed_s <= max_wait_s:
+            cert_cn = _extract_cert_cn(ssl_object)
+            if cert_cn is not None:
+                break
+            await asyncio.sleep(sleep_s)
+            elapsed_s += sleep_s
+            sleep_s = min(sleep_s * 2, 0.5)
         if cert_cn is None:
             logger.warning("[mqtt-tls] Auth failed: no peer certificate CN")
+            await _close_session_transport(session)
             return False
 
         mqtt_username: str | None = getattr(session, "username", None)
@@ -251,6 +299,9 @@ class DjangoAuthPlugin(BaseAuthPlugin):
 
         if result and not mqtt_username:
             session.username = cert_cn
+
+        if not result:
+            await _close_session_transport(session)
 
         return result
 
