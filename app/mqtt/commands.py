@@ -17,6 +17,23 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def mqtt_payload_json_for_log(payload: bytes) -> str:
+    """
+    Decode MQTT command bytes to JSON text for logging with sorted object keys.
+
+    The on-wire payload is unchanged; this is only for stable, grep-friendly
+    INFO logs. Non-JSON or invalid UTF-8 falls back to a safe string form.
+    """
+    try:
+        text = payload.decode("utf-8")
+    except UnicodeDecodeError:
+        return repr(payload)
+    try:
+        return json.dumps(json.loads(text), sort_keys=True)
+    except json.JSONDecodeError:
+        return text
+
+
 class CommandType(Enum):
     """
     OwnTracks command types.
@@ -261,32 +278,17 @@ class CommandPublisher:
         log_owner = owner or mqtt_user
         topic = get_command_topic(mqtt_user, device)
         payload = command.to_mqtt_payload()
+        payload_json_log = mqtt_payload_json_for_log(payload)
 
-        if command.command_type == CommandType.SET_WAYPOINTS:
-            wp_list = command.payload.get("waypoints", {}).get("waypoints", [])
-            names = [w.get("desc", "?") for w in wp_list]
-            payload_json_log = json.dumps(
-                json.loads(payload.decode("utf-8")),
-                sort_keys=True,
-            )
-            logger.info(
-                "[mqtt] setWaypoints → owner=%s device=%s waypoints=[%s]",
-                log_owner, device, ", ".join(names),
-            )
-            logger.info(
-                "[mqtt] setWaypoints payload → owner=%s device=%s topic=%s "
-                "bytes=%d json=%s",
-                log_owner,
-                device,
-                topic,
-                len(payload),
-                payload_json_log,
-            )
-        else:
-            logger.info(
-                "[mqtt] %s → owner=%s device=%s",
-                command.command_type.value, log_owner, device,
-            )
+        logger.info(
+            "[mqtt] %s → owner=%s device=%s topic=%s bytes=%d json=%s",
+            command.command_type.value,
+            log_owner,
+            device,
+            topic,
+            len(payload),
+            payload_json_log,
+        )
 
         try:
             # amqtt broker internal publish

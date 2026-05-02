@@ -2,15 +2,16 @@
 
 import json
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from hamcrest import (assert_that, contains_string, equal_to, greater_than,
-                      has_entries, has_key, instance_of, is_, is_not, none,
-                      not_none)
+                      has_entries, has_key, instance_of, is_, is_not,
+                      less_than, none, not_none)
 
 from app.mqtt.commands import (Command, CommandPublisher, CommandType,
-                               get_command_topic, parse_device_id)
+                               get_command_topic, mqtt_payload_json_for_log,
+                               parse_device_id)
 
 
 class TestCommandType:
@@ -202,6 +203,22 @@ class TestParseDeviceId:
         assert_that(result, equal_to(("", "")))
 
 
+class TestMqttPayloadJsonForLog:
+    """Tests for mqtt_payload_json_for_log helper."""
+
+    def test_sorts_top_level_keys(self) -> None:
+        """Log helper re-encodes with sorted keys for stable output."""
+        raw = b'{"action": "reportLocation", "_type": "cmd"}'
+        out = mqtt_payload_json_for_log(raw)
+        assert_that(out.index('"_type"'), less_than(out.index('"action"')))
+
+    def test_invalid_utf8_falls_back(self) -> None:
+        """Non-UTF-8 payload is logged as repr(bytes)."""
+        raw = b"\xff\xfe not utf-8"
+        out = mqtt_payload_json_for_log(raw)
+        assert_that(out, contains_string('xff'))
+
+
 class TestCommandPublisher:
     """Tests for CommandPublisher class."""
 
@@ -243,6 +260,22 @@ class TestCommandPublisher:
 
         result = await publisher.send_command("invalid", cmd)
         assert_that(result, is_(False))
+
+    @pytest.mark.asyncio
+    async def test_send_command_logs_full_payload_at_info(self) -> None:
+        """Every outbound command logs topic, byte size, and JSON at INFO once."""
+        mock_client = MagicMock()
+        mock_client.internal_message_broadcast = AsyncMock()
+        with patch("app.mqtt.commands.logger.info") as mock_info:
+            publisher = CommandPublisher(mqtt_client=mock_client)
+            await publisher.send_command("alice/phone", Command.report_location())
+        mock_info.assert_called_once()
+        fmt, *fmt_args = mock_info.call_args[0]
+        line = fmt % tuple(fmt_args)
+        assert_that(line, contains_string("[mqtt] reportLocation"))
+        assert_that(line, contains_string("owntracks/alice/phone/cmd"))
+        assert_that(line, contains_string("bytes="))
+        assert_that(line, contains_string('"action": "reportLocation"'))
 
     @pytest.mark.asyncio
     async def test_send_command_with_internal_broadcast(self) -> None:
