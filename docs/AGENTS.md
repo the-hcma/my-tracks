@@ -259,6 +259,12 @@ Do not declare a PR ready until Steps 3, 4, and 5 all pass.
   - ❌ `WebSocket client connected from 192.168.1.5` (no transport tag)
 - Rationale: Consistent, scannable logs; easy to grep by transport; clear origin tracking
 
+**Outgoing device MQTT commands (`CommandPublisher`)**:
+- All publishes to OwnTracks device command topics (`owntracks/{user}/{device}/cmd`) MUST go through `CommandPublisher.send_command` (or helpers that call it) so logging stays centralized.
+- At **INFO**, every outbound command MUST log **once** with action, owner, device, topic, wire byte length, and the full outgoing JSON text. Use `mqtt_payload_json_for_log()` (sorted keys, wire bytes unchanged) for the logged JSON string so logs are stable and easy to compare.
+- If you add a new command type or a code path that publishes to `/cmd` without `CommandPublisher`, update `CommandPublisher` or align logging with the same pattern—do not leave silent publishes.
+- Rationale: Verifies exactly what phones receive (coordinates, config, etc.) and speeds up debugging when devices disagree with the server.
+
 **Shell Script Convention**:
 - All shell scripts MUST be created without the `.sh` extension
 - Use hyphens for multi-word script names (kebab-case)
@@ -469,6 +475,7 @@ Passwords must never appear in shell command arguments — they end up in bash h
 - [ ] No dead code (unused methods, variables, imports, or parameters)
 - [ ] **No module-level mutable state** (use holder classes, no `global` keyword)
 - [ ] **Transport labels in log messages** (client activity uses `[mqtt]`, `[mqtt-tls]`, `[http]`, `[ws]`)
+- [ ] **Device MQTT commands** (`CommandPublisher`): single INFO log includes full JSON (`mqtt_payload_json_for_log`); new `/cmd` publishes go through `CommandPublisher`
 - [ ] **Shell variable naming** (lowercase for all non-exported variables; UPPERCASE only for `export`ed variables passed to subprocesses)
 - [ ] **Empty lines have no whitespace** (run `find . -name "*.py" -type f -exec sed -i '' 's/^[[:space:]]*$//' {} +`)
 - [ ] **Imports are sorted** (run `isort .` to fix)
@@ -505,6 +512,7 @@ Passwords must never appear in shell command arguments — they end up in bash h
 - Look for dead code (unused methods, setup fixtures that never run, unreachable code)
 - **No module-level mutable state** — related state must be grouped into holder classes (no `global` keyword)
 - **Transport labels in log messages** — client activity must use `[mqtt]`, `[mqtt-tls]`, `[http]`, `[ws]` tags
+- **Device MQTT commands** — `CommandPublisher.send_command` logs full outbound JSON in one INFO line; do not bypass for `/cmd` publishes
 - **Shell variable naming** — lowercase for all non-exported variables; UPPERCASE only for `export`ed variables
 - Error message quality: ensure exceptions provide context with expected vs actual values
 - **Verify empty lines have no whitespace** (check for trailing spaces)
