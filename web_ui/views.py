@@ -453,16 +453,7 @@ def geofences(request: HttpRequest) -> HttpResponse:
             active_waypoints = list(
                 Waypoint.objects.filter(user=request.user, is_active=True)
             )
-            payload = [
-                {
-                    'desc': w.label,
-                    'lat': float(w.latitude),
-                    'lon': float(w.longitude),
-                    'rad': w.radius,
-                    'tst': int(w.updated_at.timestamp()),
-                }
-                for w in active_waypoints
-            ]
+            payload = [w.as_device_sync_row() for w in active_waypoints]
             mqtt_device_id = f"{device.mqtt_user}/{device.device_id}"
             broker = get_mqtt_broker()
             publisher = CommandPublisher()

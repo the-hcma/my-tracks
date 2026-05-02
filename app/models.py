@@ -6,7 +6,8 @@ and location data from OwnTracks clients.
 """
 import logging
 import uuid
-from typing import Any
+from decimal import Decimal
+from typing import Any, cast
 
 from django.contrib.auth.models import User
 from django.db import models
@@ -558,6 +559,22 @@ class Waypoint(models.Model):
 
     def __str__(self) -> str:
         return f"{self.label} ({self.user.username})"
+
+    def as_device_sync_row(self) -> dict[str, Any]:
+        """
+        Build one OwnTracks waypoint row for setWaypoints device sync.
+
+        Matches the payload shape produced by the geofences 'sync to device'
+        flow (desc, lat, lon, rad, tst).
+        """
+        # Decimal at runtime; pyright needs cast for float(lat/lon).
+        return {
+            'desc': self.label,
+            'lat': float(cast(Decimal, self.latitude)),
+            'lon': float(cast(Decimal, self.longitude)),
+            'rad': self.radius,
+            'tst': int(self.updated_at.timestamp()),
+        }
 
 
 class Transition(models.Model):

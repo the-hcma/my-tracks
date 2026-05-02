@@ -1,6 +1,7 @@
 """Tests for web_ui views."""
 # pyright: reportIndexIssue=none
 
+import json
 import re
 from pathlib import Path
 from typing import Any, cast
@@ -2333,6 +2334,38 @@ class TestGeofencesView:
         payload = call_args[0][1]
         assert_that(payload, has_length(1))
         assert_that(payload[0]['desc'], equal_to('Home'))
+
+    def test_waypoint_db_fields_match_set_waypoints_mqtt_json(
+        self, user: User
+    ) -> None:
+        """Stored waypoint coordinates must match setWaypoints JSON payload."""
+        from app.models import Waypoint
+        from app.mqtt.commands import Command
+
+        wp = Waypoint.objects.create(
+            user=user,
+            label='Test zone (fixture)',
+            latitude='12.3456789012',
+            longitude='-98.7654321098',
+            radius=250,
+        )
+        wp.refresh_from_db()
+        row = wp.as_device_sync_row()
+        assert_that(row['desc'], equal_to(wp.label))
+        assert_that(row['lat'], equal_to(float(wp.latitude)))
+        assert_that(row['lon'], equal_to(float(wp.longitude)))
+        assert_that(row['rad'], equal_to(wp.radius))
+        assert_that(row['tst'], equal_to(int(wp.updated_at.timestamp())))
+
+        cmd = Command.set_waypoints([row])
+        outer = json.loads(cmd.to_mqtt_payload().decode('utf-8'))
+        inner = outer['waypoints']['waypoints'][0]
+        assert_that(inner['_type'], equal_to('waypoint'))
+        assert_that(inner['desc'], equal_to(wp.label))
+        assert_that(inner['lat'], equal_to(row['lat']))
+        assert_that(inner['lon'], equal_to(row['lon']))
+        assert_that(inner['rad'], equal_to(wp.radius))
+        assert_that(inner['tst'], equal_to(row['tst']))
 
 
 @pytest.mark.django_db

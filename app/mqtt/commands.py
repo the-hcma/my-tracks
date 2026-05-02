@@ -265,9 +265,22 @@ class CommandPublisher:
         if command.command_type == CommandType.SET_WAYPOINTS:
             wp_list = command.payload.get("waypoints", {}).get("waypoints", [])
             names = [w.get("desc", "?") for w in wp_list]
+            payload_json_log = json.dumps(
+                json.loads(payload.decode("utf-8")),
+                sort_keys=True,
+            )
             logger.info(
                 "[mqtt] setWaypoints → owner=%s device=%s waypoints=[%s]",
                 log_owner, device, ", ".join(names),
+            )
+            logger.info(
+                "[mqtt] setWaypoints payload → owner=%s device=%s topic=%s "
+                "bytes=%d json=%s",
+                log_owner,
+                device,
+                topic,
+                len(payload),
+                payload_json_log,
             )
         else:
             logger.info(

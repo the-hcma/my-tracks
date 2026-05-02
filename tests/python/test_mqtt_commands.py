@@ -5,9 +5,9 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from hamcrest import (assert_that, equal_to, greater_than, has_entries,
-                      has_key, instance_of, is_, is_not, none, not_none,
-                      raises)
+from hamcrest import (assert_that, contains_string, equal_to, greater_than,
+                      has_entries, has_key, instance_of, is_, is_not, none,
+                      not_none)
 
 from app.mqtt.commands import (Command, CommandPublisher, CommandType,
                                get_command_topic, parse_device_id)
@@ -361,6 +361,36 @@ class TestCommandPublisherHelperMethods:
         assert_that(wrapper["_type"], equal_to("waypoints"))
         assert_that(wrapper["waypoints"][0]["_type"], equal_to("waypoint"))
         assert_that(wrapper["waypoints"][0]["desc"], equal_to("Home"))
+
+    @pytest.mark.asyncio
+    async def test_set_waypoints_float_precision_in_json(self) -> None:
+        """JSON encoding keeps float values (shortest round-trip repr)."""
+        mock_client = MagicMock()
+        mock_client.internal_message_broadcast = AsyncMock()
+
+        publisher = CommandPublisher(mqtt_client=mock_client)
+        lat = 1.2345678901234567
+        lon = -9.876543210987654
+        waypoints = [
+            {
+                'desc': 'P',
+                'lat': lat,
+                'lon': lon,
+                'rad': 250,
+                'tst': 1700000000,
+            },
+        ]
+
+        await publisher.set_waypoints('alice/phone', waypoints)
+
+        call_args = mock_client.internal_message_broadcast.call_args
+        raw = call_args[0][1].decode('utf-8')
+        payload_data = json.loads(raw)
+        wp0 = payload_data["waypoints"]["waypoints"][0]
+        assert_that(wp0["lat"], equal_to(lat))
+        assert_that(wp0["lon"], equal_to(lon))
+        assert_that(raw, contains_string(str(lat)))
+        assert_that(raw, contains_string(str(lon)))
 
     @pytest.mark.asyncio
     async def test_clear_waypoints(self) -> None:
