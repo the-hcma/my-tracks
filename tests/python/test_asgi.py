@@ -506,7 +506,10 @@ class TestRunMqttBroker:
 
             _run_mqtt_broker(1883)
 
-        mock_logger.critical.assert_any_call("MQTT broker startup failed unexpectedly")
+        mock_logger.critical.assert_any_call(
+            "MQTT broker startup failed unexpectedly",
+            exc_info=True,
+        )
         mock_exit.assert_called_once_with(1)
 
     def test_event_loop_stopped_during_shutdown_logs_debug(self) -> None:
@@ -1223,11 +1226,13 @@ class TestLogCertInfo:
 
         assert_that(mock_log.info.call_count, equal_to(2))
         cert_msg = mock_log.info.call_args_list[0][0][0] % mock_log.info.call_args_list[0][0][1:]
-        assert_that(cert_msg, contains_string("myhost"))
-        assert_that(cert_msg, contains_string("Log Test CA"))
+        assert_that(cert_msg, contains_string("[mqtt-tls]"))
+        assert_that(cert_msg, contains_string("cn=myhost"))
+        assert_that(cert_msg, contains_string("ca_cn=Log Test CA"))
         assert_that(cert_msg, contains_string("fingerprint="))
         sans_msg = mock_log.info.call_args_list[1][0][0] % mock_log.info.call_args_list[1][0][1:]
-        assert_that(sans_msg, contains_string("myhost"))
+        assert_that(sans_msg, contains_string("[mqtt-tls]"))
+        assert_that(sans_msg, contains_string("sans=myhost"))
         mock_log.warning.assert_not_called()
 
     def test_warns_when_expiry_near(self) -> None:
@@ -1292,7 +1297,8 @@ class TestLogCertInfo:
 
         mock_log.warning.assert_called_once()
         warning_msg = mock_log.warning.call_args[0][0] % mock_log.warning.call_args[0][1:]
-        assert_that(warning_msg, contains_string("EXPIRED"))
+        assert_that(warning_msg, contains_string("[mqtt-tls]"))
+        assert_that(warning_msg, contains_string("expired"))
         assert_that(warning_msg, contains_string("clients will reject"))
 
     def test_no_warning_when_expiry_far(self) -> None:

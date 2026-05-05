@@ -93,7 +93,8 @@ class LocationViewSet(viewsets.ModelViewSet):
         client_ip = get_http_client_ip(request.META) or "unknown"
 
         logger.info("[http] Incoming location request from: %s", client_ip)
-        logger.debug("Request data: %s, Content-Type: %s", request.data, request.content_type)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Request data: %s, Content-Type: %s", request.data, request.content_type)
 
         # Check message type
         msg_type = request.data.get('_type', 'location')

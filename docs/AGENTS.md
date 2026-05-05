@@ -250,6 +250,10 @@ Do not declare a PR ready until Steps 3, 4, and 5 all pass.
 - Tags are always lowercase, always first, always in brackets
 - TLS identity info follows the action, not the tag: `[mqtt-tls] Location saved: id=42, device=hcma (CN=hcma [AD:BF:AA:5C])`
 - When broadcasting from one transport to another, the tag reflects the **origin** transport: `[mqtt-tls] Broadcasting location to WebSocket ...`
+- **Logging overhead (CRITICAL)**:
+  - Avoid **adjacent `logger.*(...)` calls** for the same event — prefer **one log record** with a single formatted message.
+  - When you want a traceback, prefer a single call with `exc_info=True` (e.g. `logger.critical("...", exc_info=True)`) instead of `logger.critical(...)` + `logger.exception(...)`.
+  - If two adjacent log lines must remain at different levels (e.g. INFO + DEBUG), guard the lower level: `if logger.isEnabledFor(logging.DEBUG): ...` to avoid expensive formatting when disabled.
 - Examples:
   - ✅ `[mqtt-tls] Client connected: hcma from 192.168.1.5 (CN=hcma [AD:BF:AA:5C])`
   - ✅ `[mqtt] Client connected: hcma from 192.168.1.5`
@@ -258,6 +262,14 @@ Do not declare a PR ready until Steps 3, 4, and 5 all pass.
   - ❌ `[MQTT] Client connected: hcma from 192.168.1.5 via TLS (CN=...)` (uppercase, verbose)
   - ❌ `WebSocket client connected from 192.168.1.5` (no transport tag)
 - Rationale: Consistent, scannable logs; easy to grep by transport; clear origin tracking
+
+**PKI / server TLS identity logs** (not incoming client activity, but same tagging discipline):
+- Logs that summarize **which certificates the server is using** MUST still begin with the bracket transport tag that matches the listener:
+  - `[mqtt-tls]` — PEM loaded from the DB for the embedded MQTT TLS listener (`_log_cert_info` in `app/apps.py`)
+  - `[http-tls]` — HTTPS frontend certificate introspection (`_log_web_cert_info`, e.g. nginx-mounted PEM)
+- Prefer structured `key=value` fragments after the tag (single INFO/WARNING record per line) so lines stay grep-friendly and match the rest of the verbose formatter (`%(asctime)s... | LEVEL | module | message`).
+- If a log line shows a **truncated timestamp** (missing leading digits) while neighboring lines are fine, treat it as **external corruption or mixed writers** on the log sink — Python emits one full line per record; fix the sink (one writer per file, no shell truncate-in-place on an active log).
+- Rationale: Avoids “raw prose” under `apps` that looks unrelated to MQTT/WebSocket traffic; matches operator expectations when grepping `[mqtt-tls]` during TLS incidents.
 
 **Outgoing device MQTT commands (`CommandPublisher`)**:
 - All publishes to OwnTracks device command topics (`owntracks/{user}/{device}/cmd`) MUST go through `CommandPublisher.send_command` (or helpers that call it) so logging stays centralized.
@@ -474,7 +486,7 @@ Passwords must never appear in shell command arguments — they end up in bash h
 - [ ] Naming conventions followed (values, descriptive mappings)
 - [ ] No dead code (unused methods, variables, imports, or parameters)
 - [ ] **No module-level mutable state** (use holder classes, no `global` keyword)
-- [ ] **Transport labels in log messages** (client activity uses `[mqtt]`, `[mqtt-tls]`, `[http]`, `[ws]`)
+- [ ] **Transport labels in log messages** (client activity uses `[mqtt]`, `[mqtt-tls]`, `[http]`, `[ws]`; PKI/server cert summaries use `[mqtt-tls]` / `[http-tls]` per PKI / server TLS identity logs above)
 - [ ] **Device MQTT commands** (`CommandPublisher`): single INFO log includes full JSON (`mqtt_payload_json_for_log`); new `/cmd` publishes go through `CommandPublisher`
 - [ ] **Shell variable naming** (lowercase for all non-exported variables; UPPERCASE only for `export`ed variables passed to subprocesses)
 - [ ] **Empty lines have no whitespace** (run `find . -name "*.py" -type f -exec sed -i '' 's/^[[:space:]]*$//' {} +`)
@@ -511,7 +523,7 @@ Passwords must never appear in shell command arguments — they end up in bash h
 - Edge cases from a different angle
 - Look for dead code (unused methods, setup fixtures that never run, unreachable code)
 - **No module-level mutable state** — related state must be grouped into holder classes (no `global` keyword)
-- **Transport labels in log messages** — client activity must use `[mqtt]`, `[mqtt-tls]`, `[http]`, `[ws]` tags
+- **Transport labels in log messages** — client activity must use `[mqtt]`, `[mqtt-tls]`, `[http]`, `[ws]` tags; MQTT/HTTPS server certificate summaries must use `[mqtt-tls]` / `[http-tls]` as documented under PKI / server TLS identity logs
 - **Device MQTT commands** — `CommandPublisher.send_command` logs full outbound JSON in one INFO line; do not bypass for `/cmd` publishes
 - **Shell variable naming** — lowercase for all non-exported variables; UPPERCASE only for `export`ed variables
 - Error message quality: ensure exceptions provide context with expected vs actual values
