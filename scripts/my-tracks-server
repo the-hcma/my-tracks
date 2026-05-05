@@ -361,8 +361,10 @@ else
     exit 1
 fi
 
-# Create logs directory and handle log rotation (always, for dual logging support)
-# --log-file overrides the default location (logs/my-tracks.log inside the working directory).
+# Log destination
+# - The Django LOGGING config (RotatingFileHandler) handles file rotation.
+# - We do NOT stream daphne stdout/stderr into this file to avoid corruption when
+#   external tools rotate/truncate it; instead, use a separate startup log.
 if [[ -n "$log_file_override" ]]; then
     log_file="$log_file_override"
     mkdir -p "$(dirname "$log_file")"
@@ -371,23 +373,9 @@ else
     log_file="logs/my-tracks.log"
 fi
 
-# Rotate logs when the file exceeds 10 MB; keep last 5 files.
-readonly log_rotate_max_bytes=10485760
-if [[ -f "$log_file" ]]; then
-    log_size="$(stat --format="%s" "$log_file" 2>/dev/null || echo 0)"
-    if (( log_size >= log_rotate_max_bytes )); then
-        [[ -f "${log_file}.5" ]] && rm -f "${log_file}.5"
-        for i in 4 3 2 1; do
-            if [[ -f "${log_file}.${i}" ]]; then
-                mv "${log_file}.${i}" "${log_file}.$((i + 1))"
-            fi
-        done
-        mv "$log_file" "${log_file}.1"
-    fi
-fi
-
-# Export logging configuration
+# Export logging configuration (Django reads these in config/settings.py)
 export DJANGO_LOG_LEVEL="$log_level"
+export LOG_FILE="$log_file"
 if [ "$log_utc" = true ]; then
     export LOG_UTC=1
 fi
@@ -609,13 +597,14 @@ if [ "$log_to_console" = true ]; then
         echo ""
     fi
     
-    # Start daphne with dual logging via process substitution
-    # Note: Using >(tee) instead of | tee so that $! returns daphne's PID, not tee's
-    daphne -b 0.0.0.0 -p "$http_port" --verbosity 0 config.asgi:application > >(tee -a "$log_file") 2>&1 &
+    startup_log="$(mktemp -t my-tracks-daphne.XXXXXX.log)"
+    # Capture daphne stdout/stderr for startup diagnostics and port detection.
+    # Application logs go through Django's LOGGING handlers (console + LOG_FILE).
+    daphne -b 0.0.0.0 -p "$http_port" --verbosity 0 config.asgi:application > >(tee -a "$startup_log") 2>&1 &
     server_pid=$!
     
     # Wait for daphne to bind its port (or die trying).
-    if ! wait_for_server_ready "$server_pid" "$log_file"; then
+    if ! wait_for_server_ready "$server_pid" "$startup_log"; then
         startup_failed=true
         exit 1
     fi
@@ -623,7 +612,7 @@ if [ "$log_to_console" = true ]; then
     # Show server info after we know the actual port
     echo ""
     display_server_info "$display_http_port"
-    echo "📺 Logging to: console + $log_file (dual mode)"
+    echo "📺 Logging to: console + $log_file"
     echo ""
     echo "Press CTRL-C to stop the server"
     echo ""
@@ -635,12 +624,14 @@ else
         echo "🔍 Requesting OS-allocated port..."
     fi
     
-    # Start daphne in background, capturing output to log
-    daphne -b 0.0.0.0 -p "$http_port" --verbosity 0 config.asgi:application >> "$log_file" 2>&1 &
+    startup_log="$(mktemp -t my-tracks-daphne.XXXXXX.log)"
+    # Capture daphne stdout/stderr for startup diagnostics and port detection.
+    # Application logs go through Django's LOGGING handlers (LOG_FILE).
+    daphne -b 0.0.0.0 -p "$http_port" --verbosity 0 config.asgi:application >> "$startup_log" 2>&1 &
     server_pid=$!
     
     # Wait for daphne to bind its port (or die trying).
-    if ! wait_for_server_ready "$server_pid" "$log_file"; then
+    if ! wait_for_server_ready "$server_pid" "$startup_log"; then
         startup_failed=true
         exit 1
     fi

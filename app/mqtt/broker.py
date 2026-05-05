@@ -223,7 +223,7 @@ def get_default_config(
         (e.g. ``AnonymousAuthPlugin`` or ``DjangoAuthPlugin``).
     """
     plugins: dict[str, dict[str, Any]] = {
-        "amqtt.plugins.sys.broker.BrokerSysPlugin": {"sys_interval": 30},
+        "app.mqtt.sys_plugin.BrokerSysPluginQos0": {"sys_interval": 30},
     }
 
     if use_django_auth and not allow_anonymous:
