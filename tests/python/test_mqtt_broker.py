@@ -1,11 +1,11 @@
 """Tests for the MQTT broker module."""
 
 import asyncio
-from typing import Any, cast
 import ipaddress
 import logging
 import os
 import ssl
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -55,7 +55,7 @@ class TestGetDefaultConfig:
         """Config should include the $SYS broker plugin."""
         config = get_default_config()
         assert_that(
-            "amqtt.plugins.sys.broker.BrokerSysPlugin" in config["plugins"],
+            "app.mqtt.sys_plugin.BrokerSysPluginQos0" in config["plugins"],
             is_(True),
         )
 
@@ -556,7 +556,11 @@ class TestTLSConfig:
             tls_config=tls_config,
             use_owntracks_handler=False,
         )
-        paths: list[str] = [cast(str, broker._tls_certfile), cast(str, broker._tls_keyfile), cast(str, broker._tls_cafile)]
+        paths: list[str] = [
+            cast(str, broker._tls_certfile),
+            cast(str, broker._tls_keyfile),
+            cast(str, broker._tls_cafile),
+        ]
         for p in paths:
             assert_that(os.path.exists(p), is_(True))
 
