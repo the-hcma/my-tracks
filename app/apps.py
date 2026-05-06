@@ -66,7 +66,10 @@ def _stop_mqtt_broker() -> None:
 
 
 def _log_cert_info(server_cert_pem: bytes, ca_cert_pem: bytes) -> None:
-    """Log server certificate details and warn if expiry is near."""
+    """Log MQTT TLS listener certificate details and warn if expiry is near.
+
+    Messages use the ``[mqtt-tls]`` prefix per docs/AGENTS.md (PKI / server TLS identity logs).
+    """
     from app.pki import (get_certificate_expiry, get_certificate_fingerprint,
                          get_certificate_sans, get_certificate_serial_number,
                          get_certificate_subject)
@@ -79,22 +82,22 @@ def _log_cert_info(server_cert_pem: bytes, ca_cert_pem: bytes) -> None:
     sans = get_certificate_sans(server_cert_pem)
 
     logger.info(
-        "TLS server certificate: CN=%s  serial=%s  CA=%s  expires=%s  fingerprint=%s",
-        cn, format(serial, 'X'), ca_cn, expiry.strftime("%Y-%m-%d %H:%M UTC"), fingerprint,
+        "[mqtt-tls] MQTT server certificate cn=%s serial=%s ca_cn=%s expires=%s fingerprint=%s",
+        cn, format(serial, "X"), ca_cn, expiry.strftime("%Y-%m-%d %H:%M UTC"), fingerprint,
     )
     if sans:
-        logger.info("TLS server certificate SANs: %s", ", ".join(sans))
+        logger.info("[mqtt-tls] MQTT server certificate sans=%s", ", ".join(sans))
 
     days_remaining = (expiry - datetime.now(UTC)).days
     if days_remaining < 0:
         logger.warning(
-            "TLS server certificate EXPIRED %d day(s) ago — "
+            "[mqtt-tls] MQTT server certificate expired %d day(s) ago — "
             "clients will reject connections",
             abs(days_remaining),
         )
     elif days_remaining < 30:
         logger.warning(
-            "TLS server certificate expires in %d day(s) — consider renewing soon",
+            "[mqtt-tls] MQTT server certificate expires in %d day(s) — consider renewing soon",
             days_remaining,
         )
 
@@ -103,9 +106,15 @@ _WEB_CERT_PATH = Path("/run/certs/fullchain.pem")
 
 
 def _log_web_cert_info() -> None:
-    """Log web TLS certificate details if the cert is mounted at the standard path."""
+    """Log HTTPS frontend certificate details if the cert is mounted at the standard path.
+
+    Messages use the ``[http-tls]`` prefix per docs/AGENTS.md (PKI / server TLS identity logs).
+    """
     if not _WEB_CERT_PATH.exists():
-        logger.info("Web TLS certificate not mounted at %s — HTTPS frontend cert info unavailable", _WEB_CERT_PATH)
+        logger.info(
+            "[http-tls] Web TLS certificate not mounted at %s — HTTPS frontend cert info unavailable",
+            _WEB_CERT_PATH,
+        )
         return
 
     from app.pki import (get_certificate_expiry, get_certificate_fingerprint,
@@ -127,22 +136,22 @@ def _log_web_cert_info() -> None:
     https_port = os.environ.get("HTTPS_PORT", "")
     port_info = f"  port={https_port}" if https_port else ""
     logger.info(
-        "Web TLS certificate: CN=%s  type=%s%s  expires=%s  fingerprint=%s",
+        "[http-tls] Web TLS certificate cn=%s type=%s%s expires=%s fingerprint=%s",
         cn, cert_type, port_info, expiry.strftime("%Y-%m-%d %H:%M UTC"), fingerprint,
     )
     if sans:
-        logger.info("Web TLS certificate SANs: %s", ", ".join(sans))
+        logger.info("[http-tls] Web TLS certificate sans=%s", ", ".join(sans))
 
     days_remaining = (expiry - datetime.now(UTC)).days
     if days_remaining < 0:
         logger.warning(
-            "Web TLS certificate EXPIRED %d day(s) ago — "
+            "[http-tls] Web TLS certificate expired %d day(s) ago — "
             "clients will reject HTTPS connections",
             abs(days_remaining),
         )
     elif days_remaining < 30:
         logger.warning(
-            "Web TLS certificate expires in %d day(s) — consider renewing soon",
+            "[http-tls] Web TLS certificate expires in %d day(s) — consider renewing soon",
             days_remaining,
         )
 
@@ -282,8 +291,7 @@ def _run_mqtt_broker(mqtt_port: int, mqtt_tls_port: int = -1) -> None:
             _state.broker._cleanup_tls_files()
         os._exit(1)
     except Exception:
-        logger.critical("MQTT broker startup failed unexpectedly")
-        logger.exception("Details:")
+        logger.critical("MQTT broker startup failed unexpectedly", exc_info=True)
         if _state.broker is not None:
             _state.broker._cleanup_tls_files()
         os._exit(1)
