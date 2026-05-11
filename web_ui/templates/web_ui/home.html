@@ -100,7 +100,9 @@
         window.MY_TRACKS_CONFIG = {
             hostname: "{{ hostname }}",
             localIp: "{{ local_ip }}",
-            collapsePrecision: {{ collapse_precision }}
+            collapsePrecision: {{ collapse_precision }},
+            locationAccuracyFilterEnabled: {{ location_accuracy_filter_enabled|yesno:"true,false" }},
+            locationAccuracyMinimumM: {{ location_accuracy_minimum_m }}
         };
 
         const hamburgerBtn = document.getElementById('hamburger-btn');

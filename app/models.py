@@ -702,6 +702,44 @@ class SmtpConfig(models.Model):
         return cls.objects.filter(pk=1).first()
 
 
+class LocationQualitySettings(models.Model):
+    """
+    Singleton: optional GPS accuracy gate for path rendering and geofence logic.
+
+    When ``filter_accuracy_enabled`` is true, any Location with a known
+    ``accuracy`` value strictly greater than ``minimum_accuracy_meters`` is ignored
+    when choosing the latest fix for server-side geofence state (and the web UI
+    excludes those points from live/historic polylines). Rows with null
+    accuracy are always treated as passing the gate.
+    """
+
+    filter_accuracy_enabled = models.BooleanField(
+        default=False,  # type: ignore[reportArgumentType]
+        help_text="When enabled, ignore fixes whose reported accuracy exceeds minimum_accuracy_meters.",
+    )
+    minimum_accuracy_meters = models.PositiveIntegerField(
+        default=100,  # type: ignore[reportArgumentType]
+        help_text=(
+            "Minimum accuracy (meters): use a fix only if accuracy is unknown or "
+            "≤ this value (discard when reported accuracy is greater than this)."
+        ),
+    )
+
+    class Meta:
+        verbose_name = "Location quality settings"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Enforce singleton by always writing to pk=1."""
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def get_solo(cls) -> "LocationQualitySettings":
+        """Return the singleton row, creating defaults if missing."""
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+
 class TransitionAction(models.Model):
     """
     Rule that triggers an email when a geofence transition fires.

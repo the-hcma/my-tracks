@@ -1378,6 +1378,36 @@
             </div>
 
             <div id="tab-email" class="tab-panel {% if active_tab == 'email' %}active{% endif %}" {% if active_tab != 'email' %}style="display:none"{% endif %}>
+            <h3 class="section-title">Location quality (GPS)</h3>
+            <p class="muted" style="margin-bottom:1rem; max-width:52rem;">
+                When enabled, fixes with a <em>known</em> horizontal accuracy (error radius in meters)
+                <strong>greater than</strong> the minimum accuracy you set here are not used for live
+                and historic map polylines or for server-side geofence state. Points with unknown
+                accuracy still pass. The activity log and database still store every accepted point.
+            </p>
+            <form method="post" class="admin-card" style="margin-bottom:1.5rem;">
+                {% csrf_token %}
+                <input type="hidden" name="form_type" value="save_location_quality">
+                <div class="form-group" style="margin-bottom:1rem;">
+                    <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer;">
+                        <input type="checkbox" name="location_accuracy_filter_enabled" {% if location_quality.filter_accuracy_enabled %}checked{% endif %}>
+                        <span>Exclude low-accuracy fixes from map paths and geofence logic</span>
+                    </label>
+                </div>
+                <div class="form-group" style="margin-bottom:1rem;">
+                    <label for="location_accuracy_minimum_m">Minimum accuracy (meters)</label>
+                    <input type="number" id="location_accuracy_minimum_m" name="location_accuracy_minimum_m" min="1" max="1000000" value="{{ location_quality.minimum_accuracy_meters }}" style="max-width:12rem;">
+                    <p class="muted" style="margin-top:0.35rem;">Ignore location updates when reported accuracy is <strong>greater than</strong> this value; unknown accuracy still passes.</p>
+                </div>
+                <button type="submit" class="submit-btn">Save location quality settings</button>
+            </form>
+            {% if location_quality_success %}
+            <div class="message success">{{ location_quality_success }}</div>
+            {% endif %}
+            {% if location_quality_error %}
+            <div class="message error">{{ location_quality_error }}</div>
+            {% endif %}
+
             <h3 class="section-title">SMTP Settings</h3>
 
             <form method="post" id="smtp-form">

@@ -25,10 +25,12 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes
 from django.conf import settings
 from django.contrib.auth.models import User
+from django.db.models import Q
 from django.utils import timezone as dj_tz
 
 from app.models import (Device, GlobalAutomationRule, Location,
-                        OwnTracksMessage, Transition, Waypoint)
+                        LocationQualitySettings, OwnTracksMessage, Transition,
+                        Waypoint)
 from app.mqtt.commands import Command, CommandPublisher
 from app.mqtt.handlers import OwnTracksMessageHandler
 from app.serializers import LocationSerializer
@@ -283,7 +285,7 @@ def _get_user_geofence_state(user: User, waypoint: Waypoint) -> str:
     Return the server-computed geofence state for a user.
 
     Uses the most recent Location row for any device owned by the user and
-    computes haversine distance to the waypoint centre.
+    computes haversine distance to the waypoint center.
 
     Returns:
         'inside'  — latest location is within the waypoint radius
@@ -292,13 +294,12 @@ def _get_user_geofence_state(user: User, waypoint: Waypoint) -> str:
     """
     from app.notifications import _haversine_m  # avoid circular at import time
 
-    latest = (
-        Location.objects
-        .filter(device__owner=user)
-        .order_by('-timestamp')
-        .select_related('device')
-        .first()
-    )
+    qs = Location.objects.filter(device__owner=user)
+    quality = LocationQualitySettings.objects.filter(pk=1).first()
+    if quality is not None and quality.filter_accuracy_enabled:
+        minimum_accuracy_m = quality.minimum_accuracy_meters
+        qs = qs.filter(Q(accuracy__isnull=True) | Q(accuracy__lte=minimum_accuracy_m))
+    latest = qs.order_by('-timestamp').select_related('device').first()
     if latest is None:
         return 'unknown'
 
