@@ -42,9 +42,10 @@ dependencies = [
     "pathspec==1.1.1",
     "pip==26.1.1",
     "mypy==2.0.0",
-    "twisted==26.4.0rc2",
+    "twisted==26.4.0",
     "markdown-it-py==4.2.0",
     "urllib3==2.7.0",
+    "coverage==7.14.0",
 ]
 
 [build-system]
