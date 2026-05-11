@@ -169,6 +169,10 @@ interface WebSocketMessage {
 // State Variables
 // ============================================================================
 
+/** Last bulk history the user asked for; tab focus reload uses this. */
+type LiveActivityLoadKind = 'hour' | '30m' | 'latest';
+let liveActivityLoadKind: LiveActivityLoadKind = 'hour';
+
 let lastTimestamp: number | null = null;
 let eventCount = 0;
 let map: L.Map | null = null;
@@ -2021,6 +2025,7 @@ async function loadLast30Minutes(): Promise<void> {
         if (locations.length > 0) {
             lastTimestamp = locations[0].timestamp_unix || null;
         }
+        liveActivityLoadKind = '30m';
     } catch (error) {
         console.error('Error loading last 30 minutes:', error);
         if (container) {
@@ -2103,6 +2108,8 @@ async function loadLiveActivityHistory(): Promise<void> {
         console.log('📍 loadLiveActivityHistory() skipped - skipHistoryFetch is true');
         return;
     }
+
+    liveActivityLoadKind = 'hour';
 
     const now = Date.now() / 1000;
     const oneHourAgo = now - 3600; // 1 hour in seconds
@@ -2257,6 +2264,7 @@ async function refreshLiveActivitySinceLastUpdate(): Promise<void> {
 function switchToLiveMode(): void {
     isLiveMode = true;
     needsFitBounds = true; // Fit bounds on mode switch
+    liveActivityLoadKind = 'hour';
 
     // Update button states
     document.getElementById('live-mode-btn')?.classList.add('active');
@@ -2983,6 +2991,22 @@ function initEventListeners(): void {
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e: MediaQueryListEvent) => {
         if (!localStorage.getItem('theme')) {
             setTheme(e.matches ? 'dark' : 'light');
+        }
+    });
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState !== 'visible' || !isLiveMode) {
+            return;
+        }
+        if (skipHistoryFetch) {
+            void refreshLiveActivitySinceLastUpdate();
+        } else if (liveActivityLoadKind === '30m') {
+            void loadLast30Minutes();
+        } else {
+            void loadLiveActivityHistory();
+        }
+        if (map) {
+            map.invalidateSize();
         }
     });
 }
