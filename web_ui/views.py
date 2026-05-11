@@ -16,7 +16,6 @@ from django.contrib.auth.password_validation import (
     validate_password)
 from django.contrib.auth.views import LoginView
 from django.core.exceptions import ValidationError
-from django.core.mail import EmailMessage as DjangoEmailMessage
 from django.core.mail.backends.smtp import EmailBackend as SmtpEmailBackend
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -24,9 +23,9 @@ from django.utils import timezone as tz
 
 from app.apps import get_mqtt_broker
 from app.models import (CertificateAuthority, ClientCertificate, Device,
-                        GlobalAutomationRule, Location, ServerCertificate,
-                        SmtpConfig, Transition, TransitionAction, UserProfile,
-                        Waypoint)
+                        GlobalAutomationRule, Location,
+                        LocationQualitySettings, ServerCertificate, SmtpConfig,
+                        Transition, TransitionAction, UserProfile, Waypoint)
 from app.mqtt.commands import CommandPublisher
 from app.mqtt.plugin import _get_user_geofence_state
 from app.notifications import (_append_footer, _build_email, get_smtp_backend,
@@ -260,6 +259,7 @@ def home(request: HttpRequest) -> HttpResponse:
     mqtt_port = mqtt_actual_port if mqtt_actual_port is not None else mqtt_configured_port
     mqtt_enabled = mqtt_configured_port >= 0
 
+    lq = LocationQualitySettings.get_solo()
     context = {
         'hostname': info.hostname,
         'local_ip': info.hostname,
@@ -268,6 +268,8 @@ def home(request: HttpRequest) -> HttpResponse:
         'collapse_precision': collapse_precision,
         'mqtt_port': mqtt_port,
         'mqtt_enabled': mqtt_enabled,
+        'location_accuracy_filter_enabled': lq.filter_accuracy_enabled,
+        'location_accuracy_minimum_m': lq.minimum_accuracy_meters,
     }
 
     response = render(request, 'web_ui/home.html', context)
@@ -651,6 +653,31 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
                 except Exception as e:
                     context['create_error'] = str(e)
 
+        if form_type == 'save_location_quality':
+            enabled = request.POST.get('location_accuracy_filter_enabled') == 'on'
+            min_raw = str(request.POST.get('location_accuracy_minimum_m') or '100').strip()
+            try:
+                minimum_m = int(min_raw)
+                if minimum_m < 1 or minimum_m > 1_000_000:
+                    context['location_quality_error'] = (
+                        'Expected minimum accuracy between 1 and 1000000 meters.'
+                    )
+                else:
+                    lq = LocationQualitySettings.get_solo()
+                    lq.filter_accuracy_enabled = enabled
+                    lq.minimum_accuracy_meters = minimum_m
+                    lq.save()
+                    context['location_quality_success'] = 'Location quality settings saved.'
+                    logger.info(
+                        "[http] Admin '%s' updated location quality filter enabled=%s "
+                        "minimum_accuracy_m=%s",
+                        request.user.username,
+                        enabled,
+                        minimum_m,
+                    )
+            except ValueError:
+                context['location_quality_error'] = 'Minimum accuracy must be a number.'
+
         if form_type == 'generate_ca':
             ca_cn_post = request.POST.get('ca_common_name')
             ca_cn = str(ca_cn_post).strip() if ca_cn_post is not None else 'My Tracks CA'
@@ -929,8 +956,15 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
                         config.encrypted_password = pki_encrypt_private_key(password_raw.encode())
                     config.save()
                     logger.info(
-                        "[http] Admin '%s' saved SMTP config: host=%s port=%s username=%s from=%s use_tls=%s use_ssl=%s",
-                        request.user.username, host, port, username or '(none)', from_address, use_tls, use_ssl,
+                        "[http] Admin '%s' saved SMTP config: host=%s port=%s username=%s "
+                        "from=%s use_tls=%s use_ssl=%s",
+                        request.user.username,
+                        host,
+                        port,
+                        username or '(none)',
+                        from_address,
+                        use_tls,
+                        use_ssl,
                     )
                     context['smtp_success'] = 'SMTP settings saved.'
                 except ValueError:
@@ -1027,7 +1061,6 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
                 context['active_tab'] = 'global_rules'
             except GlobalAutomationRule.DoesNotExist:
                 context['global_rule_error'] = 'Rule not found.'
-
 
     users = list(User.objects.all().order_by('username'))
     user_id_to_active_cert = {
@@ -1174,6 +1207,11 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
     )
     if global_rules_has_message and not context.get('active_tab'):
         context['active_tab'] = 'global_rules'
+
+    if context.get('location_quality_success') and not context.get('active_tab'):
+        context['active_tab'] = 'email'
+
+    context['location_quality'] = LocationQualitySettings.get_solo()
 
     return render(request, 'web_ui/admin_panel.html', context)
 

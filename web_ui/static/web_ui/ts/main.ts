@@ -15,6 +15,13 @@ interface MyTracksConfig {
     hostname: string;
     localIp: string;
     collapsePrecision: number;
+    /** When true, exclude poor-GPS points from map polylines only (not the activity log). */
+    locationAccuracyFilterEnabled?: boolean;
+    /**
+     * Minimum accuracy (meters): use a fix only when reported horizontal accuracy is unknown or
+     * ≤ this value (discard when accuracy is greater than this).
+     */
+    locationAccuracyMinimumM?: number;
 }
 
 // Extend Window interface for our config
@@ -25,6 +32,22 @@ declare global {
 }
 
 const config = window.MY_TRACKS_CONFIG;
+
+/** Whether a fix may contribute to live/historic trail polylines (server geofence uses DB settings). */
+function locationPassesAccuracyForTrail(loc: TrackLocation): boolean {
+    if (!config.locationAccuracyFilterEnabled) {
+        return true;
+    }
+    const minimumAccuracyM = config.locationAccuracyMinimumM ?? 100;
+    if (loc.accuracy === undefined || loc.accuracy === null) {
+        return true;
+    }
+    const acc = typeof loc.accuracy === 'string' ? parseFloat(loc.accuracy) : Number(loc.accuracy);
+    if (Number.isNaN(acc)) {
+        return true;
+    }
+    return acc <= minimumAccuracyM;
+}
 
 function locationTimestampUnix(loc: TrackLocation): number {
     return loc.timestamp_unix ?? 0;
@@ -911,6 +934,10 @@ function addLocationToTrail(location: TrackLocation): void {
         return;
     }
 
+    if (!locationPassesAccuracyForTrail(location)) {
+        return;
+    }
+
     // Add to incremental locations for this device
     if (!incrementalLocations[deviceName]) {
         incrementalLocations[deviceName] = [];
@@ -1026,6 +1053,10 @@ function addLiveLocationToTrail(location: TrackLocation): void {
         return;
     }
 
+    if (!locationPassesAccuracyForTrail(location)) {
+        return;
+    }
+
     const lat = parseFloat(String(location.latitude));
     const lon = parseFloat(String(location.longitude));
     if (isNaN(lat) || isNaN(lon)) return;
@@ -1090,7 +1121,7 @@ function drawLiveTrails(locationsByDevice: Record<string, TrackLocation[]>): voi
         const deviceColor = getDeviceColor(deviceName);
 
         // Locations are newest-first, reverse for chronological trail
-        const chronological = [...locations].reverse();
+        const chronological = [...locations].reverse().filter(locationPassesAccuracyForTrail);
 
         // Collapse consecutive waypoints at same location
         const collapsedLocations = collapseLocations(chronological);
@@ -1240,7 +1271,8 @@ async function fetchAndDisplayTrail(): Promise<void> {
                 // Get locations in chronological order (oldest first)
                 const chronologicalLocations = deviceLocations
                     .filter(loc => loc.latitude && loc.longitude)
-                    .reverse();
+                    .reverse()
+                    .filter(locationPassesAccuracyForTrail);
 
                 if (chronologicalLocations.length === 0) return;
 
@@ -1427,7 +1459,10 @@ async function fetchAndDisplayTrail(): Promise<void> {
         }
 
         // Get locations in chronological order (oldest first)
-        const chronologicalLocations = locations.filter(loc => loc.latitude && loc.longitude).reverse();
+        const chronologicalLocations = locations
+            .filter(loc => loc.latitude && loc.longitude)
+            .reverse()
+            .filter(locationPassesAccuracyForTrail);
 
         // Collapse consecutive waypoints at same location (only shows movement)
         // Each collapsed point uses the oldest timestamp from the group

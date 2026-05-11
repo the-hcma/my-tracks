@@ -9,8 +9,10 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from django.test import Client
 
-from app.models import Device, GlobalAutomationRule, Location, SmtpConfig, Waypoint
-from app.mqtt.plugin import _evaluate_global_automations_for_user, _get_user_geofence_state
+from app.models import (Device, GlobalAutomationRule, Location,
+                        LocationQualitySettings, SmtpConfig, Waypoint)
+from app.mqtt.plugin import (_evaluate_global_automations_for_user,
+                             _get_user_geofence_state)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -18,7 +20,7 @@ from app.mqtt.plugin import _evaluate_global_automations_for_user, _get_user_geo
 
 _LAT_HOME = 51.5
 _LON_HOME = -0.1
-_RADIUS = 100  # metres
+_RADIUS = 100  # meters
 
 
 def _make_user(username: str, **kwargs) -> User:
@@ -144,6 +146,7 @@ class TestGetUserGeofenceState:
     def test_uses_latest_location(self) -> None:
         """The newest location wins even if an older one is inside."""
         import time
+
         from django.utils import timezone
         user = _make_user('gug-latest')
         device = _make_device(user)
@@ -166,6 +169,36 @@ class TestGetUserGeofenceState:
         )
         del loc1
         assert _get_user_geofence_state(user, wp) == 'outside'
+
+    def test_skips_low_accuracy_when_filter_enabled(self) -> None:
+        """Latest row with terrible GPS is ignored; next usable fix wins."""
+        import time
+
+        from django.utils import timezone
+
+        user = _make_user('gug-accuracy-filter')
+        device = _make_device(user)
+        wp = _make_waypoint(user, radius=500_000)
+        lq = LocationQualitySettings.get_solo()
+        lq.filter_accuracy_enabled = True
+        lq.minimum_accuracy_meters = 100
+        lq.save()
+
+        Location.objects.create(
+            device=device,
+            latitude=str(_LAT_HOME), longitude=str(_LON_HOME),
+            altitude=0, accuracy=10,
+            timestamp=timezone.now(),
+        )
+        time.sleep(0.01)
+        # Newer row would dominate, but accuracy is unusable when filter is on
+        Location.objects.create(
+            device=device,
+            latitude=str(_LAT_HOME + 5.0), longitude=str(_LON_HOME),
+            altitude=0, accuracy=500,
+            timestamp=timezone.now(),
+        )
+        assert _get_user_geofence_state(user, wp) == 'inside'
 
 
 # ---------------------------------------------------------------------------
