@@ -26,7 +26,7 @@ dependencies = [
     "ujson==5.12.1",
     "charset-normalizer==3.4.7",
     "filelock==3.29.0",
-    "librt==0.10.0",
+    "librt==0.11.0",
     "packaging==26.2",
     "platformdirs==4.9.6",
     "rich==15.0.0",
