@@ -188,6 +188,33 @@ a:hover {
     overflow-x: auto;
 }
 
+/* Shown in activity log but omitted from map trail when accuracy filter is enabled */
+.log-entry-low-accuracy {
+    border-left-color: #f59e0b;
+    background: color-mix(in srgb, var(--log-entry-bg) 92%, #f59e0b 8%);
+}
+
+.log-low-accuracy-pill {
+    display: inline-block;
+    margin-right: 8px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    color: #78350f;
+    background: #fde68a;
+    border: 1px solid #f59e0b;
+    vertical-align: middle;
+}
+
+[data-theme="dark"] .log-low-accuracy-pill {
+    color: #fef3c7;
+    background: #78350f;
+    border-color: #fbbf24;
+}
+
 .log-time {
     color: var(--log-time-color);
     display: inline;
