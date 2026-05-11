@@ -749,6 +749,7 @@
                 <button type="button" class="tab-btn {% if active_tab == 'users' %}active{% endif %}" data-tab="users">Users</button>
                 <button type="button" class="tab-btn {% if active_tab == 'pki' %}active{% endif %}" data-tab="pki">PKI</button>
                 <button type="button" class="tab-btn {% if active_tab == 'email' %}active{% endif %}" data-tab="email">Email</button>
+                <button type="button" class="tab-btn {% if active_tab == 'location_settings' %}active{% endif %}" data-tab="location_settings">Location Settings</button>
                 <button type="button" class="tab-btn {% if active_tab == 'global_rules' %}active{% endif %}" data-tab="global_rules">Automations</button>
             </div>
 
@@ -1377,7 +1378,7 @@
             </div>
             </div>
 
-            <div id="tab-email" class="tab-panel {% if active_tab == 'email' %}active{% endif %}" {% if active_tab != 'email' %}style="display:none"{% endif %}>
+            <div id="tab-location_settings" class="tab-panel {% if active_tab == 'location_settings' %}active{% endif %}" {% if active_tab != 'location_settings' %}style="display:none"{% endif %}>
             <h3 class="section-title">Location quality (GPS)</h3>
             <p class="muted" style="margin-bottom:1rem; max-width:52rem;">
                 When enabled, fixes with a <em>known</em> horizontal accuracy (error radius in meters)
@@ -1407,7 +1408,9 @@
             {% if location_quality_error %}
             <div class="message error">{{ location_quality_error }}</div>
             {% endif %}
+            </div>
 
+            <div id="tab-email" class="tab-panel {% if active_tab == 'email' %}active{% endif %}" {% if active_tab != 'email' %}style="display:none"{% endif %}>
             <h3 class="section-title">SMTP Settings</h3>
 
             <form method="post" id="smtp-form">

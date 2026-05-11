@@ -654,6 +654,7 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
                     context['create_error'] = str(e)
 
         if form_type == 'save_location_quality':
+            context['active_tab'] = 'location_settings'
             enabled = request.POST.get('location_accuracy_filter_enabled') == 'on'
             min_raw = str(request.POST.get('location_accuracy_minimum_m') or '100').strip()
             try:
@@ -1104,12 +1105,22 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
         'ca_success', 'ca_error', 'sc_success', 'sc_error', 'cc_success', 'cc_error',
     ))
     smtp_has_message = any(context.get(k) for k in ('smtp_success', 'smtp_error'))
-    if smtp_has_message or context.get('active_tab') == 'email':
+    global_rules_has_message = any(
+        context.get(k) for k in ('global_rule_success', 'global_rule_error')
+    )
+    location_quality_has_message = any(
+        context.get(k) for k in ('location_quality_success', 'location_quality_error')
+    )
+    if location_quality_has_message or context.get('active_tab') == 'location_settings':
+        context['active_tab'] = 'location_settings'
+    elif smtp_has_message or context.get('active_tab') == 'email':
         context['active_tab'] = 'email'
-    elif pki_has_message:
+    elif pki_has_message or context.get('active_tab') == 'pki':
         context['active_tab'] = 'pki'
+    elif global_rules_has_message or context.get('active_tab') == 'global_rules':
+        context['active_tab'] = 'global_rules'
     else:
-        context['active_tab'] = 'users'
+        context['active_tab'] = context.get('active_tab') or 'users'
 
     context['smtp_last_test_recipient'] = request.session.get('smtp_last_test_recipient', '')
 
@@ -1201,15 +1212,6 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
     context['all_transitions'] = raw_transitions
 
     context['all_users'] = list(User.objects.order_by('username'))
-
-    global_rules_has_message = any(
-        context.get(k) for k in ('global_rule_success', 'global_rule_error')
-    )
-    if global_rules_has_message and not context.get('active_tab'):
-        context['active_tab'] = 'global_rules'
-
-    if context.get('location_quality_success') and not context.get('active_tab'):
-        context['active_tab'] = 'email'
 
     context['location_quality'] = LocationQualitySettings.get_solo()
 
