@@ -41,8 +41,14 @@ echo "Running on-deploy build steps..."
 # Ensure the Python environment exists for this worktree.
 # setup-service may be invoked from a brand new worktree that does not yet have
 # a `.venv/`, and `scripts/my-tracks-server` refuses to start without one.
+# If `.venv/` exists but the interpreter symlink is stale (e.g. Python upgraded
+# or the venv was copied), `uv run` can fail when recreating lib — remove and sync.
 if [[ ! -d "$repo_dir/.venv" ]]; then
     echo "  Virtual environment missing — running 'uv sync'..."
+    uv sync
+elif [[ ! -x "$repo_dir/.venv/bin/python3" ]] && [[ ! -x "$repo_dir/.venv/bin/python" ]]; then
+    echo "  Virtual environment has no usable Python — removing and running 'uv sync'..."
+    rm -rf "$repo_dir/.venv"
     uv sync
 fi
 
