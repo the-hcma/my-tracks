@@ -26,12 +26,43 @@ declare global {
 
 const config = window.MY_TRACKS_CONFIG;
 
+function locationTimestampUnix(loc: TrackLocation): number {
+    return loc.timestamp_unix ?? 0;
+}
+
+/** Sort newest first (for live activity log and API-aligned lists). */
+function compareLocationsByTimestampDesc(a: TrackLocation, b: TrackLocation): number {
+    return locationTimestampUnix(b) - locationTimestampUnix(a);
+}
+
+/**
+ * Insert a log row in strict timestamp order (newest at top).
+ * Finds the first existing row strictly older than tsUnix and inserts before it.
+ */
+function insertLiveLogEntryInTimestampOrder(container: HTMLElement, entry: HTMLElement, tsUnix: number): void {
+    entry.setAttribute('data-ts', String(tsUnix));
+    for (const child of [...container.children]) {
+        if (!(child instanceof HTMLElement)) continue;
+        if (child.id === 'loading') continue;
+        const raw = child.getAttribute('data-ts');
+        if (raw === null) continue;
+        const cts = Number(raw);
+        if (!Number.isFinite(cts)) continue;
+        if (cts < tsUnix) {
+            container.insertBefore(entry, child);
+            return;
+        }
+    }
+    container.appendChild(entry);
+}
+
 // ============================================================================
 // Type Definitions
 // ============================================================================
 
 /** Location data from the API */
 interface TrackLocation {
+    id?: number;
     device_name?: string;
     device_id_display?: string;
     tid_display?: string;
@@ -1717,8 +1748,18 @@ function addLogEntry(location: TrackLocation, skipScroll = false): void {
 
     console.log('Adding log entry:', location);
 
+    if (location.id !== undefined && location.id !== null) {
+        const existing = container.querySelector(`[data-location-id="${String(location.id)}"]`);
+        if (existing) {
+            return;
+        }
+    }
+
     const entry = document.createElement('div');
     entry.className = 'log-entry';
+    if (location.id !== undefined && location.id !== null) {
+        entry.setAttribute('data-location-id', String(location.id));
+    }
 
     const time = formatTime(location.timestamp_unix || 0, true);
     const device = location.device_name || 'Unknown';
@@ -1738,7 +1779,7 @@ function addLogEntry(location: TrackLocation, skipScroll = false): void {
 
     entry.innerHTML = `<span class="log-time">${time}</span> | <span class="log-ip">${ipDisplay}</span> | <span class="log-coords">${lat}, ${lon}</span> | <span class="log-meta">acc:${acc}m alt:${alt}m vel:${vel}km/h batt:${batt}% ${conn}</span>${deviceBadge}`;
 
-    container.insertBefore(entry, container.firstChild);
+    insertLiveLogEntryInTimestampOrder(container, entry, locationTimestampUnix(location));
 
     // Auto-scroll so newest entry is roughly in the middle of the view
     if (!skipScroll) {
@@ -1862,6 +1903,7 @@ async function loadLast30Minutes(): Promise<void> {
 
         const data: LocationsApiResponse = await response.json();
         const locations = data.results || [];
+        locations.sort(compareLocationsByTimestampDesc);
 
         console.log(`📍 loadLast30Minutes() got ${locations.length} locations`);
 
@@ -1888,10 +1930,14 @@ async function loadLast30Minutes(): Promise<void> {
         const locationsByDevice: Record<string, TrackLocation[]> = {};
         const markerUpdatedForDevice = new Set<string>();
 
-        // Display locations (already newest first from API)
+        // Display locations (sorted newest-first)
         locations.forEach((loc) => {
             const entry = document.createElement('div');
             entry.className = 'log-entry';
+            entry.setAttribute('data-ts', String(locationTimestampUnix(loc)));
+            if (loc.id !== undefined && loc.id !== null) {
+                entry.setAttribute('data-location-id', String(loc.id));
+            }
 
             const time = formatTime(loc.timestamp_unix || 0, true);
             const device = loc.device_name || 'Unknown';
@@ -2044,6 +2090,7 @@ async function loadLiveActivityHistory(): Promise<void> {
 
         const data: LocationsApiResponse = await response.json();
         const locations = data.results || [];
+        locations.sort(compareLocationsByTimestampDesc);
 
         console.log(`📍 loadLiveActivityHistory() got ${locations.length} locations`);
 
@@ -2063,10 +2110,14 @@ async function loadLiveActivityHistory(): Promise<void> {
         // Group locations by device for trail drawing
         const locationsByDevice: Record<string, TrackLocation[]> = {};
 
-        // Display locations (already newest first from API)
+        // Display locations (sorted newest-first)
         locations.forEach((loc, index) => {
             const entry = document.createElement('div');
             entry.className = 'log-entry';
+            entry.setAttribute('data-ts', String(locationTimestampUnix(loc)));
+            if (loc.id !== undefined && loc.id !== null) {
+                entry.setAttribute('data-location-id', String(loc.id));
+            }
 
             const time = formatTime(loc.timestamp_unix || 0, true);
             const device = loc.device_name || 'Unknown';
@@ -2147,7 +2198,8 @@ async function refreshLiveActivitySinceLastUpdate(): Promise<void> {
 
         console.log(`Found ${locations.length} new location(s) since last update`);
 
-        // Add each new location (already in chronological order)
+        // Oldest first so insert-sorted log order stays correct
+        locations.sort((a, b) => locationTimestampUnix(a) - locationTimestampUnix(b));
         locations.forEach(loc => {
             addLogEntry(loc);
             // Update lastTimestamp to track what we've seen
@@ -2538,10 +2590,11 @@ async function fetchLocations(): Promise<void> {
             console.log('Processing', data.results.length, 'locations');
             // Process all results (only in live mode)
             if (isLiveMode) {
-                // On initial load, show recent history in chronological order
-                // Results come in newest-first, so reverse for initial display
                 const isInitialLoad = lastTimestamp === null;
-                const locsToProcess = isInitialLoad ? [...data.results].reverse() : data.results;
+                const sorted = [...data.results].sort(compareLocationsByTimestampDesc);
+                const locsToProcess = isInitialLoad
+                    ? [...sorted].sort((a, b) => locationTimestampUnix(a) - locationTimestampUnix(b))
+                    : sorted;
 
                 let newestEntry: TrackLocation | null = null;
                 for (const loc of locsToProcess) {
@@ -2549,7 +2602,12 @@ async function fetchLocations(): Promise<void> {
                     if (!lastTimestamp || (loc.timestamp_unix && loc.timestamp_unix > lastTimestamp)) {
                         // Skip scrolling during batch load, we'll scroll once at the end
                         addLogEntry(loc, isInitialLoad);
-                        newestEntry = loc;
+                        if (
+                            !newestEntry ||
+                            locationTimestampUnix(loc) > locationTimestampUnix(newestEntry)
+                        ) {
+                            newestEntry = loc;
+                        }
                     }
                 }
 
@@ -2558,15 +2616,19 @@ async function fetchLocations(): Promise<void> {
                     // Use setTimeout to ensure DOM is fully rendered before scrolling
                     setTimeout(() => {
                         const container = document.getElementById('log-container');
-                        if (container?.firstChild) {
-                            (container.firstChild as HTMLElement).scrollIntoView({ behavior: 'instant', block: 'center' });
+                        const row = container?.querySelector<HTMLElement>(
+                            `[data-location-id="${String(newestEntry!.id)}"]`,
+                        );
+                        const target = row ?? (container?.firstChild as HTMLElement | null);
+                        if (target) {
+                            target.scrollIntoView({ behavior: 'instant', block: 'center' });
                         }
                     }, 100);
                 }
 
                 // Update last timestamp to the newest one
-                if (data.results.length > 0) {
-                    lastTimestamp = data.results[0].timestamp_unix || null;
+                if (sorted.length > 0) {
+                    lastTimestamp = locationTimestampUnix(sorted[0]) || null;
                 }
             }
         }
