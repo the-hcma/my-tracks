@@ -8,6 +8,8 @@ This document defines the four specialized agents for the My Tracks project.
 
 **Python Version Policy**: Always use the latest stable Python version available via Homebrew. Currently Python 3.14.x is the latest stable release. The project requires Python 3.14+ (`requires-python = ">=3.14"` in pyproject.toml).
 
+**Spelling locale**: Use **American English** spelling in all new project-authored prose: user-visible web copy, Django `help_text` / `verbose_name`, API field descriptions, comments in new code, and documentation under `docs/` that this repository maintains. Prefer *meters*, *behavior*, *center*, *color*, and similar US forms—not *metres*, *behaviour*, *centre*, *colour*. Do **not** rewrite third-party literals (for example JSON keys, CSS properties such as `behaviour`, or upstream API names) when those spellings are required for correctness.
+
 ## Workflow Requirements
 
 **CRITICAL**: All changes MUST go through pull requests - direct pushes to main are blocked by branch protection.
