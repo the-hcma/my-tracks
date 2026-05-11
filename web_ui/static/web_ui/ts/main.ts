@@ -63,11 +63,11 @@ function decorateActivityLogEntryForAccuracy(entry: HTMLElement, loc: TrackLocat
     const accRaw = loc.accuracy;
     const accStr = accRaw === undefined || accRaw === null ? '?' : String(accRaw);
     entry.title =
-        `Shown in log but omitted from map trail: accuracy ${accStr}m exceeds minimum (${minM}m).`;
+        `Omitted from map trail: accuracy ${accStr}m exceeds minimum (${minM}m). Still shown in this log.`;
     const pill = document.createElement('span');
     pill.className = 'log-low-accuracy-pill';
-    pill.textContent = 'Low GPS accuracy · trail omitted';
-    entry.insertAdjacentElement('afterbegin', pill);
+    pill.textContent = 'Low GPS accuracy';
+    entry.appendChild(pill);
 }
 
 function locationTimestampUnix(loc: TrackLocation): number {
