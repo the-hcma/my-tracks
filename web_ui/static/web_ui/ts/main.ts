@@ -2034,6 +2034,134 @@ async function loadLast30Minutes(): Promise<void> {
     }
 }
 
+/**
+ * Load the most recent locations (not limited to the last 30 minutes).
+ * Uses the same resolution / device filter as other live bulk loads.
+ */
+async function loadLatestLocations(): Promise<void> {
+    console.log('📍 loadLatestLocations() called');
+
+    const container = document.getElementById('log-container');
+    if (container) {
+        container.innerHTML = '<p id="loading">Loading latest locations...</p>';
+    }
+    eventCount = 0;
+
+    Object.values(deviceMarkers).forEach((marker) => marker.remove());
+    deviceMarkers = {};
+
+    Object.values(deviceTrails).forEach((trail) => {
+        if (trail.polyline) trail.polyline.remove();
+        if (trail.markers) trail.markers.forEach((m) => m.remove());
+    });
+    deviceTrails = {};
+
+    incrementalLocations = {};
+    skipHistoryFetch = false;
+    needsFitBounds = true;
+
+    // Paginated fetch (do not pass resolution=0 — that would load the entire history into memory).
+    let url = '/api/locations/?ordering=-timestamp&limit=200';
+    if (selectedDevice) {
+        url += `&device=${selectedDevice}`;
+    }
+
+    console.log(`📍 loadLatestLocations() fetching: ${url}`);
+
+    try {
+        const response = await fetch(url);
+        if (!response.ok) {
+            console.log(`📍 loadLatestLocations() failed: ${response.status}`);
+            if (container) {
+                container.innerHTML = '<p id="loading">Failed to load data. Waiting for updates...</p>';
+            }
+            return;
+        }
+
+        const data: LocationsApiResponse = await response.json();
+        const locations = data.results || [];
+        locations.sort(compareLocationsByTimestampDesc);
+
+        console.log(`📍 loadLatestLocations() got ${locations.length} locations`);
+
+        if (locations.length === 0) {
+            if (container) {
+                container.innerHTML = '<p id="loading">No location data yet. Waiting for updates...</p>';
+            }
+            const logCount = document.getElementById('log-count');
+            if (logCount) {
+                logCount.textContent = '0 events (latest)';
+            }
+            return;
+        }
+
+        if (!container) return;
+
+        const loading = document.getElementById('loading');
+        if (loading) loading.remove();
+
+        container.innerHTML = '';
+
+        const locationsByDevice: Record<string, TrackLocation[]> = {};
+        const markerUpdatedForDevice = new Set<string>();
+
+        locations.forEach((loc) => {
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.setAttribute('data-ts', String(locationTimestampUnix(loc)));
+            if (loc.id !== undefined && loc.id !== null) {
+                entry.setAttribute('data-location-id', String(loc.id));
+            }
+
+            const time = formatTime(loc.timestamp_unix || 0, true);
+            const device = loc.device_name || 'Unknown';
+            const lat = parseFloat(String(loc.latitude)).toFixed(6);
+            const lon = parseFloat(String(loc.longitude)).toFixed(6);
+            const acc = loc.accuracy || 'N/A';
+            const alt = loc.altitude || 0;
+            const vel = loc.velocity || 0;
+            const batt = loc.battery_level || 'N/A';
+            const conn = loc.connection_type === 'w' ? 'WiFi' : loc.connection_type === 'm' ? 'Mobile' : 'N/A';
+            const ip = loc.received_via === 'mqtt' ? 'MQTT' : (loc.ip_address || 'N/A');
+
+            if (!locationsByDevice[device]) {
+                locationsByDevice[device] = [];
+            }
+            locationsByDevice[device].push(loc);
+
+            const deviceColor = getDeviceColor(device);
+            const deviceBadge = `<span style="background:${deviceColor};color:white;padding:1px 6px;border-radius:10px;font-size:11px;margin-left:8px;">${device}</span>`;
+
+            entry.innerHTML = `<span class="log-time">${time}</span> | <span class="log-ip">${ip}</span> | <span class="log-coords">${lat}, ${lon}</span> | <span class="log-meta">acc:${acc}m alt:${alt}m vel:${vel}km/h batt:${batt}% ${conn}</span>${deviceBadge}`;
+
+            container.appendChild(entry);
+
+            if (!markerUpdatedForDevice.has(device)) {
+                updateDeviceMarker(loc);
+                markerUpdatedForDevice.add(device);
+            }
+        });
+
+        drawLiveTrails(locationsByDevice);
+
+        eventCount = locations.length;
+        const logCount = document.getElementById('log-count');
+        if (logCount) {
+            logCount.textContent = eventCount + ' event' + (eventCount !== 1 ? 's' : '') + ' (latest)';
+        }
+
+        if (locations.length > 0) {
+            lastTimestamp = locations[0].timestamp_unix || null;
+        }
+        liveActivityLoadKind = 'latest';
+    } catch (error) {
+        console.error('Error loading latest locations:', error);
+        if (container) {
+            container.innerHTML = '<p id="loading">Error loading data. Waiting for updates...</p>';
+        }
+    }
+}
+
 // ============================================================================
 // Live Activity
 /**
@@ -2855,6 +2983,13 @@ function initEventListeners(): void {
         loadHistoryButton.addEventListener('click', loadLast30Minutes);
     }
 
+    const refreshLiveLatestButton = document.getElementById('refresh-live-latest-button');
+    if (refreshLiveLatestButton) {
+        refreshLiveLatestButton.addEventListener('click', () => {
+            void loadLatestLocations();
+        });
+    }
+
     // Request location button
     const requestLocationButton = document.getElementById('request-location-button');
     if (requestLocationButton) {
@@ -3002,6 +3137,8 @@ function initEventListeners(): void {
             void refreshLiveActivitySinceLastUpdate();
         } else if (liveActivityLoadKind === '30m') {
             void loadLast30Minutes();
+        } else if (liveActivityLoadKind === 'latest') {
+            void loadLatestLocations();
         } else {
             void loadLiveActivityHistory();
         }
