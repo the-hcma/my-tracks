@@ -49,6 +49,27 @@ function locationPassesAccuracyForTrail(loc: TrackLocation): boolean {
     return acc <= minimumAccuracyM;
 }
 
+/** Row is still listed in the activity log but excluded from map trails when the filter is on. */
+function locationExcludedFromTrailByAccuracy(loc: TrackLocation): boolean {
+    return Boolean(config.locationAccuracyFilterEnabled && !locationPassesAccuracyForTrail(loc));
+}
+
+function decorateActivityLogEntryForAccuracy(entry: HTMLElement, loc: TrackLocation): void {
+    if (!locationExcludedFromTrailByAccuracy(loc)) {
+        return;
+    }
+    entry.classList.add('log-entry-low-accuracy');
+    const minM = config.locationAccuracyMinimumM ?? 100;
+    const accRaw = loc.accuracy;
+    const accStr = accRaw === undefined || accRaw === null ? '?' : String(accRaw);
+    entry.title =
+        `Shown in log but omitted from map trail: accuracy ${accStr}m exceeds minimum (${minM}m).`;
+    const pill = document.createElement('span');
+    pill.className = 'log-low-accuracy-pill';
+    pill.textContent = 'Low GPS accuracy · trail omitted';
+    entry.insertAdjacentElement('afterbegin', pill);
+}
+
 function locationTimestampUnix(loc: TrackLocation): number {
     return loc.timestamp_unix ?? 0;
 }
@@ -1709,6 +1730,7 @@ function displayHistoricWaypoints(locations: TrackLocation[], showDeviceNames = 
 
             entry.innerHTML = `<span class="log-time">${time}</span> | <span class="log-ip">${ip}</span> | <span class="log-coords">${lat}, ${lon}</span> | <span class="log-meta">acc:${acc}m alt:${alt}m vel:${vel}km/h batt:${batt}% ${conn}</span>${countBadge}${deviceBadge}`;
 
+            decorateActivityLogEntryForAccuracy(entry, loc);
             container.appendChild(entry);
         });
 
@@ -1756,6 +1778,7 @@ function displayHistoricWaypoints(locations: TrackLocation[], showDeviceNames = 
 
             entry.innerHTML = `<span class="log-time">${time}</span> | <span class="log-ip">${ip}</span> | <span class="log-coords">${lat}, ${lon}</span> | <span class="log-meta">acc:${acc}m alt:${alt}m vel:${vel}km/h batt:${batt}% ${conn}</span>${countBadge}${deviceBadge}`;
 
+            decorateActivityLogEntryForAccuracy(entry, loc);
             container.appendChild(entry);
         });
 
@@ -1818,6 +1841,7 @@ function addLogEntry(location: TrackLocation, skipScroll = false): void {
 
     entry.innerHTML = `<span class="log-time">${time}</span> | <span class="log-ip">${ipDisplay}</span> | <span class="log-coords">${lat}, ${lon}</span> | <span class="log-meta">acc:${acc}m alt:${alt}m vel:${vel}km/h batt:${batt}% ${conn}</span>${deviceBadge}`;
 
+    decorateActivityLogEntryForAccuracy(entry, location);
     insertLiveLogEntryInTimestampOrder(container, entry, locationTimestampUnix(location));
 
     // Auto-scroll so newest entry is roughly in the middle of the view
@@ -2002,6 +2026,7 @@ async function loadLast30Minutes(): Promise<void> {
 
             entry.innerHTML = `<span class="log-time">${time}</span> | <span class="log-ip">${ip}</span> | <span class="log-coords">${lat}, ${lon}</span> | <span class="log-meta">acc:${acc}m alt:${alt}m vel:${vel}km/h batt:${batt}% ${conn}</span>${deviceBadge}`;
 
+            decorateActivityLogEntryForAccuracy(entry, loc);
             container.appendChild(entry);
 
             // Update device marker for the newest location per device.
@@ -2134,6 +2159,7 @@ async function loadLatestLocations(): Promise<void> {
 
             entry.innerHTML = `<span class="log-time">${time}</span> | <span class="log-ip">${ip}</span> | <span class="log-coords">${lat}, ${lon}</span> | <span class="log-meta">acc:${acc}m alt:${alt}m vel:${vel}km/h batt:${batt}% ${conn}</span>${deviceBadge}`;
 
+            decorateActivityLogEntryForAccuracy(entry, loc);
             container.appendChild(entry);
 
             if (!markerUpdatedForDevice.has(device)) {
@@ -2311,6 +2337,7 @@ async function loadLiveActivityHistory(): Promise<void> {
 
             entry.innerHTML = `<span class="log-time">${time}</span> | <span class="log-ip">${ip}</span> | <span class="log-coords">${lat}, ${lon}</span> | <span class="log-meta">acc:${acc}m alt:${alt}m vel:${vel}km/h batt:${batt}% ${conn}</span>${deviceBadge}`;
 
+            decorateActivityLogEntryForAccuracy(entry, loc);
             container.appendChild(entry);
 
             // Update device marker (only for latest position of each device)
