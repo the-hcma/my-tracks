@@ -8,7 +8,7 @@ import * as L from 'leaflet';
 import noUiSlider, { type API as NoUiSliderAPI } from 'nouislider';
 import 'nouislider/dist/nouislider.css';
 import { getPreferredTheme, setTheme, toggleTheme } from './theme';
-import { dateAndMinutesToTimestamps, extractResultsList, formatMinutesAsTime, getTodayDateString, selectStablePaletteColor } from './utils';
+import { dateAndMinutesToTimestamps, extractResultsList, formatLatLonCoordinate, formatLatLonPair, formatMinutesAsTime, getTodayDateString, selectStablePaletteColor } from './utils';
 
 // Configuration passed from Django template
 interface MyTracksConfig {
@@ -442,8 +442,8 @@ function locationKeyFor(location: TrackLocation): string {
 
     const device = location.device_name || 'Unknown';
     const timestamp = locationTimestampUnix(location);
-    const lat = parseFloat(String(location.latitude)).toFixed(6);
-    const lon = parseFloat(String(location.longitude)).toFixed(6);
+    const lat = formatLatLonCoordinate(location.latitude);
+    const lon = formatLatLonCoordinate(location.longitude);
     return `device:${device}|ts:${timestamp}|lat:${lat}|lon:${lon}`;
 }
 
@@ -841,8 +841,8 @@ function initMap(): void {
 function getPopupContent(location: TrackLocation): string {
     const device = location.device_name || 'Unknown';
     const time = formatTime(location.timestamp_unix || 0);
-    const lat = parseFloat(String(location.latitude)).toFixed(6);
-    const lon = parseFloat(String(location.longitude)).toFixed(6);
+    const lat = formatLatLonCoordinate(location.latitude);
+    const lon = formatLatLonCoordinate(location.longitude);
     const acc = location.accuracy || 'N/A';
     const batt = location.battery_level || 'N/A';
     const vel = location.velocity || 0;
@@ -1078,14 +1078,14 @@ async function fetchAddress(lat: number, lon: number): Promise<string> {
 
         if (!response.ok) {
             console.error('Geocoding failed:', response.status);
-            return `${lat.toFixed(3)}, ${lon.toFixed(3)}`;
+            return formatLatLonPair(lat, lon);
         }
 
         const data = await response.json();
-        return data.display_name || `${lat.toFixed(3)}, ${lon.toFixed(3)}`;
+        return data.display_name || formatLatLonPair(lat, lon);
     } catch (error) {
         console.error('Geocoding error:', error);
-        return `${lat.toFixed(3)}, ${lon.toFixed(3)}`;
+        return formatLatLonPair(lat, lon);
     }
 }
 
@@ -1096,7 +1096,7 @@ async function fetchAddress(lat: number, lon: number): Promise<string> {
  * @returns Promise resolving to address string
  */
 async function getAddress(lat: number, lon: number): Promise<string> {
-    const key = `${lat.toFixed(6)},${lon.toFixed(6)}`;
+    const key = formatLatLonPair(lat, lon, ',');
 
     // Check cache first
     if (geocodeCache.has(key)) {
@@ -1942,8 +1942,8 @@ function displayHistoricWaypoints(locations: TrackLocation[], showDeviceNames = 
 
             const time = formatTime(loc.timestamp_unix || 0, true);
             const ip = loc.received_via === 'mqtt' ? 'MQTT' : (loc.ip_address || 'N/A');
-            const lat = parseFloat(String(loc.latitude)).toFixed(6);
-            const lon = parseFloat(String(loc.longitude)).toFixed(6);
+            const lat = formatLatLonCoordinate(loc.latitude);
+            const lon = formatLatLonCoordinate(loc.longitude);
             const acc = loc.accuracy || 'N/A';
             const alt = loc.altitude || 0;
             const vel = loc.velocity || 0;
@@ -1990,8 +1990,8 @@ function displayHistoricWaypoints(locations: TrackLocation[], showDeviceNames = 
             const time = formatTime(loc.timestamp_unix || 0, true);
             const device = loc.device_name || selectedDevice || 'Unknown';
             const ip = loc.received_via === 'mqtt' ? 'MQTT' : (loc.ip_address || 'N/A');
-            const lat = parseFloat(String(loc.latitude)).toFixed(6);
-            const lon = parseFloat(String(loc.longitude)).toFixed(6);
+            const lat = formatLatLonCoordinate(loc.latitude);
+            const lon = formatLatLonCoordinate(loc.longitude);
             const acc = loc.accuracy || 'N/A';
             const alt = loc.altitude || 0;
             const vel = loc.velocity || 0;
@@ -2057,8 +2057,8 @@ function addLogEntry(location: TrackLocation, skipScroll = false): void {
 
     const time = formatTime(location.timestamp_unix || 0, true);
     const device = location.device_name || 'Unknown';
-    const lat = parseFloat(String(location.latitude)).toFixed(6);
-    const lon = parseFloat(String(location.longitude)).toFixed(6);
+    const lat = formatLatLonCoordinate(location.latitude);
+    const lon = formatLatLonCoordinate(location.longitude);
     const acc = location.accuracy || 'N/A';
     const alt = location.altitude || 0;
     const vel = location.velocity || 0;
@@ -2229,8 +2229,8 @@ async function loadLast30Minutes(): Promise<void> {
 
             const time = formatTime(loc.timestamp_unix || 0, true);
             const device = loc.device_name || 'Unknown';
-            const lat = parseFloat(String(loc.latitude)).toFixed(6);
-            const lon = parseFloat(String(loc.longitude)).toFixed(6);
+            const lat = formatLatLonCoordinate(loc.latitude);
+            const lon = formatLatLonCoordinate(loc.longitude);
             const acc = loc.accuracy || 'N/A';
             const alt = loc.altitude || 0;
             const vel = loc.velocity || 0;
@@ -2361,8 +2361,8 @@ async function loadLatestLocations(): Promise<void> {
 
             const time = formatTime(loc.timestamp_unix || 0, true);
             const device = loc.device_name || 'Unknown';
-            const lat = parseFloat(String(loc.latitude)).toFixed(6);
-            const lon = parseFloat(String(loc.longitude)).toFixed(6);
+            const lat = formatLatLonCoordinate(loc.latitude);
+            const lon = formatLatLonCoordinate(loc.longitude);
             const acc = loc.accuracy || 'N/A';
             const alt = loc.altitude || 0;
             const vel = loc.velocity || 0;
@@ -2539,8 +2539,8 @@ async function loadLiveActivityHistory(): Promise<void> {
 
             const time = formatTime(loc.timestamp_unix || 0, true);
             const device = loc.device_name || 'Unknown';
-            const lat = parseFloat(String(loc.latitude)).toFixed(6);
-            const lon = parseFloat(String(loc.longitude)).toFixed(6);
+            const lat = formatLatLonCoordinate(loc.latitude);
+            const lon = formatLatLonCoordinate(loc.longitude);
             const acc = loc.accuracy || 'N/A';
             const alt = loc.altitude || 0;
             const vel = loc.velocity || 0;

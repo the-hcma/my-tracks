@@ -4,6 +4,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
     extractResultsList,
+    formatLatLonCoordinate,
+    formatLatLonPair,
     hashString,
     selectStablePaletteColor,
     formatTime,
@@ -17,6 +19,18 @@ import {
     dateAndMinutesToTimestamps,
     LocationData,
 } from './utils';
+
+describe('formatLatLonCoordinate', () => {
+    it('uses the shared six-decimal latitude/longitude precision by default', () => {
+        expect(formatLatLonCoordinate(12.3456789)).toBe('12.345679');
+        expect(formatLatLonCoordinate('-98.7654321')).toBe('-98.765432');
+    });
+
+    it('formats coordinate pairs with a configurable separator', () => {
+        expect(formatLatLonPair(12.3, -98.7)).toBe('12.300000, -98.700000');
+        expect(formatLatLonPair('12.3', '-98.7', ',')).toBe('12.300000,-98.700000');
+    });
+});
 
 describe('hashString', () => {
     it('returns a consistent hash for the same input', () => {
