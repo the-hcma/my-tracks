@@ -155,6 +155,7 @@ interface UIState {
     selectedDevice: string;
     timeRangeHours: number;
     trailResolution: number;
+    showLastKnownOnly?: boolean;
     historicDate?: string;
     historicStartMinutes?: number;
     historicEndMinutes?: number;
@@ -212,6 +213,7 @@ let deviceMarkers: Record<string, L.CircleMarker> = {};
 let deviceTrails: Record<string, TrailElements> = {};
 const locationMarkersByKey = new Map<string, RegisteredLocationMarker[]>();
 let selectedLocationKey: string | null = null;
+let showLastKnownOnly = false;
 const devices = new Set<string>();
 let selectedDevice = '';
 let timeRangeHours = 2;
@@ -469,8 +471,9 @@ function applyMarkerSelectionStyles(
     registeredMarker: RegisteredLocationMarker,
     isSelected: boolean,
     hasSelection: boolean,
+    isFilteredByLastKnown = false,
 ): void {
-    const isDimmed = hasSelection && !isSelected;
+    const isDimmed = (hasSelection && !isSelected) || (isFilteredByLastKnown && !isSelected);
     const { marker, kind } = registeredMarker;
 
     if (marker instanceof L.CircleMarker) {
@@ -492,16 +495,21 @@ function applyMarkerSelectionStyles(
 
 function applyLocationSelection(): void {
     const hasSelection = selectedLocationKey !== null;
+    const lastKnownLocationKeys = showLastKnownOnly ? getLastKnownLocationKeysByDevice() : null;
     document.querySelectorAll<HTMLElement>('.log-entry[data-location-key]').forEach((entry) => {
         const isSelected = entry.dataset.locationKey === selectedLocationKey;
+        const isOlderThanLastKnown =
+            lastKnownLocationKeys !== null && !lastKnownLocationKeys.has(entry.dataset.locationKey ?? '');
         entry.classList.toggle('log-entry-selected', isSelected);
-        entry.classList.toggle('log-entry-dimmed', hasSelection && !isSelected);
+        entry.classList.toggle('log-entry-dimmed', (hasSelection && !isSelected) || (isOlderThanLastKnown && !isSelected));
+        entry.classList.toggle('log-entry-last-known-dimmed', isOlderThanLastKnown);
     });
 
     locationMarkersByKey.forEach((registeredMarkers, key) => {
         const isSelected = key === selectedLocationKey;
+        const isOlderThanLastKnown = lastKnownLocationKeys !== null && !lastKnownLocationKeys.has(key);
         registeredMarkers.forEach((registeredMarker) => {
-            applyMarkerSelectionStyles(registeredMarker, isSelected, hasSelection);
+            applyMarkerSelectionStyles(registeredMarker, isSelected, hasSelection, isOlderThanLastKnown);
         });
     });
 }
@@ -540,6 +548,8 @@ function selectLocation(
 function attachLocationSelectionToEntry(entry: HTMLElement, location: TrackLocation): void {
     const locationKey = locationKeyFor(location);
     entry.dataset.locationKey = locationKey;
+    entry.dataset.deviceName = location.device_name || selectedDevice || 'Unknown';
+    entry.dataset.ts = String(locationTimestampUnix(location));
     entry.tabIndex = 0;
     entry.setAttribute('role', 'button');
     entry.setAttribute('aria-label', 'Highlight this location on the map');
@@ -598,6 +608,42 @@ function removeAllTrails(): void {
     deviceTrails = {};
 }
 
+function getLastKnownLocationKeysByDevice(): Set<string> {
+    const locationKeys = new Set<string>();
+    const seenDevices = new Set<string>();
+    const entries = [...document.querySelectorAll<HTMLElement>('.log-entry[data-location-key][data-device-name]')];
+
+    entries
+        .sort((a, b) => Number(b.dataset.ts ?? 0) - Number(a.dataset.ts ?? 0))
+        .forEach((entry) => {
+            const deviceName = entry.dataset.deviceName;
+            const locationKey = entry.dataset.locationKey;
+            if (!deviceName || !locationKey || seenDevices.has(deviceName)) {
+                return;
+            }
+            seenDevices.add(deviceName);
+            locationKeys.add(locationKey);
+        });
+
+    return locationKeys;
+}
+
+function updateLastKnownOnlyButton(): void {
+    const button = document.getElementById('last-known-only-button');
+    if (!button) {
+        return;
+    }
+    button.classList.toggle('active', showLastKnownOnly);
+    button.setAttribute('aria-pressed', String(showLastKnownOnly));
+}
+
+function toggleLastKnownOnly(): void {
+    showLastKnownOnly = !showLastKnownOnly;
+    updateLastKnownOnlyButton();
+    applyLocationSelection();
+    saveUIState();
+}
+
 // ============================================================================
 // UI State Persistence
 // ============================================================================
@@ -614,6 +660,7 @@ function saveUIState(): void {
         selectedDevice: selectedDevice,
         timeRangeHours: timeRangeHours,
         trailResolution: trailResolution,
+        showLastKnownOnly: showLastKnownOnly,
         historicDate: historicDate,
         historicStartMinutes: historicStartMinutes,
         historicEndMinutes: historicEndMinutes,
@@ -711,6 +758,9 @@ function restoreUIState(): void {
             }
         }
     }
+
+    showLastKnownOnly = Boolean(state.showLastKnownOnly);
+    updateLastKnownOnlyButton();
 
     // Restore mode
     if (state.isLiveMode === false) {
@@ -3184,6 +3234,11 @@ function initEventListeners(): void {
         refreshLiveLatestButton.addEventListener('click', () => {
             void loadLatestLocations();
         });
+    }
+
+    const lastKnownOnlyButton = document.getElementById('last-known-only-button');
+    if (lastKnownOnlyButton) {
+        lastKnownOnlyButton.addEventListener('click', toggleLastKnownOnly);
     }
 
     // Request location button

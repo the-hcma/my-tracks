@@ -301,6 +301,15 @@ a:hover {
     transform: scale(1.05);
 }
 
+.load-history-button.toggle-button.active {
+    background: #ffc107;
+    color: #1f2937;
+}
+
+.load-history-button.toggle-button.active:hover {
+    background: #ffca2c;
+}
+
 .request-location-button {
     background: #198754;
     color: white;
