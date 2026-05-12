@@ -290,38 +290,47 @@ function resetDeviceColors(): void {
 }
 
 /**
- * Show device color legend when viewing multiple devices (up to 5).
+ * Show device color legend when viewing multiple devices.
  * @param deviceNames - Array of device names to show in legend
  */
 function showDeviceLegend(deviceNames: string[]): void {
     const legend = document.getElementById('device-legend');
     if (!legend) return;
 
-    // Filter out empty/undefined names
-    const validNames = deviceNames.filter(name => name && name.trim() !== '');
+    const validNames = Array.from(
+        new Set(deviceNames.filter(name => name && name.trim() !== '')),
+    ).sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
 
-    // Only show legend for 2-5 devices
-    if (validNames.length < 2 || validNames.length > 5) {
+    // Only show legend when multiple devices can be visible on the map.
+    if (validNames.length < 2) {
         legend.classList.add('hidden');
         return;
     }
 
-    // Build legend HTML
-    let html = '<div class="device-legend-title">Devices</div>';
-    console.log('Building legend with names:', validNames);
-    validNames.forEach(name => {
-        const color = getDeviceColor(name);
-        console.log('Adding legend item:', name, 'with color:', color);
-        html += `
-            <div class="device-legend-item">
-                <div class="device-legend-color" style="background-color: ${color};"></div>
-                <span class="device-legend-name">${name}</span>
-            </div>
-        `;
-    });
-    console.log('Legend HTML:', html);
+    legend.innerHTML = '';
+    const title = document.createElement('div');
+    title.className = 'device-legend-title';
+    title.textContent = 'Devices';
+    legend.appendChild(title);
 
-    legend.innerHTML = html;
+    validNames.forEach((name) => {
+        const color = getDeviceColor(name);
+        const item = document.createElement('div');
+        item.className = 'device-legend-item';
+
+        const swatch = document.createElement('div');
+        swatch.className = 'device-legend-color';
+        swatch.style.backgroundColor = color;
+        item.appendChild(swatch);
+
+        const label = document.createElement('span');
+        label.className = 'device-legend-name';
+        label.textContent = name;
+        item.appendChild(label);
+
+        legend.appendChild(item);
+    });
+
     legend.classList.remove('hidden');
 }
 
@@ -333,6 +342,25 @@ function hideDeviceLegend(): void {
     if (legend) {
         legend.classList.add('hidden');
     }
+}
+
+function drawnMapDeviceNames(): string[] {
+    return Array.from(
+        new Set([
+            ...Object.keys(deviceMarkers),
+            ...Object.entries(deviceTrails)
+                .filter(([, trail]) => Boolean(trail.polyline || trail.markers.length > 0))
+                .map(([deviceName]) => deviceName),
+        ]),
+    );
+}
+
+function updateDeviceLegendVisibility(): void {
+    if (selectedDevice) {
+        hideDeviceLegend();
+        return;
+    }
+    showDeviceLegend(drawnMapDeviceNames());
 }
 
 /**
@@ -701,11 +729,13 @@ function removeAllDeviceMarkers(): void {
         marker.remove();
     });
     deviceMarkers = {};
+    updateDeviceLegendVisibility();
 }
 
 function removeAllTrails(): void {
     Object.values(deviceTrails).forEach(removeTrailElements);
     deviceTrails = {};
+    updateDeviceLegendVisibility();
 }
 
 /**
@@ -1256,6 +1286,7 @@ function updateDeviceMarker(location: TrackLocation): void {
     if (isLiveMode && !selectedDevice && Object.keys(deviceMarkers).length === 1) {
         map!.setView(latLng, map!.getZoom());
     }
+    updateDeviceLegendVisibility();
 }
 
 // ============================================================================
@@ -1583,11 +1614,13 @@ function addLiveLocationToTrail(location: TrackLocation): void {
             opacity: 0.7,
         }).addTo(map!);
         deviceTrails[deviceName] = { polyline, markers: [] };
+        updateDeviceLegendVisibility();
         return;
     }
 
     // Update existing polyline with the new bounded set of points
     deviceTrails[deviceName].polyline!.setLatLngs(points);
+    updateDeviceLegendVisibility();
 }
 
 // ============================================================================
@@ -1685,6 +1718,7 @@ function drawLiveTrails(locationsByDevice: Record<string, TrackLocation[]>): voi
 
         deviceTrails[deviceName] = trailElements;
     });
+    updateDeviceLegendVisibility();
 
     // Fit bounds to show all trails if this is initial load
     if (needsFitBounds) {
@@ -1745,10 +1779,6 @@ async function fetchAndDisplayTrail(): Promise<void> {
                 }
                 locationsByDevice[device].push(loc);
             });
-
-            // Show legend if 2-5 devices (after colors are assigned below)
-            const deviceNames = Object.keys(locationsByDevice);
-            console.log('Device names for legend:', deviceNames, 'from locations:', locations.slice(0, 3).map(l => ({ device_name: l.device_name, device_id_display: l.device_id_display })));
 
             // Create trails and numbered waypoints for each device
             Object.entries(locationsByDevice).forEach(([deviceName, deviceLocations]) => {
@@ -1884,8 +1914,7 @@ async function fetchAndDisplayTrail(): Promise<void> {
                 updateDeviceMarker(deviceLocations[0]);
             });
 
-            // Show legend for 2-5 devices (colors have now been assigned)
-            showDeviceLegend(deviceNames);
+            updateDeviceLegendVisibility();
 
             // Fit bounds to show all devices
             if (needsFitBounds && locations.length > 0) {
@@ -1921,8 +1950,7 @@ async function fetchAndDisplayTrail(): Promise<void> {
         const data: LocationsApiResponse = await response.json();
         const locations = data.results || [];
 
-        // Hide legend when viewing single device
-        hideDeviceLegend();
+        updateDeviceLegendVisibility();
 
         // Clear stale marker for this device before rendering
         if (deviceMarkers[selectedDevice]) {
@@ -2915,9 +2943,6 @@ function switchToLiveMode(): void {
     document.getElementById('load-history-button')?.classList.remove('hidden');
     document.getElementById('request-location-button')?.classList.remove('hidden');
     document.getElementById('reset-button')?.classList.remove('hidden');
-
-    // Hide device legend in live mode
-    hideDeviceLegend();
 
     // Update title with today's date
     const todayText = formatDateForTitle(new Date());
