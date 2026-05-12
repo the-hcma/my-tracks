@@ -78,7 +78,13 @@
                     <div id="device-legend" class="device-legend hidden"></div>
                 </div>
             </div>
-            <div class="resize-handle" id="resize-handle" title="Drag to resize"></div>
+            <div class="resize-handle" id="resize-handle" title="Drag to resize">
+                <div class="resize-mobile-controls" role="group" aria-label="Map and activity layout">
+                    <button type="button" class="resize-mobile-btn" id="resize-show-map-btn" title="Show map only" aria-label="Show map only" aria-pressed="false">⬆</button>
+                    <button type="button" class="resize-mobile-btn" id="resize-show-split-btn" title="Restore split view" aria-label="Restore split view" aria-pressed="true">⇅</button>
+                    <button type="button" class="resize-mobile-btn" id="resize-show-table-btn" title="Show activity only" aria-label="Show activity only" aria-pressed="false">⬇</button>
+                </div>
+            </div>
             <div class="activity-section">
                 <div class="log-header">
                     <h2 id="activity-title">📍 Live Activity</h2>

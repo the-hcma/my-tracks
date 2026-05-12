@@ -159,7 +159,15 @@ interface UIState {
     historicDate?: string;
     historicStartMinutes?: number;
     historicEndMinutes?: number;
+    mobileLayoutMode?: MobileLayoutMode;
 }
+
+/**
+ * How the split between the map and the activity log is rendered on
+ * phone-sized viewports. Only takes effect inside the mobile media query —
+ * desktop continues to use the drag-resize handle.
+ */
+type MobileLayoutMode = 'map-only' | 'split' | 'table-only';
 
 /** Saved map position for persistence */
 interface MapPosition {
@@ -214,6 +222,7 @@ let deviceTrails: Record<string, TrailElements> = {};
 const locationMarkersByKey = new Map<string, RegisteredLocationMarker[]>();
 let selectedLocationKey: string | null = null;
 let showLastKnownOnly = false;
+let mobileLayoutMode: MobileLayoutMode = 'split';
 const devices = new Set<string>();
 let selectedDevice = '';
 let timeRangeHours = 2;
@@ -769,6 +778,7 @@ function saveUIState(): void {
         historicDate: historicDate,
         historicStartMinutes: historicStartMinutes,
         historicEndMinutes: historicEndMinutes,
+        mobileLayoutMode: mobileLayoutMode,
     };
     localStorage.setItem('mytracks-ui-state', JSON.stringify(state));
 }
@@ -866,6 +876,11 @@ function restoreUIState(): void {
 
     showLastKnownOnly = Boolean(state.showLastKnownOnly);
     updateLastKnownOnlyButton();
+
+    if (state.mobileLayoutMode === 'map-only' || state.mobileLayoutMode === 'table-only' || state.mobileLayoutMode === 'split') {
+        mobileLayoutMode = state.mobileLayoutMode;
+    }
+    applyMobileLayoutMode();
 
     // Restore mode
     if (state.isLiveMode === false) {
@@ -3191,6 +3206,50 @@ function startPolling(): void {
 // ============================================================================
 
 /**
+ * Whether the viewport currently matches the mobile responsive media query.
+ * Mirrors the `@media (max-width: 768px)` rule used by main.css.
+ */
+function isMobileViewport(): boolean {
+    return window.matchMedia('(max-width: 768px)').matches;
+}
+
+/**
+ * Apply the active mobile layout mode (full-screen map, full-screen activity
+ * log, or restored split view) by toggling classes on the main container.
+ * Only takes effect on phone-sized viewports because the supporting CSS lives
+ * inside the mobile media query.
+ */
+function applyMobileLayoutMode(): void {
+    const container = document.getElementById('main-container');
+    if (container) {
+        container.classList.toggle('mobile-layout-map-only', mobileLayoutMode === 'map-only');
+        container.classList.toggle('mobile-layout-table-only', mobileLayoutMode === 'table-only');
+    }
+
+    const pressedById: Record<string, MobileLayoutMode> = {
+        'resize-show-map-btn': 'map-only',
+        'resize-show-split-btn': 'split',
+        'resize-show-table-btn': 'table-only',
+    };
+    for (const [id, mode] of Object.entries(pressedById)) {
+        document.getElementById(id)?.setAttribute('aria-pressed', String(mobileLayoutMode === mode));
+    }
+
+    if (map) {
+        map.invalidateSize();
+    }
+}
+
+/**
+ * Set the active mobile layout mode and persist it so it survives reloads.
+ */
+function setMobileLayoutMode(mode: MobileLayoutMode): void {
+    mobileLayoutMode = mode;
+    applyMobileLayoutMode();
+    saveUIState();
+}
+
+/**
  * Initialize resize handle functionality.
  */
 function initResizeHandle(): void {
@@ -3199,6 +3258,12 @@ function initResizeHandle(): void {
     const activitySection = document.querySelector('.activity-section') as HTMLElement | null;
 
     if (!resizeHandle || !mapSection || !activitySection) return;
+
+    document.getElementById('resize-show-map-btn')?.addEventListener('click', () => setMobileLayoutMode('map-only'));
+    document.getElementById('resize-show-split-btn')?.addEventListener('click', () => setMobileLayoutMode('split'));
+    document.getElementById('resize-show-table-btn')?.addEventListener('click', () => setMobileLayoutMode('table-only'));
+
+    applyMobileLayoutMode();
 
     let isResizing = false;
     let startY = 0;
@@ -3218,6 +3283,16 @@ function initResizeHandle(): void {
     }
 
     resizeHandle.addEventListener('mousedown', (e: MouseEvent) => {
+        // Mobile uses the icon buttons inside the handle; skip the drag flow
+        // so taps on the buttons don't accidentally start a resize.
+        if (isMobileViewport()) {
+            return;
+        }
+        // Don't start a drag when the user clicks the mobile control buttons
+        // (defensive — only reachable if the viewport flips between renders).
+        if (e.target instanceof Element && e.target.closest('.resize-mobile-controls')) {
+            return;
+        }
         isResizing = true;
         startY = e.clientY;
         startMapHeight = mapSection.offsetHeight;
