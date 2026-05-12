@@ -815,6 +815,33 @@ a:hover {
     opacity: 0.8;
 }
 
+/* Mobile layout controls (rendered inside .resize-handle, shown only on phones) */
+.resize-mobile-controls {
+    display: none;
+}
+
+.resize-mobile-btn {
+    background: var(--endpoint-bg);
+    color: var(--text-main);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 6px 14px;
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    min-width: 44px;
+}
+
+.resize-mobile-btn:hover {
+    background: var(--code-bg);
+}
+
+.resize-mobile-btn[aria-pressed="true"] {
+    background: #0d6efd;
+    color: #ffffff;
+    border-color: #0d6efd;
+}
+
 .hidden {
     display: none !important;
 }
@@ -1027,6 +1054,48 @@ a:hover {
         padding: 8px;
         height: auto;
         max-height: calc(100vh - 200px);
+    }
+
+    /* Replace the drag handle with three icon buttons that toggle the split */
+    .resize-handle {
+        cursor: default;
+        height: auto;
+        background: transparent;
+        margin: 6px 0;
+        padding: 0;
+        border-radius: 0;
+    }
+
+    .resize-handle:hover {
+        background: transparent;
+    }
+
+    .resize-handle::after {
+        display: none;
+    }
+
+    .resize-mobile-controls {
+        display: flex;
+        gap: 8px;
+        justify-content: center;
+        width: 100%;
+    }
+
+    /* Layout modes triggered by the icon buttons */
+    .container.mobile-layout-map-only .activity-section {
+        display: none;
+    }
+
+    .container.mobile-layout-map-only .map-section {
+        flex: 1 1 auto !important;
+    }
+
+    .container.mobile-layout-table-only .map-section {
+        display: none;
+    }
+
+    .container.mobile-layout-table-only .activity-section {
+        flex: 1 1 auto !important;
     }
 
     .precision-slider-container {
