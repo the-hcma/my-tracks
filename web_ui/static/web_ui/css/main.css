@@ -85,6 +85,7 @@ body {
     display: grid;
     grid-template-columns: 1fr;
     height: 100vh;
+    height: 100dvh;
     gap: 0;
 }
 
@@ -927,6 +928,7 @@ a:hover {
 @media (max-width: 768px) {
     .left-column {
         padding: 8px;
+        padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
     }
 
     .map-header {
@@ -1064,6 +1066,7 @@ a:hover {
         margin: 6px 0;
         padding: 0;
         border-radius: 0;
+        flex: 0 0 auto;
     }
 
     .resize-handle:hover {
@@ -1081,13 +1084,24 @@ a:hover {
         width: 100%;
     }
 
+    /* When the map or activity is maximized, pin the control row to the top of
+       the column so it stays reachable above mobile browser chrome (iOS Safari
+       bottom toolbar, Android URL bar) that can obscure `100vh`-relative bottom
+       edges. */
+    .container.mobile-layout-map-only .resize-handle,
+    .container.mobile-layout-table-only .resize-handle {
+        order: -1;
+        margin: 0 0 6px;
+    }
+
     /* Layout modes triggered by the icon buttons */
     .container.mobile-layout-map-only .activity-section {
         display: none;
     }
 
     .container.mobile-layout-map-only .map-section {
-        flex: 1 1 auto !important;
+        flex: 1 1 0 !important;
+        min-height: 0;
     }
 
     .container.mobile-layout-table-only .map-section {
@@ -1095,7 +1109,8 @@ a:hover {
     }
 
     .container.mobile-layout-table-only .activity-section {
-        flex: 1 1 auto !important;
+        flex: 1 1 0 !important;
+        min-height: 0;
     }
 
     .precision-slider-container {
