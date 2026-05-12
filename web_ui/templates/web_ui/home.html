@@ -16,19 +16,6 @@
 
     <div class="container" id="main-container">
         <div class="left-column">
-            <div class="action-toolbar" id="action-toolbar" role="toolbar" aria-label="Map and activity action toolbar">
-                <div class="log-controls">
-                    <span class="log-count" id="log-count">0 events</span>
-                    <button class="load-history-button" id="load-history-button" title="Load last 30 minutes of data" aria-label="Load last 30 minutes of data"><span class="btn-icon" aria-hidden="true">📥</span><span class="btn-label">Last 30min</span></button>
-                    <button class="load-history-button" id="refresh-live-latest-button" title="Load the most recent points (not limited to 30 minutes)" aria-label="Load latest locations"><span class="btn-icon" aria-hidden="true">🔄</span><span class="btn-label">Latest</span></button>
-                    <button class="load-history-button toggle-button" id="last-known-only-button" title="Dim all but the latest visible location per device" aria-label="Show only last known location per device" aria-pressed="false"><span class="btn-icon" aria-hidden="true">🎯</span><span class="btn-label">Last Known Only</span></button>
-                    <button class="request-location-button" id="request-location-button" title="Request all MQTT devices to report their current location" aria-label="Poll all MQTT devices for their current location"><span class="btn-icon" aria-hidden="true">📍</span><span class="btn-label">Poll Devices</span></button>
-                    <button class="reset-button" id="reset-button" title="Clear all events and start fresh" aria-label="Reset events"><span class="btn-icon" aria-hidden="true">🗑️</span><span class="btn-label">Reset</span></button>
-                    <button type="button" class="resize-mobile-btn" id="resize-show-map-btn" title="Show map only" aria-label="Show map only" aria-pressed="false">⬆</button>
-                    <button type="button" class="resize-mobile-btn" id="resize-show-split-btn" title="Restore split view" aria-label="Restore split view" aria-pressed="true">⇅</button>
-                    <button type="button" class="resize-mobile-btn" id="resize-show-table-btn" title="Show activity only" aria-label="Show activity only" aria-pressed="false">⬇</button>
-                </div>
-            </div>
             <div class="map-section">
                 <div class="map-header">
                     <div class="map-controls">
@@ -91,6 +78,19 @@
                 <div class="map-container">
                     <div id="map"></div>
                     <div id="device-legend" class="device-legend hidden"></div>
+                </div>
+            </div>
+            <div class="action-toolbar" id="action-toolbar" role="toolbar" aria-label="Map and activity action toolbar">
+                <div class="log-controls">
+                    <span class="log-count" id="log-count">0 events</span>
+                    <button class="load-history-button" id="load-history-button" title="Load last 30 minutes of data" aria-label="Load last 30 minutes of data"><span class="btn-icon" aria-hidden="true">📥</span><span class="btn-label">Last 30min</span></button>
+                    <button class="load-history-button" id="refresh-live-latest-button" title="Load the most recent points (not limited to 30 minutes)" aria-label="Load latest locations"><span class="btn-icon" aria-hidden="true">🔄</span><span class="btn-label">Latest</span></button>
+                    <button class="load-history-button toggle-button" id="last-known-only-button" title="Dim all but the latest visible location per device" aria-label="Show only last known location per device" aria-pressed="false"><span class="btn-icon" aria-hidden="true">🎯</span><span class="btn-label">Last Known Only</span></button>
+                    <button class="request-location-button" id="request-location-button" title="Request all MQTT devices to report their current location" aria-label="Poll all MQTT devices for their current location"><span class="btn-icon" aria-hidden="true">📍</span><span class="btn-label">Poll Devices</span></button>
+                    <button class="reset-button" id="reset-button" title="Clear all events and start fresh" aria-label="Reset events"><span class="btn-icon" aria-hidden="true">🗑️</span><span class="btn-label">Reset</span></button>
+                    <button type="button" class="resize-mobile-btn" id="resize-show-map-btn" title="Show map only" aria-label="Show map only" aria-pressed="false">⬆</button>
+                    <button type="button" class="resize-mobile-btn" id="resize-show-split-btn" title="Restore split view" aria-label="Restore split view" aria-pressed="true">⇅</button>
+                    <button type="button" class="resize-mobile-btn" id="resize-show-table-btn" title="Show activity only" aria-label="Show activity only" aria-pressed="false">⬇</button>
                 </div>
             </div>
             <div class="resize-handle" id="resize-handle" title="Drag to resize"></div>

@@ -816,18 +816,19 @@ a:hover {
     opacity: 0.8;
 }
 
-/* Persistent action toolbar at the top of the column. Hosts the global action
-   buttons (Last 30min, Latest, Last Known Only, Poll Devices, Reset, and the
-   mobile-only layout arrows) so they live in a single guaranteed-visible row
-   on every viewport. Styled minimally on desktop so the existing layout is
-   barely changed; the mobile media query gives it a more prominent toolbar
-   look since it's the only row of action controls there. */
+/* Persistent action toolbar. Hosts the global action buttons (Last 30min,
+   Latest, Last Known Only, Poll Devices, Reset, and the mobile-only layout
+   arrows) so they live in a single guaranteed-visible row on every viewport.
+   Placed in the DOM between .map-section and .resize-handle so the row sits
+   directly below the map. On desktop it's a quiet right-aligned strip; the
+   mobile media query gives it a more prominent toolbar look since it's the
+   only row of action controls there. */
 .action-toolbar {
     display: flex;
     align-items: center;
     justify-content: flex-end;
     flex: 0 0 auto;
-    margin-bottom: 10px;
+    margin: 6px 0;
 }
 
 /* Map/activity layout arrows live inside .log-controls. They are only relevant
@@ -1168,14 +1169,23 @@ a:hover {
         display: none;
     }
 
-    /* Toolbar fills the column edge-to-edge and centers the button row. */
+    /* Toolbar fills the column edge-to-edge and centers the button row. Lives
+       between .map-section and .activity-section in DOM order, so by default
+       it sits directly under the map. */
     .action-toolbar {
         padding: 4px 6px;
-        margin-bottom: 8px;
+        margin: 6px 0;
         justify-content: center;
         background: var(--endpoint-bg);
         border: 1px solid var(--border-color);
         border-radius: 8px;
+    }
+
+    /* Table-only mode hides the map, so the natural DOM order would leave the
+       toolbar at the top of the visible region. Reorder it to the bottom so it
+       still appears underneath the activity log. */
+    .container.mobile-layout-table-only .action-toolbar {
+        order: 1;
     }
 
     .action-toolbar .log-controls {
