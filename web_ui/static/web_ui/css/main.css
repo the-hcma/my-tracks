@@ -852,6 +852,98 @@ a:hover {
     display: none !important;
 }
 
+/* ── Toast notifications ── */
+.toast-container {
+    position: fixed;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    pointer-events: none;
+    width: max-content;
+    max-width: min(440px, calc(100vw - 32px));
+}
+
+.toast {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: #2c3e50;
+    color: #ffffff;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+    font-size: 14px;
+    line-height: 1.4;
+    opacity: 0;
+    transform: translateY(-10px);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    pointer-events: auto;
+}
+
+.toast.toast-visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.toast.toast-leaving {
+    opacity: 0;
+    transform: translateY(-10px);
+}
+
+.toast-info {
+    background: #1e6cb6;
+}
+
+.toast-success {
+    background: #2e7d32;
+}
+
+.toast-warning {
+    background: #b26500;
+}
+
+.toast-error {
+    background: #c62828;
+}
+
+.toast-message {
+    flex: 1 1 auto;
+}
+
+.toast-dismiss {
+    background: transparent;
+    color: inherit;
+    border: none;
+    font-size: 20px;
+    line-height: 1;
+    padding: 0 4px;
+    cursor: pointer;
+    opacity: 0.8;
+    flex: 0 0 auto;
+}
+
+.toast-dismiss:hover,
+.toast-dismiss:focus {
+    opacity: 1;
+    outline: none;
+}
+
+@media (max-width: 768px) {
+    .toast-container {
+        top: 8px;
+        max-width: calc(100vw - 16px);
+    }
+
+    .toast {
+        font-size: 13px;
+        padding: 8px 12px;
+    }
+}
+
 /* Device color legend - positioned in bottom-right of map */
 .device-legend {
     position: absolute;
