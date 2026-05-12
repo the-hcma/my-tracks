@@ -532,6 +532,11 @@ function selectLocation(
     locationKey: string,
     options: { scrollRow?: boolean; focusMarker?: boolean; openPopup?: boolean } = {},
 ): void {
+    if (selectedLocationKey === locationKey) {
+        clearLocationSelection();
+        return;
+    }
+
     selectedLocationKey = locationKey;
     applyLocationSelection();
 
@@ -545,6 +550,19 @@ function selectLocation(
     }
 }
 
+/**
+ * Clear the active location selection, restore default styles and close any
+ * popup currently anchored to the previously-selected marker.
+ */
+function clearLocationSelection(): void {
+    if (selectedLocationKey === null) {
+        return;
+    }
+    selectedLocationKey = null;
+    applyLocationSelection();
+    map?.closePopup();
+}
+
 function attachLocationSelectionToEntry(entry: HTMLElement, location: TrackLocation): void {
     const locationKey = locationKeyFor(location);
     entry.dataset.locationKey = locationKey;
@@ -552,7 +570,7 @@ function attachLocationSelectionToEntry(entry: HTMLElement, location: TrackLocat
     entry.dataset.ts = String(locationTimestampUnix(location));
     entry.tabIndex = 0;
     entry.setAttribute('role', 'button');
-    entry.setAttribute('aria-label', 'Highlight this location on the map');
+    entry.setAttribute('aria-label', 'Toggle highlight for this location on the map');
     entry.addEventListener('click', () => {
         selectLocation(locationKey, { focusMarker: true, openPopup: true });
     });
