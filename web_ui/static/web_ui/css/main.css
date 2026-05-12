@@ -553,6 +553,15 @@ a:hover {
     align-items: center;
 }
 
+/* The map header (controls row + map title) lives directly under .left-column
+   instead of inside .map-section. Pulling it out of the map's overflow:hidden
+   container means the widgets in the row are never clipped when conditional
+   widgets (date picker, sliders) appear after JS runs, or when the row wraps
+   on a narrow viewport. */
+.left-column > .map-header {
+    flex: 0 0 auto;
+}
+
 .device-selector,
 .time-range-selector {
     background: var(--endpoint-bg);
@@ -770,6 +779,21 @@ a:hover {
     border-radius: 8px;
     border: 1px solid var(--border-color);
     min-height: 0;
+    transition: border-color 0.3s ease;
+}
+
+/* Connection status is communicated by the map's frame colour on phones
+   (where the textual indicator is hidden). The classes are set by
+   updateServerStatus() in main.ts; the colours are kept subtle on desktop and
+   bumped up to a 3px frame inside the mobile media query. Default
+   border colour (no class) is the neutral --border-color, which renders as
+   the existing checking/in-progress state. */
+#map.connection-connected {
+    border-color: var(--status-color);
+}
+
+#map.connection-disconnected {
+    border-color: #dc3545;
 }
 
 .activity-section {
@@ -1039,10 +1063,11 @@ a:hover {
     .map-header {
         flex-direction: column;
         align-items: flex-start;
-        gap: 6px;
+        gap: 0;
         margin-bottom: 6px;
     }
 
+    /* Map title is dropped on phones to save vertical space. */
     .map-header h2 {
         display: none;
     }
@@ -1051,6 +1076,38 @@ a:hover {
         flex-wrap: wrap;
         gap: 6px;
         width: 100%;
+    }
+
+    /* Map frame doubles as the at-a-glance connection indicator on phones
+       (yellow while checking, green when connected, red when not). */
+    #map {
+        border-width: 3px;
+        border-color: #ffc107;
+    }
+
+    #map.connection-connected {
+        border-color: var(--status-color);
+    }
+
+    #map.connection-disconnected {
+        border-color: #dc3545;
+    }
+
+    /* Simplify the phone top bar to the essentials. The connection state is
+       conveyed by the map's coloured frame (see #map above) so the textual
+       indicator is dropped, and the username badge is dropped to free space. */
+    .map-controls .user-menu,
+    .map-controls .status-indicator,
+    .map-controls .precision-slider-container,
+    .map-controls .time-slider-container {
+        display: none !important;
+    }
+
+    /* Collapse the Live/Historic pill to a single toggle icon on phones: only
+       the active button is rendered and tapping it flips to the other mode
+       (handled by the JS click handlers). */
+    .mode-toggle button:not(.active) {
+        display: none;
     }
 
     /* Collapse buttons to icon-only on phones */
@@ -1080,12 +1137,21 @@ a:hover {
     .time-range-selector {
         font-size: 13px;
         padding: 6px 8px;
-        max-width: 140px;
+        max-width: 120px;
+        flex: 0 1 auto;
     }
 
+    /* The wrapper used to host both the date picker and the time slider; the
+       slider is hidden on phones (see .map-controls .time-slider-container
+       above) so the wrapper just needs to lay out the date input compactly. */
     .historic-controls {
-        flex-wrap: wrap;
-        width: 100%;
+        flex-wrap: nowrap;
+        width: auto;
+        gap: 0;
+    }
+
+    .historic-date-input {
+        max-width: 130px;
     }
 
     .time-slider-container {
