@@ -910,8 +910,7 @@ a:hover {
     }
 
     .map-header h2 {
-        font-size: 1rem;
-        margin: 0;
+        display: none;
     }
 
     .map-controls {
@@ -1011,9 +1010,7 @@ a:hover {
     }
 
     .log-header h2 {
-        font-size: 0.95rem;
-        margin: 0;
-        flex: 0 0 auto;
+        display: none;
     }
 
     .log-controls {
@@ -1023,8 +1020,7 @@ a:hover {
     }
 
     .log-count {
-        font-size: 11px;
-        padding: 3px 8px;
+        display: none;
     }
 
     #log-container {
