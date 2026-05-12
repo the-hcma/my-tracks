@@ -642,6 +642,93 @@ function toggleLastKnownOnly(): void {
     updateLastKnownOnlyButton();
     applyLocationSelection();
     saveUIState();
+
+    if (showLastKnownOnly && isLiveMode) {
+        void ensureLastKnownLocationsLoaded();
+    }
+}
+
+/**
+ * Ensure every device visible to the logged-in user has its latest known
+ * location present in the live activity log + map. The "Last Known Only"
+ * toggle is a no-op when the dashboard has nothing to dim — this guarantees
+ * there is always something to highlight when the user activates it.
+ *
+ * - Runs only in live mode (historic mode operates on a fixed trail).
+ * - Honors the active device filter (selectedDevice) when set.
+ * - Idempotent: skips devices that already have a row, and addLogEntry
+ *   dedupes by location id when called concurrently.
+ */
+async function ensureLastKnownLocationsLoaded(): Promise<void> {
+    if (!isLiveMode) {
+        return;
+    }
+
+    const button = document.getElementById('last-known-only-button') as HTMLButtonElement | null;
+    if (button) {
+        button.disabled = true;
+    }
+
+    try {
+        const devicesResp = await fetch('/api/devices/');
+        if (!devicesResp.ok) {
+            console.warn('Last Known Only: failed to fetch devices', devicesResp.status);
+            return;
+        }
+        const devicesData = await devicesResp.json();
+        const deviceList = extractResultsList<DeviceInfo>(devicesData);
+
+        const targets = deviceList
+            .map((d) => ({
+                device_id: d.device_id,
+                display_name: d.owner_username ? `${d.owner_username}/${d.device_id}` : d.device_id,
+            }))
+            .filter((d) => !selectedDevice || d.display_name === selectedDevice);
+
+        const renderedDeviceNames = new Set<string>();
+        document.querySelectorAll<HTMLElement>('.log-entry[data-device-name]').forEach((entry) => {
+            const name = entry.dataset.deviceName;
+            if (name) {
+                renderedDeviceNames.add(name);
+            }
+        });
+
+        const missing = targets.filter((d) => !renderedDeviceNames.has(d.display_name));
+        if (missing.length === 0) {
+            return;
+        }
+
+        const latestPerDevice = await Promise.all(
+            missing.map(async (device) => {
+                try {
+                    const url = `/api/devices/${encodeURIComponent(device.device_id)}/locations/?limit=1`;
+                    const resp = await fetch(url);
+                    if (!resp.ok) {
+                        return null;
+                    }
+                    const data = await resp.json();
+                    return extractResultsList<TrackLocation>(data)[0] ?? null;
+                } catch (error) {
+                    console.error(`Last Known Only: failed to fetch latest location for ${device.display_name}`, error);
+                    return null;
+                }
+            }),
+        );
+
+        latestPerDevice.forEach((location) => {
+            if (location) {
+                addLogEntry(location, /* skipScroll */ true);
+            }
+        });
+
+        applyLocationSelection();
+    } catch (error) {
+        console.error('Last Known Only: unexpected error while fetching device locations', error);
+    } finally {
+        if (button) {
+            button.disabled = false;
+        }
+    }
 }
 
 // ============================================================================
