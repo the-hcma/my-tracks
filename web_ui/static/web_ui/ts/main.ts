@@ -708,6 +708,36 @@ function removeAllTrails(): void {
     deviceTrails = {};
 }
 
+/**
+ * Re-center and zoom the map so every device's last-known marker is visible
+ * with a comfortable margin and street-level detail (capped by `maxZoom`).
+ * Silently no-ops when the map or marker set is unavailable.
+ */
+function fitMapToLastKnownLocations(): void {
+    if (!map) {
+        return;
+    }
+    const keys = getLastKnownLocationKeysByDevice();
+    if (keys.size === 0) {
+        return;
+    }
+    const latLngs: L.LatLng[] = [];
+    keys.forEach((key) => {
+        const registered = locationMarkersByKey.get(key);
+        if (!registered) {
+            return;
+        }
+        registered.forEach((entry) => {
+            latLngs.push(registeredMarkerLatLng(entry.marker));
+        });
+    });
+    if (latLngs.length === 0) {
+        return;
+    }
+    const bounds = L.latLngBounds(latLngs);
+    map.fitBounds(bounds, { padding: [60, 60], maxZoom: 16 });
+}
+
 function getLastKnownLocationKeysByDevice(): Set<string> {
     const locationKeys = new Set<string>();
     const seenDevices = new Set<string>();
@@ -743,8 +773,15 @@ function toggleLastKnownOnly(): void {
     applyLocationSelection();
     saveUIState();
 
-    if (showLastKnownOnly && isLiveMode) {
+    if (!showLastKnownOnly) {
+        return;
+    }
+    if (isLiveMode) {
+        // Live mode needs to fetch the last known location for any device not
+        // already in the activity log; the fit happens once that resolves.
         void ensureLastKnownLocationsLoaded();
+    } else {
+        fitMapToLastKnownLocations();
     }
 }
 
@@ -827,6 +864,9 @@ async function ensureLastKnownLocationsLoaded(): Promise<void> {
     } finally {
         if (button) {
             button.disabled = false;
+        }
+        if (showLastKnownOnly) {
+            fitMapToLastKnownLocations();
         }
     }
 }
