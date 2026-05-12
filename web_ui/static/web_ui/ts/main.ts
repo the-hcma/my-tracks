@@ -441,6 +441,79 @@ function updateTimeSliderLabel(): void {
 }
 
 // ============================================================================
+// Toast Notifications
+// ============================================================================
+
+/** Visual style of a toast message. */
+type ToastType = 'info' | 'success' | 'warning' | 'error';
+
+/** Optional knobs for {@link showToast}. */
+interface ToastOptions {
+    /** Auto-dismiss delay in milliseconds. Defaults to 4000 (4s). */
+    duration?: number;
+    /** Style variant. Defaults to `info`. */
+    type?: ToastType;
+}
+
+/**
+ * Display a transient toast notification anchored at the top of the viewport.
+ * Toasts stack vertically and fade out automatically after `duration` ms; the
+ * user can dismiss earlier via the close button.
+ */
+function showToast(message: string, options: ToastOptions = {}): void {
+    const container = document.getElementById('toast-container');
+    if (!container) {
+        return;
+    }
+    const duration = options.duration ?? 4000;
+    const type = options.type ?? 'info';
+
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
+
+    const messageEl = document.createElement('span');
+    messageEl.className = 'toast-message';
+    messageEl.textContent = message;
+    toast.appendChild(messageEl);
+
+    const dismissBtn = document.createElement('button');
+    dismissBtn.type = 'button';
+    dismissBtn.className = 'toast-dismiss';
+    dismissBtn.setAttribute('aria-label', 'Dismiss notification');
+    dismissBtn.textContent = '×';
+    toast.appendChild(dismissBtn);
+
+    container.appendChild(toast);
+    requestAnimationFrame(() => {
+        toast.classList.add('toast-visible');
+    });
+
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let dismissed = false;
+
+    function dismiss(): void {
+        if (dismissed) {
+            return;
+        }
+        dismissed = true;
+        if (timer !== null) {
+            clearTimeout(timer);
+            timer = null;
+        }
+        toast.classList.remove('toast-visible');
+        toast.classList.add('toast-leaving');
+        const cleanup = (): void => toast.remove();
+        toast.addEventListener('transitionend', cleanup, { once: true });
+        // Fallback if no transition fires (e.g. element already detached).
+        setTimeout(cleanup, 400);
+    }
+
+    dismissBtn.addEventListener('click', dismiss);
+    timer = setTimeout(dismiss, duration);
+}
+
+// ============================================================================
 // Location Selection
 // ============================================================================
 
@@ -2548,6 +2621,7 @@ async function requestDeviceLocations(): Promise<void> {
         const devicesResp = await fetch('/api/devices/');
         if (!devicesResp.ok) {
             console.warn('Failed to fetch devices:', devicesResp.status);
+            showToast('Could not load device list to poll.', { type: 'error' });
             return;
         }
 
@@ -2562,6 +2636,7 @@ async function requestDeviceLocations(): Promise<void> {
         const mqttDevices = devices.filter(d => d.mqtt_topic_id && d.is_online);
         if (mqttDevices.length === 0) {
             console.log('No online MQTT devices to poll');
+            showToast('No online MQTT devices to poll.', { type: 'warning' });
             return;
         }
 
@@ -2582,8 +2657,20 @@ async function requestDeviceLocations(): Promise<void> {
 
         const succeeded = results.filter(r => r.status === 'fulfilled' && (r as PromiseFulfilledResult<Response>).value.ok).length;
         console.log(`Polled ${succeeded}/${mqttDevices.length} MQTT devices`);
+        if (succeeded === mqttDevices.length) {
+            const deviceWord = succeeded === 1 ? 'device' : 'devices';
+            showToast(`Location request sent to ${succeeded} ${deviceWord}.`, { type: 'success' });
+        } else if (succeeded > 0) {
+            showToast(
+                `Location request sent to ${succeeded} of ${mqttDevices.length} devices; ${mqttDevices.length - succeeded} failed.`,
+                { type: 'warning' },
+            );
+        } else {
+            showToast('Failed to send location request to any device.', { type: 'error' });
+        }
     } catch (err) {
         console.error('requestDeviceLocations error:', err);
+        showToast('Failed to send location request.', { type: 'error' });
     } finally {
         if (btn) {
             btn.disabled = false;
