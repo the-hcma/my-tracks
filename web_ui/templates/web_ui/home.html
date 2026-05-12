@@ -16,65 +16,65 @@
 
     <div class="container" id="main-container">
         <div class="left-column">
-            <div class="map-section">
-                <div class="map-header">
-                    <div class="map-controls">
-                        <div class="nav-hamburger" id="nav-hamburger">
-                            <button class="hamburger-btn" id="hamburger-btn" title="Menu" aria-label="Open navigation menu">☰</button>
-                            <div class="hamburger-dropdown hidden" id="hamburger-dropdown">
-                                <a href="{% url 'web_ui:profile' %}" class="hamburger-item">👤 Profile</a>
-                                {% if user.is_staff %}<a href="{% url 'web_ui:admin_panel' %}" class="hamburger-item">⚙️ Admin Panel</a>{% endif %}
-                                <a href="{% url 'web_ui:about' %}" class="hamburger-item">📖 About &amp; Setup</a>
-                                <hr class="hamburger-divider">
-                                <form method="post" action="{% url 'web_ui:logout' %}" class="hamburger-logout-form">
-                                    {% csrf_token %}
-                                    <button type="submit" class="hamburger-item hamburger-logout">🚪 Logout</button>
-                                </form>
-                            </div>
-                        </div>
-                        <div class="mode-toggle" title="Switch between live updates and historic trail view">
-                            <button id="live-mode-btn" class="active" title="Live updates" aria-label="Live updates"><span class="btn-icon" aria-hidden="true">📡</span><span class="btn-label">Live</span></button>
-                            <button id="historic-mode-btn" title="Historic trail view" aria-label="Historic trail view"><span class="btn-icon" aria-hidden="true">📅</span><span class="btn-label">Historic</span></button>
-                        </div>
-                        <select class="time-range-selector hidden" id="time-range-selector" title="Select time range for historic trail">
-                            <option value="1">Last 1 hour</option>
-                            <option value="2" selected>Last 2 hours</option>
-                            <option value="6">Last 6 hours</option>
-                            <option value="12">Last 12 hours</option>
-                            <option value="24">Last 24 hours</option>
-                        </select>
-                        <div class="historic-controls hidden" id="historic-controls">
-                            <input type="date" id="historic-date" class="historic-date-input" title="Select date for historic trail" aria-label="Select date for historic trail">
-                            <div class="time-slider-container" id="time-slider-container" title="Drag handles to set time window for historic trail">
-                                <div class="time-slider-track-row">
-                                    <div id="time-slider" class="time-slider"></div>
-                                </div>
-                                <span class="time-slider-label" id="time-slider-label">00:00 – 23:59</span>
-                            </div>
-                        </div>
-                        <div class="precision-slider-container hidden" id="precision-slider-container" title="Trail precision: 0% = Coarse (~10 pts/hr), 100% = Precise (all points)">
-                            <div class="precision-slider-row">
-                                <span class="precision-label">🔍</span>
-                                <input type="range" id="precision-slider" class="precision-slider" min="0" max="100" value="100">
-                                <span class="precision-label">🎯</span>
-                            </div>
-                            <span class="precision-value" id="precision-value">100%</span>
-                        </div>
-                        <select class="device-selector" id="device-selector" title="Filter by device">
-                            <option value="">All Devices</option>
-                        </select>
-                        <div class="status-indicator" id="server-status-indicator" title="WebSocket connection status">
-                            <span class="status-dot" id="status-dot"></span>
-                            <span id="status-text">Checking...</span>
-                        </div>
-                        <button class="header-toggle" id="theme-toggle" title="Toggle light/dark theme" aria-label="Toggle theme">🌙</button>
-                        <div class="user-menu">
-                            {% if user.is_staff %}<span class="admin-badge" title="Administrator">admin</span>{% endif %}
-                            <span class="user-name" title="Logged in as {{ user.username }}">{{ user.username }}</span>
+            <div class="map-header">
+                <div class="map-controls" id="map-controls">
+                    <div class="nav-hamburger" id="nav-hamburger">
+                        <button class="hamburger-btn" id="hamburger-btn" title="Menu" aria-label="Open navigation menu">☰</button>
+                        <div class="hamburger-dropdown hidden" id="hamburger-dropdown">
+                            <a href="{% url 'web_ui:profile' %}" class="hamburger-item">👤 Profile</a>
+                            {% if user.is_staff %}<a href="{% url 'web_ui:admin_panel' %}" class="hamburger-item">⚙️ Admin Panel</a>{% endif %}
+                            <a href="{% url 'web_ui:about' %}" class="hamburger-item">📖 About &amp; Setup</a>
+                            <hr class="hamburger-divider">
+                            <form method="post" action="{% url 'web_ui:logout' %}" class="hamburger-logout-form">
+                                {% csrf_token %}
+                                <button type="submit" class="hamburger-item hamburger-logout">🚪 Logout</button>
+                            </form>
                         </div>
                     </div>
-                    <h2 id="map-title">🗺️ Live Map</h2>
+                    <div class="mode-toggle" title="Switch between live updates and historic trail view">
+                        <button id="live-mode-btn" class="active" title="Live updates" aria-label="Live updates"><span class="btn-icon" aria-hidden="true">📡</span><span class="btn-label">Live</span></button>
+                        <button id="historic-mode-btn" title="Historic trail view" aria-label="Historic trail view"><span class="btn-icon" aria-hidden="true">📅</span><span class="btn-label">Historic</span></button>
+                    </div>
+                    <select class="time-range-selector hidden" id="time-range-selector" title="Select time range for historic trail">
+                        <option value="1">Last 1 hour</option>
+                        <option value="2" selected>Last 2 hours</option>
+                        <option value="6">Last 6 hours</option>
+                        <option value="12">Last 12 hours</option>
+                        <option value="24">Last 24 hours</option>
+                    </select>
+                    <div class="historic-controls hidden" id="historic-controls">
+                        <input type="date" id="historic-date" class="historic-date-input" title="Select date for historic trail" aria-label="Select date for historic trail">
+                        <div class="time-slider-container" id="time-slider-container" title="Drag handles to set time window for historic trail">
+                            <div class="time-slider-track-row">
+                                <div id="time-slider" class="time-slider"></div>
+                            </div>
+                            <span class="time-slider-label" id="time-slider-label">00:00 – 23:59</span>
+                        </div>
+                    </div>
+                    <div class="precision-slider-container hidden" id="precision-slider-container" title="Trail precision: 0% = Coarse (~10 pts/hr), 100% = Precise (all points)">
+                        <div class="precision-slider-row">
+                            <span class="precision-label">🔍</span>
+                            <input type="range" id="precision-slider" class="precision-slider" min="0" max="100" value="100">
+                            <span class="precision-label">🎯</span>
+                        </div>
+                        <span class="precision-value" id="precision-value">100%</span>
+                    </div>
+                    <select class="device-selector" id="device-selector" title="Filter by device">
+                        <option value="">All Devices</option>
+                    </select>
+                    <div class="status-indicator" id="server-status-indicator" title="WebSocket connection status">
+                        <span class="status-dot" id="status-dot"></span>
+                        <span id="status-text">Checking...</span>
+                    </div>
+                    <button class="header-toggle" id="theme-toggle" title="Toggle light/dark theme" aria-label="Toggle theme">🌙</button>
+                    <div class="user-menu">
+                        {% if user.is_staff %}<span class="admin-badge" title="Administrator">admin</span>{% endif %}
+                        <span class="user-name" title="Logged in as {{ user.username }}">{{ user.username }}</span>
+                    </div>
                 </div>
+                <h2 id="map-title">🗺️ Live Map</h2>
+            </div>
+            <div class="map-section">
                 <div class="map-container">
                     <div id="map"></div>
                     <div id="device-legend" class="device-legend hidden"></div>

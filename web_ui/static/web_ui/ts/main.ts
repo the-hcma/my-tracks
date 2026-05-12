@@ -3043,12 +3043,17 @@ function checkServerHealth(): void {
 function updateServerStatus(connected: boolean): void {
     const statusDot = document.getElementById('status-dot');
     const statusText = document.getElementById('status-text');
+    const mapEl = document.getElementById('map');
     if (connected) {
         if (statusDot) statusDot.className = 'status-dot connected';
         if (statusText) statusText.textContent = 'Connected';
+        mapEl?.classList.remove('connection-disconnected');
+        mapEl?.classList.add('connection-connected');
     } else {
         if (statusDot) statusDot.className = 'status-dot disconnected';
         if (statusText) statusText.textContent = 'Disconnected';
+        mapEl?.classList.remove('connection-connected');
+        mapEl?.classList.add('connection-disconnected');
     }
 }
 
@@ -3678,16 +3683,27 @@ function initEventListeners(): void {
         });
     }
 
-    // Mode toggle buttons
-    const liveModeBtn = document.getElementById('live-mode-btn');
-    if (liveModeBtn) {
-        liveModeBtn.addEventListener('click', switchToLiveMode);
-    }
+    // Mode toggle buttons. On phones the inactive button is hidden by CSS and
+    // the visible (active) button acts as a single toggle: clicking it flips
+    // the mode regardless of which underlying button received the event.
+    const toggleMode = (preferred: 'live' | 'historic'): void => {
+        if (isMobileViewport()) {
+            if (isLiveMode) {
+                switchToHistoricMode();
+            } else {
+                switchToLiveMode();
+            }
+            return;
+        }
+        if (preferred === 'live') {
+            switchToLiveMode();
+        } else {
+            switchToHistoricMode();
+        }
+    };
 
-    const historicModeBtn = document.getElementById('historic-mode-btn');
-    if (historicModeBtn) {
-        historicModeBtn.addEventListener('click', switchToHistoricMode);
-    }
+    document.getElementById('live-mode-btn')?.addEventListener('click', () => toggleMode('live'));
+    document.getElementById('historic-mode-btn')?.addEventListener('click', () => toggleMode('historic'));
 
     // Listen for system theme changes
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e: MediaQueryListEvent) => {
