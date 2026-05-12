@@ -31,8 +31,8 @@
                             </div>
                         </div>
                         <div class="mode-toggle" title="Switch between live updates and historic trail view">
-                            <button id="live-mode-btn" class="active">📡 Live</button>
-                            <button id="historic-mode-btn">📅 Historic</button>
+                            <button id="live-mode-btn" class="active" title="Live updates" aria-label="Live updates"><span class="btn-icon" aria-hidden="true">📡</span><span class="btn-label">Live</span></button>
+                            <button id="historic-mode-btn" title="Historic trail view" aria-label="Historic trail view"><span class="btn-icon" aria-hidden="true">📅</span><span class="btn-label">Historic</span></button>
                         </div>
                         <select class="time-range-selector hidden" id="time-range-selector" title="Select time range for historic trail">
                             <option value="1">Last 1 hour</option>
@@ -84,11 +84,11 @@
                     <h2 id="activity-title">📍 Live Activity</h2>
                     <div class="log-controls">
                         <span class="log-count" id="log-count">0 events</span>
-                        <button class="load-history-button" id="load-history-button" title="Load last 30 minutes of data">📥 Last 30min</button>
-                        <button class="load-history-button" id="refresh-live-latest-button" title="Load the most recent points (not limited to 30 minutes)">🔄 Latest</button>
-                        <button class="load-history-button toggle-button" id="last-known-only-button" title="Dim all but the latest visible location per device" aria-pressed="false">🎯 Last Known Only</button>
-                        <button class="request-location-button" id="request-location-button" title="Request all MQTT devices to report their current location">📍 Poll Devices</button>
-                        <button class="reset-button" id="reset-button" title="Clear all events and start fresh">🗑️ Reset</button>
+                        <button class="load-history-button" id="load-history-button" title="Load last 30 minutes of data" aria-label="Load last 30 minutes of data"><span class="btn-icon" aria-hidden="true">📥</span><span class="btn-label">Last 30min</span></button>
+                        <button class="load-history-button" id="refresh-live-latest-button" title="Load the most recent points (not limited to 30 minutes)" aria-label="Load latest locations"><span class="btn-icon" aria-hidden="true">🔄</span><span class="btn-label">Latest</span></button>
+                        <button class="load-history-button toggle-button" id="last-known-only-button" title="Dim all but the latest visible location per device" aria-label="Show only last known location per device" aria-pressed="false"><span class="btn-icon" aria-hidden="true">🎯</span><span class="btn-label">Last Known Only</span></button>
+                        <button class="request-location-button" id="request-location-button" title="Request all MQTT devices to report their current location" aria-label="Poll all MQTT devices for their current location"><span class="btn-icon" aria-hidden="true">📍</span><span class="btn-label">Poll Devices</span></button>
+                        <button class="reset-button" id="reset-button" title="Clear all events and start fresh" aria-label="Reset events"><span class="btn-icon" aria-hidden="true">🗑️</span><span class="btn-label">Reset</span></button>
                     </div>
                 </div>
                 <div id="log-container">
