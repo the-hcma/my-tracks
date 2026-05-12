@@ -14,6 +14,24 @@ export interface LocationData {
     _collapsedCount?: number;
 }
 
+export const LAT_LON_DECIMAL_PLACES = 6;
+
+export function formatLatLonCoordinate(
+    coordinate: string | number,
+    precision = LAT_LON_DECIMAL_PLACES,
+): string {
+    return parseFloat(String(coordinate)).toFixed(precision);
+}
+
+export function formatLatLonPair(
+    latitude: string | number,
+    longitude: string | number,
+    separator = ', ',
+    precision = LAT_LON_DECIMAL_PLACES,
+): string {
+    return `${formatLatLonCoordinate(latitude, precision)}${separator}${formatLatLonCoordinate(longitude, precision)}`;
+}
+
 /**
  * Hash function for consistent color assignment based on string identifier.
  * Uses a simple djb2-like hash function.
