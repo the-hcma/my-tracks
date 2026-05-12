@@ -43,7 +43,10 @@
                         <option value="24">Last 24 hours</option>
                     </select>
                     <div class="historic-controls hidden" id="historic-controls">
-                        <input type="date" id="historic-date" class="historic-date-input" title="Select date for historic trail" aria-label="Select date for historic trail">
+                        <div class="icon-input-wrap" data-icon-input="historic-date">
+                            <span class="icon-input-glyph" aria-hidden="true">📅</span>
+                            <input type="date" id="historic-date" class="historic-date-input" title="Select date for historic trail" aria-label="Select date for historic trail">
+                        </div>
                         <div class="time-slider-container" id="time-slider-container" title="Drag handles to set time window for historic trail">
                             <div class="time-slider-track-row">
                                 <div id="time-slider" class="time-slider"></div>
@@ -59,9 +62,12 @@
                         </div>
                         <span class="precision-value" id="precision-value">100%</span>
                     </div>
-                    <select class="device-selector" id="device-selector" title="Filter by device">
-                        <option value="">All Devices</option>
-                    </select>
+                    <div class="icon-input-wrap" data-icon-input="device-selector">
+                        <span class="icon-input-glyph" aria-hidden="true">📱</span>
+                        <select class="device-selector" id="device-selector" title="Filter by device">
+                            <option value="">All Devices</option>
+                        </select>
+                    </div>
                     <div class="status-indicator" id="server-status-indicator" title="WebSocket connection status">
                         <span class="status-dot" id="status-dot"></span>
                         <span id="status-text">Checking...</span>
