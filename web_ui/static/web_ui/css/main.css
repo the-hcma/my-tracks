@@ -816,12 +816,17 @@ a:hover {
     opacity: 0.8;
 }
 
-/* Mobile layout controls (rendered inside .resize-handle, shown only on phones) */
-.resize-mobile-controls {
+/* Mobile-only persistent action toolbar. The .log-controls element is moved
+   here on phones so all action buttons (including the map/activity layout
+   arrows) stay in a single always-visible row. */
+.mobile-toolbar-container {
     display: none;
 }
 
+/* Map/activity layout arrows live inside .log-controls. They are only relevant
+   on phones — desktop users have the drag handle. */
 .resize-mobile-btn {
+    display: none;
     background: var(--endpoint-bg);
     color: var(--text-main);
     border: 1px solid var(--border-color);
@@ -1058,40 +1063,49 @@ a:hover {
         max-height: calc(100vh - 200px);
     }
 
-    /* Replace the drag handle with three icon buttons that toggle the split */
+    /* The drag handle is desktop-only; on phones the layout is driven by the
+       arrow buttons inside the mobile toolbar instead. */
     .resize-handle {
-        cursor: default;
-        height: auto;
-        background: transparent;
-        margin: 6px 0;
-        padding: 0;
-        border-radius: 0;
-        flex: 0 0 auto;
-    }
-
-    .resize-handle:hover {
-        background: transparent;
-    }
-
-    .resize-handle::after {
         display: none;
     }
 
-    .resize-mobile-controls {
+    /* Persistent action toolbar at the top of the column. The .log-controls
+       element is moved into this container by the TypeScript reposition logic
+       so the buttons are always visible regardless of layout mode. */
+    .mobile-toolbar-container {
         display: flex;
-        gap: 8px;
+        align-items: center;
+        justify-content: center;
+        flex: 0 0 auto;
+        padding: 4px 6px;
+        margin-bottom: 8px;
+        background: var(--endpoint-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+    }
+
+    .mobile-toolbar-container .log-controls {
+        flex: 1 1 auto;
+        flex-wrap: nowrap;
+        gap: 4px;
         justify-content: center;
         width: 100%;
     }
 
-    /* When the map or activity is maximized, pin the control row to the top of
-       the column so it stays reachable above mobile browser chrome (iOS Safari
-       bottom toolbar, Android URL bar) that can obscure `100vh`-relative bottom
-       edges. */
-    .container.mobile-layout-map-only .resize-handle,
-    .container.mobile-layout-table-only .resize-handle {
-        order: -1;
-        margin: 0 0 6px;
+    /* Tighter buttons so all of them fit on a single row on a 360px phone. */
+    .mobile-toolbar-container .load-history-button,
+    .mobile-toolbar-container .request-location-button,
+    .mobile-toolbar-container .reset-button,
+    .mobile-toolbar-container .resize-mobile-btn {
+        padding: 6px 8px;
+        min-width: 34px;
+        font-size: 14px;
+    }
+
+    .resize-mobile-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
     }
 
     /* Layout modes triggered by the icon buttons */

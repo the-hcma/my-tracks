@@ -14,6 +14,7 @@
 <body>
     <div class="container" id="main-container">
         <div class="left-column">
+            <div class="mobile-toolbar-container" id="mobile-toolbar-container" role="toolbar" aria-label="Map and activity action toolbar"></div>
             <div class="map-section">
                 <div class="map-header">
                     <div class="map-controls">
@@ -78,13 +79,7 @@
                     <div id="device-legend" class="device-legend hidden"></div>
                 </div>
             </div>
-            <div class="resize-handle" id="resize-handle" title="Drag to resize">
-                <div class="resize-mobile-controls" role="group" aria-label="Map and activity layout">
-                    <button type="button" class="resize-mobile-btn" id="resize-show-map-btn" title="Show map only" aria-label="Show map only" aria-pressed="false">⬆</button>
-                    <button type="button" class="resize-mobile-btn" id="resize-show-split-btn" title="Restore split view" aria-label="Restore split view" aria-pressed="true">⇅</button>
-                    <button type="button" class="resize-mobile-btn" id="resize-show-table-btn" title="Show activity only" aria-label="Show activity only" aria-pressed="false">⬇</button>
-                </div>
-            </div>
+            <div class="resize-handle" id="resize-handle" title="Drag to resize"></div>
             <div class="activity-section">
                 <div class="log-header">
                     <h2 id="activity-title">📍 Live Activity</h2>
@@ -95,6 +90,9 @@
                         <button class="load-history-button toggle-button" id="last-known-only-button" title="Dim all but the latest visible location per device" aria-label="Show only last known location per device" aria-pressed="false"><span class="btn-icon" aria-hidden="true">🎯</span><span class="btn-label">Last Known Only</span></button>
                         <button class="request-location-button" id="request-location-button" title="Request all MQTT devices to report their current location" aria-label="Poll all MQTT devices for their current location"><span class="btn-icon" aria-hidden="true">📍</span><span class="btn-label">Poll Devices</span></button>
                         <button class="reset-button" id="reset-button" title="Clear all events and start fresh" aria-label="Reset events"><span class="btn-icon" aria-hidden="true">🗑️</span><span class="btn-label">Reset</span></button>
+                        <button type="button" class="resize-mobile-btn" id="resize-show-map-btn" title="Show map only" aria-label="Show map only" aria-pressed="false">⬆</button>
+                        <button type="button" class="resize-mobile-btn" id="resize-show-split-btn" title="Restore split view" aria-label="Restore split view" aria-pressed="true">⇅</button>
+                        <button type="button" class="resize-mobile-btn" id="resize-show-table-btn" title="Show activity only" aria-label="Show activity only" aria-pressed="false">⬇</button>
                     </div>
                 </div>
                 <div id="log-container">
