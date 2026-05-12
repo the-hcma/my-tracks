@@ -186,6 +186,24 @@ a:hover {
     font-family: 'Monaco', 'Courier New', monospace;
     white-space: nowrap;
     overflow-x: auto;
+    cursor: pointer;
+    transition: opacity 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.log-entry:hover,
+.log-entry:focus-visible {
+    box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.45);
+    outline: none;
+}
+
+.log-entry-selected {
+    border-left-color: #0d6efd;
+    background: color-mix(in srgb, var(--log-entry-bg) 82%, #0d6efd 18%);
+    box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.55);
+}
+
+.log-entry-dimmed {
+    opacity: 0.35;
 }
 
 /* Shown in activity log but omitted from map trail when accuracy filter is enabled */
@@ -844,6 +862,19 @@ a:hover {
 .waypoint-tooltip.leaflet-tooltip {
     max-width: none !important;
     white-space: nowrap !important;
+}
+
+.location-marker-selected {
+    z-index: 1000 !important;
+    filter: drop-shadow(0 0 6px rgba(13, 110, 253, 0.9));
+}
+
+.location-device-marker-selected {
+    stroke: #0d6efd;
+}
+
+.location-marker-dimmed {
+    transition: opacity 0.15s ease;
 }
 
 /* ── Mobile responsive ── */

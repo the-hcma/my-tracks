@@ -138,6 +138,17 @@ interface TrailElements {
     markers: L.Marker[];
 }
 
+type LocationMarker = L.Marker | L.CircleMarker;
+type SelectableLocationMarker = LocationMarker & {
+    _myTracksLocationKey?: string;
+    _myTracksSelectionHandlerAttached?: boolean;
+};
+
+interface RegisteredLocationMarker {
+    marker: LocationMarker;
+    kind: 'device' | 'waypoint';
+}
+
 /** Saved UI state for persistence */
 interface UIState {
     isLiveMode: boolean;
@@ -199,6 +210,8 @@ let eventCount = 0;
 let map: L.Map | null = null;
 let deviceMarkers: Record<string, L.CircleMarker> = {};
 let deviceTrails: Record<string, TrailElements> = {};
+const locationMarkersByKey = new Map<string, RegisteredLocationMarker[]>();
+let selectedLocationKey: string | null = null;
 const devices = new Set<string>();
 let selectedDevice = '';
 let timeRangeHours = 2;
@@ -414,6 +427,175 @@ function updateTimeSliderLabel(): void {
         const endTime = formatMinutesAsTime(historicEndMinutes);
         label.textContent = `${startTime} – ${endTime}`;
     }
+}
+
+// ============================================================================
+// Location Selection
+// ============================================================================
+
+function locationKeyFor(location: TrackLocation): string {
+    if (location.id !== undefined && location.id !== null) {
+        return `id:${location.id}`;
+    }
+
+    const device = location.device_name || 'Unknown';
+    const timestamp = locationTimestampUnix(location);
+    const lat = parseFloat(String(location.latitude)).toFixed(6);
+    const lon = parseFloat(String(location.longitude)).toFixed(6);
+    return `device:${device}|ts:${timestamp}|lat:${lat}|lon:${lon}`;
+}
+
+function unregisterLocationMarker(marker: LocationMarker): void {
+    locationMarkersByKey.forEach((registeredMarkers, key) => {
+        const remainingMarkers = registeredMarkers.filter((registeredMarker) => registeredMarker.marker !== marker);
+        if (remainingMarkers.length === 0) {
+            locationMarkersByKey.delete(key);
+        } else {
+            locationMarkersByKey.set(key, remainingMarkers);
+        }
+    });
+}
+
+function clearRegisteredLocationMarkers(): void {
+    locationMarkersByKey.clear();
+    selectedLocationKey = null;
+}
+
+function registeredMarkerLatLng(marker: LocationMarker): L.LatLng {
+    return marker.getLatLng();
+}
+
+function applyMarkerSelectionStyles(
+    registeredMarker: RegisteredLocationMarker,
+    isSelected: boolean,
+    hasSelection: boolean,
+): void {
+    const isDimmed = hasSelection && !isSelected;
+    const { marker, kind } = registeredMarker;
+
+    if (marker instanceof L.CircleMarker) {
+        marker.setRadius(isSelected ? 14 : 10);
+        marker.setStyle({
+            opacity: isDimmed ? 0.25 : 1,
+            fillOpacity: isDimmed ? 0.2 : 0.9,
+            weight: isSelected ? 4 : 2,
+        });
+    } else {
+        marker.setOpacity(isDimmed ? 0.25 : 1);
+    }
+
+    const element = marker.getElement();
+    element?.classList.toggle('location-marker-selected', isSelected);
+    element?.classList.toggle('location-marker-dimmed', isDimmed);
+    element?.classList.toggle('location-device-marker-selected', isSelected && kind === 'device');
+}
+
+function applyLocationSelection(): void {
+    const hasSelection = selectedLocationKey !== null;
+    document.querySelectorAll<HTMLElement>('.log-entry[data-location-key]').forEach((entry) => {
+        const isSelected = entry.dataset.locationKey === selectedLocationKey;
+        entry.classList.toggle('log-entry-selected', isSelected);
+        entry.classList.toggle('log-entry-dimmed', hasSelection && !isSelected);
+    });
+
+    locationMarkersByKey.forEach((registeredMarkers, key) => {
+        const isSelected = key === selectedLocationKey;
+        registeredMarkers.forEach((registeredMarker) => {
+            applyMarkerSelectionStyles(registeredMarker, isSelected, hasSelection);
+        });
+    });
+}
+
+function focusLocationMarker(locationKey: string, openPopup: boolean): void {
+    const registeredMarkers = locationMarkersByKey.get(locationKey);
+    const registeredMarker = registeredMarkers?.[0];
+    if (!registeredMarker || !map) {
+        return;
+    }
+
+    const { marker } = registeredMarker;
+    map.panTo(registeredMarkerLatLng(marker));
+    if (openPopup) {
+        marker.openPopup();
+    }
+}
+
+function selectLocation(
+    locationKey: string,
+    options: { scrollRow?: boolean; focusMarker?: boolean; openPopup?: boolean } = {},
+): void {
+    selectedLocationKey = locationKey;
+    applyLocationSelection();
+
+    if (options.scrollRow) {
+        const row = document.querySelector<HTMLElement>(`.log-entry[data-location-key="${CSS.escape(locationKey)}"]`);
+        row?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    if (options.focusMarker) {
+        focusLocationMarker(locationKey, options.openPopup ?? true);
+    }
+}
+
+function attachLocationSelectionToEntry(entry: HTMLElement, location: TrackLocation): void {
+    const locationKey = locationKeyFor(location);
+    entry.dataset.locationKey = locationKey;
+    entry.tabIndex = 0;
+    entry.setAttribute('role', 'button');
+    entry.setAttribute('aria-label', 'Highlight this location on the map');
+    entry.addEventListener('click', () => {
+        selectLocation(locationKey, { focusMarker: true, openPopup: true });
+    });
+    entry.addEventListener('keydown', (event: KeyboardEvent) => {
+        if (event.key !== 'Enter' && event.key !== ' ') {
+            return;
+        }
+        event.preventDefault();
+        selectLocation(locationKey, { focusMarker: true, openPopup: true });
+    });
+}
+
+function registerLocationMarker(location: TrackLocation, marker: LocationMarker, kind: RegisteredLocationMarker['kind']): void {
+    unregisterLocationMarker(marker);
+    const locationKey = locationKeyFor(location);
+    const registeredMarkers = locationMarkersByKey.get(locationKey) ?? [];
+    registeredMarkers.push({ marker, kind });
+    locationMarkersByKey.set(locationKey, registeredMarkers);
+    const selectableMarker = marker as SelectableLocationMarker;
+    selectableMarker._myTracksLocationKey = locationKey;
+    if (!selectableMarker._myTracksSelectionHandlerAttached) {
+        marker.on('click', () => {
+            const currentLocationKey = selectableMarker._myTracksLocationKey;
+            if (currentLocationKey) {
+                selectLocation(currentLocationKey, { scrollRow: true });
+            }
+        });
+        selectableMarker._myTracksSelectionHandlerAttached = true;
+    }
+    applyLocationSelection();
+}
+
+function removeTrailElements(trail: TrailElements): void {
+    if (trail.polyline) {
+        trail.polyline.remove();
+    }
+    trail.markers.forEach((marker) => {
+        unregisterLocationMarker(marker);
+        marker.remove();
+    });
+}
+
+function removeAllDeviceMarkers(): void {
+    Object.values(deviceMarkers).forEach((marker) => {
+        unregisterLocationMarker(marker);
+        marker.remove();
+    });
+    deviceMarkers = {};
+}
+
+function removeAllTrails(): void {
+    Object.values(deviceTrails).forEach(removeTrailElements);
+    deviceTrails = {};
 }
 
 // ============================================================================
@@ -741,13 +923,13 @@ function updateDeviceMarker(location: TrackLocation): void {
     if (selectedDevice && selectedDevice !== deviceName) {
         // Hide marker if it exists
         if (deviceMarkers[deviceName]) {
+            unregisterLocationMarker(deviceMarkers[deviceName]);
             deviceMarkers[deviceName].remove();
             delete deviceMarkers[deviceName];
         }
         // Also hide trail if it exists
         if (deviceTrails[deviceName]) {
-            if (deviceTrails[deviceName].polyline) deviceTrails[deviceName].polyline.remove();
-            if (deviceTrails[deviceName].markers) deviceTrails[deviceName].markers.forEach((m) => m.remove());
+            removeTrailElements(deviceTrails[deviceName]);
             delete deviceTrails[deviceName];
         }
         return;
@@ -779,6 +961,7 @@ function updateDeviceMarker(location: TrackLocation): void {
         });
         deviceMarkers[deviceName] = marker;
     }
+    registerLocationMarker(location, deviceMarkers[deviceName], 'device');
 
     // Center map on the marker in live mode only (when a single device is selected or first marker)
     // Avoid re-centering when showing "All Devices" — that creates constant map motion/jank.
@@ -1047,6 +1230,7 @@ function addLocationToTrail(location: TrackLocation): void {
             className: 'waypoint-tooltip',
         });
 
+        registerLocationMarker(loc, marker, 'waypoint');
         trailElements.markers.push(marker);
     });
 
@@ -1133,11 +1317,7 @@ function addLiveLocationToTrail(location: TrackLocation): void {
  */
 function drawLiveTrails(locationsByDevice: Record<string, TrackLocation[]>): void {
     // Clear existing trails first
-    Object.values(deviceTrails).forEach(trail => {
-        if (trail.polyline) trail.polyline.remove();
-        if (trail.markers) trail.markers.forEach((m) => m.remove());
-    });
-    deviceTrails = {};
+    removeAllTrails();
 
     // Draw trail for each device
     Object.entries(locationsByDevice).forEach(([deviceName, locations]) => {
@@ -1216,6 +1396,7 @@ function drawLiveTrails(locationsByDevice: Record<string, TrackLocation[]>): voi
                 className: 'waypoint-tooltip',
             });
 
+            registerLocationMarker(loc, marker, 'waypoint');
             trailElements.markers.push(marker);
         });
 
@@ -1249,11 +1430,9 @@ async function fetchAndDisplayTrail(): Promise<void> {
     const [startTime, endTime] = getHistoricTimestamps();
 
     // Clear existing trails
-    Object.values(deviceTrails).forEach(trail => {
-        if (trail.polyline) trail.polyline.remove();
-        if (trail.markers) trail.markers.forEach((m) => m.remove());
-    });
-    deviceTrails = {};
+    removeAllTrails();
+    selectedLocationKey = null;
+    applyLocationSelection();
 
     if (!selectedDevice) {
         // "All Devices" selected - show trails and numbered waypoints for each device
@@ -1269,8 +1448,7 @@ async function fetchAndDisplayTrail(): Promise<void> {
             const locations = data.results || [];
 
             // Clear stale device markers before rendering new results
-            Object.values(deviceMarkers).forEach((marker) => marker.remove());
-            deviceMarkers = {};
+            removeAllDeviceMarkers();
 
             // Show summary in activity section (with device names)
             displayHistoricWaypoints(locations, true); // true = show device names
@@ -1401,6 +1579,7 @@ async function fetchAndDisplayTrail(): Promise<void> {
                             }
                         });
 
+                        registerLocationMarker(loc, marker, 'waypoint');
                         trailElements.markers.push(marker);
                     });
 
@@ -1588,6 +1767,7 @@ async function fetchAndDisplayTrail(): Promise<void> {
                     }
                 });
 
+                registerLocationMarker(loc, marker, 'waypoint');
                 trailElements.markers.push(marker);
             });
 
@@ -1730,6 +1910,7 @@ function displayHistoricWaypoints(locations: TrackLocation[], showDeviceNames = 
 
             entry.innerHTML = `<span class="log-time">${time}</span> | <span class="log-ip">${ip}</span> | <span class="log-coords">${lat}, ${lon}</span> | <span class="log-meta">acc:${acc}m alt:${alt}m vel:${vel}km/h batt:${batt}% ${conn}</span>${countBadge}${deviceBadge}`;
 
+            attachLocationSelectionToEntry(entry, loc);
             decorateActivityLogEntryForAccuracy(entry, loc);
             container.appendChild(entry);
         });
@@ -1778,6 +1959,7 @@ function displayHistoricWaypoints(locations: TrackLocation[], showDeviceNames = 
 
             entry.innerHTML = `<span class="log-time">${time}</span> | <span class="log-ip">${ip}</span> | <span class="log-coords">${lat}, ${lon}</span> | <span class="log-meta">acc:${acc}m alt:${alt}m vel:${vel}km/h batt:${batt}% ${conn}</span>${countBadge}${deviceBadge}`;
 
+            attachLocationSelectionToEntry(entry, loc);
             decorateActivityLogEntryForAccuracy(entry, loc);
             container.appendChild(entry);
         });
@@ -1841,6 +2023,7 @@ function addLogEntry(location: TrackLocation, skipScroll = false): void {
 
     entry.innerHTML = `<span class="log-time">${time}</span> | <span class="log-ip">${ipDisplay}</span> | <span class="log-coords">${lat}, ${lon}</span> | <span class="log-meta">acc:${acc}m alt:${alt}m vel:${vel}km/h batt:${batt}% ${conn}</span>${deviceBadge}`;
 
+    attachLocationSelectionToEntry(entry, location);
     decorateActivityLogEntryForAccuracy(entry, location);
     insertLiveLogEntryInTimestampOrder(container, entry, locationTimestampUnix(location));
 
@@ -1885,15 +2068,11 @@ function resetEvents(): void {
     }
 
     // Clear device markers from the map
-    Object.values(deviceMarkers).forEach((marker) => marker.remove());
-    deviceMarkers = {};
+    removeAllDeviceMarkers();
 
     // Clear trails from the map
-    Object.values(deviceTrails).forEach((trail) => {
-        if (trail.polyline) trail.polyline.remove();
-        if (trail.markers) trail.markers.forEach((m) => m.remove());
-    });
-    deviceTrails = {};
+    removeAllTrails();
+    clearRegisteredLocationMarkers();
 
     // Clear incremental locations used for building trails after reset
     incrementalLocations = {};
@@ -1923,15 +2102,11 @@ async function loadLast30Minutes(): Promise<void> {
     eventCount = 0;
 
     // Clear device markers from the map
-    Object.values(deviceMarkers).forEach((marker) => marker.remove());
-    deviceMarkers = {};
+    removeAllDeviceMarkers();
 
     // Clear trails from the map
-    Object.values(deviceTrails).forEach((trail) => {
-        if (trail.polyline) trail.polyline.remove();
-        if (trail.markers) trail.markers.forEach((m) => m.remove());
-    });
-    deviceTrails = {};
+    removeAllTrails();
+    selectedLocationKey = null;
 
     // Clear incremental locations
     incrementalLocations = {};
@@ -2026,6 +2201,7 @@ async function loadLast30Minutes(): Promise<void> {
 
             entry.innerHTML = `<span class="log-time">${time}</span> | <span class="log-ip">${ip}</span> | <span class="log-coords">${lat}, ${lon}</span> | <span class="log-meta">acc:${acc}m alt:${alt}m vel:${vel}km/h batt:${batt}% ${conn}</span>${deviceBadge}`;
 
+            attachLocationSelectionToEntry(entry, loc);
             decorateActivityLogEntryForAccuracy(entry, loc);
             container.appendChild(entry);
 
@@ -2072,14 +2248,9 @@ async function loadLatestLocations(): Promise<void> {
     }
     eventCount = 0;
 
-    Object.values(deviceMarkers).forEach((marker) => marker.remove());
-    deviceMarkers = {};
-
-    Object.values(deviceTrails).forEach((trail) => {
-        if (trail.polyline) trail.polyline.remove();
-        if (trail.markers) trail.markers.forEach((m) => m.remove());
-    });
-    deviceTrails = {};
+    removeAllDeviceMarkers();
+    removeAllTrails();
+    selectedLocationKey = null;
 
     incrementalLocations = {};
     skipHistoryFetch = false;
@@ -2159,6 +2330,7 @@ async function loadLatestLocations(): Promise<void> {
 
             entry.innerHTML = `<span class="log-time">${time}</span> | <span class="log-ip">${ip}</span> | <span class="log-coords">${lat}, ${lon}</span> | <span class="log-meta">acc:${acc}m alt:${alt}m vel:${vel}km/h batt:${batt}% ${conn}</span>${deviceBadge}`;
 
+            attachLocationSelectionToEntry(entry, loc);
             decorateActivityLogEntryForAccuracy(entry, loc);
             container.appendChild(entry);
 
@@ -2337,6 +2509,7 @@ async function loadLiveActivityHistory(): Promise<void> {
 
             entry.innerHTML = `<span class="log-time">${time}</span> | <span class="log-ip">${ip}</span> | <span class="log-coords">${lat}, ${lon}</span> | <span class="log-meta">acc:${acc}m alt:${alt}m vel:${vel}km/h batt:${batt}% ${conn}</span>${deviceBadge}`;
 
+            attachLocationSelectionToEntry(entry, loc);
             decorateActivityLogEntryForAccuracy(entry, loc);
             container.appendChild(entry);
 
@@ -2457,15 +2630,11 @@ function switchToLiveMode(): void {
 
     // Don't clear device selection - respect user's filter choice
     // Clear trails (will be redrawn by loadLiveActivityHistory)
-    Object.values(deviceTrails).forEach(trail => {
-        if (trail.polyline) trail.polyline.remove();
-        if (trail.markers) trail.markers.forEach((m) => m.remove());
-    });
-    deviceTrails = {};
+    removeAllTrails();
 
     // Clear device markers for fresh load
-    Object.values(deviceMarkers).forEach((marker) => marker.remove());
-    deviceMarkers = {};
+    removeAllDeviceMarkers();
+    selectedLocationKey = null;
 
     // Load last hour of activity data
     loadLiveActivityHistory();
@@ -2523,8 +2692,8 @@ function switchToHistoricMode(): void {
     document.getElementById('device-selector')?.classList.remove('hidden');
 
     // Clear markers (will be restored by fetchAndDisplayTrail)
-    Object.values(deviceMarkers).forEach((marker) => marker.remove());
-    deviceMarkers = {};
+    removeAllDeviceMarkers();
+    selectedLocationKey = null;
 
     // Fetch and display trail (works for both All Devices and specific device)
     fetchAndDisplayTrail();
@@ -3030,13 +3199,9 @@ function initEventListeners(): void {
             selectedDevice = (e.target as HTMLSelectElement).value;
 
             // Clear all markers and trails
-            Object.values(deviceMarkers).forEach((marker) => marker.remove());
-            deviceMarkers = {};
-            Object.values(deviceTrails).forEach(trail => {
-                if (trail.polyline) trail.polyline.remove();
-                if (trail.markers) trail.markers.forEach((m) => m.remove());
-            });
-            deviceTrails = {};
+            removeAllDeviceMarkers();
+            removeAllTrails();
+            selectedLocationKey = null;
 
             // Fit bounds when changing device selection
             needsFitBounds = true;
@@ -3123,11 +3288,8 @@ function initEventListeners(): void {
             // Refresh trail with new resolution on release
             if (isLiveMode) {
                 // Clear existing trails and reload
-                Object.values(deviceTrails).forEach(trail => {
-                    if (trail.polyline) trail.polyline.remove();
-                    if (trail.markers) trail.markers.forEach((m) => m.remove());
-                });
-                deviceTrails = {};
+                removeAllTrails();
+                selectedLocationKey = null;
                 loadLiveActivityHistory();
             } else {
                 fetchAndDisplayTrail();
