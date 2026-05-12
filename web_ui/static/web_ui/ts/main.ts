@@ -3341,29 +3341,6 @@ function isMobileViewport(): boolean {
 }
 
 /**
- * Move the .log-controls element between its desktop home (inside the activity
- * panel header) and the persistent mobile toolbar at the top of the column.
- *
- * Reparenting (instead of cloning) keeps a single source of truth: existing
- * event listeners stay bound to the same DOM nodes regardless of viewport.
- */
-function repositionLogControlsForViewport(): void {
-    const logControls = document.querySelector<HTMLElement>('.log-controls');
-    const desktopParent = document.querySelector<HTMLElement>('.log-header');
-    const mobileParent = document.getElementById('mobile-toolbar-container');
-    if (!logControls || !desktopParent || !mobileParent) {
-        return;
-    }
-    const targetParent = isMobileViewport() ? mobileParent : desktopParent;
-    if (logControls.parentElement !== targetParent) {
-        targetParent.appendChild(logControls);
-        if (map) {
-            map.invalidateSize();
-        }
-    }
-}
-
-/**
  * Apply the active mobile layout mode (full-screen map, full-screen activity
  * log, or restored split view) by toggling classes on the main container.
  * Only takes effect on phone-sized viewports because the supporting CSS lives
@@ -3750,11 +3727,6 @@ function init(): void {
 
     // Initialize resize handle
     initResizeHandle();
-
-    // Place the action toolbar in the right parent for the current viewport
-    // and update if the user resizes between mobile and desktop widths.
-    repositionLogControlsForViewport();
-    window.matchMedia('(max-width: 768px)').addEventListener('change', repositionLogControlsForViewport);
 
     // Restore UI state from localStorage
     restoreUIState();

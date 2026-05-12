@@ -816,11 +816,18 @@ a:hover {
     opacity: 0.8;
 }
 
-/* Mobile-only persistent action toolbar. The .log-controls element is moved
-   here on phones so all action buttons (including the map/activity layout
-   arrows) stay in a single always-visible row. */
-.mobile-toolbar-container {
-    display: none;
+/* Persistent action toolbar at the top of the column. Hosts the global action
+   buttons (Last 30min, Latest, Last Known Only, Poll Devices, Reset, and the
+   mobile-only layout arrows) so they live in a single guaranteed-visible row
+   on every viewport. Styled minimally on desktop so the existing layout is
+   barely changed; the mobile media query gives it a more prominent toolbar
+   look since it's the only row of action controls there. */
+.action-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex: 0 0 auto;
+    margin-bottom: 10px;
 }
 
 /* Map/activity layout arrows live inside .log-controls. They are only relevant
@@ -1156,27 +1163,22 @@ a:hover {
     }
 
     /* The drag handle is desktop-only; on phones the layout is driven by the
-       arrow buttons inside the mobile toolbar instead. */
+       arrow buttons inside the action toolbar instead. */
     .resize-handle {
         display: none;
     }
 
-    /* Persistent action toolbar at the top of the column. The .log-controls
-       element is moved into this container by the TypeScript reposition logic
-       so the buttons are always visible regardless of layout mode. */
-    .mobile-toolbar-container {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        flex: 0 0 auto;
+    /* Toolbar fills the column edge-to-edge and centers the button row. */
+    .action-toolbar {
         padding: 4px 6px;
         margin-bottom: 8px;
+        justify-content: center;
         background: var(--endpoint-bg);
         border: 1px solid var(--border-color);
         border-radius: 8px;
     }
 
-    .mobile-toolbar-container .log-controls {
+    .action-toolbar .log-controls {
         flex: 1 1 auto;
         flex-wrap: nowrap;
         gap: 4px;
@@ -1184,11 +1186,11 @@ a:hover {
         width: 100%;
     }
 
-    /* Tighter buttons so all of them fit on a single row on a 360px phone. */
-    .mobile-toolbar-container .load-history-button,
-    .mobile-toolbar-container .request-location-button,
-    .mobile-toolbar-container .reset-button,
-    .mobile-toolbar-container .resize-mobile-btn {
+    /* Tighter buttons so all of them fit on a single row on a ~360px phone. */
+    .action-toolbar .load-history-button,
+    .action-toolbar .request-location-button,
+    .action-toolbar .reset-button,
+    .action-toolbar .resize-mobile-btn {
         padding: 6px 8px;
         min-width: 34px;
         font-size: 14px;
@@ -1198,6 +1200,12 @@ a:hover {
         display: inline-flex;
         align-items: center;
         justify-content: center;
+    }
+
+    /* The activity title was the only visible content of .log-header on mobile;
+       hide the (otherwise empty) header so it doesn't add empty vertical space. */
+    .log-header {
+        display: none;
     }
 
     /* Layout modes triggered by the icon buttons */
