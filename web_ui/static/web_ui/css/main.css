@@ -886,6 +886,16 @@ a:hover {
     transition: opacity 0.15s ease;
 }
 
+/* Button icon/label slots — both visible on desktop, label hides on mobile */
+.btn-icon {
+    display: inline-block;
+}
+
+.btn-label {
+    display: inline-block;
+    margin-left: 4px;
+}
+
 /* ── Mobile responsive ── */
 @media (max-width: 768px) {
     .left-column {
@@ -910,15 +920,34 @@ a:hover {
         width: 100%;
     }
 
-    .mode-toggle button {
+    /* Collapse buttons to icon-only on phones */
+    .btn-label {
+        display: none;
+    }
+
+    .btn-icon {
+        margin: 0;
+        font-size: 16px;
+        line-height: 1;
+    }
+
+    .mode-toggle button,
+    .load-history-button,
+    .request-location-button,
+    .reset-button {
         padding: 6px 10px;
         font-size: 13px;
+        min-width: 36px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
     }
 
     .device-selector,
     .time-range-selector {
         font-size: 13px;
         padding: 6px 8px;
+        max-width: 140px;
     }
 
     .historic-controls {
@@ -942,7 +971,11 @@ a:hover {
     }
 
     .user-name {
-        font-size: 13px;
+        display: none;
+    }
+
+    .admin-badge {
+        font-size: 11px;
     }
 
     .status-indicator {
@@ -970,15 +1003,28 @@ a:hover {
     }
 
     .log-header {
-        flex-direction: column;
+        flex-direction: row;
         gap: 8px;
-        align-items: flex-start;
-        margin-bottom: 12px;
+        align-items: center;
+        flex-wrap: wrap;
+        margin-bottom: 8px;
+    }
+
+    .log-header h2 {
+        font-size: 0.95rem;
+        margin: 0;
+        flex: 0 0 auto;
     }
 
     .log-controls {
-        width: 100%;
+        flex: 1 1 auto;
         flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .log-count {
+        font-size: 11px;
+        padding: 3px 8px;
     }
 
     #log-container {
