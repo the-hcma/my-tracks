@@ -2526,7 +2526,7 @@ async function requestDeviceLocations(): Promise<void> {
     const btn = document.getElementById('request-location-button') as HTMLButtonElement | null;
     if (btn) {
         btn.disabled = true;
-        btn.textContent = '⏳ Polling...';
+        setIconLabelButton(btn, '⏳', 'Polling...');
     }
 
     try {
@@ -2572,9 +2572,25 @@ async function requestDeviceLocations(): Promise<void> {
     } finally {
         if (btn) {
             btn.disabled = false;
-            btn.textContent = '📍 Poll Devices';
+            setIconLabelButton(btn, '📍', 'Poll Devices');
         }
     }
+}
+
+/**
+ * Update an icon/label button while preserving the `.btn-icon` / `.btn-label`
+ * span structure so the mobile responsive CSS can keep collapsing it to
+ * icon-only. Falls back to setting textContent if the spans are not present.
+ */
+function setIconLabelButton(button: HTMLButtonElement, icon: string, label: string): void {
+    const iconSpan = button.querySelector<HTMLElement>('.btn-icon');
+    const labelSpan = button.querySelector<HTMLElement>('.btn-label');
+    if (iconSpan && labelSpan) {
+        iconSpan.textContent = icon;
+        labelSpan.textContent = label;
+        return;
+    }
+    button.textContent = `${icon} ${label}`;
 }
 
 // ============================================================================
