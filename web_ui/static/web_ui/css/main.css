@@ -931,6 +931,17 @@ a:hover {
     border-color: #0d6efd;
 }
 
+.resize-layout-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 0;
+}
+
+.resize-layout-icon svg {
+    display: block;
+}
+
 .hidden {
     display: none !important;
 }

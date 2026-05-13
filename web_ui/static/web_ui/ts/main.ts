@@ -3447,7 +3447,7 @@ function initResizeHandle(): void {
         }
         // Don't start a drag when the user clicks the mobile control buttons
         // (defensive — only reachable if the viewport flips between renders).
-        if (e.target instanceof Element && e.target.closest('.resize-mobile-controls')) {
+        if (e.target instanceof Element && e.target.closest('.resize-mobile-btn')) {
             return;
         }
         isResizing = true;
