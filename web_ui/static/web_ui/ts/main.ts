@@ -739,6 +739,127 @@ function removeAllTrails(): void {
 }
 
 /**
+ * Trail polylines connect every historic/live point; in "Last Known Only" mode
+ * that reads as a distracting artifact while markers are dimmed. Hide lines
+ * until the filter is turned off again.
+ */
+function syncTrailPolylineVisibilityForLastKnownMode(): void {
+    const opacity = showLastKnownOnly ? 0 : 0.7;
+    Object.values(deviceTrails).forEach((trail) => {
+        if (!trail.polyline) {
+            return;
+        }
+        trail.polyline.setStyle({ opacity, interactive: !showLastKnownOnly });
+    });
+}
+
+/** Flatten Leaflet polyline `getLatLngs()` (simple line or nested rings) to vertices. */
+function collectVerticesFromPolyline(polyline: L.Polyline): L.LatLng[] {
+    const raw = polyline.getLatLngs();
+    if (raw.length === 0) {
+        return [];
+    }
+    const first = raw[0] as L.LatLng | L.LatLng[];
+    if (Array.isArray(first) && !('lat' in first)) {
+        return (raw as L.LatLng[][]).flat();
+    }
+    return raw as L.LatLng[];
+}
+
+/**
+ * Fit the map to all trail polylines, waypoint markers, and live device markers
+ * so turning Last Known Only off restores context around the full path.
+ */
+function fitMapToVisibleTrailContent(): void {
+    if (!map) {
+        return;
+    }
+    const latLngs: L.LatLng[] = [];
+    const dedupe = new Set<string>();
+    const pushUnique = (ll: L.LatLng): void => {
+        const fingerprint = `${ll.lat.toFixed(6)}|${ll.lng.toFixed(6)}`;
+        if (dedupe.has(fingerprint)) {
+            return;
+        }
+        dedupe.add(fingerprint);
+        latLngs.push(ll);
+    };
+
+    Object.values(deviceTrails).forEach((trail) => {
+        if (trail.polyline) {
+            collectVerticesFromPolyline(trail.polyline).forEach(pushUnique);
+        }
+        trail.markers.forEach((m) => {
+            pushUnique(m.getLatLng());
+        });
+    });
+    Object.values(deviceMarkers).forEach((m) => {
+        pushUnique(m.getLatLng());
+    });
+
+    if (latLngs.length === 0) {
+        return;
+    }
+    map.invalidateSize();
+    if (latLngs.length === 1) {
+        map.setView(latLngs[0], 16);
+        return;
+    }
+    map.fitBounds(L.latLngBounds(latLngs), { padding: [60, 60], maxZoom: 17 });
+}
+
+/**
+ * After Last Known Only UI updates, fit either last-known markers or the full
+ * trail on the next frame pair so layout and polyline opacity are settled.
+ */
+function scheduleMapFitAfterLastKnownUiChange(): void {
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            if (showLastKnownOnly) {
+                fitMapToLastKnownLocations();
+            } else {
+                fitMapToVisibleTrailContent();
+            }
+        });
+    });
+}
+
+/**
+ * Build LatLngs for the current last-known keys, using registered markers when
+ * present and falling back to live device circle markers (same log row key as
+ * the moving device marker can briefly diverge after incremental updates).
+ */
+function collectLatLngsForLastKnownKeys(keys: Set<string>): L.LatLng[] {
+    const latLngs: L.LatLng[] = [];
+    const dedupe = new Set<string>();
+    const pushUnique = (ll: L.LatLng): void => {
+        const fingerprint = `${ll.lat.toFixed(6)}|${ll.lng.toFixed(6)}`;
+        if (dedupe.has(fingerprint)) {
+            return;
+        }
+        dedupe.add(fingerprint);
+        latLngs.push(ll);
+    };
+
+    keys.forEach((key) => {
+        const registered = locationMarkersByKey.get(key);
+        if (registered) {
+            registered.forEach((entry) => {
+                pushUnique(registeredMarkerLatLng(entry.marker));
+            });
+            return;
+        }
+        const row = document.querySelector<HTMLElement>(`.log-entry[data-location-key="${CSS.escape(key)}"]`);
+        const deviceName = row?.dataset.deviceName;
+        if (deviceName && deviceMarkers[deviceName]) {
+            pushUnique(deviceMarkers[deviceName].getLatLng());
+        }
+    });
+
+    return latLngs;
+}
+
+/**
  * Re-center and zoom the map so every device's last-known marker is visible
  * with a comfortable margin and street-level detail (capped by `maxZoom`).
  * Silently no-ops when the map or marker set is unavailable.
@@ -751,17 +872,13 @@ function fitMapToLastKnownLocations(): void {
     if (keys.size === 0) {
         return;
     }
-    const latLngs: L.LatLng[] = [];
-    keys.forEach((key) => {
-        const registered = locationMarkersByKey.get(key);
-        if (!registered) {
-            return;
-        }
-        registered.forEach((entry) => {
-            latLngs.push(registeredMarkerLatLng(entry.marker));
-        });
-    });
+    const latLngs = collectLatLngsForLastKnownKeys(keys);
     if (latLngs.length === 0) {
+        return;
+    }
+    map.invalidateSize();
+    if (latLngs.length === 1) {
+        map.setView(latLngs[0], 16);
         return;
     }
     const bounds = L.latLngBounds(latLngs);
@@ -801,18 +918,18 @@ function toggleLastKnownOnly(): void {
     showLastKnownOnly = !showLastKnownOnly;
     updateLastKnownOnlyButton();
     applyLocationSelection();
+    syncTrailPolylineVisibilityForLastKnownMode();
     saveUIState();
 
-    if (!showLastKnownOnly) {
+    if (showLastKnownOnly) {
+        if (isLiveMode) {
+            void ensureLastKnownLocationsLoaded();
+        } else {
+            scheduleMapFitAfterLastKnownUiChange();
+        }
         return;
     }
-    if (isLiveMode) {
-        // Live mode needs to fetch the last known location for any device not
-        // already in the activity log; the fit happens once that resolves.
-        void ensureLastKnownLocationsLoaded();
-    } else {
-        fitMapToLastKnownLocations();
-    }
+    scheduleMapFitAfterLastKnownUiChange();
 }
 
 /**
@@ -896,7 +1013,14 @@ async function ensureLastKnownLocationsLoaded(): Promise<void> {
             button.disabled = false;
         }
         if (showLastKnownOnly) {
-            fitMapToLastKnownLocations();
+            const runFit = (): void => {
+                if (showLastKnownOnly) {
+                    fitMapToLastKnownLocations();
+                }
+            };
+            requestAnimationFrame(() => {
+                requestAnimationFrame(runFit);
+            });
         }
     }
 }
@@ -1559,6 +1683,7 @@ function addLocationToTrail(location: TrackLocation): void {
         map!.setView(latLng, 17);
         needsFitBounds = false;
     }
+    syncTrailPolylineVisibilityForLastKnownMode();
 }
 
 /**
@@ -1615,12 +1740,14 @@ function addLiveLocationToTrail(location: TrackLocation): void {
         }).addTo(map!);
         deviceTrails[deviceName] = { polyline, markers: [] };
         updateDeviceLegendVisibility();
+        syncTrailPolylineVisibilityForLastKnownMode();
         return;
     }
 
     // Update existing polyline with the new bounded set of points
     deviceTrails[deviceName].polyline!.setLatLngs(points);
     updateDeviceLegendVisibility();
+    syncTrailPolylineVisibilityForLastKnownMode();
 }
 
 // ============================================================================
@@ -1718,6 +1845,7 @@ function drawLiveTrails(locationsByDevice: Record<string, TrackLocation[]>): voi
 
         deviceTrails[deviceName] = trailElements;
     });
+    syncTrailPolylineVisibilityForLastKnownMode();
     updateDeviceLegendVisibility();
 
     // Fit bounds to show all trails if this is initial load
@@ -1759,7 +1887,10 @@ async function fetchAndDisplayTrail(): Promise<void> {
             // Always include resolution to bypass pagination limit
             const url = `/api/locations/?start_time=${Math.floor(startTime)}&end_time=${Math.floor(endTime)}&ordering=-timestamp&resolution=${trailResolution}`;
             const response = await fetch(url);
-            if (!response.ok) return;
+            if (!response.ok) {
+                syncTrailPolylineVisibilityForLastKnownMode();
+                return;
+            }
 
             const data: LocationsApiResponse = await response.json();
             const locations = data.results || [];
@@ -1938,6 +2069,7 @@ async function fetchAndDisplayTrail(): Promise<void> {
         } catch (error) {
             console.error('Error fetching all devices:', error);
         }
+        syncTrailPolylineVisibilityForLastKnownMode();
         return;
     }
 
@@ -1945,7 +2077,10 @@ async function fetchAndDisplayTrail(): Promise<void> {
         // Always include resolution to bypass pagination limit
         const url = `/api/locations/?device=${selectedDevice}&start_time=${Math.floor(startTime)}&end_time=${Math.floor(endTime)}&ordering=-timestamp&resolution=${trailResolution}`;
         const response = await fetch(url);
-        if (!response.ok) return;
+        if (!response.ok) {
+            syncTrailPolylineVisibilityForLastKnownMode();
+            return;
+        }
 
         const data: LocationsApiResponse = await response.json();
         const locations = data.results || [];
@@ -1961,7 +2096,10 @@ async function fetchAndDisplayTrail(): Promise<void> {
         // Update activity section with waypoints
         displayHistoricWaypoints(locations);
 
-        if (locations.length === 0) return;
+        if (locations.length === 0) {
+            syncTrailPolylineVisibilityForLastKnownMode();
+            return;
+        }
 
         // Clear old trail for this device
         if (deviceTrails[selectedDevice]) {
@@ -2116,8 +2254,10 @@ async function fetchAndDisplayTrail(): Promise<void> {
         if (locations.length > 0) {
             updateDeviceMarker(locations[0]);
         }
+        syncTrailPolylineVisibilityForLastKnownMode();
     } catch (error) {
         console.error('Error fetching trail:', error);
+        syncTrailPolylineVisibilityForLastKnownMode();
     }
 }
 
