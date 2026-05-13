@@ -3433,8 +3433,8 @@ function initResizeHandle(): void {
         const mapPercent = parseFloat(savedMapHeight);
         // Validate: must be between 10% and 90%
         if (mapPercent >= 10 && mapPercent <= 90) {
-            mapSection.style.flex = `0 0 ${mapPercent}%`;
-            activitySection.style.flex = `0 0 ${100 - mapPercent}%`;
+            mapSection.style.flex = `${mapPercent} 1 0px`;
+            activitySection.style.flex = `${100 - mapPercent} 1 0px`;
         }
         // Otherwise keep CSS defaults (50/50)
     }
@@ -3481,8 +3481,8 @@ function initResizeHandle(): void {
         }
 
         const mapPercent = (newMapHeight / totalHeight) * 100;
-        mapSection.style.flex = `0 0 ${mapPercent}%`;
-        activitySection.style.flex = `0 0 ${100 - mapPercent}%`;
+        mapSection.style.flex = `${mapPercent} 1 0px`;
+        activitySection.style.flex = `${100 - mapPercent} 1 0px`;
 
         // Invalidate map size during resize
         if (map) map!.invalidateSize();
