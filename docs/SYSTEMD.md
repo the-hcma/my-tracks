@@ -30,8 +30,12 @@ This will:
 3. Enable systemd lingering so the service starts on boot without a login
    session.
 4. Run `scripts/on-deploy` — applies pending migrations, builds frontend
-   assets, and collects static files.
+   assets (including PWA icons via `pnpm run build`), and collects static files.
 5. Enable and start (or restart) the service.
+
+The service listens on **`http://localhost:8080`** by default. That is enough for
+[PWA](PWA.md) install from the same machine (loopback). Installing from another
+device on your LAN requires HTTPS in front of the app — see [PWA.md](PWA.md).
 
 ## Check Status
 

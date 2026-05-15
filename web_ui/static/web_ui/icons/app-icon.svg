@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <defs>
+    <radialGradient id="globe-ocean" cx="38%" cy="32%" r="68%">
+      <stop offset="0%" stop-color="#64b5f6"/>
+      <stop offset="100%" stop-color="#1565c0"/>
+    </radialGradient>
+    <clipPath id="globe-sphere">
+      <circle cx="12" cy="12" r="10"/>
+    </clipPath>
+  </defs>
+  <circle cx="12" cy="12" r="10.6" fill="#0d47a1" opacity="0.22"/>
+  <circle cx="12" cy="12" r="10" fill="url(#globe-ocean)" stroke="#0d47a1" stroke-width="0.85"/>
+  <g clip-path="url(#globe-sphere)" fill="none" stroke="#bbdefb" stroke-width="0.5" opacity="0.9">
+    <ellipse cx="12" cy="12" rx="10" ry="3.1"/>
+    <ellipse cx="12" cy="8.4" rx="8" ry="2.2"/>
+    <ellipse cx="12" cy="15.6" rx="8" ry="2.2"/>
+    <path d="M2 12 Q12 4.8 22 12"/>
+    <path d="M2 12 Q12 19.2 22 12"/>
+    <path d="M12 2 Q18.2 12 12 22"/>
+    <path d="M12 2 Q5.8 12 12 22"/>
+  </g>
+  <g clip-path="url(#globe-sphere)">
+    <path fill="#66bb6a" d="M8.2 10.4 Q10.2 8.8 12.4 10.1 Q14.8 11.6 16 14.2 Q13.4 16.2 10.2 14.5 Z"/>
+    <path fill="#43a047" d="M14.2 15.6 Q16.4 14.4 17.8 16.6 Q16.2 18.2 14.3 17.3 Z"/>
+    <path fill="#2e7d32" opacity="0.75" d="M6.8 13.2 Q8.4 12.2 9.6 13.8 Q8.2 15.4 6.9 14.5 Z"/>
+  </g>
+  <ellipse cx="8.8" cy="8.2" rx="2.1" ry="1.2" fill="#ffffff" opacity="0.38"/>
+</svg>

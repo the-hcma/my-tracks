@@ -52,7 +52,8 @@ A self-hosted location tracking backend for the [OwnTracks](https://owntracks.or
    - Live location map with Leaflet
    - Historic trail visualization
    - WebSocket real-time updates
-   - TypeScript with strict ESLint rules
+   - Progressive Web App (manifest, service worker, mobile install banner)
+   - TypeScript with strict ESLint rules; esbuild bundle + Vitest
 
 ## Project Structure
 
@@ -93,8 +94,11 @@ my-tracks/
 └── web_ui/                    # Web interface app
     ├── static/web_ui/
     │   ├── ts/               # TypeScript source
-    │   ├── js/               # Compiled JavaScript
-    │   └── css/              # Stylesheets
+    │   ├── js/               # Compiled JavaScript (gitignored; pnpm run build)
+    │   ├── css/              # Stylesheets
+    │   ├── icons/            # PWA launcher (SVG + rasterized PNGs)
+    │   ├── manifest.webmanifest
+    │   └── sw.js             # Service worker (also served at /sw.js)
     └── templates/web_ui/     # HTML templates
 ```
 

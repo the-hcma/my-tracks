@@ -8,6 +8,7 @@ from . import views
 app_name = 'web_ui'
 
 urlpatterns = [
+    path('sw.js', views.service_worker, name='service_worker'),
     path('', views.home, name='home'),
     path('profile/', views.profile, name='profile'),
     path('profile/download-cert/', views.download_my_cert, name='download_my_cert'),

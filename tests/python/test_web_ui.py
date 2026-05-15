@@ -75,6 +75,47 @@ class TestWebUIViews:
         assert_that(content, contains_string('<title>My Tracks - OwnTracks Backend</title>'))
         assert_that(content, contains_string('leaflet'))  # Map library
 
+    def test_home_view_links_web_app_manifest(self, logged_in_client: Client) -> None:
+        """Home page should link the PWA manifest."""
+        response = logged_in_client.get('/')
+        content = response.content.decode('utf-8')
+        assert_that(content, contains_string('rel="manifest"'))
+        assert_that(content, contains_string('web_ui/manifest.webmanifest'))
+
+    def test_service_worker_js_is_served_at_root(self) -> None:
+        """Service worker must be served at ``/sw.js`` for site-wide scope."""
+        client = Client()
+        response = client.get('/sw.js')
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        assert_that(response['Content-Type'], contains_string('javascript'))
+        assert_that(
+            response.content.decode('utf-8'),
+            contains_string('addEventListener'),
+        )
+
+    def test_static_manifest_webmanifest_defines_icons(self) -> None:
+        """PWA manifest should declare standalone display and launcher icons."""
+        manifest_path = (
+            Path(__file__).parent.parent.parent
+            / 'web_ui'
+            / 'static'
+            / 'web_ui'
+            / 'manifest.webmanifest'
+        )
+        payload = json.loads(manifest_path.read_text(encoding='utf-8'))
+        assert_that(payload.get('display'), equal_to('standalone'))
+        assert_that(payload.get('start_url'), equal_to('/'))
+        icons = payload.get('icons')
+        assert_that(icons, instance_of(list))
+        assert_that(len(cast(list[object], icons)), greater_than(1))
+        srcs = [
+            str(item['src'])
+            for item in cast(list[dict[str, object]], icons)
+            if isinstance(item, dict) and isinstance(item.get('src'), str)
+        ]
+        assert_that('/static/web_ui/icons/icon-192.png' in srcs, is_(True))
+        assert_that('/static/web_ui/icons/icon-512.png' in srcs, is_(True))
+
     def test_home_view_contains_historic_controls(self, logged_in_client: Client) -> None:
         """Test that the home view contains date picker and time slider controls."""
         response = logged_in_client.get('/')

@@ -132,6 +132,10 @@ For external databases, use your provider's backup tools (e.g., `pg_dump`, RDS s
 
 These certificates are for **nginx HTTPS** — the web UI, REST API, and WebSocket connections. They are **not** related to MQTT over TLS, which uses its own PKI certificates managed through the My Tracks admin panel.
 
+With HTTPS in place, phones and tablets can **install the web dashboard as a PWA**
+(home-screen icon, standalone window). The install banner and service worker
+require a secure context — see [PWA.md](PWA.md).
+
 Nginx requires `fullchain.pem` and `privkey.pem` in the `CERTS_DIR` directory.
 
 ### Option A: Self-Signed (Quick Start)
