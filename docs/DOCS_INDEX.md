@@ -35,7 +35,7 @@ Complete API reference with all endpoints, parameters, examples, and response fo
 How to install and remove the My Tracks CA and client certificate on Android for MQTT over TLS.
 
 ### [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
-Common issues and solutions: OwnTracks commands not responding, empty waypoints, wrong MQTT protocol version, TLS errors, PUBACK warnings.
+Common issues and solutions: OwnTracks commands, MQTT/TLS, PWA install banner, service worker registration.
 
 ### [COMMANDS.md](COMMANDS.md)
 Quick reference for all commonly used commands (server management, testing, deployment, etc.).
@@ -44,6 +44,9 @@ Quick reference for all commonly used commands (server management, testing, depl
 
 ### [DEPLOYMENT.md](DEPLOYMENT.md)
 Production deployment guide covering PostgreSQL, Nginx, SSL, and security (containerized stack).
+
+### [PWA.md](PWA.md)
+Install the web dashboard on a phone or tablet home screen (manifest, service worker, mobile install banner). Requires HTTPS or localhost for the full install flow.
 
 ### [SYSTEMD.md](SYSTEMD.md)
 Run My Tracks as a persistent systemd user service on your local machine using `setup-service` from [repository-helpers](https://github.com/the-hcma/repository-helpers).
@@ -102,7 +105,7 @@ my-tracks/
 │   ├── admin.py             # Admin configuration
 │   └── migrations/          # Database migrations
 └── web_ui/                   # Web interface app
-    ├── static/web_ui/       # Static files (TS, JS, CSS)
+    ├── static/web_ui/       # Static files (TS, JS, CSS, PWA manifest/sw/icons)
     └── templates/web_ui/    # HTML templates
 ```
 
@@ -126,6 +129,12 @@ See [AGENTS.md](AGENTS.md) for the development workflow and agent responsibiliti
 
 **Deploy to production**
 → [DEPLOYMENT.md](DEPLOYMENT.md)
+
+**Run as a background service (local dev)**
+→ [SYSTEMD.md](SYSTEMD.md)
+
+**Install the web UI on a phone**
+→ [PWA.md](PWA.md)
 
 **Find a specific command**
 → [COMMANDS.md](COMMANDS.md)
@@ -152,13 +161,15 @@ See [AGENTS.md](AGENTS.md) for the development workflow and agent responsibiliti
 
 | File | Purpose | For Who |
 |------|---------|---------|
-| README.md | Main documentation | Everyone |
-| QUICKSTART.md | 5-minute setup | New users |
-| API.md | API reference | Developers/Integrators |
-| DEPLOYMENT.md | Production setup | DevOps/Admins |
-| COMMANDS.md | Command reference | Developers |
-| PROJECT_SUMMARY.md | Project overview | Everyone |
 | AGENTS.md | Development workflow | Contributors |
+| API.md | API reference | Developers/Integrators |
+| COMMANDS.md | Command reference | Developers |
+| DEPLOYMENT.md | Production setup | DevOps/Admins |
+| PROJECT_SUMMARY.md | Project overview | Everyone |
+| PWA.md | Installable web dashboard | Users / mobile |
+| QUICKSTART.md | 5-minute setup | New users |
+| README.md | Main documentation | Everyone |
+| SYSTEMD.md | Local systemd user service | Developers |
 | pyproject.toml | Package config | Build tools |
 | manage.py | CLI | Developers |
 | scripts/setup | Auto setup | New users |

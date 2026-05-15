@@ -4,6 +4,38 @@ Common issues and their solutions.
 
 ---
 
+## PWA: install banner does not appear
+
+**Symptom**: The live map loads on a phone but there is no **Install My Tracks**
+banner.
+
+**Checks**:
+
+1. **Page** — Banner only mounts on the home dashboard (`/`) after login, not on
+   profile/geofences/login pages.
+2. **Desktop** — Banner is mobile-only; use device mode or a real phone.
+3. **Already installed** — Hidden in standalone / iOS home-screen mode.
+4. **Dismissed** — Clear site data or remove `my-tracks-pwa-install-dismiss-*`
+   keys from `localStorage` / `sessionStorage`.
+5. **HTTP on LAN** — Install prompts need **HTTPS** or **localhost**. Opening
+   `http://192.168.x.x:8080` from a phone may not show the banner; use HTTPS
+   ([DEPLOYMENT.md](DEPLOYMENT.md)) or install from the same host via
+   `http://localhost:8080`.
+
+See [PWA.md](PWA.md) for the full install flow.
+
+---
+
+## PWA: service worker not registered
+
+**Symptom**: DevTools → Application → Service workers is empty.
+
+**Cause**: Registration is skipped on plain HTTP except `localhost` / `127.0.0.1`.
+
+**Fix**: Use HTTPS, or test from loopback on the machine running the server.
+
+---
+
 ## OwnTracks Android: commands delivered but phone doesn't respond
 
 **Symptom**: The server log shows a command was sent (e.g. `reportLocation command sent to hcma/pixel7pro`), and the OwnTracks debug log confirms it was received and parsed, but no location or waypoints response arrives at the server.

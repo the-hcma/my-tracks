@@ -3896,12 +3896,165 @@ function initEventListeners(): void {
     });
 }
 
+const PWA_INSTALL_DISMISS_PERMANENT_KEY = 'my-tracks-pwa-install-dismiss-permanent';
+const PWA_INSTALL_DISMISS_SESSION_KEY = 'my-tracks-pwa-install-dismiss-session';
+
+interface PwaBeforeInstallPromptEvent extends Event {
+    prompt: () => Promise<void>;
+    userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
+}
+
+function isMobileFormFactor(): boolean {
+    const uaData = (
+        navigator as Navigator & { userAgentData?: { mobile?: boolean } }
+    ).userAgentData;
+    if (uaData?.mobile === true) {
+        return true;
+    }
+    if (uaData?.mobile === false) {
+        return false;
+    }
+    return (
+        window.matchMedia('(any-pointer: coarse)').matches ||
+        window.matchMedia('(pointer: coarse)').matches ||
+        window.matchMedia('(max-width: 768px)').matches
+    );
+}
+
+function initPwaInstallBanner(): void {
+    if (window.matchMedia('(display-mode: standalone)').matches) {
+        return;
+    }
+    const nav = window.navigator as Navigator & { standalone?: boolean };
+    if (nav.standalone === true) {
+        return;
+    }
+    if (localStorage.getItem(PWA_INSTALL_DISMISS_PERMANENT_KEY) === '1') {
+        return;
+    }
+    if (
+        sessionStorage.getItem(PWA_INSTALL_DISMISS_SESSION_KEY) === '1' ||
+        sessionStorage.getItem('my-tracks-pwa-install-dismissed') === '1'
+    ) {
+        return;
+    }
+
+    if (!isMobileFormFactor()) {
+        return;
+    }
+
+    const mainEl = document.getElementById('main-container');
+    if (mainEl === null) {
+        return;
+    }
+
+    const banner = document.createElement('aside');
+    banner.className = 'pwa-install-banner';
+    banner.setAttribute('aria-label', 'Install web app');
+
+    const title = document.createElement('p');
+    title.className = 'pwa-install-banner-title';
+    title.textContent = 'Install My Tracks';
+
+    const copy = document.createElement('p');
+    copy.className = 'pwa-install-banner-copy';
+    copy.textContent =
+        'Add this dashboard to your home screen for one-tap access. Use Install below when your browser enables it; otherwise open the browser menu and choose Add to Home screen or Install app.';
+
+    const persistRow = document.createElement('div');
+    persistRow.className = 'pwa-install-persist-row';
+    const persistCb = document.createElement('input');
+    persistCb.type = 'checkbox';
+    persistCb.id = 'pwa-install-do-not-ask';
+    persistCb.className = 'pwa-install-persist-cb';
+    const persistLabel = document.createElement('label');
+    persistLabel.className = 'pwa-install-persist-label';
+    persistLabel.htmlFor = 'pwa-install-do-not-ask';
+    persistLabel.textContent = 'Do not ask again';
+
+    const actions = document.createElement('div');
+    actions.className = 'pwa-install-actions';
+
+    const installBtn = document.createElement('button');
+    installBtn.type = 'button';
+    installBtn.className = 'btn pwa-install-btn';
+    installBtn.textContent = 'Install';
+    installBtn.hidden = true;
+
+    const dismissBtn = document.createElement('button');
+    dismissBtn.type = 'button';
+    dismissBtn.className = 'btn pwa-dismiss-btn';
+    dismissBtn.textContent = 'Dismiss';
+
+    let deferred: PwaBeforeInstallPromptEvent | null = null;
+
+    const onBeforeInstall = (ev: Event): void => {
+        ev.preventDefault();
+        deferred = ev as PwaBeforeInstallPromptEvent;
+        installBtn.hidden = false;
+    };
+
+    const dismiss = (): void => {
+        if (persistCb.checked) {
+            localStorage.setItem(PWA_INSTALL_DISMISS_PERMANENT_KEY, '1');
+        } else {
+            sessionStorage.setItem(PWA_INSTALL_DISMISS_SESSION_KEY, '1');
+        }
+        banner.remove();
+        window.removeEventListener('beforeinstallprompt', onBeforeInstall);
+    };
+
+    window.addEventListener('beforeinstallprompt', onBeforeInstall);
+
+    installBtn.addEventListener('click', () => {
+        void (async () => {
+            if (deferred === null) {
+                return;
+            }
+            await deferred.prompt();
+            void deferred.userChoice;
+            dismiss();
+        })();
+    });
+
+    dismissBtn.addEventListener('click', dismiss);
+
+    persistRow.append(persistCb, persistLabel);
+    actions.append(installBtn, dismissBtn);
+    banner.append(title, copy, persistRow, actions);
+    mainEl.insertBefore(banner, mainEl.firstChild);
+}
+
+function registerServiceWorker(): void {
+    if (!('serviceWorker' in navigator)) {
+        return;
+    }
+    const { protocol, hostname } = window.location;
+    const allowed =
+        protocol === 'https:' ||
+        hostname === 'localhost' ||
+        hostname === '127.0.0.1';
+    if (!allowed) {
+        return;
+    }
+    window.addEventListener(
+        'load',
+        () => {
+            void navigator.serviceWorker.register('/sw.js', { scope: '/' });
+        },
+        { once: true },
+    );
+}
+
 /**
  * Main initialization function.
  */
 function init(): void {
     // Initialize theme
     setTheme(getPreferredTheme());
+
+    initPwaInstallBanner();
+    registerServiceWorker();
 
     // Initialize event listeners
     initEventListeners();

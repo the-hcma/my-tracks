@@ -1409,3 +1409,82 @@ a:hover {
         max-height: min(180px, calc(100% - 20px));
     }
 }
+
+/* PWA install hint — ``main.ts`` mounts this when not running standalone. */
+.pwa-install-banner {
+    margin: 0 0 12px;
+    padding: 10px 12px;
+    background: var(--bg-main);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+
+.pwa-install-banner-title {
+    margin: 0 0 6px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-main);
+}
+
+.pwa-install-banner-copy {
+    margin: 0 0 8px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.45;
+}
+
+.pwa-install-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.pwa-install-persist-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 10px;
+}
+
+.pwa-install-persist-cb {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    cursor: pointer;
+}
+
+.pwa-install-persist-label {
+    font-size: 13px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    user-select: none;
+}
+
+.pwa-install-banner .btn {
+    font: inherit;
+    cursor: pointer;
+    border: 1px solid var(--border-color);
+    background: var(--bg-main);
+    color: var(--text-main);
+    border-radius: 6px;
+    padding: 6px 12px;
+    touch-action: manipulation;
+}
+
+.pwa-install-banner .btn:focus-visible {
+    outline: 2px solid var(--link-color);
+    outline-offset: 2px;
+}
+
+.pwa-install-btn {
+    background: var(--link-color);
+    color: #fff;
+    border-color: transparent;
+}
+
+.pwa-install-btn:focus-visible {
+    outline: 2px solid var(--link-color);
+    outline-offset: 2px;
+}

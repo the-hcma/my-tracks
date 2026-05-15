@@ -39,13 +39,15 @@ Common operations:
 
 ## 📚 Documentation
 
-- **[📖 Documentation Index](docs/DOCS_INDEX.md)** - Complete guide to all docs
-- **[🚀 docs/QUICKSTART.md](docs/QUICKSTART.md)** - Get running in 5 minutes
-- **[📘 docs/API.md](docs/API.md)** - Complete API reference
-- **[🚢 docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** - Production deployment guide
-- **[⌨️ docs/COMMANDS.md](docs/COMMANDS.md)** - Command reference
-- **[📊 docs/PROJECT_SUMMARY.md](docs/PROJECT_SUMMARY.md)** - Comprehensive project overview
 - **[👥 docs/AGENTS.md](docs/AGENTS.md)** - Development agent workflow
+- **[📘 docs/API.md](docs/API.md)** - Complete API reference
+- **[⌨️ docs/COMMANDS.md](docs/COMMANDS.md)** - Command reference
+- **[🚢 docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** - Production deployment guide
+- **[📖 Documentation Index](docs/DOCS_INDEX.md)** - Complete guide to all docs
+- **[📊 docs/PROJECT_SUMMARY.md](docs/PROJECT_SUMMARY.md)** - Comprehensive project overview
+- **[📱 docs/PWA.md](docs/PWA.md)** - Install the web dashboard on a phone or tablet
+- **[🚀 docs/QUICKSTART.md](docs/QUICKSTART.md)** - Get running in 5 minutes
+- **[⚙️ docs/SYSTEMD.md](docs/SYSTEMD.md)** - Local systemd user service (persistent dev server)
 
 ## Features
 
@@ -56,8 +58,10 @@ Common operations:
 - **Type Safety**: Full type hints using Python 3.14+ features
 - **Modern Python**: Uses dataclasses and modern Python idioms
 - **Admin Interface**: Web-based admin for data management
+- **Live Web Dashboard**: Leaflet map with live and historic trails, WebSocket updates
+- **Progressive Web App**: Install the dashboard on a mobile home screen (standalone + globe icon)
 - **Comprehensive Testing**: Full pytest test suite included
-- **Production Ready**: Includes deployment guide with Daphne ASGI server for WebSocket support
+- **Production Ready**: Container and bare-metal deployment guides; Daphne ASGI for WebSockets
 
 ## Local Development Setup
 
@@ -72,11 +76,16 @@ cd my-tracks
 # Install dependencies and run migrations
 bash scripts/setup
 
-# Start the dev server
+# Start the dev server (one-off)
 ./scripts/my-tracks-server
+
+# Or install a persistent systemd user service (recommended for daily use)
+~/work/ai/repository-helpers/scripts/setup-service
 ```
 
-For manual setup or more options, see [docs/QUICKSTART.md](docs/QUICKSTART.md).
+For manual setup, the web UI, PWA install, and the systemd service, see
+[docs/PWA.md](docs/PWA.md), [docs/QUICKSTART.md](docs/QUICKSTART.md), and
+[docs/SYSTEMD.md](docs/SYSTEMD.md).
 
 ## OwnTracks Configuration
 

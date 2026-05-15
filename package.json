@@ -5,7 +5,7 @@
   "private": true,
   "packageManager": "pnpm@10.28.0",
   "scripts": {
-    "build": "node dev-tooling/esbuild.config.mjs",
+    "build": "node dev-tooling/rasterize-pwa-icons.mjs && node dev-tooling/esbuild.config.mjs",
     "build:watch": "node dev-tooling/esbuild.config.mjs --watch",
     "lint": "eslint 'web_ui/static/web_ui/ts/**/*.ts'",
     "lint:fix": "eslint 'web_ui/static/web_ui/ts/**/*.ts' --fix",
@@ -14,6 +14,12 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "sharp"
+    ]
+  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/leaflet": "^1.9.8",
@@ -21,6 +27,7 @@
     "@typescript-eslint/parser": "8.59.2",
     "@vitest/coverage-v8": "4.1.5",
     "esbuild": "^0.28.0",
+    "sharp": "^0.34.5",
     "eslint": "10.3.0",
     "globals": "17.6.0",
     "jsdom": "29.1.1",

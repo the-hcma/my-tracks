@@ -468,27 +468,34 @@ daphne -b 0.0.0.0 -p 8080 config.asgi:application
 ./scripts/my-tracks-server --log-level debug
 ```
 
-### Systemd
+### Systemd (local development — user service)
+
+Persistent background server on your machine (no root). Installed via
+[repository-helpers](https://github.com/the-hcma/repository-helpers); see
+[SYSTEMD.md](SYSTEMD.md).
 
 ```bash
-# Enable service
-sudo systemctl enable my-tracks
+# Install or update (migrations, frontend build, restart)
+~/work/ai/repository-helpers/scripts/setup-service
 
-# Start service
-sudo systemctl start my-tracks
+# Status check
+~/work/ai/repository-helpers/scripts/setup-service --status
 
-# Stop service
-sudo systemctl stop my-tracks
+# Manual control
+systemctl --user start   my-tracks
+systemctl --user stop    my-tracks
+systemctl --user restart my-tracks
+systemctl --user status  my-tracks
 
-# Restart service
-sudo systemctl restart my-tracks
-
-# Check status
-sudo systemctl status my-tracks
-
-# View logs
-journalctl -u my-tracks -f
+# Logs
+journalctl --user -u my-tracks -f
+tail -f ~/scratch/my-tracks/my-tracks.log
 ```
+
+### Systemd (production bare-metal — system unit)
+
+For a traditional Linux server deployment, see [DEPLOYMENT.md](DEPLOYMENT.md#systemd-service)
+(`/etc/systemd/system/my-tracks.service`, `sudo systemctl …`).
 
 ### Database Backup (PostgreSQL)
 

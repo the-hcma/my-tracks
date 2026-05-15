@@ -88,7 +88,17 @@ Once installed, use `start-development` at the start of each session:
 
 See [SYSTEMD.md](SYSTEMD.md) for full details (logs, restart, uninstall, etc.).
 
-### 2. Test the API
+### 3. Web Dashboard
+
+Open `http://localhost:8080/` (or your server URL), log in, and use the live map
+dashboard. The UI supports live WebSocket updates, historic trails, geofences,
+and profile/admin pages.
+
+**Install on a phone (PWA):** On mobile, after logging in on the home map, use the
+install banner or your browser’s **Add to Home screen** / **Install app** menu.
+Full install prompts require **HTTPS** or **localhost** — see [PWA.md](PWA.md).
+
+### 4. Test the API
 
 Submit a test location:
 
@@ -114,7 +124,7 @@ Expected response:
 }
 ```
 
-### 3. View Location Data
+### 5. View Location Data
 
 ```bash
 curl http://localhost:8080/api/locations/

@@ -5,6 +5,7 @@ import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from datetime import timezone as _utc
+from pathlib import Path
 
 from asgiref.sync import async_to_sync
 from django.conf import settings
@@ -17,7 +18,7 @@ from django.contrib.auth.password_validation import (
 from django.contrib.auth.views import LoginView
 from django.core.exceptions import ValidationError
 from django.core.mail.backends.smtp import EmailBackend as SmtpEmailBackend
-from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone as tz
 
@@ -219,6 +220,25 @@ class NetworkState:
 def health(request: HttpRequest) -> JsonResponse:
     """Health check endpoint."""
     return JsonResponse({'status': 'ok'})
+
+
+def service_worker(request: HttpRequest) -> HttpResponse:
+    """Serve the PWA service worker at the site root for ``scope: /``."""
+    path = (
+        Path(settings.BASE_DIR)
+        / 'web_ui'
+        / 'static'
+        / 'web_ui'
+        / 'sw.js'
+    )
+    if not path.is_file():
+        raise Http404(f'Service worker missing at {path}')
+    response = HttpResponse(
+        path.read_bytes(),
+        content_type='application/javascript',
+    )
+    response['Cache-Control'] = 'no-cache'
+    return response
 
 
 class FirstRunLoginView(LoginView):
