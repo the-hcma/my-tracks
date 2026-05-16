@@ -986,6 +986,45 @@ class TestMqttAsyncioExceptionHandler:
         assert_that(mock_warn.call_args[0][2], equal_to("mqtt-tls"))
 
 
+class TestCRLBrokerSessionReuse:
+    """Tests for TLS session identity refresh on persistent-session reconnect."""
+
+    @pytest.mark.asyncio
+    async def test_tls_session_reuse_refreshes_ssl_object(self) -> None:
+        """Persistent-session reconnect must use the live connection's ssl_object."""
+        from amqtt.session import Session
+
+        broker_instance = _CRLBroker.__new__(_CRLBroker)
+        broker_instance.logger = logging.getLogger("amqtt.broker")
+
+        stale_ssl = MagicMock(spec=ssl.SSLObject)
+        fresh_ssl = MagicMock(spec=ssl.SSLObject)
+        cached_session = Session()
+        cached_session.client_id = "kristen"
+        cached_session.ssl_object = stale_ssl
+        cached_session.remote_address = "192.168.1.1"
+
+        mock_writer = MagicMock()
+        mock_writer.get_ssl_info.return_value = fresh_ssl
+        mock_handler = MagicMock()
+
+        with patch.object(
+            _CRLBroker.__bases__[0],
+            "_initialize_client_session",
+            new_callable=AsyncMock,
+            return_value=(mock_handler, cached_session),
+        ):
+            handler, session = await broker_instance._initialize_client_session(
+                MagicMock(), mock_writer, "192.168.86.10", 57166,
+            )
+
+        assert_that(handler, is_(mock_handler))
+        assert_that(session, is_(cached_session))
+        assert_that(session.ssl_object, is_(fresh_ssl))
+        assert_that(session.remote_address, equal_to("192.168.86.10"))
+        assert_that(session.remote_port, equal_to(57166))
+
+
 class TestCRLBrokerSSLContext:
     """Tests for _CRLBroker SSL context configuration."""
 
