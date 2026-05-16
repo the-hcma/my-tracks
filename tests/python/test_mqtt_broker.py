@@ -14,6 +14,8 @@ from hamcrest import (assert_that, contains_string, equal_to, greater_than,
                       not_none)
 
 from app.mqtt.broker import (MQTTBroker, TLSConfig, _CRLBroker,
+                             _attach_background_task_logging,
+                             _mqtt_asyncio_exception_handler,
                              create_and_start_broker, get_default_config)
 
 
@@ -860,6 +862,128 @@ class TestTLSConfig:
             )
 
         mock_warn.assert_not_called()
+
+
+class TestMqttAsyncioExceptionHandler:
+    """Tests for MQTT broker asyncio exception logging."""
+
+    def test_logs_ssl_handshake_failure(self) -> None:
+        """SSL handshake errors are logged at WARNING with peer info."""
+        loop = asyncio.new_event_loop()
+        broker_logger = logging.getLogger("app.mqtt.broker")
+        try:
+            with patch.object(broker_logger, "warning") as mock_warn:
+                _mqtt_asyncio_exception_handler(
+                    loop,
+                    {
+                        "exception": ssl.SSLError("cert verify failed"),
+                        "transport": MagicMock(
+                            get_extra_info=MagicMock(return_value=("10.0.0.1", 8883)),
+                        ),
+                    },
+                    None,
+                )
+            mock_warn.assert_called_once()
+            assert_that(mock_warn.call_args[0][0], contains_string("[mqtt-tls]"))
+            assert_that(mock_warn.call_args[0][1], equal_to("10.0.0.1:8883"))
+        finally:
+            loop.close()
+
+    def test_logs_orphan_task_puback_timeout(self) -> None:
+        """Task exception was never retrieved (PUBACK timeout) is logged at WARNING."""
+        loop = asyncio.new_event_loop()
+        broker_logger = logging.getLogger("app.mqtt.broker")
+        exc = TimeoutError("Timeout waiting for PUBACK for packet ID 265")
+        try:
+            with patch.object(broker_logger, "warning") as mock_warn:
+                _mqtt_asyncio_exception_handler(
+                    loop,
+                    {
+                        "message": "Task exception was never retrieved",
+                        "exception": exc,
+                        "future": asyncio.Future(loop=loop),
+                    },
+                    None,
+                )
+            mock_warn.assert_called_once()
+            assert_that(mock_warn.call_args[0][0], contains_string("[mqtt]"))
+            assert_that(mock_warn.call_args[0][1], equal_to(exc))
+        finally:
+            loop.close()
+
+    def test_logs_client_connected_cb_ssl_shutdown_timeout(self) -> None:
+        """Unhandled client_connected_cb SSL shutdown timeouts are logged at WARNING."""
+        loop = asyncio.new_event_loop()
+        broker_logger = logging.getLogger("app.mqtt.broker")
+        exc = TimeoutError("SSL shutdown timed out")
+        try:
+            with patch.object(broker_logger, "warning") as mock_warn:
+                _mqtt_asyncio_exception_handler(
+                    loop,
+                    {
+                        "message": "Unhandled exception in client_connected_cb",
+                        "exception": exc,
+                    },
+                    None,
+                )
+            mock_warn.assert_called_once()
+            assert_that(mock_warn.call_args[0][0], contains_string("[mqtt-tls]"))
+            assert_that(mock_warn.call_args[0][0], contains_string("SSL shutdown"))
+        finally:
+            loop.close()
+
+    def test_forwards_unrelated_exceptions(self) -> None:
+        """Non-MQTT exceptions are forwarded to the previous handler."""
+        loop = asyncio.new_event_loop()
+        fallback = MagicMock()
+        try:
+            _mqtt_asyncio_exception_handler(
+                loop,
+                {"exception": ValueError("unrelated")},
+                fallback,
+            )
+            fallback.assert_called_once()
+        finally:
+            loop.close()
+
+    @pytest.mark.asyncio
+    async def test_background_task_done_callback_logs_puback_timeout(self) -> None:
+        """Fire-and-forget publish tasks log PUBACK timeouts via done callback."""
+
+        async def failing_publish() -> None:
+            raise TimeoutError("Timeout waiting for PUBACK for packet ID 1")
+
+        broker_logger = logging.getLogger("app.mqtt.broker")
+        with patch.object(broker_logger, "warning") as mock_warn:
+            task = asyncio.create_task(failing_publish())
+            _attach_background_task_logging(task)
+            with pytest.raises(TimeoutError):
+                await task
+        mock_warn.assert_called_once()
+        assert_that(mock_warn.call_args[0][0], contains_string("[mqtt]"))
+        assert_that(str(mock_warn.call_args[0][1]), contains_string("PUBACK"))
+
+    @pytest.mark.asyncio
+    async def test_client_connected_swallows_ssl_shutdown_timeout(self) -> None:
+        """_client_connected logs SSL shutdown TimeoutError without re-raising."""
+        broker_instance = _CRLBroker.__new__(_CRLBroker)
+        mock_writer = MagicMock()
+        mock_writer.get_ssl_info.return_value = MagicMock(spec=ssl.SSLObject)
+        broker_logger = logging.getLogger("app.mqtt.broker")
+        with (
+            patch.object(
+                _CRLBroker.__bases__[0],
+                "_client_connected",
+                new_callable=AsyncMock,
+                side_effect=TimeoutError("SSL shutdown timed out"),
+            ),
+            patch.object(broker_logger, "warning") as mock_warn,
+        ):
+            await broker_instance._client_connected("mqtt-tls", MagicMock(), mock_writer)
+        mock_warn.assert_called_once()
+        assert_that(mock_warn.call_args[0][0], contains_string("shutdown"))
+        assert_that(mock_warn.call_args[0][1], equal_to("[mqtt-tls]"))
+        assert_that(mock_warn.call_args[0][2], equal_to("mqtt-tls"))
 
 
 class TestCRLBrokerSSLContext:

@@ -15,6 +15,7 @@ import logging
 import ssl
 import tempfile
 import weakref
+from collections import deque
 from dataclasses import dataclass
 from typing import Any
 
@@ -44,24 +45,62 @@ class TLSConfig:
     crl_pem: bytes | None = None
 
 
-def _tls_exception_handler(
+def _exception_from_asyncio_context(context: dict[str, Any]) -> BaseException | None:
+    """Return the exception from an asyncio handler context, including orphan tasks."""
+    exception = context.get("exception")
+    if exception is not None:
+        return exception
+    future = context.get("future")
+    if future is None:
+        return None
+    try:
+        if future.cancelled():
+            return None
+        return future.exception()
+    except asyncio.CancelledError:
+        return None
+
+
+def _log_background_task_exception(task: asyncio.Task[Any]) -> None:
+    """Log exceptions from fire-and-forget MQTT broker tasks (e.g. QoS 1 publish)."""
+    try:
+        exc = task.exception()
+    except asyncio.CancelledError:
+        return
+    if exc is None:
+        return
+    if isinstance(exc, TimeoutError):
+        logger.warning("[mqtt] Background publish timed out: %s", exc)
+        return
+    logger.warning(
+        "[mqtt] Background publish failed: %s",
+        exc,
+        exc_info=exc,
+    )
+
+
+def _attach_background_task_logging(task: asyncio.Task[Any]) -> None:
+    """Ensure a done callback logs task failures instead of asyncio ERROR noise."""
+    if getattr(task, "_mqtt_exception_logged", False):
+        return
+    task._mqtt_exception_logged = True  # type: ignore[attr-defined]
+    task.add_done_callback(_log_background_task_exception)
+
+
+def _mqtt_asyncio_exception_handler(
     loop: asyncio.AbstractEventLoop,
     context: dict[str, Any],
     original_handler: Any,
 ) -> None:
-    """Asyncio exception handler that logs TLS handshake failures.
+    """Asyncio exception handler for the embedded MQTT broker event loop.
 
-    When ``asyncio.start_server`` is used with an ``ssl`` context,
-    failed TLS handshakes never reach the ``stream_connected`` callback.
-    Instead asyncio dispatches them through the event-loop exception
-    handler, which by default only emits a DEBUG-level message to the
-    ``asyncio`` logger -- invisible in production.
-
-    This handler intercepts SSL-related exceptions and logs them at
-    WARNING level so operators can diagnose client connection failures.
-    All non-SSL exceptions are forwarded to the original handler.
+    Intercepts exceptions that otherwise appear only as asyncio ``base_events``
+    ERROR lines (TLS handshake failures, ``client_connected_cb`` shutdown
+    timeouts, and "Task exception was never retrieved" from QoS 1 publishes).
     """
-    exception = context.get("exception")
+    message = context.get("message") or ""
+    exception = _exception_from_asyncio_context(context)
+
     if isinstance(exception, (ssl.SSLError, ssl.SSLCertVerificationError, ConnectionResetError)):
         transport = context.get("transport")
         peername = "unknown"
@@ -77,6 +116,40 @@ def _tls_exception_handler(
             peername, exception,
         )
         return
+
+    if "Task exception was never retrieved" in message:
+        if isinstance(exception, TimeoutError):
+            logger.warning("[mqtt] %s", exception)
+        elif exception is not None:
+            logger.warning(
+                "[mqtt] Unhandled background task failed: %s",
+                exception,
+                exc_info=exception,
+            )
+        else:
+            logger.warning("[mqtt] %s", message)
+        return
+
+    if "client_connected_cb" in message:
+        if isinstance(exception, TimeoutError):
+            logger.warning(
+                "[mqtt-tls] Connection closed during SSL shutdown: %s",
+                exception,
+            )
+        elif exception is not None:
+            logger.warning(
+                "[mqtt-tls] Unhandled client connection callback error: %s",
+                exception,
+                exc_info=exception,
+            )
+        else:
+            logger.warning("[mqtt-tls] %s", message)
+        return
+
+    if isinstance(exception, TimeoutError):
+        logger.warning("[mqtt] Asyncio timeout: %s", exception)
+        return
+
     if callable(original_handler):
         original_handler(context)
     else:
@@ -141,7 +214,7 @@ class _CRLBroker(Broker):
         loop = asyncio.get_running_loop()
         _CRLBroker._original_exception_handler = loop.get_exception_handler()
         loop.set_exception_handler(
-            lambda loop, ctx: _tls_exception_handler(
+            lambda loop, ctx: _mqtt_asyncio_exception_handler(
                 loop, ctx, _CRLBroker._original_exception_handler,
             )
         )
@@ -188,6 +261,34 @@ class _CRLBroker(Broker):
                     remote_address, remote_port, sni, sans,
                 )
             raise
+
+    async def _client_connected(
+        self,
+        listener_name: str,
+        reader: ReaderAdapter,
+        writer: WriterAdapter,
+    ) -> None:
+        """Log connection-handler failures amqtt does not catch (e.g. SSL shutdown timeout)."""
+        try:
+            await super()._client_connected(listener_name, reader, writer)
+        except TimeoutError as exc:
+            tag = "[mqtt-tls]" if writer.get_ssl_info() is not None else "[mqtt]"
+            logger.warning(
+                "%s Client connection closed during shutdown on listener '%s': %s",
+                tag,
+                listener_name,
+                exc,
+            )
+
+    async def _run_broadcast(
+        self,
+        running_tasks: deque[asyncio.Task[Any]],
+    ) -> None:
+        """Attach logging to fire-and-forget publish tasks (QoS 1 PUBACK timeouts)."""
+        tasks_before = len(running_tasks)
+        await super()._run_broadcast(running_tasks)
+        for task in list(running_tasks)[tasks_before:]:
+            _attach_background_task_logging(task)
 
 
 def get_default_config(
