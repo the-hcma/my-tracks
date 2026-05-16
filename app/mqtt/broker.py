@@ -233,17 +233,18 @@ class _CRLBroker(Broker):
         remote_address: str,
         remote_port: int,
     ) -> tuple[BrokerProtocolHandler, Session]:
-        """Wrap parent to detect TLS clients that disconnect before MQTT CONNECT.
+        """Wrap parent to refresh TLS identity on reconnect and detect early disconnects.
 
-        When a TLS handshake succeeds server-side but the client
-        immediately closes the connection (no MQTT data), it almost
-        always means the client rejected the server certificate
-        (hostname not in SANs, untrusted CA, etc.).  This override
-        adds a clear WARNING with the server cert's SANs so the
-        operator can diagnose the problem.
+        amqtt reuses persistent sessions (``clean_session=False``) but does not copy
+        the new connection's ``ssl_object`` onto the cached session. mTLS auth then
+        reads a stale certificate and rejects valid clients until broker restart.
+
+        When a TLS handshake succeeds server-side but the client immediately closes
+        the connection (no MQTT data), it almost always means the client rejected
+        the server certificate (hostname not in SANs, untrusted CA, etc.).
         """
         try:
-            return await super()._initialize_client_session(
+            handler, client_session = await super()._initialize_client_session(
                 reader, writer, remote_address, remote_port,
             )
         except (AMQTTError, MQTTError, NoDataError):
@@ -261,6 +262,13 @@ class _CRLBroker(Broker):
                     remote_address, remote_port, sni, sans,
                 )
             raise
+
+        fresh_ssl = writer.get_ssl_info()
+        if fresh_ssl is not None:
+            client_session.ssl_object = fresh_ssl
+        client_session.remote_address = remote_address
+        client_session.remote_port = remote_port
+        return handler, client_session
 
     async def _client_connected(
         self,
