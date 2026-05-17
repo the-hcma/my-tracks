@@ -28,7 +28,7 @@
     "@vitest/coverage-v8": "4.1.5",
     "esbuild": "^0.28.0",
     "sharp": "^0.34.5",
-    "eslint": "10.3.0",
+    "eslint": "10.4.0",
     "globals": "17.6.0",
     "jsdom": "29.1.1",
     "typescript": "6.0.3",
