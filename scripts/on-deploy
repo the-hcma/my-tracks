@@ -21,71 +21,14 @@ _on_deploy_fail() {
 }
 trap _on_deploy_fail ERR
 
-# True when uv.lock / pyproject.toml is newer than .venv (or .venv is missing).
-_deploy_python_env_stale() {
-    local repo="$1"
-    local lock="$repo/uv.lock"
-    local project="$repo/pyproject.toml"
-    local venv="$repo/.venv"
-    if [[ ! -d "$venv" ]]; then
-        return 0
-    fi
-    if [[ ! -f "$lock" ]]; then
-        return 1
-    fi
-    local newest_input="$lock"
-    local input_mtime venv_mtime lock_mtime
-    if [[ -f "$project" ]]; then
-        input_mtime="$(stat -c '%Y' "$project")"
-        lock_mtime="$(stat -c '%Y' "$lock")"
-        if (( input_mtime > lock_mtime )); then
-            newest_input="$project"
-        fi
-    fi
-    venv_mtime="$(stat -c '%Y' "$venv")"
-    input_mtime="$(stat -c '%Y' "$newest_input")"
-    if (( input_mtime > venv_mtime )); then
-        return 0
-    fi
-    return 1
-}
-
-# True when pnpm-lock.yaml / package.json is newer than node_modules (or missing).
-_deploy_pnpm_modules_stale() {
-    local repo="$1"
-    local lock="$repo/pnpm-lock.yaml"
-    local project="$repo/package.json"
-    local modules="$repo/node_modules"
-    if [[ ! -f "$project" ]]; then
-        return 1
-    fi
-    if [[ ! -d "$modules" ]]; then
-        return 0
-    fi
-    if [[ ! -f "$lock" ]]; then
-        return 1
-    fi
-    local newest_input="$lock"
-    local input_mtime modules_mtime lock_mtime
-    if [[ -f "$project" ]]; then
-        input_mtime="$(stat -c '%Y' "$project")"
-        lock_mtime="$(stat -c '%Y' "$lock")"
-        if (( input_mtime > lock_mtime )); then
-            newest_input="$project"
-        fi
-    fi
-    modules_mtime="$(stat -c '%Y' "$modules")"
-    input_mtime="$(stat -c '%Y' "$newest_input")"
-    if (( input_mtime > modules_mtime )); then
-        return 0
-    fi
-    return 1
-}
-
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_dir="$(cd "$script_dir/.." && pwd)"
 
 cd "$repo_dir"
+
+# Shared dependency staleness checks and sync helpers (repository-helpers).
+# shellcheck source=/dev/null
+on_deploy_deps_source_from_repo "$repo_dir"
 
 # Add uv to PATH if it exists in the standard location
 if [[ -d "$HOME/.local/bin" ]]; then
@@ -100,18 +43,7 @@ sha_file="$HOME/scratch/my-tracks/on-deploy-sha"
 echo "Running on-deploy build steps..."
 
 # Ensure the Python environment exists for this worktree.
-# setup-service may be invoked from a brand new worktree that does not yet have
-# a `.venv/`, and `scripts/my-tracks-server` refuses to start without one.
-# If `.venv/` exists but the interpreter symlink is stale (e.g. Python upgraded
-# or the venv was copied), `uv run` can fail when recreating lib — remove and sync.
-if [[ ! -d "$repo_dir/.venv" ]]; then
-    echo "  Virtual environment missing — running 'uv sync'..."
-    uv sync
-elif [[ ! -x "$repo_dir/.venv/bin/python3" ]] && [[ ! -x "$repo_dir/.venv/bin/python" ]]; then
-    echo "  Virtual environment has no usable Python — removing and running 'uv sync'..."
-    rm -rf "$repo_dir/.venv"
-    uv sync
-fi
+on_deploy_deps_bootstrap_python_venv "$repo_dir"
 
 # If the service previously failed to start, clear the failed state so a
 # subsequent successful restart doesn't keep showing as failed.
@@ -261,9 +193,9 @@ fi
 # Skip the expensive build steps if this commit was already deployed and
 # local dependency trees still match the lockfiles.
 if [[ -n "$current_sha" ]] && [[ -f "$sha_file" ]] && [[ "$(cat "$sha_file")" == "$current_sha" ]]; then
-    if _deploy_python_env_stale "$repo_dir"; then
+    if on_deploy_deps_python_env_stale "$repo_dir"; then
         echo "  Python lockfiles newer than .venv — sync required."
-    elif [[ -f "$repo_dir/package.json" ]] && _deploy_pnpm_modules_stale "$repo_dir"; then
+    elif [[ -f "$repo_dir/package.json" ]] && on_deploy_deps_pnpm_modules_stale "$repo_dir"; then
         echo "  pnpm lockfiles newer than node_modules — install required."
     else
         echo "  Already deployed at commit ${current_sha:0:7} — skipping build steps."
@@ -272,9 +204,7 @@ if [[ -n "$current_sha" ]] && [[ -f "$sha_file" ]] && [[ "$(cat "$sha_file")" ==
     fi
 fi
 
-# Bring the venv in line with the committed lockfile before migrate/build.
-echo "  uv sync --frozen"
-uv sync --frozen
+on_deploy_deps_sync_python_frozen "$repo_dir"
 
 # Apply any pending database migrations
 echo "  Applying database migrations..."
@@ -282,15 +212,7 @@ uv run python manage.py migrate --noinput
 
 # Build frontend TypeScript assets
 if [[ -f "package.json" ]]; then
-    if command -v corepack &>/dev/null; then
-        corepack enable pnpm >/dev/null
-    fi
-    if ! command -v pnpm &>/dev/null; then
-        echo "on-deploy: pnpm is required on PATH (enable via corepack or install pnpm)" >&2
-        exit 2
-    fi
-    echo "  pnpm install --frozen-lockfile"
-    pnpm install --frozen-lockfile
+    on_deploy_deps_install_pnpm_frozen "$repo_dir"
     echo "  Building frontend assets..."
     pnpm run build --silent
 fi
