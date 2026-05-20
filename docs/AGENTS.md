@@ -10,6 +10,23 @@ This document defines the four specialized agents for the My Tracks project.
 
 **Spelling locale**: Use **American English** spelling in all new project-authored prose: user-visible web copy, Django `help_text` / `verbose_name`, API field descriptions, comments in new code, and documentation under `docs/` that this repository maintains. Prefer *meters*, *behavior*, *center*, *color*, and similar US forms—not *metres*, *behaviour*, *centre*, *colour*. Do **not** rewrite third-party literals (for example JSON keys, CSS properties such as `behaviour`, or upstream API names) when those spellings are required for correctness.
 
+## Dependency release age (10 days)
+
+New dependency versions must be at least **10 days** old before this repo adopts them (aligned with [repository-helpers](https://github.com/the-hcma/repository-helpers) `AGENTS.md`).
+
+| Layer | Mechanism |
+|-------|-----------|
+| **pnpm** (frontend) | `minimumReleaseAge: 14400` in `pnpm-workspace.yaml`; lockfile grandfathering via `pnpm-release-age-grandfather.tsv` and repository-helpers `scripts/grandfather-pnpm-release-age` / `scripts/prune-pnpm-release-age-grandfather`. |
+| **pip / uv** | Dependabot `cooldown: default-days: 10` on version-update PRs in `.github/dependabot.yml`. |
+| **GitHub Actions** | Same Dependabot cooldown on actions version updates. |
+| **dep-updater** | `scripts/dep-updater` enforces the 10-day npm gate for frontend bumps and manages Python/Actions stacks from repository-helpers. |
+
+### CVE and security exceptions
+
+- **Dependabot security updates** are not subject to the version-update cooldown.
+- **dep-updater:** when **npm audit** (frontend) or **pip-audit** (Python) reports **CVE IDs and an available fix** for a package, dep-updater **skips** the 10-day npm release-age gate for that npm package only; ordinary version bumps still wait 10 days.
+- **pnpm install** still enforces `minimumReleaseAge` unless versions are grandfathered—use Dependabot security PRs or dep-updater audit-driven updates for CVE response.
+
 ## Workflow Requirements
 
 **CRITICAL**: All changes MUST go through pull requests - direct pushes to main are blocked by branch protection.
