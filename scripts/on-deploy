@@ -204,14 +204,19 @@ else
     echo "  Using local database: ${repo_dir}/db.sqlite3"
 fi
 
-# Skip the expensive build steps if this commit was already deployed and
-# local dependency trees still match the lockfiles.
+# Skip only when this commit was already deployed and both Python and Node trees
+# match their lockfiles (either ecosystem out of sync => rebuild and restart).
 if [[ -n "$current_sha" ]] && [[ -f "$sha_file" ]] && [[ "$(cat "$sha_file")" == "$current_sha" ]]; then
+    _skip_deploy=true
     if on_deploy_deps_python_env_stale "$repo_dir"; then
-        echo "  Python lockfiles newer than .venv — sync required."
-    elif [[ -f "$repo_dir/package.json" ]] && on_deploy_deps_pnpm_modules_stale "$repo_dir"; then
-        echo "  pnpm lockfiles newer than node_modules — install required."
-    else
+        echo "  Python lockfiles out of sync with .venv — sync required."
+        _skip_deploy=false
+    fi
+    if [[ -f "$repo_dir/package.json" ]] && on_deploy_deps_pnpm_modules_stale "$repo_dir"; then
+        echo "  pnpm lockfiles out of sync with node_modules — install required."
+        _skip_deploy=false
+    fi
+    if [[ "$_skip_deploy" == "true" ]]; then
         echo "  Already deployed at commit ${current_sha:0:7} — skipping build steps."
         echo "on-deploy complete."
         exit 1
