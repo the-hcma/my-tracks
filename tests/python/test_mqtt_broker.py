@@ -1024,6 +1024,70 @@ class TestCRLBrokerSessionReuse:
         assert_that(session.remote_address, equal_to("192.168.86.10"))
         assert_that(session.remote_port, equal_to(57166))
 
+    @pytest.mark.asyncio
+    async def test_tls_session_reuse_clears_stale_ssl_when_not_tls(self) -> None:
+        """Non-TLS reconnect must not leave a previous connection's ssl_object on the session."""
+        from amqtt.session import Session
+
+        broker_instance = _CRLBroker.__new__(_CRLBroker)
+        broker_instance.logger = logging.getLogger("amqtt.broker")
+
+        stale_ssl = MagicMock(spec=ssl.SSLObject)
+        cached_session = Session()
+        cached_session.client_id = "hcma"
+        cached_session.ssl_object = stale_ssl
+
+        mock_writer = MagicMock()
+        mock_writer.get_ssl_info.return_value = None
+        mock_handler = MagicMock()
+
+        with patch.object(
+            _CRLBroker.__bases__[0],
+            "_initialize_client_session",
+            new_callable=AsyncMock,
+            return_value=(mock_handler, cached_session),
+        ):
+            _handler, session = await broker_instance._initialize_client_session(
+                MagicMock(), mock_writer, "192.168.86.10", 57166,
+            )
+
+        assert_that(session.ssl_object, is_(none()))
+
+    @pytest.mark.asyncio
+    async def test_handle_client_session_refreshes_ssl_before_auth(self) -> None:
+        """TLS identity must be applied again immediately before authenticate runs."""
+        from amqtt.session import Session
+
+        broker_instance = _CRLBroker.__new__(_CRLBroker)
+        broker_instance.logger = logging.getLogger("amqtt.broker")
+
+        cached_session = Session()
+        cached_session.client_id = "hcma"
+        cached_session.ssl_object = None
+
+        fresh_ssl = MagicMock(spec=ssl.SSLObject)
+        mock_writer = MagicMock()
+        mock_writer.get_ssl_info.return_value = fresh_ssl
+        mock_handler = MagicMock()
+        mock_server = MagicMock()
+
+        with patch.object(
+            _CRLBroker.__bases__[0],
+            "_handle_client_session",
+            new_callable=AsyncMock,
+        ) as mock_super:
+            await broker_instance._handle_client_session(
+                MagicMock(),
+                mock_writer,
+                cached_session,
+                mock_handler,
+                mock_server,
+                "mqtt-tls",
+            )
+
+        mock_super.assert_awaited_once()
+        assert_that(cached_session.ssl_object, is_(fresh_ssl))
+
 
 class TestCRLBrokerSSLContext:
     """Tests for _CRLBroker SSL context configuration."""
