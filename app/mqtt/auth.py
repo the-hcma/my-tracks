@@ -134,7 +134,8 @@ def authenticate_by_cert(cert_cn: str, mqtt_username: str | None) -> bool:
     if mqtt_username and mqtt_username != cert_cn:
         logger.warning(
             "[mqtt-tls] Auth failed: username '%s' does not match cert CN '%s'",
-            mqtt_username, cert_cn,
+            mqtt_username,
+            cert_cn,
         )
         return False
 
@@ -262,7 +263,9 @@ class DjangoAuthPlugin(BaseAuthPlugin):
         return await self._authenticate_password(session)
 
     async def _authenticate_tls(
-        self, session: Any, ssl_object: ssl.SSLObject,
+        self,
+        session: Any,
+        ssl_object: ssl.SSLObject,
     ) -> bool:
         """Authenticate via client certificate CN."""
         cert_cn: str | None = None
@@ -293,9 +296,7 @@ class DjangoAuthPlugin(BaseAuthPlugin):
         # not under Django/ASGI's request lifecycle. Using thread_sensitive=True
         # can bind work to asgiref's CurrentThreadExecutor, which may already be
         # shut down in this context and crash the broker.
-        result = await sync_to_async(authenticate_by_cert, thread_sensitive=False)(
-            cert_cn, mqtt_username
-        )
+        result = await sync_to_async(authenticate_by_cert, thread_sensitive=False)(cert_cn, mqtt_username)
 
         if result and not mqtt_username:
             session.username = cert_cn
@@ -314,9 +315,7 @@ class DjangoAuthPlugin(BaseAuthPlugin):
             logger.warning("[mqtt] Auth failed: missing username or password")
             return False
 
-        return await sync_to_async(authenticate_user, thread_sensitive=False)(
-            username, password
-        )
+        return await sync_to_async(authenticate_user, thread_sensitive=False)(username, password)
 
     async def on_broker_client_subscribed(
         self,
@@ -334,9 +333,7 @@ class DjangoAuthPlugin(BaseAuthPlugin):
         if username is None:
             return True
 
-        return await sync_to_async(check_topic_access, thread_sensitive=False)(
-            username, topic, "subscribe"
-        )
+        return await sync_to_async(check_topic_access, thread_sensitive=False)(username, topic, "subscribe")
 
     async def on_broker_message_received(
         self,
@@ -354,9 +351,7 @@ class DjangoAuthPlugin(BaseAuthPlugin):
             return True
 
         topic = message.topic if hasattr(message, "topic") else str(message)
-        return await sync_to_async(check_topic_access, thread_sensitive=False)(
-            username, topic, "publish"
-        )
+        return await sync_to_async(check_topic_access, thread_sensitive=False)(username, topic, "publish")
 
 
 def get_auth_config(allow_anonymous: bool = False) -> dict[str, Any]:

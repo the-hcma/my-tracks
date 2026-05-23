@@ -9,7 +9,6 @@ def backfill_received_via_mqtt(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("my_tracks", "0005_add_location_received_via"),
     ]

@@ -18,7 +18,7 @@ from django.core.asgi import get_asgi_application
 
 from app.routing import websocket_urlpatterns
 
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 
 # Initialize Django ASGI application early to ensure the AppRegistry
 # is populated before importing code that may import ORM models.
@@ -57,13 +57,13 @@ class ClientDisconnectMiddleware:
         existing_handler = loop.get_exception_handler()
 
         def _handle_exception(lp: asyncio.AbstractEventLoop, ctx: dict[str, Any]) -> None:
-            exception = ctx.get('exception')
+            exception = ctx.get("exception")
             if isinstance(exception, asyncio.CancelledError):
                 # Shielded-future CancelledError from a client disconnect —
                 # already handled by the try/except below, so drop silently.
                 logger.debug(
                     "Suppressed orphaned CancelledError from shielded future: %s",
-                    ctx.get('message', ''),
+                    ctx.get("message", ""),
                 )
                 return
             # Everything else goes through the original handler
@@ -84,16 +84,18 @@ class ClientDisconnectMiddleware:
         try:
             await self.app(scope, receive, send)
         except asyncio.CancelledError:
-            method = scope.get('method', '')
-            path = scope.get('path', '')
+            method = scope.get("method", "")
+            path = scope.get("path", "")
             logger.debug("Client disconnected during %s %s", method, path)
 
 
-application = ProtocolTypeRouter({
-    "http": ClientDisconnectMiddleware(django_asgi_app),
-    "websocket": AuthMiddlewareStack(
-        URLRouter(
-            cast(list, websocket_urlpatterns)  # type: ignore[arg-type]
-        )
-    ),
-})
+application = ProtocolTypeRouter(
+    {
+        "http": ClientDisconnectMiddleware(django_asgi_app),
+        "websocket": AuthMiddlewareStack(
+            URLRouter(
+                cast(list, websocket_urlpatterns)  # type: ignore[arg-type]
+            )
+        ),
+    }
+)

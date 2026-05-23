@@ -6,7 +6,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("my_tracks", "0007_alter_waypoint_rid"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
@@ -123,8 +122,6 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="globalautomationrule",
-            index=models.Index(
-                fields=["is_active"], name="gar_active_idx"
-            ),
+            index=models.Index(fields=["is_active"], name="gar_active_idx"),
         ),
     ]

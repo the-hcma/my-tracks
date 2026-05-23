@@ -115,11 +115,11 @@ New dependency versions must be at least **10 days** old before this repo adopts
 **Step 1 — Local checks** (catch issues before pushing):
 ```bash
 uv run pyright                                      # type errors
-uv run isort --check-only --diff app config web_ui   # import order
-uv run flake8 --config dev-tooling/.flake8 app config  # PEP 8 + unused imports/vars
+uv run ruff check app config web_ui                 # lint + import order
+uv run ruff format --check app config web_ui        # formatting
 uv run pytest --cov=app --cov-fail-under=90   # tests + coverage
 ```
-The first three checks (`pyright`, `isort`, `flake8`) are independent and **should be run in parallel** to save time — start all three at once and wait for all to complete before proceeding. `pytest` must run separately after the others pass (it is slower and its output is the final gate). `pytest` itself already runs tests in parallel across all available CPU cores via `pytest-xdist` (`-n auto` is set in `pyproject.toml`'s `addopts`) — no extra flags needed.
+The first three checks (`pyright`, `ruff check`, `ruff format --check`) are independent and **should be run in parallel** to save time — start all three at once and wait for all to complete before proceeding. `pytest` must run separately after the others pass (it is slower and its output is the final gate). `pytest` itself already runs tests in parallel across all available CPU cores via `pytest-xdist` (`-n auto` is set in `pyproject.toml`'s `addopts`) — no extra flags needed.
 
 Do not proceed if any of these fail. Fix first.
 
@@ -153,7 +153,7 @@ Do not declare a PR ready until Steps 3, 4, and 5 all pass.
 - ✅ **90% minimum code coverage** (`uv run pytest --cov=app --cov-fail-under=90`)
 - ✅ **Pyright type checking passes** (`uv run pyright`) - enforced by CI/CD
 - ✅ **All functions have complete type signatures** (parameters and return types) - enforced by Pyright
-- ✅ **Imports sorted with isort** (`uv run isort --check-only app config web_ui`)
+- ✅ **Ruff lint and format pass** (`uv run ruff check app config web_ui` and `uv run ruff format --check app config web_ui`)
 - ✅ No pytest warnings
 - ✅ VS Code Problems panel clear
 - ✅ **All test assertions use PyHamcrest** (`assert_that()` — no naked `assert` statements)
@@ -161,12 +161,12 @@ Do not declare a PR ready until Steps 3, 4, and 5 all pass.
   - Verifies Python 3.14 is used (latest stable)
   - Runs all tests with coverage check
   - **Validates type annotations with Pyright (blocks PR if types missing)**
-  - Validates import sorting with isort
+  - Validates lint and formatting with Ruff
   - Validates shell scripts with shellcheck
   - Checks for pending migrations
 **Directory Layout Rules**:
 - ❌ **NEVER move** `tsconfig.json`, `tsconfig.test.json`, `eslint.config.mjs`, `pyrightconfig.json`, or `vitest.config.ts` out of the project root — these are discovered by VS Code and IDE tooling by walking up from source files; moving them silently breaks IDE integration (type checking, linting, test discovery).
-- ✅ Only move config files that are invoked explicitly by path (e.g., `dev-tooling/esbuild.config.mjs` called via `node dev-tooling/esbuild.config.mjs`) or that support a `--config` flag set in CI/pnpm scripts (e.g., `dev-tooling/.flake8` via `flake8 --config dev-tooling/.flake8`).
+- ✅ Only move config files that are invoked explicitly by path (e.g., `dev-tooling/esbuild.config.mjs` called via `node dev-tooling/esbuild.config.mjs`). Ruff is configured in `pyproject.toml` under `[tool.ruff]`.
 - Rationale: Tool config discovery and IDE integration depend on root-level placement; build script invocations do not.
 
 **Server Management** (scripts from [repository-helpers](https://github.com/the-hcma/repository-helpers)):
@@ -414,7 +414,7 @@ Do not declare a PR ready until Steps 3, 4, and 5 all pass.
 
 **Code Formatting Standards**:
 - **Empty lines MUST NOT contain any whitespace** (no trailing spaces or tabs)
-- **Imports MUST be sorted** using isort (PEP 8 import ordering)
+- **Imports MUST be sorted** (Ruff `I` rules / `ruff check --fix`; PEP 8 import ordering)
 - Import order: standard library, third-party, local application
 - **All imports MUST be at module level** — no local/lazy imports inside functions or methods
   - ✅ `from app.models import Device` at top of file
@@ -422,7 +422,7 @@ Do not declare a PR ready until Steps 3, 4, and 5 all pass.
   - `TYPE_CHECKING` guard imports are acceptable (they are module-level by nature)
   - When moving imports to module level, update test patches to target the importing module (e.g., `patch.object(apps_module, "MQTTBroker", ...)` instead of `patch("app.mqtt.broker.MQTTBroker", ...)`)
   - Rationale: Local imports hide dependencies, complicate patching in tests, and violate PEP 8
-- Run `isort .` to automatically sort imports before committing
+- Run `uv run ruff check --fix app config web_ui` and `uv run ruff format app config web_ui` before committing
 - Run `find . -name "*.py" -type f -exec sed -i '' 's/^[[:space:]]*$//' {} +` to remove trailing whitespace
 - Rationale: Consistent code style, reduces git diff noise, improves readability
 
@@ -510,7 +510,7 @@ Passwords must never appear in shell command arguments — they end up in bash h
 - [ ] **Device MQTT commands** (`CommandPublisher`): single INFO log includes full JSON (`mqtt_payload_json_for_log`); new `/cmd` publishes go through `CommandPublisher`
 - [ ] **Shell variable naming** (lowercase for all non-exported variables; UPPERCASE only for `export`ed variables passed to subprocesses)
 - [ ] **Empty lines have no whitespace** (run `find . -name "*.py" -type f -exec sed -i '' 's/^[[:space:]]*$//' {} +`)
-- [ ] **Imports are sorted** (run `isort .` to fix)
+- [ ] **Ruff lint and format pass** (run `uv run ruff check --fix` and `uv run ruff format`)
 - [ ] **No local imports** (all imports at module level — no lazy imports inside functions/methods)
 - [ ] **Timezone handling correct** (database stores UTC, displays show local time)
 - [ ] **VS Code Problems panel is clear** (no import errors, type errors, or linting issues)

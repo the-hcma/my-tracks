@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("my_tracks", "0004_add_device_last_location_at"),
     ]

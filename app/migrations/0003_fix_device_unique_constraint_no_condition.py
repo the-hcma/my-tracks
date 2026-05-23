@@ -5,7 +5,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("my_tracks", "0002_device_unique_per_owner"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
@@ -18,8 +17,6 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name="device",
-            constraint=models.UniqueConstraint(
-                fields=("owner", "device_id"), name="unique_device_id_per_owner"
-            ),
+            constraint=models.UniqueConstraint(fields=("owner", "device_id"), name="unique_device_id_per_owner"),
         ),
     ]

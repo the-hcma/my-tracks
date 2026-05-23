@@ -227,7 +227,7 @@ This project follows PEP 8 guidelines with additional tooling:
 uv run pyright
 
 # Import sorting
-uv run isort app config web_ui
+uv run ruff check --fix app config web_ui && uv run ruff format app config web_ui
 
 # Shell script linting
 shellcheck scripts/my-tracks-server

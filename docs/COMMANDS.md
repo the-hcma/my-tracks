@@ -267,27 +267,31 @@ uv run python manage.py test --keepdb
 
 ## Code Quality
 
-### Import Sorting (isort)
+### Lint and format (Ruff)
+
+Replaces flake8 and isort. Configuration lives in `pyproject.toml` under `[tool.ruff]`.
 
 ```bash
-# Sort all imports
-uv run isort app config web_ui
+# Lint (imports, PEP 8, unused imports/vars)
+uv run ruff check app config web_ui
 
-# Sort specific file
-uv run isort app/models.py
+# Auto-fix lint issues (including import order)
+uv run ruff check --fix app config web_ui
 
-# Check without modifying
-uv run isort --check-only app config web_ui
+# Format Python sources
+uv run ruff format app config web_ui
 
-# Show diff
-uv run isort --diff app config web_ui
+# CI-style check (no writes)
+uv run ruff check app config web_ui
+uv run ruff format --check app config web_ui
 ```
 
 ### Combined Quality Checks
 
 ```bash
 # Run all quality checks
-uv run isort --check-only app config web_ui
+uv run ruff check app config web_ui
+uv run ruff format --check app config web_ui
 uv run pyright
 uv run pytest --cov=app --cov-fail-under=90
 ```
@@ -300,12 +304,6 @@ uv run pyright
 
 # Check specific file
 uv run pyright app/models.py
-
-# Run isort to sort imports
-uv run isort app config web_ui
-
-# Check imports without modifying
-uv run isort --check-only app config web_ui
 ```
 
 ## API Testing
@@ -630,7 +628,8 @@ sudo systemctl restart my-tracks
 ### Run Full Test Suite
 
 ```bash
-uv run isort --check-only app config web_ui
+uv run ruff check app config web_ui
+uv run ruff format --check app config web_ui
 uv run pyright
 uv run pytest --cov=app --cov-report=html
 uv run python manage.py check --deploy

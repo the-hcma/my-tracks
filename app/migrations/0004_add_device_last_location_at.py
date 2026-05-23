@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("my_tracks", "0003_fix_device_unique_constraint_no_condition"),
     ]

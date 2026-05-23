@@ -188,7 +188,7 @@ From here you can:
 - **Session init**: `~/work/ai/repository-helpers/scripts/dev/start-development --refresh`
 - **Run tests**: `uv run pytest`
 - **Check types**: `uv run pyright`
-- **Sort imports**: `uv run isort app config web_ui`
+- **Lint/format**: `uv run ruff check --fix app config web_ui && uv run ruff format app config web_ui`
 - **Run TypeScript tests**: `pnpm run test`
 - **Run ESLint**: `pnpm run lint`
 
@@ -236,7 +236,7 @@ uv run pytest --cov=app --cov-fail-under=90
 uv run pyright
 
 # Sort imports
-uv run isort app config web_ui
+uv run ruff check --fix app config web_ui && uv run ruff format app config web_ui
 
 # Run TypeScript tests
 pnpm run test

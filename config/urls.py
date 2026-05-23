@@ -10,7 +10,7 @@ from django.urls import include, path
 from django.urls.resolvers import URLPattern, URLResolver
 
 urlpatterns: list[URLPattern | URLResolver] = [
-    path('', include('web_ui.urls')),
-    path('admin/', admin.site.urls),
-    path('api/', include('app.urls')),
+    path("", include("web_ui.urls")),
+    path("admin/", admin.site.urls),
+    path("api/", include("app.urls")),
 ]

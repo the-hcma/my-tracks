@@ -5,6 +5,7 @@ Provides functions for sending emails via the admin-configured SMTP server.
 All functions that send email raise on failure — callers are responsible for
 catching and logging.
 """
+
 import logging
 import math
 import smtplib
@@ -22,8 +23,7 @@ from app.pki import decrypt_private_key
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
-    from app.models import (GlobalAutomationRule, SmtpConfig, Transition,
-                            TransitionAction)
+    from app.models import GlobalAutomationRule, SmtpConfig, Transition, TransitionAction
 
 logger = logging.getLogger(__name__)
 
@@ -92,9 +92,7 @@ def _format_footer_courier(*, sent_at: str | None, sent_by: str | None) -> str:
     return "\n".join(["```", *parts, "```"])
 
 
-def _append_footer(
-    body: str, *, sent_at: str | None = None, sent_by: str | None = None
-) -> str:
+def _append_footer(body: str, *, sent_at: str | None = None, sent_by: str | None = None) -> str:
     footer = _format_footer_courier(sent_at=sent_at, sent_by=sent_by)
     if not footer:
         return body
@@ -152,7 +150,7 @@ def send_test_email_via_backend(
             included in the body so the recipient can identify the sender.
     """
     lines = ["SMTP is configured correctly. This is a test message from my-tracks."]
-    public_domain = getattr(settings, 'PUBLIC_DOMAIN', '')
+    public_domain = getattr(settings, "PUBLIC_DOMAIN", "")
     if public_domain:
         lines.append("")
         lines.append("Public domain: " + public_domain)
@@ -161,10 +159,7 @@ def send_test_email_via_backend(
         lines.append("Server: " + ", ".join(server_names))
     now = datetime.now(tz=_utc.utc)
     local_ts = now.astimezone(settings.SYSTEM_TIMEZONE)
-    ts_str = (
-        f"{local_ts.strftime('%Y-%m-%d %H:%M:%S %Z')}"
-        f" ({now.strftime('%Y-%m-%d %H:%M:%S UTC')})"
-    )
+    ts_str = f"{local_ts.strftime('%Y-%m-%d %H:%M:%S %Z')} ({now.strftime('%Y-%m-%d %H:%M:%S UTC')})"
     public_domain = getattr(settings, "PUBLIC_DOMAIN", "")
     sent_by = public_domain or "my-tracks"
     _build_email(
@@ -176,9 +171,7 @@ def send_test_email_via_backend(
     ).send()
 
 
-def send_test_email(
-    to: str, config: "SmtpConfig", server_names: list[str] | None = None
-) -> None:
+def send_test_email(to: str, config: "SmtpConfig", server_names: list[str] | None = None) -> None:
     """
     Send a test email to verify SMTP connectivity. Raises on failure.
 
@@ -202,6 +195,7 @@ def send_transition_email(transition: "Transition", action: "TransitionAction") 
         action: The TransitionAction rule that matched.
     """
     from app.models import SmtpConfig
+
     config = SmtpConfig.get()
     if config is None:
         logger.debug("send_transition_email: no SMTP config, skipping")
@@ -212,30 +206,21 @@ def send_transition_email(transition: "Transition", action: "TransitionAction") 
         transition.waypoint.label if transition.waypoint else transition.description
     ) or "unknown geofence"
     owner = transition.device.owner
-    display_name = (
-        owner.get_full_name() or owner.username if owner else device_name
-    )
-    device_display = (
-        f"{owner.username}/{device_name}" if owner else device_name
-    )
+    display_name = owner.get_full_name() or owner.username if owner else device_name
+    device_display = f"{owner.username}/{device_name}" if owner else device_name
 
     verb = "entered" if transition.event == "enter" else "left"
     local_ts = transition.timestamp.astimezone(settings.SYSTEM_TIMEZONE)
     utc_ts = transition.timestamp.astimezone(_utc.utc)
-    ts_str = (
-        f"{local_ts.strftime('%Y-%m-%d %H:%M:%S %Z')}"
-        f" ({utc_ts.strftime('%Y-%m-%d %H:%M:%S UTC')})"
-    )
+    ts_str = f"{local_ts.strftime('%Y-%m-%d %H:%M:%S %Z')} ({utc_ts.strftime('%Y-%m-%d %H:%M:%S UTC')})"
 
     distance_line = ""
-    if (
-        transition.latitude is not None
-        and transition.longitude is not None
-        and transition.waypoint is not None
-    ):
+    if transition.latitude is not None and transition.longitude is not None and transition.waypoint is not None:
         dist_m = _haversine_m(
-            float(str(transition.latitude)), float(str(transition.longitude)),
-            float(str(transition.waypoint.latitude)), float(str(transition.waypoint.longitude)),
+            float(str(transition.latitude)),
+            float(str(transition.longitude)),
+            float(str(transition.waypoint.latitude)),
+            float(str(transition.waypoint.longitude)),
         )
         if dist_m >= 1000:
             distance_line = f"Distance from geofence center: {dist_m / 1000:.2f} km"
@@ -268,7 +253,10 @@ def send_transition_email(transition: "Transition", action: "TransitionAction") 
     ).send()
     logger.info(
         "Transition email sent to %s: %s %s %s",
-        action.email_address, display_name, verb, waypoint_label,
+        action.email_address,
+        display_name,
+        verb,
+        waypoint_label,
     )
 
 
@@ -286,27 +274,20 @@ def send_global_automation_email(
         states: Mapping of username → 'inside' | 'outside' | 'unknown'.
     """
     from app.models import GlobalAutomationRule, SmtpConfig
+
     config = SmtpConfig.get()
     if config is None:
         logger.debug("send_global_automation_email: no SMTP config, skipping")
         return
 
-    condition_label = (
-        "inside" if rule.condition == GlobalAutomationRule.CONDITION_ALL_INSIDE
-        else "outside"
-    )
+    condition_label = "inside" if rule.condition == GlobalAutomationRule.CONDITION_ALL_INSIDE else "outside"
     now = datetime.now(tz=_utc.utc)
     local_ts = now.astimezone(settings.SYSTEM_TIMEZONE)
-    ts_str = (
-        f"{local_ts.strftime('%Y-%m-%d %H:%M:%S %Z')}"
-        f" ({now.strftime('%Y-%m-%d %H:%M:%S UTC')})"
-    )
+    ts_str = f"{local_ts.strftime('%Y-%m-%d %H:%M:%S %Z')} ({now.strftime('%Y-%m-%d %H:%M:%S UTC')})"
     public_domain = getattr(settings, "PUBLIC_DOMAIN", "")
     sent_by = public_domain or str(config.host)
 
-    user_lines = "\n".join(
-        f"      {uname}: {state}" for uname, state in sorted(states.items())
-    )
+    user_lines = "\n".join(f"      {uname}: {state}" for uname, state in sorted(states.items()))
     subject = f"[my-tracks] {rule.name} — all {condition_label} {rule.waypoint.label}"
     body = _append_footer(
         f'Global automation rule "{rule.name}" fired.\n'
@@ -331,7 +312,9 @@ def send_global_automation_email(
     ).send()
     logger.info(
         "Global automation email sent to %s (rule=%r, condition=%s)",
-        rule.email_address, rule.name, rule.condition,
+        rule.email_address,
+        rule.name,
+        rule.condition,
     )
 
 
@@ -364,27 +347,29 @@ def fire_global_automation_webhook(
         },
         "users_state": states,
         "triggered_by": triggered_by.username,
-        "timestamp": datetime.now(tz=_utc.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+        "timestamp": datetime.now(tz=_utc.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
-    data = json.dumps(payload).encode('utf-8')
+    data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
         str(rule.webhook_url),
         data=data,
-        headers={'Content-Type': 'application/json'},
-        method='POST',
+        headers={"Content-Type": "application/json"},
+        method="POST",
     )
     with urllib.request.urlopen(req, timeout=5) as resp:  # noqa: S310
         status = resp.status
     logger.info(
         "Global automation webhook fired: url=%s status=%s (rule=%r)",
-        rule.webhook_url, status, rule.name,
+        rule.webhook_url,
+        status,
+        rule.name,
     )
 
 
-def smtp_friendly_error(exc: Exception, host: str = '') -> str:
+def smtp_friendly_error(exc: Exception, host: str = "") -> str:
     """Translate low-level socket/SMTP exceptions into readable messages."""
     msg = str(exc)
-    host_str = f" '{host}'" if host else ''
+    host_str = f" '{host}'" if host else ""
     if isinstance(exc, socket.gaierror):
         return f"Could not resolve hostname{host_str} — check that the SMTP host is correct."
     if isinstance(exc, ConnectionRefusedError):

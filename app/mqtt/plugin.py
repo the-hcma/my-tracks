@@ -28,9 +28,15 @@ from django.contrib.auth.models import User
 from django.db.models import Q
 from django.utils import timezone as dj_tz
 
-from app.models import (Device, GlobalAutomationRule, Location,
-                        LocationQualitySettings, OwnTracksMessage, Transition,
-                        Waypoint)
+from app.models import (
+    Device,
+    GlobalAutomationRule,
+    Location,
+    LocationQualitySettings,
+    OwnTracksMessage,
+    Transition,
+    Waypoint,
+)
 from app.mqtt.commands import Command, CommandPublisher
 from app.mqtt.handlers import OwnTracksMessageHandler
 from app.serializers import LocationSerializer
@@ -56,7 +62,7 @@ def _extract_tls_info(ssl_obj: ssl.SSLObject) -> _ClientTLSInfo | None:
     """Extract CN and fingerprint from a peer certificate on an SSL connection."""
     try:
         der_cert = ssl_obj.getpeercert(binary_form=True)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     if der_cert is None or not isinstance(der_cert, (bytes, bytearray)):
         return None
@@ -94,10 +100,7 @@ def get_other_devices(requesting_user: str) -> list[tuple[str, str]]:
     requesting_user rather than all other known devices.
     """
     return list(
-        Device.objects
-        .exclude(mqtt_user=requesting_user)
-        .exclude(mqtt_user="")
-        .values_list("mqtt_user", "device_id")
+        Device.objects.exclude(mqtt_user=requesting_user).exclude(mqtt_user="").values_list("mqtt_user", "device_id")
     )
 
 
@@ -161,7 +164,7 @@ def save_location_to_db(location_data: dict[str, Any]) -> dict[str, Any] | None:
             battery_level=location_data.get("battery"),
             connection_type=location_data.get("connection", ""),
             ip_address=location_data.get("client_ip"),
-            received_via='mqtt',
+            received_via="mqtt",
         )
 
         # Serialize for WebSocket broadcast
@@ -213,18 +216,12 @@ def save_lwt_to_db(lwt_data: dict[str, Any]) -> dict[str, Any] | None:
             message_type="lwt",
             payload={
                 "event": lwt_data["event"],
-                "connected_at": (
-                    lwt_data["connected_at"].isoformat()
-                    if lwt_data.get("connected_at")
-                    else None
-                ),
+                "connected_at": (lwt_data["connected_at"].isoformat() if lwt_data.get("connected_at") else None),
                 "disconnected_at": lwt_data["disconnected_at"].isoformat(),
             },
         )
 
-        device_display = (
-            f"{device.owner.username}/{device_id}" if device.owner else device_id
-        )
+        device_display = f"{device.owner.username}/{device_id}" if device.owner else device_id
         return {
             "device_id": device_id,
             "device_display": device_display,
@@ -244,9 +241,9 @@ def _format_event_ts(ts: datetime) -> str:
     Uses UTC if the LOG_UTC env var is set; otherwise converts to the real
     system timezone (Django overrides TZ to UTC, so bare astimezone() won't work).
     """
-    if os.environ.get('LOG_UTC'):
-        return ts.astimezone(_tz.utc).strftime('%Y%m%d-%H:%M:%S')
-    return ts.astimezone(settings.SYSTEM_TIMEZONE).strftime('%Y%m%d-%H:%M:%S')
+    if os.environ.get("LOG_UTC"):
+        return ts.astimezone(_tz.utc).strftime("%Y%m%d-%H:%M:%S")
+    return ts.astimezone(settings.SYSTEM_TIMEZONE).strftime("%Y%m%d-%H:%M:%S")
 
 
 def _fire_transition_actions(transition: Transition) -> None:
@@ -266,7 +263,7 @@ def _fire_transition_actions(transition: Transition) -> None:
     actions = TransitionAction.objects.filter(
         user=owner,
         is_active=True,
-    ).select_related('waypoint')
+    ).select_related("waypoint")
 
     for action in actions:
         if action.waypoint is not None and action.waypoint != transition.waypoint:
@@ -302,15 +299,17 @@ def _get_user_geofence_state(user: User, waypoint: Waypoint) -> str:
     if quality is not None and quality.filter_accuracy_enabled:
         minimum_accuracy_m = quality.minimum_accuracy_meters
         qs = qs.filter(Q(accuracy__isnull=True) | Q(accuracy__lte=minimum_accuracy_m))
-    latest = qs.order_by('-timestamp').select_related('device').first()
+    latest = qs.order_by("-timestamp").select_related("device").first()
     if latest is None:
-        return 'unknown'
+        return "unknown"
 
     dist = _haversine_m(
-        float(str(latest.latitude)), float(str(latest.longitude)),
-        float(str(waypoint.latitude)), float(str(waypoint.longitude)),
+        float(str(latest.latitude)),
+        float(str(latest.longitude)),
+        float(str(waypoint.latitude)),
+        float(str(waypoint.longitude)),
     )
-    return 'inside' if dist <= waypoint.radius else 'outside'
+    return "inside" if dist <= waypoint.radius else "outside"
 
 
 def _evaluate_global_automations_for_user(user: User) -> None:
@@ -322,68 +321,62 @@ def _evaluate_global_automations_for_user(user: User) -> None:
     fire-once guard when condition is no longer met.
     Failures per action are logged and suppressed.
     """
-    from app.notifications import (fire_global_automation_webhook,
-                                   send_global_automation_email)
+    from app.notifications import fire_global_automation_webhook, send_global_automation_email
 
     rules = (
-        GlobalAutomationRule.objects
-        .filter(is_active=True, users=user)
-        .prefetch_related('users')
-        .select_related('waypoint')
+        GlobalAutomationRule.objects.filter(is_active=True, users=user)
+        .prefetch_related("users")
+        .select_related("waypoint")
     )
 
     rule_list = list(rules)
     logger.debug(
         "Location update for '%s' — evaluating %d global automation rule(s)",
-        user.username, len(rule_list),
+        user.username,
+        len(rule_list),
     )
 
     for rule in rule_list:
         watched_users = list(rule.users.all())
-        states: dict[str, str] = {
-            u.username: _get_user_geofence_state(u, rule.waypoint)
-            for u in watched_users
-        }
+        states: dict[str, str] = {u.username: _get_user_geofence_state(u, rule.waypoint) for u in watched_users}
         state_values = list(states.values())
 
         if rule.condition == GlobalAutomationRule.CONDITION_ALL_INSIDE:
-            condition_met = all(s == 'inside' for s in state_values)
+            condition_met = all(s == "inside" for s in state_values)
         else:  # CONDITION_ALL_OUTSIDE
-            condition_met = all(s in ('outside', 'unknown') for s in state_values)
+            condition_met = all(s in ("outside", "unknown") for s in state_values)
 
         logger.debug(
             "Rule '%s' (id=%s): condition=%s states=%s → met=%s",
-            rule.name, rule.pk, rule.condition, states, condition_met,
+            rule.name,
+            rule.pk,
+            rule.condition,
+            states,
+            condition_met,
         )
 
         if condition_met and not rule.last_condition_met:
             # Condition newly met — fire
             logger.info(
                 "Global automation '%s' fired (condition=%s, triggered_by=%s)",
-                rule.name, rule.condition, user.username,
+                rule.name,
+                rule.condition,
+                user.username,
             )
             if rule.action_type == GlobalAutomationRule.ACTION_EMAIL and rule.email_address:
                 try:
                     send_global_automation_email(rule, user, states)
                 except Exception:
-                    logger.exception(
-                        "Failed to send global automation email (rule_id=%s)", rule.pk
-                    )
+                    logger.exception("Failed to send global automation email (rule_id=%s)", rule.pk)
             if rule.action_type == GlobalAutomationRule.ACTION_WEBHOOK and rule.webhook_url:
                 try:
                     fire_global_automation_webhook(rule, user, states)
                 except Exception:
-                    logger.exception(
-                        "Failed to fire global automation webhook (rule_id=%s)", rule.pk
-                    )
-            GlobalAutomationRule.objects.filter(pk=rule.pk).update(
-                last_condition_met=True
-            )
+                    logger.exception("Failed to fire global automation webhook (rule_id=%s)", rule.pk)
+            GlobalAutomationRule.objects.filter(pk=rule.pk).update(last_condition_met=True)
         elif not condition_met and rule.last_condition_met:
             # Condition reset — allow future firing
-            GlobalAutomationRule.objects.filter(pk=rule.pk).update(
-                last_condition_met=False
-            )
+            GlobalAutomationRule.objects.filter(pk=rule.pk).update(last_condition_met=False)
 
 
 def save_transition_to_db(transition_data: dict[str, Any]) -> dict[str, Any] | None:
@@ -424,9 +417,7 @@ def save_transition_to_db(transition_data: dict[str, Any]) -> dict[str, Any] | N
 
         _fire_transition_actions(transition)
 
-        device_display = (
-            f"{device.owner.username}/{device_id}" if device.owner else device_id
-        )
+        device_display = f"{device.owner.username}/{device_id}" if device.owner else device_id
         return {
             "id": transition.pk,
             "device_id": device_id,
@@ -465,14 +456,11 @@ def save_waypoints_to_db(waypoint_data: dict[str, Any]) -> int:
             return 0
 
         if device.owner is None:
-            logger.warning(
-                "Waypoints received for device with no owner: %s", device_id
-            )
+            logger.warning("Waypoints received for device with no owner: %s", device_id)
             return 0
 
         valid_wps = [
-            wp for wp in waypoint_data.get("waypoints", [])
-            if wp.get("lat") is not None and wp.get("lon") is not None
+            wp for wp in waypoint_data.get("waypoints", []) if wp.get("lat") is not None and wp.get("lon") is not None
         ]
         if not valid_wps:
             return 0
@@ -483,10 +471,12 @@ def save_waypoints_to_db(waypoint_data: dict[str, Any]) -> int:
             lat = float(wp["lat"])
             lon = float(wp["lon"])
             rad = int(wp.get("rad", 100))
-            rid = str(uuid.uuid5(
-                uuid.NAMESPACE_DNS,
-                f"{device.owner.pk}:{desc}:{lat:.6f}:{lon:.6f}:{rad}",
-            ))
+            rid = str(
+                uuid.uuid5(
+                    uuid.NAMESPACE_DNS,
+                    f"{device.owner.pk}:{desc}:{lat:.6f}:{lon:.6f}:{rad}",
+                )
+            )
             _, created = Waypoint.objects.get_or_create(
                 rid=rid,
                 defaults={
@@ -550,7 +540,9 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
             return None
 
     def _live_ssl_for_client(
-        self, client_id: str, session: Any | None = None,
+        self,
+        client_id: str,
+        session: Any | None = None,
     ) -> ssl.SSLObject | None:
         """Return the live TLS peer for a client, if any.
 
@@ -571,7 +563,9 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
         return None
 
     def _live_tls_info_for_client(
-        self, client_id: str, session: Any | None = None,
+        self,
+        client_id: str,
+        session: Any | None = None,
     ) -> _ClientTLSInfo | None:
         """Return TLS identity from the live connection or session binding."""
         cached = self._client_tls.get(client_id)
@@ -613,18 +607,22 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
             if tls_info:
                 logger.info(
                     "[mqtt-tls] Client connected: %s from %s (%s)",
-                    client_id, addr, tls_info,
+                    client_id,
+                    addr,
+                    tls_info,
                 )
             else:
                 logger.info(
                     "[mqtt-tls] Client connected: %s from %s (no client cert)",
-                    client_id, addr,
+                    client_id,
+                    addr,
                 )
         else:
             self._client_tls[client_id] = None
             logger.info(
                 "[mqtt] Client connected: %s from %s",
-                client_id, addr,
+                client_id,
+                addr,
             )
 
     async def on_broker_client_disconnected(
@@ -793,9 +791,7 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
         if action != "reportLocation" or not requesting_user or topic_user != requesting_user:
             return
 
-        other_devices = await sync_to_async(
-            get_other_devices, thread_sensitive=False
-        )(requesting_user)
+        other_devices = await sync_to_async(get_other_devices, thread_sensitive=False)(requesting_user)
 
         if not other_devices:
             logger.debug(
@@ -830,14 +826,19 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
 
         logger.info(
             "[%s] Waypoints from device: device=%s, count=%d",
-            transport, device_display, count,
+            transport,
+            device_display,
+            count,
         )
 
         # thread_sensitive=False: same reason as in _handle_location.
         saved = await sync_to_async(save_waypoints_to_db, thread_sensitive=False)(waypoint_data)
         logger.info(
             "[%s] Waypoints upserted: device=%s, new=%d, dup=%d",
-            transport, device_display, saved, count - saved,
+            transport,
+            device_display,
+            saved,
+            count - saved,
         )
         if saved > 0:
             await self._broadcast_waypoints(
@@ -1041,6 +1042,10 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
         tls_cn = tls_info.cn if tls_info is not None else ""
         payload = bytes(message.data) if isinstance(message.data, bytearray) else message.data
         await self._handler.handle_message(
-            topic, payload, client_ip=client_ip,
-            transport=transport, tls_identity=identity, tls_cn=tls_cn,
+            topic,
+            payload,
+            client_ip=client_ip,
+            transport=transport,
+            tls_identity=identity,
+            tls_cn=tls_cn,
         )

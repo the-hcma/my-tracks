@@ -1,4 +1,5 @@
 """My Tracks location tracking app."""
+
 import time
 
 # Server startup timestamp - used to detect backend restarts
