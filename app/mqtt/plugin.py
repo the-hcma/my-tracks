@@ -54,8 +54,11 @@ class _ClientTLSInfo:
 
 def _extract_tls_info(ssl_obj: ssl.SSLObject) -> _ClientTLSInfo | None:
     """Extract CN and fingerprint from a peer certificate on an SSL connection."""
-    der_cert = ssl_obj.getpeercert(binary_form=True)
-    if der_cert is None:
+    try:
+        der_cert = ssl_obj.getpeercert(binary_form=True)
+    except (TypeError, ValueError):
+        return None
+    if der_cert is None or not isinstance(der_cert, (bytes, bytearray)):
         return None
     cert = x509.load_der_x509_certificate(der_cert)
     cn_attrs = cert.subject.get_attributes_for_oid(x509.oid.NameOID.COMMON_NAME)
@@ -546,17 +549,50 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
         except Exception:
             return None
 
-    def _transport(self, client_id: str) -> str:
+    def _live_ssl_for_client(
+        self, client_id: str, session: Any | None = None,
+    ) -> ssl.SSLObject | None:
+        """Return the live TLS peer for a client, if any.
+
+        Prefer the attached writer (current connection). Fall back to
+        ``session.ssl_object`` so in-flight publishes after a brief disconnect
+        (e.g. session take-over) still log as ``[mqtt-tls]`` when appropriate.
+        """
+        ssl_obj = self._get_handler_writer_ssl(client_id)
+        if ssl_obj is not None:
+            return ssl_obj
+        if session is None:
+            session = self.context.get_session(client_id)
+        if session is None:
+            return None
+        session_ssl = getattr(session, "ssl_object", None)
+        if isinstance(session_ssl, ssl.SSLObject):
+            return session_ssl
+        return None
+
+    def _live_tls_info_for_client(
+        self, client_id: str, session: Any | None = None,
+    ) -> _ClientTLSInfo | None:
+        """Return TLS identity from the live connection or session binding."""
+        cached = self._client_tls.get(client_id)
+        if cached is not None:
+            return cached
+        ssl_obj = self._live_ssl_for_client(client_id, session=session)
+        if ssl_obj is None:
+            return None
+        return _extract_tls_info(ssl_obj)
+
+    def _transport(self, client_id: str, session: Any | None = None) -> str:
         """Return the transport tag for a client: ``mqtt-tls`` or ``mqtt``."""
-        if client_id in self._client_tls:
-            ssl_obj = self._get_handler_writer_ssl(client_id)
-            if ssl_obj is not None or self._client_tls[client_id] is not None:
-                return "mqtt-tls"
+        if self._live_ssl_for_client(client_id, session=session) is not None:
+            return "mqtt-tls"
+        if client_id in self._client_tls and self._client_tls[client_id] is not None:
+            return "mqtt-tls"
         return "mqtt"
 
-    def _identity(self, client_id: str) -> str:
+    def _identity(self, client_id: str, session: Any | None = None) -> str:
         """Return TLS identity suffix like ``(CN=hcma [AA:BB:CC:DD])`` or ``""``."""
-        tls_info = self._client_tls.get(client_id)
+        tls_info = self._live_tls_info_for_client(client_id, session=session)
         if tls_info is not None:
             return f" ({tls_info})"
         return ""
@@ -985,8 +1021,9 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
         if not topic.startswith("owntracks/"):
             return
 
-        transport = self._transport(client_id)
-        identity = self._identity(client_id)
+        session = self.context.get_session(client_id)
+        transport = self._transport(client_id, session=session)
+        identity = self._identity(client_id, session=session)
         logger.debug(
             "[%s] Message received: client=%s%s, topic=%s, size=%d",
             transport,
@@ -997,11 +1034,10 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
         )
 
         client_ip: str | None = None
-        session = self.context.get_session(client_id)
         if session is not None:
             client_ip = session.remote_address
 
-        tls_info = self._client_tls.get(client_id)
+        tls_info = self._live_tls_info_for_client(client_id, session=session)
         tls_cn = tls_info.cn if tls_info is not None else ""
         payload = bytes(message.data) if isinstance(message.data, bytearray) else message.data
         await self._handler.handle_message(

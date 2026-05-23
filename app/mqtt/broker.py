@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from amqtt.adapters import ReaderAdapter, WriterAdapter
-from amqtt.broker import Broker, BrokerProtocolHandler
+from amqtt.broker import Broker, BrokerProtocolHandler, Server
 from amqtt.errors import AMQTTError, MQTTError, NoDataError
 from amqtt.session import Session
 
@@ -77,6 +77,23 @@ def _log_background_task_exception(task: asyncio.Task[Any]) -> None:
         exc,
         exc_info=exc,
     )
+
+
+def _apply_live_tls_to_session(
+    client_session: Session,
+    writer: WriterAdapter,
+) -> ssl.SSLObject | None:
+    """Bind the current connection's TLS peer to the MQTT session.
+
+    amqtt reuses persistent sessions but does not update ``ssl_object`` on
+    reconnect. Stale objects must be cleared when the new connection is not TLS.
+    """
+    fresh_ssl = writer.get_ssl_info()
+    if fresh_ssl is not None:
+        client_session.ssl_object = fresh_ssl
+    else:
+        client_session.ssl_object = None
+    return fresh_ssl
 
 
 def _attach_background_task_logging(task: asyncio.Task[Any]) -> None:
@@ -263,12 +280,44 @@ class _CRLBroker(Broker):
                 )
             raise
 
-        fresh_ssl = writer.get_ssl_info()
-        if fresh_ssl is not None:
-            client_session.ssl_object = fresh_ssl
+        _apply_live_tls_to_session(client_session, writer)
         client_session.remote_address = remote_address
         client_session.remote_port = remote_port
         return handler, client_session
+
+    async def _handle_client_session(
+        self,
+        reader: ReaderAdapter,
+        writer: WriterAdapter,
+        client_session: Session,
+        handler: BrokerProtocolHandler,
+        server: Server,
+        listener_name: str,
+    ) -> None:
+        """Refresh TLS identity immediately before auth and clear it on exit.
+
+        ``_initialize_client_session`` runs before ``handler.attach``; the live
+        writer is only guaranteed here. Clearing ``ssl_object`` in ``finally``
+        prevents the next persistent-session reconnect from reusing a closed
+        TLS peer (``getpeercert`` → no CN / auth failures until broker restart).
+        """
+        fresh_ssl = _apply_live_tls_to_session(client_session, writer)
+        try:
+            await super()._handle_client_session(
+                reader,
+                writer,
+                client_session,
+                handler,
+                server,
+                listener_name,
+            )
+        finally:
+            # Do not clear session.ssl_object here: persistent sessions are reused
+            # across reconnects and take-over stops the old handler while the new
+            # connection's _handle_client_session is still running on the same
+            # Session instance. Stale peers are replaced in _apply_live_tls_to_session.
+            if fresh_ssl is not None:
+                _CRLBroker._sni_map.pop(fresh_ssl, None)
 
     async def _client_connected(
         self,

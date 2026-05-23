@@ -1244,6 +1244,23 @@ class TestPluginTLSClientIdentification:
         plugin._client_tls["tls-client"] = info
         assert_that(plugin._transport("tls-client"), equal_to("mqtt-tls"))
 
+    def test_transport_uses_session_ssl_object_when_cache_cleared(
+        self,
+        plugin: OwnTracksPlugin,
+        mock_broker_context: MagicMock,
+    ) -> None:
+        """In-flight messages after disconnect still tag mqtt-tls when session retains ssl_object."""
+        der_cert = _make_self_signed_cert("phoneuser")
+        mock_ssl = MagicMock(spec=ssl.SSLObject)
+        mock_ssl.getpeercert.return_value = der_cert
+
+        mock_session = MagicMock()
+        mock_session.ssl_object = mock_ssl
+        mock_broker_context.get_session.return_value = mock_session
+
+        with patch.object(plugin, "_get_handler_writer_ssl", return_value=None):
+            assert_that(plugin._transport("phone-123"), equal_to("mqtt-tls"))
+
     def test_identity_for_unknown_client(self, plugin: OwnTracksPlugin) -> None:
         """Should return empty string for client not in cache."""
         assert_that(plugin._identity("never-seen"), equal_to(""))
