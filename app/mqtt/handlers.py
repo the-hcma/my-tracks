@@ -105,7 +105,7 @@ def extract_location_data(
         return None
 
     # Use device name only (not user/device)
-    device_id = topic_info['device']
+    device_id = topic_info["device"]
 
     # Use tid (tracker ID) if available, otherwise use device name
     tracker_id = message.get("tid", topic_info["device"])
@@ -166,14 +166,14 @@ def extract_lwt_data(
     if msg_type != "lwt":
         return None
 
-    device_id = topic_info['device']
+    device_id = topic_info["device"]
 
     # tst in LWT is when the device first connected
     tst = message.get("tst")
     if tst:
         try:
             connected_at = datetime.fromtimestamp(int(tst), tz=UTC)
-        except (ValueError, TypeError, OSError):
+        except ValueError, TypeError, OSError:
             connected_at = None
     else:
         connected_at = None
@@ -206,7 +206,7 @@ def extract_transition_data(
     if msg_type != "transition":
         return None
 
-    device_id = topic_info['device']
+    device_id = topic_info["device"]
 
     event = message.get("event")  # 'enter' or 'leave'
     desc = message.get("desc")  # Region name
@@ -363,20 +363,26 @@ class OwnTracksMessageHandler:
 
         if msg_type == "location":
             await self._handle_location(
-                message, topic_info, client_ip=client_ip, mqtt_user=mqtt_user,
-                transport=transport, tls_identity=tls_identity, tls_cn=tls_cn,
+                message,
+                topic_info,
+                client_ip=client_ip,
+                mqtt_user=mqtt_user,
+                transport=transport,
+                tls_identity=tls_identity,
+                tls_cn=tls_cn,
             )
         elif msg_type == "lwt":
             await self._handle_lwt(message, topic_info, transport=transport, mqtt_user=mqtt_user)
         elif msg_type == "transition":
             await self._handle_transition(
-                message, topic_info, transport=transport, tls_identity=tls_identity,
+                message,
+                topic_info,
+                transport=transport,
+                tls_identity=tls_identity,
                 mqtt_user=mqtt_user,
             )
         elif msg_type == "waypoints":
-            await self._handle_waypoints(
-                message, topic_info, transport=transport, mqtt_user=mqtt_user
-            )
+            await self._handle_waypoints(message, topic_info, transport=transport, mqtt_user=mqtt_user)
         elif msg_type == "cmd":
             await self._handle_cmd(
                 message,

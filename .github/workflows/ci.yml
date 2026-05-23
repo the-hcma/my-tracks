@@ -135,11 +135,10 @@ jobs:
     - name: Install dependencies
       run: uv sync --all-extras
 
-    - name: Check import sorting with isort
-      run: uv run isort --check-only --diff app config web_ui
-
-    - name: Lint with flake8
-      run: uv run flake8 --config dev-tooling/.flake8 app config
+    - name: Lint and format check with Ruff
+      run: |
+        uv run ruff check app config web_ui
+        uv run ruff format --check app config web_ui
 
     - name: Check type annotations with Pyright
       run: |

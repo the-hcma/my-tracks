@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("my_tracks", "0008_add_global_automation_rule"),
     ]
@@ -27,8 +26,7 @@ class Migration(migrations.Migration):
                     models.BooleanField(
                         default=False,
                         help_text=(
-                            "When enabled, ignore fixes whose reported accuracy exceeds "
-                            "minimum_accuracy_meters."
+                            "When enabled, ignore fixes whose reported accuracy exceeds minimum_accuracy_meters."
                         ),
                     ),
                 ),

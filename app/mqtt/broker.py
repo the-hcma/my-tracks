@@ -130,7 +130,8 @@ def _mqtt_asyncio_exception_handler(
                 pass
         logger.warning(
             "[mqtt-tls] Handshake failed from %s: %s",
-            peername, exception,
+            peername,
+            exception,
         )
         return
 
@@ -222,6 +223,7 @@ class _CRLBroker(Broker):
         ) -> None:
             if server_name is not None and isinstance(ssl_obj, ssl.SSLObject):
                 _CRLBroker._sni_map[ssl_obj] = server_name
+
         ctx.set_servername_callback(_sni_callback)
         return ctx
 
@@ -232,7 +234,9 @@ class _CRLBroker(Broker):
         _CRLBroker._original_exception_handler = loop.get_exception_handler()
         loop.set_exception_handler(
             lambda loop, ctx: _mqtt_asyncio_exception_handler(
-                loop, ctx, _CRLBroker._original_exception_handler,
+                loop,
+                ctx,
+                _CRLBroker._original_exception_handler,
             )
         )
 
@@ -262,9 +266,12 @@ class _CRLBroker(Broker):
         """
         try:
             handler, client_session = await super()._initialize_client_session(
-                reader, writer, remote_address, remote_port,
+                reader,
+                writer,
+                remote_address,
+                remote_port,
             )
-        except (AMQTTError, MQTTError, NoDataError):
+        except AMQTTError, MQTTError, NoDataError:
             ssl_obj = writer.get_ssl_info()
             if ssl_obj is not None:
                 sans = ", ".join(_CRLBroker._server_cert_sans) or "none"
@@ -276,7 +283,10 @@ class _CRLBroker(Broker):
                     "in SANs, untrusted CA, or expired cert). "
                     "Client expected hostname (SNI): %s — "
                     "Server cert SANs: [%s]",
-                    remote_address, remote_port, sni, sans,
+                    remote_address,
+                    remote_port,
+                    sni,
+                    sans,
                 )
             raise
 
@@ -508,10 +518,7 @@ class MQTTBroker:
                 ExtensionOID.SUBJECT_ALTERNATIVE_NAME,
             )
             san_names = san_ext.value.get_values_for_type(x509.DNSName)
-            san_ips = [
-                str(ip)
-                for ip in san_ext.value.get_values_for_type(x509.IPAddress)
-            ]
+            san_ips = [str(ip) for ip in san_ext.value.get_values_for_type(x509.IPAddress)]
             _CRLBroker._server_cert_sans = san_names + san_ips
         except Exception:
             _CRLBroker._server_cert_sans = []

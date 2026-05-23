@@ -18,8 +18,7 @@ from django.apps import AppConfig
 from django.conf import settings as django_settings
 
 from app.mqtt.broker import MQTTBroker, TLSConfig
-from config.runtime import (CONFIG_FILE, get_http_port, get_mqtt_port,
-                            get_mqtt_tls_port, update_runtime_config)
+from config.runtime import CONFIG_FILE, get_http_port, get_mqtt_port, get_mqtt_tls_port, update_runtime_config
 
 logger = logging.getLogger(__name__)
 
@@ -52,9 +51,7 @@ def _stop_mqtt_broker() -> None:
 
     if _state.broker is not None and _state.loop is not None:
         if _state.broker.is_running:
-            future = asyncio.run_coroutine_threadsafe(
-                _state.broker.stop(), _state.loop
-            )
+            future = asyncio.run_coroutine_threadsafe(_state.broker.stop(), _state.loop)
             try:
                 future.result(timeout=5)
             except Exception:
@@ -70,9 +67,13 @@ def _log_cert_info(server_cert_pem: bytes, ca_cert_pem: bytes) -> None:
 
     Messages use the ``[mqtt-tls]`` prefix per docs/AGENTS.md (PKI / server TLS identity logs).
     """
-    from app.pki import (get_certificate_expiry, get_certificate_fingerprint,
-                         get_certificate_sans, get_certificate_serial_number,
-                         get_certificate_subject)
+    from app.pki import (
+        get_certificate_expiry,
+        get_certificate_fingerprint,
+        get_certificate_sans,
+        get_certificate_serial_number,
+        get_certificate_subject,
+    )
 
     cn = get_certificate_subject(server_cert_pem)
     fingerprint = get_certificate_fingerprint(server_cert_pem)
@@ -83,7 +84,11 @@ def _log_cert_info(server_cert_pem: bytes, ca_cert_pem: bytes) -> None:
 
     logger.info(
         "[mqtt-tls] MQTT server certificate cn=%s serial=%s ca_cn=%s expires=%s fingerprint=%s",
-        cn, format(serial, "X"), ca_cn, expiry.strftime("%Y-%m-%d %H:%M UTC"), fingerprint,
+        cn,
+        format(serial, "X"),
+        ca_cn,
+        expiry.strftime("%Y-%m-%d %H:%M UTC"),
+        fingerprint,
     )
     if sans:
         logger.info("[mqtt-tls] MQTT server certificate sans=%s", ", ".join(sans))
@@ -91,8 +96,7 @@ def _log_cert_info(server_cert_pem: bytes, ca_cert_pem: bytes) -> None:
     days_remaining = (expiry - datetime.now(UTC)).days
     if days_remaining < 0:
         logger.warning(
-            "[mqtt-tls] MQTT server certificate expired %d day(s) ago — "
-            "clients will reject connections",
+            "[mqtt-tls] MQTT server certificate expired %d day(s) ago — clients will reject connections",
             abs(days_remaining),
         )
     elif days_remaining < 30:
@@ -117,9 +121,14 @@ def _log_web_cert_info() -> None:
         )
         return
 
-    from app.pki import (get_certificate_expiry, get_certificate_fingerprint,
-                         get_certificate_issuer, get_certificate_sans,
-                         get_certificate_subject, is_certificate_self_signed)
+    from app.pki import (
+        get_certificate_expiry,
+        get_certificate_fingerprint,
+        get_certificate_issuer,
+        get_certificate_sans,
+        get_certificate_subject,
+        is_certificate_self_signed,
+    )
 
     cert_pem = _WEB_CERT_PATH.read_bytes()
 
@@ -137,7 +146,11 @@ def _log_web_cert_info() -> None:
     port_info = f"  port={https_port}" if https_port else ""
     logger.info(
         "[http-tls] Web TLS certificate cn=%s type=%s%s expires=%s fingerprint=%s",
-        cn, cert_type, port_info, expiry.strftime("%Y-%m-%d %H:%M UTC"), fingerprint,
+        cn,
+        cert_type,
+        port_info,
+        expiry.strftime("%Y-%m-%d %H:%M UTC"),
+        fingerprint,
     )
     if sans:
         logger.info("[http-tls] Web TLS certificate sans=%s", ", ".join(sans))
@@ -145,8 +158,7 @@ def _log_web_cert_info() -> None:
     days_remaining = (expiry - datetime.now(UTC)).days
     if days_remaining < 0:
         logger.warning(
-            "[http-tls] Web TLS certificate expired %d day(s) ago — "
-            "clients will reject HTTPS connections",
+            "[http-tls] Web TLS certificate expired %d day(s) ago — clients will reject HTTPS connections",
             abs(days_remaining),
         )
     elif days_remaining < 30:
@@ -186,13 +198,9 @@ def _load_tls_config() -> TLSConfig | None:
 
         from app.models import ClientCertificate
 
-        revoked_certs = ClientCertificate.objects.filter(revoked=True).values_list(
-            "serial_number", "revoked_at"
-        )
+        revoked_certs = ClientCertificate.objects.filter(revoked=True).values_list("serial_number", "revoked_at")
         revoked_entries = [
-            (int(serial, 16), revoked_at)
-            for serial, revoked_at in revoked_certs
-            if serial and revoked_at
+            (int(serial, 16), revoked_at) for serial, revoked_at in revoked_certs if serial and revoked_at
         ]
 
         crl_pem = generate_crl(
@@ -247,14 +255,10 @@ def _run_mqtt_broker(mqtt_port: int, mqtt_tls_port: int = -1) -> None:
         # If port was 0, discover and publish the actual port
         actual_port = _state.broker.actual_mqtt_port
         if actual_port is not None and actual_port != mqtt_port:
-            logger.info(
-                "MQTT broker listening on OS-allocated port %d", actual_port
-            )
+            logger.info("MQTT broker listening on OS-allocated port %d", actual_port)
             update_runtime_config("actual_mqtt_port", actual_port)
 
-        logger.info(
-            "MQTT broker started on port %d", actual_port or mqtt_port
-        )
+        logger.info("MQTT broker started on port %d", actual_port or mqtt_port)
 
         # Keep the event loop alive while the broker is running
         while _state.broker.is_running:
@@ -367,7 +371,7 @@ def trigger_tls_reload(reason: str = "configuration changed") -> None:
     future.add_done_callback(_on_done)
 
 
-_ASGI_SERVER_BINARIES = {'daphne', 'uvicorn'}
+_ASGI_SERVER_BINARIES = {"daphne", "uvicorn"}
 
 
 def _fatal_db_error(message: str) -> None:
@@ -439,7 +443,7 @@ def _is_management_command() -> bool:
     prog = PurePath(sys.argv[0]).stem
     if prog in _ASGI_SERVER_BINARIES:
         return False
-    if len(sys.argv) >= 2 and sys.argv[1] == 'runserver':
+    if len(sys.argv) >= 2 and sys.argv[1] == "runserver":
         return False
     return len(sys.argv) >= 2
 
@@ -459,15 +463,17 @@ def _log_startup_commit() -> None:
 
     try:
         result = subprocess.run(
-            ['git', '-C', str(_REPO_ROOT), 'rev-parse', '--short', 'HEAD'],
-            capture_output=True, text=True, check=True,
+            ["git", "-C", str(_REPO_ROOT), "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
         )
         commit = result.stdout.strip() or None
     except Exception:
         pass
 
     if commit is None:
-        commit = os.environ.get('BUILD_COMMIT') or None
+        commit = os.environ.get("BUILD_COMMIT") or None
 
     if commit:
         logger.info("Running commit: %s", commit)
@@ -478,10 +484,10 @@ def _log_startup_commit() -> None:
 class MyTracksConfig(AppConfig):
     """Configuration for the my_tracks app."""
 
-    default_auto_field: str = 'django.db.models.BigAutoField'
-    name: str = 'app'
-    label: str = 'my_tracks'  # keeps DB tables and migration history stable
-    verbose_name: str = 'My Tracks'
+    default_auto_field: str = "django.db.models.BigAutoField"
+    name: str = "app"
+    label: str = "my_tracks"  # keeps DB tables and migration history stable
+    verbose_name: str = "My Tracks"
 
     def ready(self) -> None:
         """Start the MQTT broker if enabled in runtime config.
@@ -536,6 +542,4 @@ class MyTracksConfig(AppConfig):
         )
         _state.thread.start()
         atexit.register(_stop_mqtt_broker)
-        logger.info(
-            "MQTT broker thread started (port=%d, tls_port=%d)", mqtt_port, mqtt_tls_port
-        )
+        logger.info("MQTT broker thread started (port=%d, tls_port=%d)", mqtt_port, mqtt_tls_port)

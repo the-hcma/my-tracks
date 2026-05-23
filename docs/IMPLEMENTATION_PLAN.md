@@ -793,7 +793,7 @@ app/mqtt/
 - 97%+ code coverage (target: 90%)
 - Tests run in parallel via pytest-xdist with accurate coverage merging
 - All pyright checks pass (0 errors, 0 warnings)
-- All imports sorted (isort clean)
+- Ruff lint and format clean
 - All shell scripts pass shellcheck
 - CI pipeline: 4 parallel jobs (Frontend, Backend Lint, Backend Tests, Shell Script Tests)
 

@@ -6,6 +6,7 @@ generating Certificate Revocation Lists (CRLs), and encrypting/decrypting
 private keys at rest using Fernet symmetric encryption derived from
 Django's SECRET_KEY.
 """
+
 import base64
 import hashlib
 import ipaddress
@@ -55,11 +56,11 @@ def reencrypt_private_key(encrypted_data: bytes, old_secret_key: str) -> bytes:
 ALLOWED_KEY_SIZES = (2048, 3072, 4096)
 
 VALIDITY_PRESETS: list[tuple[int, str]] = [
-    (365, '1 year'),
-    (730, '2 years'),
-    (1095, '3 years'),
-    (1460, '4 years'),
-    (1825, '5 years'),
+    (365, "1 year"),
+    (730, "2 years"),
+    (1095, "3 years"),
+    (1460, "4 years"),
+    (1825, "5 years"),
 ]
 
 DEFAULT_CERT_VALIDITY_DAYS = 1825
@@ -86,15 +87,15 @@ def generate_ca_certificate(
         ValueError: If key_size is not one of the allowed values.
     """
     if key_size not in ALLOWED_KEY_SIZES:
-        raise ValueError(
-            f"Expected key_size in {ALLOWED_KEY_SIZES}, got {key_size}"
-        )
+        raise ValueError(f"Expected key_size in {ALLOWED_KEY_SIZES}, got {key_size}")
     key = rsa.generate_private_key(public_exponent=65537, key_size=key_size)
 
-    subject = issuer = x509.Name([
-        x509.NameAttribute(NameOID.COMMON_NAME, common_name),
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "My Tracks"),
-    ])
+    subject = issuer = x509.Name(
+        [
+            x509.NameAttribute(NameOID.COMMON_NAME, common_name),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "My Tracks"),
+        ]
+    )
 
     now = datetime.now(UTC)
     cert = (
@@ -181,9 +182,7 @@ def get_certificate_sans(cert_pem: bytes) -> list[str]:
     """Get the Subject Alternative Names from a PEM-encoded certificate."""
     cert = x509.load_pem_x509_certificate(cert_pem)
     try:
-        san_ext = cert.extensions.get_extension_for_class(
-            x509.SubjectAlternativeName
-        )
+        san_ext = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName)
     except x509.ExtensionNotFound:
         return []
     names: list[str] = []
@@ -220,9 +219,7 @@ def generate_server_certificate(
         ValueError: If key_size is not allowed or san_entries is empty.
     """
     if key_size not in ALLOWED_KEY_SIZES:
-        raise ValueError(
-            f"Expected key_size in {ALLOWED_KEY_SIZES}, got {key_size}"
-        )
+        raise ValueError(f"Expected key_size in {ALLOWED_KEY_SIZES}, got {key_size}")
     if not san_entries:
         raise ValueError("Expected at least one SAN entry, got empty list")
 
@@ -231,14 +228,14 @@ def generate_server_certificate(
     if not isinstance(ca_key, RSAPrivateKey):
         raise ValueError("Expected RSA private key for CA")
 
-    server_key = rsa.generate_private_key(
-        public_exponent=65537, key_size=key_size
-    )
+    server_key = rsa.generate_private_key(public_exponent=65537, key_size=key_size)
 
-    subject = x509.Name([
-        x509.NameAttribute(NameOID.COMMON_NAME, common_name),
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "My Tracks"),
-    ])
+    subject = x509.Name(
+        [
+            x509.NameAttribute(NameOID.COMMON_NAME, common_name),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "My Tracks"),
+        ]
+    )
 
     san_objects: list[x509.GeneralName] = []
     for entry in san_entries:
@@ -284,15 +281,11 @@ def generate_server_certificate(
             critical=False,
         )
         .add_extension(
-            x509.AuthorityKeyIdentifier.from_issuer_public_key(
-                ca_key.public_key()
-            ),
+            x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()),
             critical=False,
         )
         .add_extension(
-            x509.SubjectKeyIdentifier.from_public_key(
-                server_key.public_key()
-            ),
+            x509.SubjectKeyIdentifier.from_public_key(server_key.public_key()),
             critical=False,
         )
     )
@@ -336,9 +329,7 @@ def generate_client_certificate(
         ValueError: If key_size is not allowed or username is empty.
     """
     if key_size not in ALLOWED_KEY_SIZES:
-        raise ValueError(
-            f"Expected key_size in {ALLOWED_KEY_SIZES}, got {key_size}"
-        )
+        raise ValueError(f"Expected key_size in {ALLOWED_KEY_SIZES}, got {key_size}")
     if not username or not username.strip():
         raise ValueError("Expected a non-empty username")
 
@@ -347,19 +338,17 @@ def generate_client_certificate(
     if not isinstance(ca_key, RSAPrivateKey):
         raise ValueError("Expected RSA private key for CA")
 
-    client_key = rsa.generate_private_key(
-        public_exponent=65537, key_size=key_size
-    )
+    client_key = rsa.generate_private_key(public_exponent=65537, key_size=key_size)
 
-    ca_org_attrs = ca_cert.subject.get_attributes_for_oid(
-        NameOID.ORGANIZATION_NAME
-    )
+    ca_org_attrs = ca_cert.subject.get_attributes_for_oid(NameOID.ORGANIZATION_NAME)
     org_name = str(ca_org_attrs[0].value) if ca_org_attrs else "My Tracks"
 
-    subject = x509.Name([
-        x509.NameAttribute(NameOID.COMMON_NAME, username),
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, org_name),
-    ])
+    subject = x509.Name(
+        [
+            x509.NameAttribute(NameOID.COMMON_NAME, username),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, org_name),
+        ]
+    )
 
     now = datetime.now(UTC)
     builder = (
@@ -393,15 +382,11 @@ def generate_client_certificate(
             critical=False,
         )
         .add_extension(
-            x509.AuthorityKeyIdentifier.from_issuer_public_key(
-                ca_key.public_key()
-            ),
+            x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()),
             critical=False,
         )
         .add_extension(
-            x509.SubjectKeyIdentifier.from_public_key(
-                client_key.public_key()
-            ),
+            x509.SubjectKeyIdentifier.from_public_key(client_key.public_key()),
             critical=False,
         )
     )
@@ -451,10 +436,7 @@ def generate_crl(
 
     for serial_number, revocation_time in revoked_entries:
         revoked_cert = (
-            x509.RevokedCertificateBuilder()
-            .serial_number(serial_number)
-            .revocation_date(revocation_time)
-            .build()
+            x509.RevokedCertificateBuilder().serial_number(serial_number).revocation_date(revocation_time).build()
         )
         builder = builder.add_revoked_certificate(revoked_cert)
 
@@ -505,12 +487,12 @@ def get_certificate_serial_number(cert_pem: bytes) -> int:
 
 
 _OID_TO_LABEL: dict[x509.ObjectIdentifier, str] = {
-    NameOID.COMMON_NAME: 'CN',
-    NameOID.ORGANIZATION_NAME: 'O',
-    NameOID.ORGANIZATIONAL_UNIT_NAME: 'OU',
-    NameOID.COUNTRY_NAME: 'C',
-    NameOID.STATE_OR_PROVINCE_NAME: 'ST',
-    NameOID.LOCALITY_NAME: 'L',
+    NameOID.COMMON_NAME: "CN",
+    NameOID.ORGANIZATION_NAME: "O",
+    NameOID.ORGANIZATIONAL_UNIT_NAME: "OU",
+    NameOID.COUNTRY_NAME: "C",
+    NameOID.STATE_OR_PROVINCE_NAME: "ST",
+    NameOID.LOCALITY_NAME: "L",
 }
 
 

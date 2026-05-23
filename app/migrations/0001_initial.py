@@ -6,7 +6,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     initial = True
 
     dependencies = [
@@ -32,9 +31,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "encrypted_private_key",
-                    models.BinaryField(
-                        help_text="CA private key encrypted at rest (Fernet)"
-                    ),
+                    models.BinaryField(help_text="CA private key encrypted at rest (Fernet)"),
                 ),
                 (
                     "common_name",
@@ -74,9 +71,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "created_at",
-                    models.DateTimeField(
-                        auto_now_add=True, help_text="When this CA was generated"
-                    ),
+                    models.DateTimeField(auto_now_add=True, help_text="When this CA was generated"),
                 ),
             ],
             options={
@@ -123,15 +118,11 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "use_ssl",
-                    models.BooleanField(
-                        default=False, help_text="Use implicit SSL (port 465)"
-                    ),
+                    models.BooleanField(default=False, help_text="Use implicit SSL (port 465)"),
                 ),
                 (
                     "from_address",
-                    models.EmailField(
-                        help_text="From address for outgoing emails", max_length=254
-                    ),
+                    models.EmailField(help_text="From address for outgoing emails", max_length=254),
                 ),
                 ("updated_at", models.DateTimeField(auto_now=True)),
             ],
@@ -157,9 +148,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "encrypted_private_key",
-                    models.BinaryField(
-                        help_text="Client private key encrypted at rest (Fernet)"
-                    ),
+                    models.BinaryField(help_text="Client private key encrypted at rest (Fernet)"),
                 ),
                 (
                     "common_name",
@@ -177,9 +166,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "serial_number",
-                    models.CharField(
-                        help_text="Certificate serial number (hex)", max_length=100
-                    ),
+                    models.CharField(help_text="Certificate serial number (hex)", max_length=100),
                 ),
                 (
                     "key_size",
@@ -220,9 +207,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "created_at",
-                    models.DateTimeField(
-                        auto_now_add=True, help_text="When this certificate was issued"
-                    ),
+                    models.DateTimeField(auto_now_add=True, help_text="When this certificate was issued"),
                 ),
                 (
                     "issuing_ca",
@@ -344,9 +329,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "encrypted_private_key",
-                    models.BinaryField(
-                        help_text="Server private key encrypted at rest (Fernet)"
-                    ),
+                    models.BinaryField(help_text="Server private key encrypted at rest (Fernet)"),
                 ),
                 (
                     "common_name",
@@ -456,15 +439,11 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "created_at",
-                    models.DateTimeField(
-                        auto_now_add=True, help_text="When this profile was created"
-                    ),
+                    models.DateTimeField(auto_now_add=True, help_text="When this profile was created"),
                 ),
                 (
                     "updated_at",
-                    models.DateTimeField(
-                        auto_now=True, help_text="When this profile was last updated"
-                    ),
+                    models.DateTimeField(auto_now=True, help_text="When this profile was last updated"),
                 ),
                 (
                     "user",
@@ -518,9 +497,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "radius",
-                    models.IntegerField(
-                        default=100, help_text="Radius of the geofence circle in metres"
-                    ),
+                    models.IntegerField(default=100, help_text="Radius of the geofence circle in metres"),
                 ),
                 (
                     "rid",
@@ -532,9 +509,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "is_active",
-                    models.BooleanField(
-                        default=True, help_text="Whether this waypoint is active"
-                    ),
+                    models.BooleanField(default=True, help_text="Whether this waypoint is active"),
                 ),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
@@ -581,9 +556,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "action_type",
-                    models.CharField(
-                        choices=[("email", "Email")], default="email", max_length=20
-                    ),
+                    models.CharField(choices=[("email", "Email")], default="email", max_length=20),
                 ),
                 (
                     "email_address",
@@ -594,9 +567,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "is_active",
-                    models.BooleanField(
-                        default=True, help_text="Whether this rule is currently active"
-                    ),
+                    models.BooleanField(default=True, help_text="Whether this rule is currently active"),
                 ),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 (
@@ -662,9 +633,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "timestamp",
-                    models.DateTimeField(
-                        help_text="When the transition occurred on the device (tst)"
-                    ),
+                    models.DateTimeField(help_text="When the transition occurred on the device (tst)"),
                 ),
                 (
                     "latitude",
@@ -841,9 +810,7 @@ class Migration(migrations.Migration):
                         fields=["device", "-timestamp"],
                         name="my_tracks_l_device__a6677d_idx",
                     ),
-                    models.Index(
-                        fields=["-timestamp"], name="my_tracks_l_timesta_2f234e_idx"
-                    ),
+                    models.Index(fields=["-timestamp"], name="my_tracks_l_timesta_2f234e_idx"),
                 ],
             },
         ),
@@ -917,9 +884,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="waypoint",
-            index=models.Index(
-                fields=["user", "is_active"], name="my_tracks_w_user_id_55804a_idx"
-            ),
+            index=models.Index(fields=["user", "is_active"], name="my_tracks_w_user_id_55804a_idx"),
         ),
         migrations.AddIndex(
             model_name="transitionaction",
@@ -927,14 +892,10 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="transition",
-            index=models.Index(
-                fields=["device", "-timestamp"], name="my_tracks_t_device__15c108_idx"
-            ),
+            index=models.Index(fields=["device", "-timestamp"], name="my_tracks_t_device__15c108_idx"),
         ),
         migrations.AddIndex(
             model_name="transition",
-            index=models.Index(
-                fields=["waypoint", "-timestamp"], name="my_tracks_t_waypoin_a6e7d7_idx"
-            ),
+            index=models.Index(fields=["waypoint", "-timestamp"], name="my_tracks_t_waypoin_a6e7d7_idx"),
         ),
     ]

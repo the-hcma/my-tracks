@@ -212,8 +212,8 @@ After creating each PR, run all quality gates (see AGENTS.md for the full list):
 
 ```bash
 uv run pyright
-uv run isort --check-only --diff app config web_ui
-uv run flake8 --config dev-tooling/.flake8 app config
+uv run ruff check app config web_ui
+uv run ruff format --check app config web_ui
 uv run pytest --cov=app --cov-fail-under=90
 ```
 

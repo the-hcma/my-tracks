@@ -4,6 +4,7 @@ Database models for OwnTracks location tracking.
 This module defines the data models for storing device information
 and location data from OwnTracks clients.
 """
+
 import logging
 import uuid
 from decimal import Decimal
@@ -26,55 +27,40 @@ class Device(models.Model):
     """
 
     device_id = models.CharField(
-        max_length=100,
-        db_index=True,
-        help_text="Device identifier sent by OwnTracks (unique per owner)"
+        max_length=100, db_index=True, help_text="Device identifier sent by OwnTracks (unique per owner)"
     )
-    name = models.CharField(
-        max_length=200,
-        blank=True,
-        help_text="Friendly name for the device"
-    )
-    created_at = models.DateTimeField(
-        auto_now_add=True,
-        help_text="When this device was first registered"
-    )
+    name = models.CharField(max_length=200, blank=True, help_text="Friendly name for the device")
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When this device was first registered")
     last_seen = models.DateTimeField(
-        auto_now=True,
-        help_text="Last time any MQTT activity was received from this device"
+        auto_now=True, help_text="Last time any MQTT activity was received from this device"
     )
     last_location_at = models.DateTimeField(
-        null=True,
-        blank=True,
-        help_text="Last time a GPS location fix was received from this device"
+        null=True, blank=True, help_text="Last time a GPS location fix was received from this device"
     )
     is_online = models.BooleanField(
         default=False,  # type: ignore[reportArgumentType]  # django-stubs issue
-        help_text="Whether the device is currently connected via MQTT"
+        help_text="Whether the device is currently connected via MQTT",
     )
     mqtt_user = models.CharField(
-        max_length=100,
-        blank=True,
-        default='',
-        help_text="OwnTracks MQTT user (from topic owntracks/{user}/{device})"
+        max_length=100, blank=True, default="", help_text="OwnTracks MQTT user (from topic owntracks/{user}/{device})"
     )
     owner = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name='devices',
-        help_text="Django user who owns this device (matched from mqtt_user)"
+        related_name="devices",
+        help_text="Django user who owns this device (matched from mqtt_user)",
     )
 
     class Meta:
-        ordering = ['-last_seen']
-        verbose_name = 'Device'
-        verbose_name_plural = 'Devices'
+        ordering = ["-last_seen"]
+        verbose_name = "Device"
+        verbose_name_plural = "Devices"
         constraints = [
             models.UniqueConstraint(
-                fields=['owner', 'device_id'],
-                name='unique_device_id_per_owner',
+                fields=["owner", "device_id"],
+                name="unique_device_id_per_owner",
             )
         ]
 
@@ -94,103 +80,73 @@ class Location(models.Model):
     """
 
     device = models.ForeignKey(
-        Device,
-        on_delete=models.CASCADE,
-        related_name='locations',
-        help_text="The device that reported this location"
+        Device, on_delete=models.CASCADE, related_name="locations", help_text="The device that reported this location"
     )
 
     # Core location data (required fields)
     latitude = models.DecimalField(
-        max_digits=15,
-        decimal_places=10,
-        help_text="Latitude in decimal degrees (-90 to +90)"
+        max_digits=15, decimal_places=10, help_text="Latitude in decimal degrees (-90 to +90)"
     )
     longitude = models.DecimalField(
-        max_digits=15,
-        decimal_places=10,
-        help_text="Longitude in decimal degrees (-180 to +180)"
+        max_digits=15, decimal_places=10, help_text="Longitude in decimal degrees (-180 to +180)"
     )
     timestamp = models.DateTimeField(
-        db_index=True,
-        help_text="Unix timestamp when location was recorded (from 'tst' field)"
+        db_index=True, help_text="Unix timestamp when location was recorded (from 'tst' field)"
     )
 
     # Optional location metadata
-    accuracy = models.IntegerField(
-        null=True,
-        blank=True,
-        help_text="Accuracy of location in meters (from 'acc' field)"
-    )
+    accuracy = models.IntegerField(null=True, blank=True, help_text="Accuracy of location in meters (from 'acc' field)")
     altitude = models.IntegerField(
-        null=True,
-        blank=True,
-        help_text="Altitude above sea level in meters (from 'alt' field)"
+        null=True, blank=True, help_text="Altitude above sea level in meters (from 'alt' field)"
     )
-    velocity = models.IntegerField(
-        null=True,
-        blank=True,
-        help_text="Velocity/speed in km/h (from 'vel' field)"
-    )
-    battery_level = models.IntegerField(
-        null=True,
-        blank=True,
-        help_text="Battery percentage 0-100 (from 'batt' field)"
-    )
+    velocity = models.IntegerField(null=True, blank=True, help_text="Velocity/speed in km/h (from 'vel' field)")
+    battery_level = models.IntegerField(null=True, blank=True, help_text="Battery percentage 0-100 (from 'batt' field)")
 
     # Connection type: w=WiFi, o=Offline, m=Mobile
     CONNECTION_TYPE_CHOICES = [
-        ('w', 'WiFi'),
-        ('o', 'Offline'),
-        ('m', 'Mobile'),
+        ("w", "WiFi"),
+        ("o", "Offline"),
+        ("m", "Mobile"),
     ]
     connection_type = models.CharField(
         max_length=1,
         blank=True,
         choices=CONNECTION_TYPE_CHOICES,
-        help_text="Connection type (from 'conn' field): w=WiFi, o=Offline, m=Mobile"
+        help_text="Connection type (from 'conn' field): w=WiFi, o=Offline, m=Mobile",
     )
 
     # Tracker ID (2-character display code from OwnTracks)
     tracker_id = models.CharField(
-        max_length=10,
-        blank=True,
-        default='',
-        help_text="OwnTracks tracker ID (from 'tid' field)"
+        max_length=10, blank=True, default="", help_text="OwnTracks tracker ID (from 'tid' field)"
     )
 
     # Client information
     ip_address = models.GenericIPAddressField(
-        null=True,
-        blank=True,
-        help_text="IP address of the client that submitted this location"
+        null=True, blank=True, help_text="IP address of the client that submitted this location"
     )
 
     RECEIVED_VIA_CHOICES = [
-        ('http', 'HTTP'),
-        ('mqtt', 'MQTT'),
+        ("http", "HTTP"),
+        ("mqtt", "MQTT"),
     ]
     received_via = models.CharField(
         max_length=4,
         blank=True,
-        default='',
+        default="",
         choices=RECEIVED_VIA_CHOICES,
-        help_text="Transport used to receive this location: 'http' or 'mqtt'"
+        help_text="Transport used to receive this location: 'http' or 'mqtt'",
     )
 
     # Tracking metadata
-    received_at = models.DateTimeField(
-        auto_now_add=True,
-        help_text="When the server received this location data"
-    )
+    received_at = models.DateTimeField(auto_now_add=True, help_text="When the server received this location data")
 
     class Meta:
-        ordering = ['-timestamp']
-        verbose_name = 'Location'
-        verbose_name_plural = 'Locations'
+        ordering = ["-timestamp"]
+        verbose_name = "Location"
+        verbose_name_plural = "Locations"
         indexes = [
-            models.Index(fields=['device', '-timestamp']),
-            models.Index(fields=['-timestamp']),
+            models.Index(fields=["device", "-timestamp"]),
+            models.Index(fields=["-timestamp"]),
         ]
 
     def __str__(self) -> str:
@@ -209,46 +165,38 @@ class OwnTracksMessage(models.Model):
     device = models.ForeignKey(
         Device,
         on_delete=models.CASCADE,
-        related_name='messages',
+        related_name="messages",
         null=True,
         blank=True,
-        help_text="The device that sent this message (if identifiable)"
+        help_text="The device that sent this message (if identifiable)",
     )
 
     message_type = models.CharField(
-        max_length=50,
-        db_index=True,
-        help_text="Type of OwnTracks message (status, lwt, transition, etc.)"
+        max_length=50, db_index=True, help_text="Type of OwnTracks message (status, lwt, transition, etc.)"
     )
 
-    payload = models.JSONField(
-        help_text="Complete message payload as JSON"
-    )
+    payload = models.JSONField(help_text="Complete message payload as JSON")
 
     ip_address = models.GenericIPAddressField(
-        null=True,
-        blank=True,
-        help_text="IP address of the client that submitted this message"
+        null=True, blank=True, help_text="IP address of the client that submitted this message"
     )
 
     received_at = models.DateTimeField(
-        auto_now_add=True,
-        db_index=True,
-        help_text="When the server received this message"
+        auto_now_add=True, db_index=True, help_text="When the server received this message"
     )
 
     class Meta:
-        ordering = ['-received_at']
-        verbose_name = 'OwnTracks Message'
-        verbose_name_plural = 'OwnTracks Messages'
+        ordering = ["-received_at"]
+        verbose_name = "OwnTracks Message"
+        verbose_name_plural = "OwnTracks Messages"
         indexes = [
-            models.Index(fields=['device', '-received_at']),
-            models.Index(fields=['message_type', '-received_at']),
+            models.Index(fields=["device", "-received_at"]),
+            models.Index(fields=["message_type", "-received_at"]),
         ]
 
     def __str__(self) -> str:
         """Return string representation of the message."""
-        device_str = self.device.device_id if self.device else 'Unknown'
+        device_str = self.device.device_id if self.device else "Unknown"
         return f"{device_str} - {self.message_type} at {self.received_at}"
 
 
@@ -260,43 +208,26 @@ class CertificateAuthority(models.Model):
     Private keys are stored encrypted at rest using Fernet derived from SECRET_KEY.
     """
 
-    certificate_pem = models.TextField(
-        help_text="CA certificate in PEM format"
-    )
-    encrypted_private_key = models.BinaryField(
-        help_text="CA private key encrypted at rest (Fernet)"
-    )
-    common_name = models.CharField(
-        max_length=200,
-        help_text="Subject Common Name of the CA certificate"
-    )
-    fingerprint = models.CharField(
-        max_length=100,
-        help_text="SHA-256 fingerprint of the CA certificate"
-    )
-    not_valid_before = models.DateTimeField(
-        help_text="Certificate validity start"
-    )
-    not_valid_after = models.DateTimeField(
-        help_text="Certificate validity end"
-    )
+    certificate_pem = models.TextField(help_text="CA certificate in PEM format")
+    encrypted_private_key = models.BinaryField(help_text="CA private key encrypted at rest (Fernet)")
+    common_name = models.CharField(max_length=200, help_text="Subject Common Name of the CA certificate")
+    fingerprint = models.CharField(max_length=100, help_text="SHA-256 fingerprint of the CA certificate")
+    not_valid_before = models.DateTimeField(help_text="Certificate validity start")
+    not_valid_after = models.DateTimeField(help_text="Certificate validity end")
     key_size = models.IntegerField(
         default=4096,  # type: ignore[reportArgumentType]  # django-stubs issue
-        help_text="RSA key size in bits (2048, 3072, or 4096)"
+        help_text="RSA key size in bits (2048, 3072, or 4096)",
     )
     is_active = models.BooleanField(
         default=True,  # type: ignore[reportArgumentType]  # django-stubs issue
-        help_text="Whether this is the current active CA (only one may be active)"
+        help_text="Whether this is the current active CA (only one may be active)",
     )
-    created_at = models.DateTimeField(
-        auto_now_add=True,
-        help_text="When this CA was generated"
-    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When this CA was generated")
 
     class Meta:
-        ordering = ['-created_at']
-        verbose_name = 'Certificate Authority'
-        verbose_name_plural = 'Certificate Authorities'
+        ordering = ["-created_at"]
+        verbose_name = "Certificate Authority"
+        verbose_name_plural = "Certificate Authorities"
 
     def __str__(self) -> str:
         """Return string representation of the CA."""
@@ -316,50 +247,30 @@ class ServerCertificate(models.Model):
     issuing_ca = models.ForeignKey(
         CertificateAuthority,
         on_delete=models.CASCADE,
-        related_name='server_certificates',
-        help_text="The CA that signed this server certificate"
+        related_name="server_certificates",
+        help_text="The CA that signed this server certificate",
     )
-    certificate_pem = models.TextField(
-        help_text="Server certificate in PEM format"
-    )
-    encrypted_private_key = models.BinaryField(
-        help_text="Server private key encrypted at rest (Fernet)"
-    )
-    common_name = models.CharField(
-        max_length=200,
-        help_text="Subject Common Name of the server certificate"
-    )
-    fingerprint = models.CharField(
-        max_length=100,
-        help_text="SHA-256 fingerprint of the server certificate"
-    )
-    san_entries = models.JSONField(
-        default=list,
-        help_text="Subject Alternative Names (IP addresses and DNS names)"
-    )
+    certificate_pem = models.TextField(help_text="Server certificate in PEM format")
+    encrypted_private_key = models.BinaryField(help_text="Server private key encrypted at rest (Fernet)")
+    common_name = models.CharField(max_length=200, help_text="Subject Common Name of the server certificate")
+    fingerprint = models.CharField(max_length=100, help_text="SHA-256 fingerprint of the server certificate")
+    san_entries = models.JSONField(default=list, help_text="Subject Alternative Names (IP addresses and DNS names)")
     key_size = models.IntegerField(
         default=4096,  # type: ignore[reportArgumentType]  # django-stubs issue
-        help_text="RSA key size in bits (2048, 3072, or 4096)"
+        help_text="RSA key size in bits (2048, 3072, or 4096)",
     )
-    not_valid_before = models.DateTimeField(
-        help_text="Certificate validity start"
-    )
-    not_valid_after = models.DateTimeField(
-        help_text="Certificate validity end"
-    )
+    not_valid_before = models.DateTimeField(help_text="Certificate validity start")
+    not_valid_after = models.DateTimeField(help_text="Certificate validity end")
     is_active = models.BooleanField(
         default=True,  # type: ignore[reportArgumentType]  # django-stubs issue
-        help_text="Whether this is the current active server certificate"
+        help_text="Whether this is the current active server certificate",
     )
-    created_at = models.DateTimeField(
-        auto_now_add=True,
-        help_text="When this server certificate was generated"
-    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When this server certificate was generated")
 
     class Meta:
-        ordering = ['-created_at']
-        verbose_name = 'Server Certificate'
-        verbose_name_plural = 'Server Certificates'
+        ordering = ["-created_at"]
+        verbose_name = "Server Certificate"
+        verbose_name_plural = "Server Certificates"
 
     def __str__(self) -> str:
         """Return string representation of the server certificate."""
@@ -378,65 +289,41 @@ class ClientCertificate(models.Model):
     user = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
-        related_name='client_certificates',
-        help_text="The user this certificate was issued to"
+        related_name="client_certificates",
+        help_text="The user this certificate was issued to",
     )
     issuing_ca = models.ForeignKey(
         CertificateAuthority,
         on_delete=models.CASCADE,
-        related_name='client_certificates',
-        help_text="The CA that signed this client certificate"
+        related_name="client_certificates",
+        help_text="The CA that signed this client certificate",
     )
-    certificate_pem = models.TextField(
-        help_text="Client certificate in PEM format"
-    )
-    encrypted_private_key = models.BinaryField(
-        help_text="Client private key encrypted at rest (Fernet)"
-    )
-    common_name = models.CharField(
-        max_length=200,
-        help_text="Subject Common Name (matches the username)"
-    )
-    fingerprint = models.CharField(
-        max_length=100,
-        help_text="SHA-256 fingerprint of the client certificate"
-    )
-    serial_number = models.CharField(
-        max_length=100,
-        help_text="Certificate serial number (hex)"
-    )
+    certificate_pem = models.TextField(help_text="Client certificate in PEM format")
+    encrypted_private_key = models.BinaryField(help_text="Client private key encrypted at rest (Fernet)")
+    common_name = models.CharField(max_length=200, help_text="Subject Common Name (matches the username)")
+    fingerprint = models.CharField(max_length=100, help_text="SHA-256 fingerprint of the client certificate")
+    serial_number = models.CharField(max_length=100, help_text="Certificate serial number (hex)")
     key_size = models.IntegerField(
         default=4096,  # type: ignore[reportArgumentType]
-        help_text="RSA key size in bits (2048, 3072, or 4096)"
+        help_text="RSA key size in bits (2048, 3072, or 4096)",
     )
-    not_valid_before = models.DateTimeField(
-        help_text="Certificate validity start"
-    )
-    not_valid_after = models.DateTimeField(
-        help_text="Certificate validity end"
-    )
+    not_valid_before = models.DateTimeField(help_text="Certificate validity start")
+    not_valid_after = models.DateTimeField(help_text="Certificate validity end")
     is_active = models.BooleanField(
         default=True,  # type: ignore[reportArgumentType]
-        help_text="Whether this certificate is currently active"
+        help_text="Whether this certificate is currently active",
     )
     revoked = models.BooleanField(
         default=False,  # type: ignore[reportArgumentType]
-        help_text="Whether this certificate has been revoked"
+        help_text="Whether this certificate has been revoked",
     )
-    revoked_at = models.DateTimeField(
-        null=True,
-        blank=True,
-        help_text="When this certificate was revoked"
-    )
-    created_at = models.DateTimeField(
-        auto_now_add=True,
-        help_text="When this certificate was issued"
-    )
+    revoked_at = models.DateTimeField(null=True, blank=True, help_text="When this certificate was revoked")
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When this certificate was issued")
 
     class Meta:
-        ordering = ['-created_at']
-        verbose_name = 'Client Certificate'
-        verbose_name_plural = 'Client Certificates'
+        ordering = ["-created_at"]
+        verbose_name = "Client Certificate"
+        verbose_name_plural = "Client Certificates"
 
     def __str__(self) -> str:
         """Return string representation of the client certificate."""
@@ -457,42 +344,29 @@ class UserProfile(models.Model):
     """
 
     user = models.OneToOneField(
-        User,
-        on_delete=models.CASCADE,
-        related_name='profile',
-        help_text="The user this profile belongs to"
+        User, on_delete=models.CASCADE, related_name="profile", help_text="The user this profile belongs to"
     )
     home_latitude = models.DecimalField(
         max_digits=15,
         decimal_places=10,
         null=True,
         blank=True,
-        help_text="Home location latitude — default map center for geofence creation"
+        help_text="Home location latitude — default map center for geofence creation",
     )
     home_longitude = models.DecimalField(
         max_digits=15,
         decimal_places=10,
         null=True,
         blank=True,
-        help_text="Home location longitude — default map center for geofence creation"
+        help_text="Home location longitude — default map center for geofence creation",
     )
-    home_label = models.CharField(
-        max_length=100,
-        default='Home',
-        help_text="Display label for the home location pin"
-    )
-    created_at = models.DateTimeField(
-        auto_now_add=True,
-        help_text="When this profile was created"
-    )
-    updated_at = models.DateTimeField(
-        auto_now=True,
-        help_text="When this profile was last updated"
-    )
+    home_label = models.CharField(max_length=100, default="Home", help_text="Display label for the home location pin")
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When this profile was created")
+    updated_at = models.DateTimeField(auto_now=True, help_text="When this profile was last updated")
 
     class Meta:
-        verbose_name = 'User Profile'
-        verbose_name_plural = 'User Profiles'
+        verbose_name = "User Profile"
+        verbose_name_plural = "User Profiles"
 
     def __str__(self) -> str:
         """Return string representation of the profile."""
@@ -509,47 +383,35 @@ class Waypoint(models.Model):
     """
 
     user = models.ForeignKey(
-        User,
-        on_delete=models.CASCADE,
-        related_name='waypoints',
-        help_text="User who owns this geofence"
+        User, on_delete=models.CASCADE, related_name="waypoints", help_text="User who owns this geofence"
     )
-    label = models.CharField(
-        max_length=200,
-        help_text="Display name for this geofence (maps to OwnTracks 'desc')"
-    )
-    latitude = models.DecimalField(
-        max_digits=15,
-        decimal_places=10,
-        help_text="Center latitude of the geofence circle"
-    )
+    label = models.CharField(max_length=200, help_text="Display name for this geofence (maps to OwnTracks 'desc')")
+    latitude = models.DecimalField(max_digits=15, decimal_places=10, help_text="Center latitude of the geofence circle")
     longitude = models.DecimalField(
-        max_digits=15,
-        decimal_places=10,
-        help_text="Center longitude of the geofence circle"
+        max_digits=15, decimal_places=10, help_text="Center longitude of the geofence circle"
     )
     radius = models.IntegerField(
         default=100,  # type: ignore[reportArgumentType]
-        help_text="Radius of the geofence circle in metres"
+        help_text="Radius of the geofence circle in metres",
     )
     rid = models.CharField(
         max_length=36,
         unique=True,
-        help_text="Content-derived UUID5 (owner + desc + lat + lon + rad); same content always yields the same rid"
+        help_text="Content-derived UUID5 (owner + desc + lat + lon + rad); same content always yields the same rid",
     )
     is_active = models.BooleanField(
         default=True,  # type: ignore[reportArgumentType]
-        help_text="Whether this waypoint is active"
+        help_text="Whether this waypoint is active",
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ['label']
-        verbose_name = 'Waypoint'
-        verbose_name_plural = 'Waypoints'
+        ordering = ["label"]
+        verbose_name = "Waypoint"
+        verbose_name_plural = "Waypoints"
         indexes = [
-            models.Index(fields=['user', 'is_active']),
+            models.Index(fields=["user", "is_active"]),
         ]
 
     def save(self, *args: Any, **kwargs: Any) -> None:
@@ -569,11 +431,11 @@ class Waypoint(models.Model):
         """
         # Decimal at runtime; pyright needs cast for float(lat/lon).
         return {
-            'desc': self.label,
-            'lat': float(cast(Decimal, self.latitude)),
-            'lon': float(cast(Decimal, self.longitude)),
-            'rad': self.radius,
-            'tst': int(self.updated_at.timestamp()),
+            "desc": self.label,
+            "lat": float(cast(Decimal, self.latitude)),
+            "lon": float(cast(Decimal, self.longitude)),
+            "rad": self.radius,
+            "tst": int(self.updated_at.timestamp()),
         }
 
 
@@ -586,72 +448,44 @@ class Transition(models.Model):
     server-side waypoint exists for that rid.
     """
 
-    ENTER = 'enter'
-    LEAVE = 'leave'
+    ENTER = "enter"
+    LEAVE = "leave"
     EVENT_CHOICES = [
-        (ENTER, 'Enter'),
-        (LEAVE, 'Leave'),
+        (ENTER, "Enter"),
+        (LEAVE, "Leave"),
     ]
 
     device = models.ForeignKey(
-        Device,
-        on_delete=models.CASCADE,
-        related_name='transitions',
-        help_text="Device that fired this transition"
+        Device, on_delete=models.CASCADE, related_name="transitions", help_text="Device that fired this transition"
     )
     waypoint = models.ForeignKey(
         Waypoint,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name='transitions',
-        help_text="Matched server-side waypoint (null if rid has no server record)"
+        related_name="transitions",
+        help_text="Matched server-side waypoint (null if rid has no server record)",
     )
-    event = models.CharField(
-        max_length=10,
-        choices=EVENT_CHOICES,
-        help_text="'enter' or 'leave'"
-    )
-    region_id = models.CharField(
-        max_length=36,
-        help_text="OwnTracks rid from the transition message"
-    )
-    description = models.CharField(
-        max_length=200,
-        blank=True,
-        help_text="OwnTracks desc from the transition message"
-    )
-    timestamp = models.DateTimeField(
-        help_text="When the transition occurred on the device (tst)"
-    )
+    event = models.CharField(max_length=10, choices=EVENT_CHOICES, help_text="'enter' or 'leave'")
+    region_id = models.CharField(max_length=36, help_text="OwnTracks rid from the transition message")
+    description = models.CharField(max_length=200, blank=True, help_text="OwnTracks desc from the transition message")
+    timestamp = models.DateTimeField(help_text="When the transition occurred on the device (tst)")
     latitude = models.DecimalField(
-        max_digits=15,
-        decimal_places=10,
-        null=True,
-        blank=True,
-        help_text="Device latitude at transition time"
+        max_digits=15, decimal_places=10, null=True, blank=True, help_text="Device latitude at transition time"
     )
     longitude = models.DecimalField(
-        max_digits=15,
-        decimal_places=10,
-        null=True,
-        blank=True,
-        help_text="Device longitude at transition time"
+        max_digits=15, decimal_places=10, null=True, blank=True, help_text="Device longitude at transition time"
     )
-    accuracy = models.IntegerField(
-        null=True,
-        blank=True,
-        help_text="Location accuracy in metres at transition time"
-    )
+    accuracy = models.IntegerField(null=True, blank=True, help_text="Location accuracy in metres at transition time")
     received_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ['-timestamp']
-        verbose_name = 'Transition'
-        verbose_name_plural = 'Transitions'
+        ordering = ["-timestamp"]
+        verbose_name = "Transition"
+        verbose_name_plural = "Transitions"
         indexes = [
-            models.Index(fields=['device', '-timestamp']),
-            models.Index(fields=['waypoint', '-timestamp']),
+            models.Index(fields=["device", "-timestamp"]),
+            models.Index(fields=["waypoint", "-timestamp"]),
         ]
 
     def __str__(self) -> str:
@@ -748,31 +582,31 @@ class TransitionAction(models.Model):
     The event field controls which direction triggers the rule.
     """
 
-    ENTER = 'enter'
-    LEAVE = 'leave'
-    ANY = 'any'
+    ENTER = "enter"
+    LEAVE = "leave"
+    ANY = "any"
     EVENT_CHOICES = [
-        (ENTER, 'Enter'),
-        (LEAVE, 'Leave'),
-        (ANY, 'Either'),
+        (ENTER, "Enter"),
+        (LEAVE, "Leave"),
+        (ANY, "Either"),
     ]
 
-    ACTION_EMAIL = 'email'
+    ACTION_EMAIL = "email"
     ACTION_CHOICES = [
-        (ACTION_EMAIL, 'Email'),
+        (ACTION_EMAIL, "Email"),
     ]
 
     user = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
-        related_name='transition_actions',
+        related_name="transition_actions",
     )
     waypoint = models.ForeignKey(
         Waypoint,
         on_delete=models.CASCADE,
         null=True,
         blank=True,
-        related_name='actions',
+        related_name="actions",
         help_text="Target waypoint; null means 'any geofence'",
     )
     event = models.CharField(
@@ -796,15 +630,15 @@ class TransitionAction(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ['waypoint__label', 'event']
-        verbose_name = 'Transition Action'
-        verbose_name_plural = 'Transition Actions'
+        ordering = ["waypoint__label", "event"]
+        verbose_name = "Transition Action"
+        verbose_name_plural = "Transition Actions"
         indexes = [
-            models.Index(fields=['user', 'is_active'], name='ta_user_active_idx'),
+            models.Index(fields=["user", "is_active"], name="ta_user_active_idx"),
         ]
 
     def __str__(self) -> str:
-        wp_label = self.waypoint.label if self.waypoint else 'Any'
+        wp_label = self.waypoint.label if self.waypoint else "Any"
         return f"{self.user.username}: {wp_label} {self.event} → {self.email_address}"
 
 
@@ -818,18 +652,18 @@ class GlobalAutomationRule(models.Model):
     Only admins (is_staff) may create these rules.
     """
 
-    CONDITION_ALL_INSIDE = 'all_inside'
-    CONDITION_ALL_OUTSIDE = 'all_outside'
+    CONDITION_ALL_INSIDE = "all_inside"
+    CONDITION_ALL_OUTSIDE = "all_outside"
     CONDITION_CHOICES = [
-        (CONDITION_ALL_INSIDE, 'All users inside'),
-        (CONDITION_ALL_OUTSIDE, 'All users outside'),
+        (CONDITION_ALL_INSIDE, "All users inside"),
+        (CONDITION_ALL_OUTSIDE, "All users outside"),
     ]
 
-    ACTION_EMAIL = 'email'
-    ACTION_WEBHOOK = 'webhook'
+    ACTION_EMAIL = "email"
+    ACTION_WEBHOOK = "webhook"
     ACTION_CHOICES = [
-        (ACTION_EMAIL, 'Email'),
-        (ACTION_WEBHOOK, 'Webhook'),
+        (ACTION_EMAIL, "Email"),
+        (ACTION_WEBHOOK, "Webhook"),
     ]
 
     name = models.CharField(
@@ -841,13 +675,13 @@ class GlobalAutomationRule(models.Model):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name='global_automation_rules_created',
+        related_name="global_automation_rules_created",
         help_text="Admin who created this rule",
     )
     waypoint = models.ForeignKey(
         Waypoint,
         on_delete=models.CASCADE,
-        related_name='global_automation_rules',
+        related_name="global_automation_rules",
         help_text="Geofence this rule watches",
     )
     condition = models.CharField(
@@ -858,7 +692,7 @@ class GlobalAutomationRule(models.Model):
     )
     users = models.ManyToManyField(
         User,
-        related_name='global_automation_rules',
+        related_name="global_automation_rules",
         help_text="Users whose location is evaluated",
     )
     action_type = models.CharField(
@@ -882,19 +716,18 @@ class GlobalAutomationRule(models.Model):
         null=True,
         default=None,  # type: ignore[reportArgumentType]
         help_text=(
-            "Tracks fire-once state: None=never evaluated, "
-            "True=condition met (fired), False=condition not met (reset)"
+            "Tracks fire-once state: None=never evaluated, True=condition met (fired), False=condition not met (reset)"
         ),
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ['name']
-        verbose_name = 'Global Automation Rule'
-        verbose_name_plural = 'Global Automation Rules'
+        ordering = ["name"]
+        verbose_name = "Global Automation Rule"
+        verbose_name_plural = "Global Automation Rules"
         indexes = [
-            models.Index(fields=['is_active'], name='gar_active_idx'),
+            models.Index(fields=["is_active"], name="gar_active_idx"),
         ]
 
     def __str__(self) -> str:
@@ -902,14 +735,11 @@ class GlobalAutomationRule(models.Model):
 
 
 @receiver(post_save, sender=User)
-def create_user_profile(
-    sender: type[User], instance: User, created: bool, **kwargs: Any
-) -> None:
+def create_user_profile(sender: type[User], instance: User, created: bool, **kwargs: Any) -> None:
     """Auto-create a UserProfile whenever a new User is created."""
     if created:
         role = "admin" if instance.is_staff else "user"
-        logger.info("New user created: '%s' (role=%s, email='%s')",
-                    instance.username, role, instance.email or "")
+        logger.info("New user created: '%s' (role=%s, email='%s')", instance.username, role, instance.email or "")
         UserProfile.objects.create(user=instance)
 
 
@@ -923,6 +753,7 @@ def reload_tls_on_server_cert(
     if not instance.is_active:
         return
     from app.apps import trigger_tls_reload
+
     trigger_tls_reload(
         reason=f"new server certificate activated (CN={instance.common_name}, fingerprint={instance.fingerprint})"
     )
@@ -938,6 +769,7 @@ def reload_tls_on_client_cert_revoked(
     if not instance.revoked:
         return
     from app.apps import trigger_tls_reload
+
     trigger_tls_reload(
         reason=f"client certificate revoked (CN={instance.common_name}, serial={instance.serial_number})"
     )

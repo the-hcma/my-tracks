@@ -291,7 +291,7 @@ Table: Owner | Device | Event | Geofence | Time
 ## Quality gate order
 
 1. `uv run pyright`
-2. `uv run isort --check-only --diff app config web_ui`
-3. `uv run flake8 --config dev-tooling/.flake8 app config`
+2. `uv run ruff check app config web_ui`
+3. `uv run ruff format --check app config web_ui`
 4. `uv run manage.py makemigrations --check --dry-run`
 5. `uv run pytest` (≥ 90% coverage)

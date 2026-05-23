@@ -21,7 +21,7 @@ Use `uv` — never `pip` or `poetry`.
 
 ## Pull request workflow
 
-1. Complete all pre-PR quality gates (pyright → isort → flake8 → pytest ≥90% coverage).
+1. Complete all pre-PR quality gates (pyright → ruff check → ruff format --check → pytest ≥90% coverage).
 2. Create branch + PR with Graphite: `gt create --all --message "…"` then `gt submit --no-interactive --publish`.
 3. Wait for CI to pass, then inform the user — do **not** merge or add labels without explicit approval.
 4. On approval: `gh pr edit <pr> --add-label "merge-mq"` (submits to merge queue). Never use `merge-it`.

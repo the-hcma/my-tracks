@@ -5,6 +5,7 @@ Provides a simple bearer token authentication backed by an environment
 variable, suitable for a personal tracking server where full user
 management is unnecessary.
 """
+
 import logging
 
 from decouple import config
@@ -28,10 +29,10 @@ class _ApiKeyUser:
     is_active = True
     is_anonymous = False
     is_staff = False
-    username = 'api-key'
+    username = "api-key"
 
     def __str__(self) -> str:
-        return 'api-key'
+        return "api-key"
 
 
 _API_KEY_USER = _ApiKeyUser()
@@ -44,7 +45,7 @@ def get_command_api_key() -> str:
     Returns:
         The API key string, or empty string if not configured.
     """
-    return str(config('COMMAND_API_KEY', default=''))
+    return str(config("COMMAND_API_KEY", default=""))
 
 
 class CommandApiKeyAuthentication(authentication.BaseAuthentication):
@@ -76,24 +77,18 @@ class CommandApiKeyAuthentication(authentication.BaseAuthentication):
             # No API key configured — skip authentication (open access)
             return None
 
-        auth_header = request.META.get('HTTP_AUTHORIZATION', '')
+        auth_header = request.META.get("HTTP_AUTHORIZATION", "")
         if not auth_header:
-            raise exceptions.AuthenticationFailed(
-                "Expected Authorization header with Bearer token, got none"
-            )
+            raise exceptions.AuthenticationFailed("Expected Authorization header with Bearer token, got none")
 
         parts = auth_header.split()
-        if len(parts) != 2 or parts[0].lower() != 'bearer':
-            raise exceptions.AuthenticationFailed(
-                "Expected 'Bearer <token>' format, got invalid Authorization header"
-            )
+        if len(parts) != 2 or parts[0].lower() != "bearer":
+            raise exceptions.AuthenticationFailed("Expected 'Bearer <token>' format, got invalid Authorization header")
 
         token = parts[1]
         if token != api_key:
             logger.warning("Invalid command API key attempt")
-            raise exceptions.AuthenticationFailed(
-                "Invalid API key"
-            )
+            raise exceptions.AuthenticationFailed("Invalid API key")
 
         # Return a sentinel that satisfies IsAuthenticated
         return (_API_KEY_USER, token)

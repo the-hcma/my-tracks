@@ -1,9 +1,9 @@
 """Re-encrypt PKI private keys from an old SECRET_KEY to the current one."""
+
 from cryptography.fernet import InvalidToken
 from django.core.management.base import BaseCommand, CommandError
 
-from app.models import (CertificateAuthority, ClientCertificate,
-                        ServerCertificate)
+from app.models import CertificateAuthority, ClientCertificate, ServerCertificate
 from app.pki import reencrypt_private_key
 
 _PKI_MODELS = (CertificateAuthority, ServerCertificate, ClientCertificate)
@@ -57,9 +57,7 @@ class Command(BaseCommand):
             queryset = model.objects.exclude(encrypted_private_key=b"")
             count = 0
             for obj in queryset:
-                obj.encrypted_private_key = reencrypt_private_key(
-                    bytes(obj.encrypted_private_key), old_key
-                )
+                obj.encrypted_private_key = reencrypt_private_key(bytes(obj.encrypted_private_key), old_key)
                 obj.save(update_fields=["encrypted_private_key"])
                 count += 1
             if count:

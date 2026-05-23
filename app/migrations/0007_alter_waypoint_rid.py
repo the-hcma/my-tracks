@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("my_tracks", "0006_backfill_location_received_via_mqtt"),
     ]
@@ -15,8 +14,7 @@ class Migration(migrations.Migration):
             name="rid",
             field=models.CharField(
                 help_text=(
-                    "Content-derived UUID5 (owner + desc + lat + lon + rad);"
-                    " same content always yields the same rid"
+                    "Content-derived UUID5 (owner + desc + lat + lon + rad); same content always yields the same rid"
                 ),
                 max_length=36,
                 unique=True,

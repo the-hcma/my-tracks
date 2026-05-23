@@ -120,9 +120,7 @@ class Command:
                 - rad: Radius in meters (optional)
                 - tst: Unix timestamp (required by Android as upsert key)
         """
-        typed_waypoints = [
-            {"_type": "waypoint", **wp} for wp in waypoints
-        ]
+        typed_waypoints = [{"_type": "waypoint", **wp} for wp in waypoints]
         return cls(
             command_type=CommandType.SET_WAYPOINTS,
             payload={"waypoints": {"_type": "waypoints", "waypoints": typed_waypoints}},

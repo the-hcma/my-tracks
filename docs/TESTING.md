@@ -121,7 +121,7 @@ Before creating a pull request:
 - [ ] All Python tests pass: `uv run pytest`
 - [ ] Coverage ≥ 90%: `uv run pytest --cov=app --cov-fail-under=90`
 - [ ] Type checking passes: `uv run pyright`
-- [ ] Imports sorted: `uv run isort --check-only app config web_ui`
+- [ ] Ruff lint/format: `uv run ruff check app config web_ui` and `uv run ruff format --check app config web_ui`
 - [ ] All TypeScript tests pass: `pnpm run test`
 - [ ] ESLint passes: `pnpm run lint`
 - [ ] No pytest warnings

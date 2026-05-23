@@ -167,7 +167,7 @@ my-tracks/
   - Automated setup script
   - Environment template
   - Type checking with pyright
-  - Import sorting with isort
+  - Lint and import sorting with Ruff
   - ESLint for TypeScript
   - Vitest for TypeScript tests
 
@@ -292,13 +292,13 @@ uv run pyright
 ### Import Sorting
 
 ```bash
-uv run isort app config web_ui
+uv run ruff check --fix app config web_ui && uv run ruff format app config web_ui
 ```
 
 ### Check All
 
 ```bash
-uv run isort --check-only app config web_ui
+uv run ruff check app config web_ui && uv run ruff format --check app config web_ui
 uv run pyright
 uv run pytest --cov=app --cov-fail-under=90
 ```

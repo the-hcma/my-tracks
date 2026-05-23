@@ -3,6 +3,7 @@ WebSocket consumer for real-time location updates.
 
 Broadcasts location data to connected clients when new locations are received.
 """
+
 import json
 import logging
 from typing import Any
@@ -29,7 +30,7 @@ class LocationConsumer(AsyncWebsocketConsumer):
 
     def get_client_port(self) -> int | None:
         """Extract client port from WebSocket scope."""
-        client = self.scope.get('client')
+        client = self.scope.get("client")
         if client and len(client) > 1:
             return client[1]
         return None
@@ -57,10 +58,7 @@ class LocationConsumer(AsyncWebsocketConsumer):
 
         # Send welcome message with server startup timestamp
         # Clients use this to detect backend restarts and refresh the page
-        await self.send(text_data=json.dumps({
-            'type': 'welcome',
-            'server_startup': STARTUP_TIMESTAMP
-        }))
+        await self.send(text_data=json.dumps({"type": "welcome", "server_startup": STARTUP_TIMESTAMP}))
 
     async def disconnect(self, close_code: int) -> None:
         """Handle WebSocket disconnection."""
@@ -81,7 +79,7 @@ class LocationConsumer(AsyncWebsocketConsumer):
         Args:
             event: Dictionary containing location data
         """
-        location_id = event.get('data', {}).get('id')
+        location_id = event.get("data", {}).get("id")
         client_addr = self.get_client_address()
         logger.debug(
             "[ws] Sending location update to client at %s",
@@ -89,10 +87,7 @@ class LocationConsumer(AsyncWebsocketConsumer):
             extra={"channel": self.channel_name, "client_address": client_addr, "location_id": location_id},
         )
         # Send location data to WebSocket client
-        await self.send(text_data=json.dumps({
-            'type': 'location',
-            'data': event['data']
-        }))
+        await self.send(text_data=json.dumps({"type": "location", "data": event["data"]}))
 
     async def device_status(self, event: dict[str, Any]) -> None:
         """
@@ -101,8 +96,8 @@ class LocationConsumer(AsyncWebsocketConsumer):
         Args:
             event: Dictionary containing device status data (online/offline)
         """
-        device_id = event.get('data', {}).get('device_id')
-        is_online = event.get('data', {}).get('is_online')
+        device_id = event.get("data", {}).get("device_id")
+        is_online = event.get("data", {}).get("is_online")
         client_addr = self.get_client_address()
         logger.debug(
             "[ws] Sending device status to client at %s: device=%s, online=%s",
@@ -110,10 +105,7 @@ class LocationConsumer(AsyncWebsocketConsumer):
             device_id,
             is_online,
         )
-        await self.send(text_data=json.dumps({
-            'type': 'device_status',
-            'data': event['data']
-        }))
+        await self.send(text_data=json.dumps({"type": "device_status", "data": event["data"]}))
 
     async def transition_event(self, event: dict[str, Any]) -> None:
         """
@@ -122,10 +114,7 @@ class LocationConsumer(AsyncWebsocketConsumer):
         Args:
             event: Dictionary containing transition data (device, event, region, waypoint)
         """
-        await self.send(text_data=json.dumps({
-            'type': 'transition',
-            'data': event['data']
-        }))
+        await self.send(text_data=json.dumps({"type": "transition", "data": event["data"]}))
 
     async def waypoint_event(self, event: dict[str, Any]) -> None:
         """
@@ -134,7 +123,4 @@ class LocationConsumer(AsyncWebsocketConsumer):
         Args:
             event: Dictionary containing waypoint data (device_display, new_count)
         """
-        await self.send(text_data=json.dumps({
-            'type': 'waypoint_event',
-            'data': event['data']
-        }))
+        await self.send(text_data=json.dumps({"type": "waypoint_event", "data": event["data"]}))

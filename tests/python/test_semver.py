@@ -10,7 +10,7 @@ from typing import Any, cast
 from unittest.mock import patch
 
 from hamcrest import (assert_that, contains_string, equal_to, is_, is_not,
-                      matches_regexp, not_none, starts_with)
+                      matches_regexp, none, not_none, starts_with)
 
 from app.utils import get_commit_id, get_version
 
@@ -207,11 +207,17 @@ class TestAboutPageVersion:
 
     def test_about_view_passes_version_context(self) -> None:
         source = (PROJECT_ROOT / "web_ui" / "views.py").read_text()
-        assert_that(source, contains_string("'version': get_version()"))
+        assert_that(
+            re.search(r'["\']version["\']:\s*get_version\(\)', source),
+            is_not(none()),
+        )
 
     def test_about_view_passes_commit_id_context(self) -> None:
         source = (PROJECT_ROOT / "web_ui" / "views.py").read_text()
-        assert_that(source, contains_string("'commit_id': get_commit_id()"))
+        assert_that(
+            re.search(r'["\']commit_id["\']:\s*get_commit_id\(\)', source),
+            is_not(none()),
+        )
 
 
 # ── get_commit_id() utility ────────────────────────────────────────────────
