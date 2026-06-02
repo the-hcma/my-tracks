@@ -107,7 +107,7 @@ dev = [
     "pytest-asyncio>=1.4.0",
     "pytest-xdist>=3.8.0",
     "ruff>=0.15.15",
-    "pyright>=1.1.409",
+    "pyright>=1.1.410",
     "shellcheck-py>=0.9.0",
     "pip-audit>=2.7.0",
 ]
