@@ -25,7 +25,7 @@
     "@types/leaflet": "^1.9.8",
     "@typescript-eslint/eslint-plugin": "8.59.3",
     "@typescript-eslint/parser": "8.59.3",
-    "@vitest/coverage-v8": "4.1.6",
+    "@vitest/coverage-v8": "4.1.7",
     "esbuild": "^0.28.0",
     "sharp": "^0.34.5",
     "eslint": "10.4.1",
@@ -33,7 +33,7 @@
     "jsdom": "29.1.1",
     "typescript": "6.0.3",
     "typescript-eslint": "8.59.3",
-    "vitest": "4.1.6"
+    "vitest": "4.1.7"
   },
   "dependencies": {
     "leaflet": "^1.9.4",
