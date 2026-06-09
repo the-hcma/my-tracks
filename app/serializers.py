@@ -19,7 +19,16 @@ from django.contrib.auth.password_validation import (
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
-from .models import CertificateAuthority, ClientCertificate, Device, Location, ServerCertificate, UserProfile
+from .models import (
+    CertificateAuthority,
+    ClientCertificate,
+    Device,
+    DeviceShare,
+    FriendRequest,
+    Location,
+    ServerCertificate,
+    UserProfile,
+)
 from .utils import extract_device_id
 
 logger = logging.getLogger(__name__)
@@ -435,4 +444,38 @@ class ClientCertificateSerializer(serializers.ModelSerializer):
             "revoked_at",
             "created_at",
         ]
+        read_only_fields = fields
+
+
+class FriendRequestSerializer(serializers.ModelSerializer):
+    """Serializer for FriendRequest model."""
+
+    from_user = serializers.CharField(source="from_user.username", read_only=True)
+    to_user = serializers.CharField(source="to_user.username", read_only=True)
+
+    class Meta:
+        model = FriendRequest
+        fields = ["id", "from_user", "to_user", "status", "created_at"]
+        read_only_fields = fields
+
+
+class FriendSerializer(serializers.Serializer):
+    """Serializer for the 'other' user in an accepted friendship."""
+
+    user_id = serializers.IntegerField()
+    username = serializers.CharField()
+    first_name = serializers.CharField()
+    last_name = serializers.CharField()
+
+
+class DeviceShareSerializer(serializers.ModelSerializer):
+    """Serializer for DeviceShare model."""
+
+    device_id = serializers.CharField(source="device.device_id", read_only=True)
+    device_name = serializers.CharField(source="device.name", read_only=True)
+    shared_with_id = serializers.IntegerField(source="shared_with.id", read_only=True)
+
+    class Meta:
+        model = DeviceShare
+        fields = ["id", "device_id", "device_name", "shared_with_id", "created_at"]
         read_only_fields = fields

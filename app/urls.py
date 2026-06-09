@@ -11,7 +11,10 @@ from .views import (
     ClientCertificateViewSet,
     CommandViewSet,
     CRLViewSet,
+    DeviceShareViewSet,
     DeviceViewSet,
+    FriendRequestViewSet,
+    FriendViewSet,
     HealthViewSet,
     LocationViewSet,
     ServerCertificateViewSet,
@@ -36,12 +39,25 @@ router.register(r"admin/pki/server-cert", ServerCertificateViewSet, basename="ad
 router.register(r"admin/pki/client-certs", ClientCertificateViewSet, basename="admin-client-cert")
 router.register(r"admin/pki/crl", CRLViewSet, basename="admin-crl")
 router.register(r"health", HealthViewSet, basename="health")
+# friends/requests must be registered before friends to avoid shadowing
+router.register(r"friends/requests", FriendRequestViewSet, basename="friend-request")
+router.register(r"friends", FriendViewSet, basename="friend")
 
 account_list = AccountViewSet.as_view({"get": "list", "patch": "partial_update"})
 account_change_password = AccountViewSet.as_view({"post": "change_password"})
 
+# DeviceShareViewSet has two URL params so it needs manual wiring.
+device_share_list = DeviceShareViewSet.as_view({"get": "list", "post": "create"})
+device_share_detail = DeviceShareViewSet.as_view({"delete": "destroy"})
+
 urlpatterns: list[URLPattern | URLResolver] = [
     re_path(r"^account/?$", account_list, name="account"),
     re_path(r"^account/change-password/?$", account_change_password, name="account-change-password"),
+    re_path(r"^friends/(?P<user_id>\d+)/shares/?$", device_share_list, name="device-share-list"),
+    re_path(
+        r"^friends/(?P<user_id>\d+)/shares/(?P<device_id>[^/]+)/?$",
+        device_share_detail,
+        name="device-share-detail",
+    ),
     path("", include(router.urls)),
 ]
