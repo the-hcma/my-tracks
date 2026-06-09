@@ -34,6 +34,12 @@ export interface DeviceShareRow {
     created_at: string;
 }
 
+export interface UserSearchRow {
+    username: string;
+    first_name: string;
+    last_name: string;
+}
+
 export type ShowMessageFn = (
     container: HTMLElement,
     type: MessageType,
@@ -60,6 +66,28 @@ export function formatFriendLabel(friend: FriendRow): string {
 /** Devices the current user can share with friends. */
 export function filterOwnedDevices(devices: DeviceRow[], ownerUsername: string): DeviceRow[] {
     return devices.filter((d) => d.owner_username === ownerUsername);
+}
+
+/** Label for a username autocomplete suggestion. */
+export function formatUserSearchLabel(user: UserSearchRow): string {
+    const parts = [user.first_name, user.last_name].filter(Boolean);
+    if (parts.length > 0) {
+        return `${user.username} — ${parts.join(' ')}`;
+    }
+    return user.username;
+}
+
+/** Client-side filter when reusing a cached suggestion list. */
+export function filterUserSearchResults(users: UserSearchRow[], query: string): UserSearchRow[] {
+    const q = query.trim().toLowerCase();
+    if (!q) {
+        return users;
+    }
+    return users.filter((user) => {
+        const username = user.username.toLowerCase();
+        const fullName = [user.first_name, user.last_name].join(' ').toLowerCase();
+        return username.startsWith(q) || fullName.includes(q);
+    });
 }
 
 function apiHeaders(csrfToken: string, json = false): HeadersInit {
@@ -118,6 +146,21 @@ export async function fetchMyDevices(csrfToken: string): Promise<DeviceRow[]> {
     return extractResultsList<DeviceRow>(data);
 }
 
+export async function fetchUserSearch(csrfToken: string, query: string): Promise<UserSearchRow[]> {
+    const q = query.trim();
+    if (!q) {
+        return [];
+    }
+    const response = await fetch(`/api/friends/user-search/?q=${encodeURIComponent(q)}`, {
+        headers: apiHeaders(csrfToken),
+        credentials: 'same-origin',
+    });
+    if (!response.ok) {
+        throw new Error(await readError(response));
+    }
+    return (await response.json()) as UserSearchRow[];
+}
+
 export async function fetchSharesForFriend(
     csrfToken: string,
     friendUserId: number,
@@ -139,9 +182,19 @@ export function initFriendsTab(options: FriendsTabOptions): { refresh: () => Pro
     const friendsList = root.querySelector<HTMLElement>('#friends-list');
     const addForm = root.querySelector<HTMLFormElement>('#friends-add-form');
     const usernameInput = root.querySelector<HTMLInputElement>('#friends-add-username');
+    const suggestionsBox = root.querySelector<HTMLElement>('#friends-username-suggestions');
+    const autoAcceptInput = root.querySelector<HTMLInputElement>('#friends-auto-accept-reciprocal');
     const statusBox = root.querySelector<HTMLElement>('#friends-status');
 
-    if (!pendingList || !friendsList || !addForm || !usernameInput || !statusBox) {
+    if (
+        !pendingList ||
+        !friendsList ||
+        !addForm ||
+        !usernameInput ||
+        !suggestionsBox ||
+        !autoAcceptInput ||
+        !statusBox
+    ) {
         return { refresh: async () => {} };
     }
 
@@ -149,22 +202,156 @@ export function initFriendsTab(options: FriendsTabOptions): { refresh: () => Pro
     const friendsListEl = friendsList;
     const addFormEl = addForm;
     const usernameInputEl = usernameInput;
+    const suggestionsBoxEl = suggestionsBox;
+    const autoAcceptInputEl = autoAcceptInput;
     const statusBoxEl = statusBox;
+
+    let suggestionTimer: ReturnType<typeof setTimeout> | null = null;
+    let activeSuggestionIndex = -1;
+    let latestSuggestions: UserSearchRow[] = [];
 
     function flash(type: MessageType, text: string): void {
         showMessage(statusBoxEl, type, text);
     }
 
-    async function sendRequest(username: string): Promise<void> {
+    function hideSuggestions(): void {
+        suggestionsBoxEl.replaceChildren();
+        suggestionsBoxEl.hidden = true;
+        usernameInputEl.setAttribute('aria-expanded', 'false');
+        activeSuggestionIndex = -1;
+        latestSuggestions = [];
+    }
+
+    function selectSuggestion(user: UserSearchRow): void {
+        usernameInputEl.value = user.username;
+        hideSuggestions();
+        usernameInputEl.focus();
+    }
+
+    function renderSuggestions(users: UserSearchRow[]): void {
+        latestSuggestions = users;
+        suggestionsBoxEl.replaceChildren();
+        if (users.length === 0) {
+            hideSuggestions();
+            return;
+        }
+
+        for (const [index, user] of users.entries()) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'friends-suggestion-btn';
+            button.dataset.index = String(index);
+
+            const username = document.createElement('span');
+            username.textContent = user.username;
+
+            const parts = [user.first_name, user.last_name].filter(Boolean);
+            button.append(username);
+            if (parts.length > 0) {
+                const name = document.createElement('span');
+                name.className = 'friends-suggestion-name';
+                name.textContent = ` — ${parts.join(' ')}`;
+                button.append(name);
+            }
+
+            button.addEventListener('mousedown', (event) => {
+                event.preventDefault();
+                selectSuggestion(user);
+            });
+            suggestionsBoxEl.appendChild(button);
+        }
+
+        suggestionsBoxEl.hidden = false;
+        usernameInputEl.setAttribute('aria-expanded', 'true');
+        activeSuggestionIndex = -1;
+    }
+
+    function highlightSuggestion(index: number): void {
+        const buttons = suggestionsBoxEl.querySelectorAll<HTMLButtonElement>('.friends-suggestion-btn');
+        buttons.forEach((button, buttonIndex) => {
+            button.style.background =
+                buttonIndex === index ? 'rgba(78, 154, 241, 0.12)' : '';
+        });
+        activeSuggestionIndex = index;
+    }
+
+    async function updateSuggestions(): Promise<void> {
+        const query = usernameInputEl.value.trim();
+        if (!query) {
+            hideSuggestions();
+            return;
+        }
+        try {
+            const users = await fetchUserSearch(csrfToken, query);
+            renderSuggestions(filterUserSearchResults(users, query));
+        } catch {
+            hideSuggestions();
+        }
+    }
+
+    function scheduleSuggestionUpdate(): void {
+        if (suggestionTimer) {
+            clearTimeout(suggestionTimer);
+        }
+        suggestionTimer = setTimeout(() => {
+            void updateSuggestions();
+        }, 200);
+    }
+
+    usernameInputEl.addEventListener('input', () => {
+        scheduleSuggestionUpdate();
+    });
+
+    usernameInputEl.addEventListener('focus', () => {
+        if (usernameInputEl.value.trim()) {
+            scheduleSuggestionUpdate();
+        }
+    });
+
+    usernameInputEl.addEventListener('blur', () => {
+        setTimeout(() => {
+            hideSuggestions();
+        }, 150);
+    });
+
+    usernameInputEl.addEventListener('keydown', (event) => {
+        if (suggestionsBoxEl.hidden || latestSuggestions.length === 0) {
+            return;
+        }
+        if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            const next = Math.min(activeSuggestionIndex + 1, latestSuggestions.length - 1);
+            highlightSuggestion(next);
+        } else if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            const next = Math.max(activeSuggestionIndex - 1, 0);
+            highlightSuggestion(next);
+        } else if (event.key === 'Enter' && activeSuggestionIndex >= 0) {
+            event.preventDefault();
+            const selected = latestSuggestions[activeSuggestionIndex];
+            if (selected) {
+                selectSuggestion(selected);
+            }
+        } else if (event.key === 'Escape') {
+            hideSuggestions();
+        }
+    });
+
+    async function sendRequest(username: string, autoAcceptReciprocal: boolean): Promise<string> {
         const response = await fetch('/api/friends/requests/', {
             method: 'POST',
             headers: apiHeaders(csrfToken, true),
             credentials: 'same-origin',
-            body: JSON.stringify({ username }),
+            body: JSON.stringify({
+                username,
+                auto_accept_reciprocal: autoAcceptReciprocal,
+            }),
         });
         if (!response.ok) {
             throw new Error(await readError(response));
         }
+        const data = (await response.json()) as { status?: string };
+        return data.status ?? 'pending';
     }
 
     async function acceptRequest(requestId: number): Promise<void> {
@@ -451,15 +638,22 @@ export function initFriendsTab(options: FriendsTabOptions): { refresh: () => Pro
             flash('error', 'Enter a username.');
             return;
         }
+        const autoAcceptReciprocal = autoAcceptInputEl.checked;
         const submitBtn = addFormEl.querySelector<HTMLButtonElement>('button[type="submit"]');
         if (submitBtn) {
             submitBtn.disabled = true;
         }
+        hideSuggestions();
         void (async () => {
             try {
-                await sendRequest(username);
+                const resultStatus = await sendRequest(username, autoAcceptReciprocal);
                 usernameInputEl.value = '';
-                flash('success', `Friend request sent to ${username}.`);
+                autoAcceptInputEl.checked = false;
+                if (resultStatus === 'accepted') {
+                    flash('success', `You are now friends with ${username}.`);
+                } else {
+                    flash('success', `Friend request sent to ${username}.`);
+                }
                 await refresh();
             } catch (err) {
                 flash('error', err instanceof Error ? err.message : 'Could not send request.');
