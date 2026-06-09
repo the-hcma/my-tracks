@@ -27,7 +27,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from .apps import get_mqtt_broker, is_mqtt_degraded
-from .auth import CommandApiKeyAuthentication, get_command_api_key
+from .auth import CommandApiKeyAuthentication
 from .models import (
     CertificateAuthority,
     ClientCertificate,
@@ -421,10 +421,8 @@ class CommandViewSet(viewsets.ViewSet):
     # are accepted; CommandApiKeyAuthentication handles automated clients
     # that supply an Authorization: Bearer <key> header.
     authentication_classes = [SessionAuthentication, CommandApiKeyAuthentication]
-    # Always require an authenticated identity (session user or valid API key).
-    # When no COMMAND_API_KEY is configured the endpoint falls back to AllowAny
-    # so the development setup continues to work without any credentials.
-    permission_classes = [IsAuthenticated if get_command_api_key() else AllowAny]
+    # Require an authenticated identity (logged-in session user or valid API key).
+    permission_classes = [IsAuthenticated]
 
     def _get_publisher(self) -> CommandPublisher:
         """Get the command publisher connected to the running MQTT broker."""

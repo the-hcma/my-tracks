@@ -22,6 +22,22 @@ interface MyTracksConfig {
      * ≤ this value (discard when accuracy is greater than this).
      */
     locationAccuracyMinimumM?: number;
+    /** Django CSRF token for unsafe API requests from the map UI. */
+    csrfToken?: string;
+}
+
+/** Resolve the CSRF token for session-authenticated POST requests. */
+function getCsrfToken(): string {
+    const fromConfig = config.csrfToken?.trim();
+    if (fromConfig) {
+        return fromConfig;
+    }
+    const fromInput = document.querySelector<HTMLInputElement>('[name=csrfmiddlewaretoken]')?.value?.trim();
+    if (fromInput) {
+        return fromInput;
+    }
+    const match = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+    return match ? decodeURIComponent(match[1]) : '';
 }
 
 // Extend Window interface for our config
@@ -2852,15 +2868,16 @@ async function requestDeviceLocations(): Promise<void> {
             return;
         }
 
-        const csrfToken = document.querySelector<HTMLInputElement>('[name=csrfmiddlewaretoken]')?.value ?? '';
+        const csrfToken = getCsrfToken();
 
         const results = await Promise.allSettled(
             mqttDevices.map(d =>
                 fetch('/api/commands/report-location/', {
                     method: 'POST',
+                    credentials: 'same-origin',
                     headers: {
                         'Content-Type': 'application/json',
-                        ...(csrfToken ? { 'X-CSRFToken': csrfToken } : {}),
+                        'X-CSRFToken': csrfToken,
                     },
                     body: JSON.stringify({ device_id: d.mqtt_topic_id }),
                 })

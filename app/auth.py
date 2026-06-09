@@ -79,7 +79,8 @@ class CommandApiKeyAuthentication(authentication.BaseAuthentication):
 
         auth_header = request.META.get("HTTP_AUTHORIZATION", "")
         if not auth_header:
-            raise exceptions.AuthenticationFailed("Expected Authorization header with Bearer token, got none")
+            # No Bearer token — let SessionAuthentication (or other classes) handle the request.
+            return None
 
         parts = auth_header.split()
         if len(parts) != 2 or parts[0].lower() != "bearer":

@@ -60,7 +60,10 @@ async def broadcast_device_event(
     message_type: str,
     data: dict[str, Any],
 ) -> None:
-    groups = device_location_ws_groups(device)
+    from asgiref.sync import sync_to_async
+
+    # thread_sensitive=False: callers (e.g. MQTT plugin) run outside Django/ASGI request lifecycle.
+    groups = await sync_to_async(device_location_ws_groups, thread_sensitive=False)(device)
     await broadcast_to_groups(channel_layer, groups, message_type=message_type, data=data)
     logger.info(
         "[ws] Broadcast %s for device %s to groups %s",
