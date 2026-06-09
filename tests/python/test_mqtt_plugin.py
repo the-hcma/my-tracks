@@ -16,15 +16,31 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 from django.test import TestCase
-from hamcrest import (assert_that, contains_string, equal_to, has_entries,
-                      has_item, has_length, is_, is_not, none, not_none)
+from hamcrest import (
+    assert_that,
+    contains_string,
+    equal_to,
+    has_entries,
+    has_item,
+    has_length,
+    is_,
+    is_not,
+    none,
+    not_none,
+)
 
 from app.models import Device, Location, OwnTracksMessage, Transition, Waypoint
-from app.mqtt.plugin import (OwnTracksPlugin, _ClientTLSInfo,
-                             _extract_tls_info, get_channel_layer_lazy,
-                             get_other_devices, save_location_to_db,
-                             save_lwt_to_db, save_transition_to_db,
-                             save_waypoints_to_db)
+from app.mqtt.plugin import (
+    OwnTracksPlugin,
+    _ClientTLSInfo,
+    _extract_tls_info,
+    get_channel_layer_lazy,
+    get_other_devices,
+    save_location_to_db,
+    save_lwt_to_db,
+    save_transition_to_db,
+    save_waypoints_to_db,
+)
 
 # Allow sync DB access in async tests for testing purposes
 os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
@@ -653,14 +669,22 @@ class TestBroadcastLocation:
     async def test_broadcast_with_channel_layer(
         self,
         plugin: OwnTracksPlugin,
+        db: Any,
     ) -> None:
-        """Should broadcast to channel layer when available."""
+        """Should broadcast to owner and staff groups when available."""
+        from django.contrib.auth.models import User
+
+        from app.models import Device
+        from app.ws_broadcast import STAFF_WS_GROUP, user_ws_group
+
+        owner = User.objects.create_user(username="owner", password="pass")
+        device = Device.objects.create(device_id="phone", owner=owner)
         mock_layer = AsyncMock()
         mock_layer.group_send = AsyncMock()
 
         location_data = {
             "id": 123,
-            "device_id": "device",
+            "device": device.pk,
             "latitude": 51.5,
             "longitude": -0.1,
         }
@@ -668,13 +692,9 @@ class TestBroadcastLocation:
         with patch("app.mqtt.plugin.get_channel_layer_lazy", return_value=mock_layer):
             await plugin._broadcast_location(location_data)
 
-        mock_layer.group_send.assert_called_once()
-        call_args = mock_layer.group_send.call_args
-        assert_that(call_args[0][0], equal_to("locations"))
-        assert_that(call_args[0][1], has_entries(
-            type="location_update",
-            data=location_data,
-        ))
+        sent_groups = [call.args[0] for call in mock_layer.group_send.call_args_list]
+        assert_that(sent_groups, has_item(user_ws_group(owner.id)))
+        assert_that(sent_groups, has_item(STAFF_WS_GROUP))
 
     @pytest.mark.asyncio
     async def test_broadcast_without_channel_layer(
@@ -717,13 +737,21 @@ class TestBroadcastDeviceStatus:
     async def test_broadcast_device_offline(
         self,
         plugin: OwnTracksPlugin,
+        db: Any,
     ) -> None:
-        """Should broadcast device offline status to channel layer."""
+        """Should broadcast device offline status to owner and staff groups."""
+        from django.contrib.auth.models import User
+
+        from app.models import Device
+        from app.ws_broadcast import STAFF_WS_GROUP, user_ws_group
+
+        owner = User.objects.create_user(username="owner_status", password="pass")
+        Device.objects.create(device_id="phone_owner_status", owner=owner)
         mock_layer = AsyncMock()
         mock_layer.group_send = AsyncMock()
 
         status_data = {
-            "device_id": "user/phone",
+            "device_id": "phone_owner_status",
             "is_online": False,
             "event": "device_offline",
             "disconnected_at": "2024-01-01T12:00:00+00:00",
@@ -732,13 +760,9 @@ class TestBroadcastDeviceStatus:
         with patch("app.mqtt.plugin.get_channel_layer_lazy", return_value=mock_layer):
             await plugin._broadcast_device_status(status_data)
 
-        mock_layer.group_send.assert_called_once()
-        call_args = mock_layer.group_send.call_args
-        assert_that(call_args[0][0], equal_to("locations"))
-        assert_that(call_args[0][1], has_entries(
-            type="device_status",
-            data=status_data,
-        ))
+        sent_groups = [call.args[0] for call in mock_layer.group_send.call_args_list]
+        assert_that(sent_groups, has_item(user_ws_group(owner.id)))
+        assert_that(sent_groups, has_item(STAFF_WS_GROUP))
 
     @pytest.mark.asyncio
     async def test_broadcast_device_status_no_channel_layer(
@@ -1642,7 +1666,9 @@ class TestBroadcastTransition:
 
         mock_layer.group_send.assert_called_once()
         call_args = mock_layer.group_send.call_args
-        assert_that(call_args[0][0], equal_to("locations"))
+        from app.ws_broadcast import STAFF_WS_GROUP
+
+        assert_that(call_args[0][0], equal_to(STAFF_WS_GROUP))
         assert_that(call_args[0][1], has_entries(type="transition_event", data=transition_data))
 
     @pytest.mark.asyncio
@@ -1728,7 +1754,9 @@ class TestBroadcastWaypoints:
 
         mock_layer.group_send.assert_called_once()
         call_args = mock_layer.group_send.call_args
-        assert_that(call_args[0][0], equal_to("locations"))
+        from app.ws_broadcast import STAFF_WS_GROUP
+
+        assert_that(call_args[0][0], equal_to(STAFF_WS_GROUP))
         assert_that(call_args[0][1], has_entries(type="waypoint_event", data=waypoint_data))
 
     @pytest.mark.asyncio

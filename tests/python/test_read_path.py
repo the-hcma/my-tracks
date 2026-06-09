@@ -1,6 +1,7 @@
 """Tests for read-path visibility: devices and locations filtered to owner + friends."""
 from decimal import Decimal
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from django.contrib.auth.models import User
@@ -10,6 +11,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from app.models import Device, DeviceShare, FriendRequest, Location
+from app.views import CommandViewSet
 
 
 @pytest.fixture
@@ -219,3 +221,22 @@ class TestLocationVisibility:
     ) -> None:
         response = charlie_client.get("/api/devices/alice-phone/locations/")
         assert_that(response.status_code, equal_to(status.HTTP_404_NOT_FOUND))
+
+    def test_friend_can_poll_shared_device(
+        self,
+        alice_client: APIClient,
+        bob_device: Device,
+        bob_shares_with_alice: DeviceShare,
+    ) -> None:
+        bob_device.mqtt_user = "bob_mqtt"
+        bob_device.save()
+        mock_publisher = MagicMock()
+        mock_publisher.send_command = AsyncMock(return_value=True)
+        with patch.object(CommandViewSet, "_get_publisher", return_value=mock_publisher):
+            response = alice_client.post(
+                "/api/commands/report-location/",
+                {"device_id": "bob_mqtt/bob-phone"},
+                format="json",
+            )
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        assert_that(response.json()["device_id"], equal_to("bob_mqtt/bob-phone"))

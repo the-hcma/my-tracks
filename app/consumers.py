@@ -12,6 +12,7 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 
 from app import STARTUP_TIMESTAMP
 from app.ip import get_ws_client_ip
+from app.ws_broadcast import STAFF_WS_GROUP, user_ws_group
 
 logger = logging.getLogger(__name__)
 
@@ -45,8 +46,11 @@ class LocationConsumer(AsyncWebsocketConsumer):
 
     async def connect(self) -> None:
         """Handle new WebSocket connection."""
-        # Add this channel to the locations group
-        await self.channel_layer.group_add("locations", self.channel_name)
+        user = self.scope.get("user")
+        if user is not None and user.is_authenticated:
+            await self.channel_layer.group_add(user_ws_group(user.id), self.channel_name)
+            if user.is_staff:
+                await self.channel_layer.group_add(STAFF_WS_GROUP, self.channel_name)
         await self.accept()
 
         client_addr = self.get_client_address()
@@ -62,8 +66,11 @@ class LocationConsumer(AsyncWebsocketConsumer):
 
     async def disconnect(self, close_code: int) -> None:
         """Handle WebSocket disconnection."""
-        # Remove this channel from the locations group
-        await self.channel_layer.group_discard("locations", self.channel_name)
+        user = self.scope.get("user")
+        if user is not None and user.is_authenticated:
+            await self.channel_layer.group_discard(user_ws_group(user.id), self.channel_name)
+            if user.is_staff:
+                await self.channel_layer.group_discard(STAFF_WS_GROUP, self.channel_name)
 
         client_addr = self.get_client_address()
         logger.info(
