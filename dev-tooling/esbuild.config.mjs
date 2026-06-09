@@ -21,6 +21,7 @@ const buildOptions = {
     entryPoints: [
         'web_ui/static/web_ui/ts/main.ts',
         'web_ui/static/web_ui/ts/messages.ts',
+        'web_ui/static/web_ui/ts/friends.ts',
     ],
     bundle: true,
     outdir: outDir,
