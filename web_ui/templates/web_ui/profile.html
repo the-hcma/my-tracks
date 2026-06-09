@@ -623,6 +623,94 @@
             color: var(--text-muted);
         }
 
+        /* ── Friends tab ── */
+        .friend-card {
+            background: var(--input-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem 1.25rem;
+            margin-bottom: 1rem;
+        }
+
+        .friend-card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .friend-share-title {
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            color: var(--text-muted);
+            margin-bottom: 0.5rem;
+        }
+
+        .friend-share-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.45rem;
+        }
+
+        .friend-share-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.875rem;
+            cursor: pointer;
+        }
+
+        .friend-share-item input[type="checkbox"] {
+            width: 1rem;
+            height: 1rem;
+            accent-color: var(--accent);
+            cursor: pointer;
+        }
+
+        .friend-remove-btn {
+            background: rgba(231, 76, 60, 0.15);
+            color: var(--error);
+            border: 1px solid rgba(231, 76, 60, 0.35);
+            border-radius: 6px;
+            padding: 0.35rem 0.75rem;
+            font-size: 0.8rem;
+            font-weight: 500;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .friend-remove-btn:hover:not(:disabled) {
+            background: rgba(231, 76, 60, 0.25);
+        }
+
+        .friend-remove-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .friends-inline-form {
+            display: flex;
+            gap: 0.75rem;
+            align-items: flex-end;
+            flex-wrap: wrap;
+            margin-bottom: 1.25rem;
+        }
+
+        .friends-inline-form .form-group {
+            flex: 1;
+            min-width: 180px;
+            margin-bottom: 0;
+        }
+
+        .friends-inline-form .submit-btn {
+            width: auto;
+            padding: 0.75rem 1.25rem;
+            white-space: nowrap;
+        }
+
         /* ── Footer meta ── */
         .meta-info {
             font-size: 0.8rem;
@@ -676,6 +764,7 @@
                 <button class="tab-btn" data-tab="devices">My Devices</button>
                 <button class="tab-btn" data-tab="locations">Locations</button>
                 <button class="tab-btn" data-tab="geofences">Geofences</button>
+                <button class="tab-btn" data-tab="friends">Friends</button>
             </div>
 
             {# ── Account tab ── #}
@@ -1223,6 +1312,38 @@
 
             </div>{# /tab-geofences #}
 
+            {# ── Friends tab ── #}
+            <div class="tab-panel" id="tab-friends">
+                <div id="friends-root"
+                     data-csrf-token="{{ csrf_token }}"
+                     data-username="{{ user.username|escapejs }}">
+
+                    <div id="friends-status"></div>
+
+                    <h3 class="section-title">Add Friend</h3>
+                    <form id="friends-add-form" class="friends-inline-form">
+                        <div class="form-group">
+                            <label for="friends-add-username">Username</label>
+                            <input type="text" id="friends-add-username" name="username"
+                                   placeholder="Enter their username" autocomplete="off" required>
+                        </div>
+                        <button type="submit" class="submit-btn">Send request</button>
+                    </form>
+
+                    <h3 class="section-title">Pending Requests</h3>
+                    <div id="friends-pending-list">
+                        <p class="cert-none">Loading…</p>
+                    </div>
+
+                    <hr class="section-divider">
+
+                    <h3 class="section-title">My Friends</h3>
+                    <div id="friends-list">
+                        <p class="cert-none">Loading…</p>
+                    </div>
+                </div>
+            </div>{# /tab-friends #}
+
             <div class="meta-info">
                 Member since {{ user.date_joined|date:"N j, Y" }}
             </div>
@@ -1242,7 +1363,7 @@
             return 'account';
             {% else %}
             const hash = location.hash.replace('#', '');
-            if (['account', 'devices', 'locations', 'geofences'].includes(hash)) return hash;
+            if (['account', 'devices', 'locations', 'geofences', 'friends'].includes(hash)) return hash;
             return localStorage.getItem(TAB_KEY) || 'account';
             {% endif %}
         }
@@ -1268,6 +1389,9 @@
                         window._geoMapInitView();
                     }
                 }, 50);
+            }
+            if (name === 'friends' && window._friendsTabRefresh) {
+                void window._friendsTabRefresh();
             }
         }
 
@@ -1748,6 +1872,7 @@
     })();
     </script>
     <script src="{% static 'web_ui/js/messages.js' %}"></script>
+    <script src="{% static 'web_ui/js/friends.js' %}"></script>
     <script>
     // ── Devices tab: local-timezone Last Seen + reason badge ───────────────
     (function() {
