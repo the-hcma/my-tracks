@@ -12,9 +12,18 @@ from unittest.mock import MagicMock, patch
 import pytest
 from django.test import Client
 from django.utils import timezone
-from hamcrest import (assert_that, contains_string, equal_to,
-                      greater_than, greater_than_or_equal_to, has_key,
-                      has_length, is_not, less_than, none)
+from hamcrest import (
+    assert_that,
+    contains_string,
+    equal_to,
+    greater_than,
+    greater_than_or_equal_to,
+    has_key,
+    has_length,
+    is_not,
+    less_than,
+    none,
+)
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -747,14 +756,7 @@ class TestLocationAPI:
             "tst": int(datetime.now().timestamp()),
             "tid": "WE",
         }
-        with (
-            patch('app.views.get_channel_layer') as mock_gcl,
-            patch('app.views.async_to_sync') as mock_a2s,
-        ):
-            mock_gcl.return_value = MagicMock()
-            mock_a2s.return_value = MagicMock(
-                side_effect=Exception("broadcast failed")
-            )
+        with patch("app.ws_broadcast.broadcast_device_event_sync", side_effect=Exception("broadcast failed")):
             response = api_client.post(
                 '/api/locations/',
                 payload,
@@ -772,7 +774,7 @@ class TestLocationAPI:
             "tst": int(datetime.now().timestamp()),
             "tid": "NL",
         }
-        with patch('app.views.get_channel_layer', return_value=None):
+        with patch("app.ws_broadcast.broadcast_device_event_sync"):
             response = api_client.post(
                 '/api/locations/',
                 payload,

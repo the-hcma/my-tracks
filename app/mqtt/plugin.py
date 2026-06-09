@@ -40,6 +40,7 @@ from app.models import (
 from app.mqtt.commands import Command, CommandPublisher
 from app.mqtt.handlers import OwnTracksMessageHandler
 from app.serializers import LocationSerializer
+from app.ws_broadcast import STAFF_WS_GROUP
 
 if TYPE_CHECKING:
     from channels.layers import BaseChannelLayer
@@ -852,19 +853,27 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
         *,
         transport: str = "mqtt",
     ) -> None:
-        """Broadcast a location update to WebSocket clients."""
+        """Broadcast a location update to the device owner, shared friends, and staff."""
+        from app.models import Device
+        from app.ws_broadcast import broadcast_device_event
+
         channel_layer = get_channel_layer_lazy()
         if channel_layer is None:
             logger.warning("[%s] WebSocket broadcast skipped: no channel layer", transport)
             return
 
+        device_pk = location_data.get("device")
+        if device_pk is None:
+            logger.warning("[%s] WebSocket broadcast skipped: location missing device pk", transport)
+            return
+
         try:
-            await channel_layer.group_send(
-                "locations",
-                {
-                    "type": "location_update",
-                    "data": location_data,
-                },
+            device = await sync_to_async(Device.objects.select_related("owner").get)(pk=device_pk)
+            await broadcast_device_event(
+                channel_layer,
+                device,
+                message_type="location_update",
+                data=location_data,
             )
             logger.info(
                 "[%s] WebSocket broadcast completed for location %s",
@@ -880,19 +889,27 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
         *,
         transport: str = "mqtt",
     ) -> None:
-        """Broadcast a device status change to WebSocket clients."""
+        """Broadcast a device status change to the owner, shared friends, and staff."""
+        from app.models import Device
+        from app.ws_broadcast import broadcast_device_event
+
         channel_layer = get_channel_layer_lazy()
         if channel_layer is None:
             logger.warning("[%s] WebSocket broadcast skipped: no channel layer", transport)
             return
 
+        device_id = status_data.get("device_id")
+        if not device_id:
+            logger.warning("[%s] WebSocket broadcast skipped: status missing device_id", transport)
+            return
+
         try:
-            await channel_layer.group_send(
-                "locations",
-                {
-                    "type": "device_status",
-                    "data": status_data,
-                },
+            device = await sync_to_async(Device.objects.select_related("owner").get)(device_id=device_id)
+            await broadcast_device_event(
+                channel_layer,
+                device,
+                message_type="device_status",
+                data=status_data,
             )
             logger.info(
                 "[%s] WebSocket broadcast completed for device status: device=%s, online=%s",
@@ -917,7 +934,7 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
 
         try:
             await channel_layer.group_send(
-                "locations",
+                STAFF_WS_GROUP,
                 {
                     "type": "waypoint_event",
                     "data": waypoint_data,
@@ -946,7 +963,7 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
 
         try:
             await channel_layer.group_send(
-                "locations",
+                STAFF_WS_GROUP,
                 {
                     "type": "transition_event",
                     "data": transition_data,

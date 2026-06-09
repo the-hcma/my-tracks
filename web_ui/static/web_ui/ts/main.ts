@@ -199,6 +199,13 @@ interface DeviceInfo {
     owner_username?: string;
 }
 
+/** Match LocationSerializer device_name: owner/label where label is name or device_id. */
+function formatDeviceDisplayName(device: DeviceInfo): string {
+    const trimmedName = device.name?.trim() ?? '';
+    const label = trimmedName && !trimmedName.startsWith('Device ') ? trimmedName : device.device_id;
+    return device.owner_username ? `${device.owner_username}/${label}` : label;
+}
+
 /** WebSocket message from server */
 interface WebSocketMessage {
     type: string;
@@ -965,7 +972,7 @@ async function ensureLastKnownLocationsLoaded(): Promise<void> {
         const targets = deviceList
             .map((d) => ({
                 device_id: d.device_id,
-                display_name: d.owner_username ? `${d.owner_username}/${d.device_id}` : d.device_id,
+                display_name: formatDeviceDisplayName(d),
             }))
             .filter((d) => !selectedDevice || d.display_name === selectedDevice);
 
@@ -1301,10 +1308,7 @@ async function refreshDeviceSelector(): Promise<void> {
         const selector = document.getElementById('device-selector') as HTMLSelectElement;
         if (!selector) return;
 
-        // Build display names: prefer owner/device_id combo; fall back to device_id
-        const serverDeviceNames = deviceList.map(d =>
-            d.owner_username ? `${d.owner_username}/${d.device_id}` : d.device_id,
-        );
+        const serverDeviceNames = deviceList.map(formatDeviceDisplayName);
 
         // Sort case-insensitively
         serverDeviceNames.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));

@@ -9,10 +9,9 @@ import logging
 from datetime import UTC, datetime, timedelta
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as get_package_version
-from typing import Any
+from typing import Any, cast
 
 from asgiref.sync import async_to_sync
-from channels.layers import get_channel_layer
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.db.models import QuerySet
@@ -179,29 +178,31 @@ class LocationViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
 
-        # Broadcast new location via WebSocket
+        # Broadcast new location via WebSocket to owner, shared friends, and staff.
         location_data = serializer.data
-        channel_layer = get_channel_layer()
-        if channel_layer:
-            try:
-                logger.info(
-                    "[http] Broadcasting location to WebSocket (id=%s, device=%s)",
-                    location_data.get("id"),
-                    location_data.get("device_id_display"),
-                )
-                async_to_sync(channel_layer.group_send)("locations", {"type": "location_update", "data": location_data})
-                logger.info(
-                    "[http] WebSocket broadcast completed for location %s",
-                    location_data.get("id"),
-                )
-            except Exception as e:
-                logger.error(
-                    "[http] WebSocket broadcast failed",
-                    extra={"location_id": location_data.get("id"), "error": str(e)},
-                    exc_info=True,
-                )
-        else:
-            logger.warning("[http] WebSocket broadcast skipped: no channel layer")
+        try:
+            from app.ws_broadcast import broadcast_device_event_sync
+
+            logger.info(
+                "[http] Broadcasting location to WebSocket (id=%s, device=%s)",
+                location_data.get("id"),
+                location_data.get("device_id_display"),
+            )
+            broadcast_device_event_sync(
+                serializer.instance.device,
+                message_type="location_update",
+                data=location_data,
+            )
+            logger.info(
+                "[http] WebSocket broadcast completed for location %s",
+                location_data.get("id"),
+            )
+        except Exception as e:
+            logger.error(
+                "[http] WebSocket broadcast failed",
+                extra={"location_id": location_data.get("id"), "error": str(e)},
+                exc_info=True,
+            )
 
         # OwnTracks expects an empty JSON array response
         return Response([], status=status.HTTP_200_OK)
@@ -447,21 +448,47 @@ class CommandViewSet(viewsets.ViewSet):
         database lookup so the result always reflects the device's stored
         ``mqtt_user`` field.
 
-        For non-staff users only devices owned by the requesting user are
-        considered.  Staff may access any device.
+        For non-staff users only devices owned by or shared with the requesting
+        user are considered.  Staff may access any device.
 
         Returns ``None`` when no matching device is found.
         """
-        bare_device_id = raw_device_id.split("/", 1)[1] if "/" in raw_device_id else raw_device_id
-        try:
-            if not request.user.is_authenticated or request.user.is_staff:
-                # Staff see all devices; unauthenticated requests are only possible when
-                # COMMAND_API_KEY is unset (dev/test with AllowAny permission).
-                device = Device.objects.select_related("owner").get(device_id=bare_device_id)
-            else:
-                device = Device.objects.select_related("owner").get(device_id=bare_device_id, owner=request.user)
-        except Device.DoesNotExist:
+        from django.db.models import Q
+
+        raw = str(raw_device_id).strip()
+
+        def accessible_queryset() -> QuerySet[Device]:
+            qs = Device.objects.select_related("owner")
+            if request.user.is_authenticated and not request.user.is_staff:
+                qs = qs.filter(Q(owner=request.user) | Q(shares__shared_with=request.user)).distinct()
+            return qs
+
+        device: Device | None = None
+        if "/" in raw:
+            owner_username, bare_device_id = raw.split("/", 1)
+            try:
+                device = cast(
+                    Device,
+                    accessible_queryset().get(
+                        owner__username=owner_username,
+                        device_id=bare_device_id,
+                    ),
+                )
+            except Device.DoesNotExist:
+                try:
+                    device = cast(Device, accessible_queryset().get(device_id=bare_device_id))
+                except Device.DoesNotExist, Device.MultipleObjectsReturned:
+                    return None
+        else:
+            try:
+                device = cast(Device, accessible_queryset().get(device_id=raw))
+            except Device.DoesNotExist, Device.MultipleObjectsReturned:
+                return None
+
+        if device is None:
             return None
+
+        bare_device_id = device.device_id
 
         mqtt_user = device.mqtt_user or (device.owner.username if device.owner else bare_device_id)
         return device, f"{mqtt_user}/{device.device_id}"
