@@ -657,6 +657,10 @@ class FriendRequest(models.Model):
     from_user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="sent_requests")
     to_user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="received_requests")
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=PENDING)
+    auto_accept_reciprocal = models.BooleanField(
+        default=False,  # type: ignore[reportArgumentType]
+        help_text="Sender pre-authorizes accepting a reciprocal request from the target user.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -711,6 +711,51 @@
             white-space: nowrap;
         }
 
+        .friends-username-wrap {
+            position: relative;
+        }
+
+        .friends-suggestions {
+            position: absolute;
+            z-index: 20;
+            left: 0;
+            right: 0;
+            top: calc(100% + 0.25rem);
+            background: var(--input-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            max-height: 12rem;
+            overflow-y: auto;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+        }
+
+        .friends-suggestion-btn {
+            display: block;
+            width: 100%;
+            text-align: left;
+            background: none;
+            border: none;
+            color: var(--text);
+            padding: 0.55rem 0.85rem;
+            font-size: 0.875rem;
+            cursor: pointer;
+        }
+
+        .friends-suggestion-btn:hover,
+        .friends-suggestion-btn:focus {
+            background: rgba(78, 154, 241, 0.12);
+            outline: none;
+        }
+
+        .friends-suggestion-btn .friends-suggestion-name {
+            color: var(--text-muted);
+            font-size: 0.8rem;
+        }
+
+        .friends-auto-accept {
+            margin-bottom: 1.25rem;
+        }
+
         /* ── Footer meta ── */
         .meta-info {
             font-size: 0.8rem;
@@ -762,9 +807,9 @@
             <div class="tab-bar">
                 <button class="tab-btn" data-tab="account">Account</button>
                 <button class="tab-btn" data-tab="devices">My Devices</button>
+                <button class="tab-btn" data-tab="friends">Friends</button>
                 <button class="tab-btn" data-tab="locations">Locations</button>
                 <button class="tab-btn" data-tab="geofences">Geofences</button>
-                <button class="tab-btn" data-tab="friends">Friends</button>
             </div>
 
             {# ── Account tab ── #}
@@ -1009,6 +1054,45 @@
                 <p class="cert-none">No devices linked to your account yet.</p>
                 {% endif %}
             </div>
+
+            {# ── Friends tab ── #}
+            <div class="tab-panel" id="tab-friends">
+                <div id="friends-root"
+                     data-csrf-token="{{ csrf_token }}"
+                     data-username="{{ user.username|escapejs }}">
+
+                    <div id="friends-status"></div>
+
+                    <h3 class="section-title">Add Friend</h3>
+                    <form id="friends-add-form" class="friends-inline-form">
+                        <div class="form-group friends-username-wrap">
+                            <label for="friends-add-username">Username</label>
+                            <input type="text" id="friends-add-username" name="username"
+                                   placeholder="Start typing a username" autocomplete="off" required
+                                   role="combobox" aria-autocomplete="list"
+                                   aria-controls="friends-username-suggestions" aria-expanded="false">
+                            <div id="friends-username-suggestions" class="friends-suggestions" hidden></div>
+                        </div>
+                        <button type="submit" class="submit-btn">Send request</button>
+                    </form>
+                    <label class="friend-share-item friends-auto-accept">
+                        <input type="checkbox" id="friends-auto-accept-reciprocal" name="auto_accept_reciprocal">
+                        <span>Automatically accept if they send me a friend request</span>
+                    </label>
+
+                    <h3 class="section-title">Pending Requests</h3>
+                    <div id="friends-pending-list">
+                        <p class="cert-none">Loading…</p>
+                    </div>
+
+                    <hr class="section-divider">
+
+                    <h3 class="section-title">My Friends</h3>
+                    <div id="friends-list">
+                        <p class="cert-none">Loading…</p>
+                    </div>
+                </div>
+            </div>{# /tab-friends #}
 
             {# ── Locations tab ── #}
             <div class="tab-panel" id="tab-locations">
@@ -1311,38 +1395,6 @@
                 {% endif %}
 
             </div>{# /tab-geofences #}
-
-            {# ── Friends tab ── #}
-            <div class="tab-panel" id="tab-friends">
-                <div id="friends-root"
-                     data-csrf-token="{{ csrf_token }}"
-                     data-username="{{ user.username|escapejs }}">
-
-                    <div id="friends-status"></div>
-
-                    <h3 class="section-title">Add Friend</h3>
-                    <form id="friends-add-form" class="friends-inline-form">
-                        <div class="form-group">
-                            <label for="friends-add-username">Username</label>
-                            <input type="text" id="friends-add-username" name="username"
-                                   placeholder="Enter their username" autocomplete="off" required>
-                        </div>
-                        <button type="submit" class="submit-btn">Send request</button>
-                    </form>
-
-                    <h3 class="section-title">Pending Requests</h3>
-                    <div id="friends-pending-list">
-                        <p class="cert-none">Loading…</p>
-                    </div>
-
-                    <hr class="section-divider">
-
-                    <h3 class="section-title">My Friends</h3>
-                    <div id="friends-list">
-                        <p class="cert-none">Loading…</p>
-                    </div>
-                </div>
-            </div>{# /tab-friends #}
 
             <div class="meta-info">
                 Member since {{ user.date_joined|date:"N j, Y" }}

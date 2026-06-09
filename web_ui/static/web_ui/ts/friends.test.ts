@@ -2,8 +2,13 @@
  * Tests for Friends tab helpers.
  */
 import { describe, it, expect } from 'vitest';
-import { filterOwnedDevices, formatFriendLabel } from './friends';
-import type { DeviceRow, FriendRow } from './friends';
+import {
+    filterOwnedDevices,
+    filterUserSearchResults,
+    formatFriendLabel,
+    formatUserSearchLabel,
+} from './friends';
+import type { DeviceRow, FriendRow, UserSearchRow } from './friends';
 
 describe('formatFriendLabel', () => {
     it('uses first and last name with username when present', () => {
@@ -42,5 +47,33 @@ describe('filterOwnedDevices', () => {
 
     it('returns empty list when user owns nothing', () => {
         expect(filterOwnedDevices(devices, 'charlie')).toEqual([]);
+    });
+});
+
+describe('formatUserSearchLabel', () => {
+    it('includes full name when available', () => {
+        const user: UserSearchRow = {
+            username: 'kristen',
+            first_name: 'Kristen',
+            last_name: 'Ng',
+        };
+        expect(formatUserSearchLabel(user)).toBe('kristen — Kristen Ng');
+    });
+});
+
+describe('filterUserSearchResults', () => {
+    const users: UserSearchRow[] = [
+        { username: 'kristen', first_name: 'Kristen', last_name: 'Ng' },
+        { username: 'karl', first_name: '', last_name: '' },
+        { username: 'bob', first_name: 'Bob', last_name: 'Smith' },
+    ];
+
+    it('matches username prefixes and name fragments', () => {
+        expect(filterUserSearchResults(users, 'kri')).toEqual([
+            { username: 'kristen', first_name: 'Kristen', last_name: 'Ng' },
+        ]);
+        expect(filterUserSearchResults(users, 'ng')).toEqual([
+            { username: 'kristen', first_name: 'Kristen', last_name: 'Ng' },
+        ]);
     });
 });

@@ -455,8 +455,16 @@ class FriendRequestSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = FriendRequest
-        fields = ["id", "from_user", "to_user", "status", "created_at"]
+        fields = ["id", "from_user", "to_user", "status", "auto_accept_reciprocal", "created_at"]
         read_only_fields = fields
+
+
+class FriendUserSearchSerializer(serializers.Serializer):
+    """Minimal user fields for the Friends tab username autocomplete."""
+
+    username = serializers.CharField()
+    first_name = serializers.CharField()
+    last_name = serializers.CharField()
 
 
 class FriendSerializer(serializers.Serializer):

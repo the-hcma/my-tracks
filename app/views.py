@@ -63,6 +63,7 @@ from .serializers import (
     DeviceShareSerializer,
     FriendRequestSerializer,
     FriendSerializer,
+    FriendUserSearchSerializer,
     LocationSerializer,
     ServerCertificateSerializer,
     UserProfileSerializer,
@@ -1616,6 +1617,7 @@ class FriendRequestViewSet(viewsets.ViewSet):
     def create(self, request: Request) -> Response:
         """Send a friend request to another user."""
         username = str(request.data.get("username") or "").strip()
+        auto_accept_reciprocal = bool(request.data.get("auto_accept_reciprocal"))
         if not username:
             return Response({"error": "username is required"}, status=status.HTTP_400_BAD_REQUEST)
         try:
@@ -1641,20 +1643,33 @@ class FriendRequestViewSet(viewsets.ViewSet):
         if already_friends:
             return Response({"error": "Already friends"}, status=status.HTTP_409_CONFLICT)
 
-        # Duplicate pending?
-        pending_exists = (
-            FriendRequest.objects.filter(from_user=request.user, to_user=target, status=FriendRequest.PENDING).exists()
-            or FriendRequest.objects.filter(
-                from_user=target, to_user=request.user, status=FriendRequest.PENDING
-            ).exists()
-        )
-        if pending_exists:
+        incoming_pending = FriendRequest.objects.filter(
+            from_user=target, to_user=request.user, status=FriendRequest.PENDING
+        ).first()
+        if incoming_pending:
+            if auto_accept_reciprocal or incoming_pending.auto_accept_reciprocal:
+                incoming_pending.status = FriendRequest.ACCEPTED
+                incoming_pending.save()
+                return Response(FriendRequestSerializer(incoming_pending).data)
             return Response(
                 {"error": "A pending request already exists"},
                 status=status.HTTP_409_CONFLICT,
             )
 
-        req = FriendRequest.objects.create(from_user=request.user, to_user=target)
+        outgoing_pending = FriendRequest.objects.filter(
+            from_user=request.user, to_user=target, status=FriendRequest.PENDING
+        ).first()
+        if outgoing_pending:
+            return Response(
+                {"error": "A pending request already exists"},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        req = FriendRequest.objects.create(
+            from_user=request.user,
+            to_user=target,
+            auto_accept_reciprocal=auto_accept_reciprocal,
+        )
         return Response(FriendRequestSerializer(req).data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["post"])
@@ -1704,11 +1719,40 @@ class FriendViewSet(viewsets.ViewSet):
     ViewSet for managing accepted friendships.
 
     Provides endpoints for:
-    - GET    /friends/           List accepted friends
-    - DELETE /friends/{user_id}/ Remove a friend
+    - GET    /friends/                List accepted friends
+    - GET    /friends/user-search/    Search users for friend requests
+    - DELETE /friends/{user_id}/      Remove a friend
     """
 
     permission_classes = [IsAuthenticated]
+
+    @action(detail=False, methods=["get"], url_path="user-search")
+    def user_search(self, request: Request) -> Response:
+        """Return usernames matching a prefix for the Friends tab autocomplete."""
+        from django.db.models import Q
+
+        query = str(request.query_params.get("q") or "").strip()
+        if not query:
+            return Response([])
+
+        excluded_ids: set[int] = {request.user.id}
+        for from_id, to_id in FriendRequest.objects.filter(
+            Q(from_user=request.user) | Q(to_user=request.user),
+            status__in=[FriendRequest.PENDING, FriendRequest.ACCEPTED],
+        ).values_list("from_user_id", "to_user_id"):
+            excluded_ids.add(from_id)
+            excluded_ids.add(to_id)
+
+        users = User.objects.filter(username__istartswith=query).exclude(pk__in=excluded_ids).order_by("username")[:10]
+        payload = [
+            {
+                "username": user.username,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+            }
+            for user in users
+        ]
+        return Response(FriendUserSearchSerializer(payload, many=True).data)
 
     def list(self, request: Request) -> Response:
         """List all accepted friends of the current user."""
