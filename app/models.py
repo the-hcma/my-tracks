@@ -642,6 +642,47 @@ class TransitionAction(models.Model):
         return f"{self.user.username}: {wp_label} {self.event} → {self.email_address}"
 
 
+class FriendRequest(models.Model):
+    """A directional friend request between two users."""
+
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    DECLINED = "declined"
+    STATUS_CHOICES = [
+        (PENDING, "Pending"),
+        (ACCEPTED, "Accepted"),
+        (DECLINED, "Declined"),
+    ]
+
+    from_user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="sent_requests")
+    to_user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="received_requests")
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("from_user", "to_user")
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"FriendRequest({self.from_user} -> {self.to_user}, {self.status})"
+
+
+class DeviceShare(models.Model):
+    """A grant allowing one user to see another user's device location."""
+
+    device = models.ForeignKey(Device, on_delete=models.CASCADE, related_name="shares")
+    shared_with = models.ForeignKey(User, on_delete=models.CASCADE, related_name="device_shares_received")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("device", "shared_with")
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"DeviceShare({self.device.device_id} -> {self.shared_with})"
+
+
 class GlobalAutomationRule(models.Model):
     """
     Admin-defined rule that fires when a set of users all meet a geofence condition.
