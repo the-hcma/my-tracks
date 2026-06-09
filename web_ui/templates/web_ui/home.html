@@ -125,7 +125,8 @@
             localIp: "{{ local_ip }}",
             collapsePrecision: {{ collapse_precision }},
             locationAccuracyFilterEnabled: {{ location_accuracy_filter_enabled|yesno:"true,false" }},
-            locationAccuracyMinimumM: {{ location_accuracy_minimum_m }}
+            locationAccuracyMinimumM: {{ location_accuracy_minimum_m }},
+            csrfToken: "{{ csrf_token }}"
         };
 
         const hamburgerBtn = document.getElementById('hamburger-btn');

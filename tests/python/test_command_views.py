@@ -1,9 +1,10 @@
 """Tests for the Command API views."""
 
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.contrib.auth.models import User
-from django.test import TestCase
+from django.test import Client, TestCase
 from hamcrest import assert_that, equal_to, has_entries
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -19,9 +20,7 @@ class TestCommandViewSetReportLocation(TestCase):
         """Set up test user, device, and authenticated client."""
         self.client = APIClient()
         self.user = User.objects.create_user(username="alice_rl", password="pw")
-        self.device = Device.objects.create(
-            device_id="phone", owner=self.user, mqtt_user="alice_mqtt"
-        )
+        self.device = Device.objects.create(device_id="phone", owner=self.user, mqtt_user="alice_mqtt")
         self.client.force_authenticate(user=self.user)
 
     def test_report_location_missing_device_id(self) -> None:
@@ -110,6 +109,47 @@ class TestCommandViewSetReportLocation(TestCase):
         assert_that(response.json()["device_id"], equal_to("alice_mqtt/phone"))
 
 
+class TestCommandViewSetSessionAuth(TestCase):
+    """Browser-style session + CSRF auth for command endpoints."""
+
+    def setUp(self) -> None:
+        self.user = User.objects.create_user(username="browser_user", password="pw")
+        self.device = Device.objects.create(device_id="phone", owner=self.user, mqtt_user="browser_mqtt")
+        self.client = APIClient(enforce_csrf_checks=True)
+        self.client.force_authenticate(user=self.user)
+
+    @patch("app.auth.get_command_api_key", return_value="command-secret")
+    def test_report_location_requires_csrf_when_api_key_configured(self, _mock_key: Any) -> None:
+        """Session-authenticated POST without CSRF is rejected (browser must send token)."""
+        client = Client(enforce_csrf_checks=True)
+        client.force_login(self.user)
+        response = client.post(
+            "/api/commands/report-location/",
+            data='{"device_id": "phone"}',
+            content_type="application/json",
+        )
+        assert_that(response.status_code, equal_to(status.HTTP_403_FORBIDDEN))
+
+    @patch("app.auth.get_command_api_key", return_value="command-secret")
+    def test_report_location_accepts_session_with_csrf(self, _mock_key: Any) -> None:
+        """Session-authenticated POST with CSRF succeeds when API key is configured."""
+        mock_publisher = MagicMock()
+        mock_publisher.send_command = AsyncMock(return_value=True)
+
+        csrf_token = "test-csrf-token"
+        with patch("django.middleware.csrf.get_token", return_value=csrf_token):
+            with patch.object(CommandViewSet, "_get_publisher", return_value=mock_publisher):
+                response = self.client.post(
+                    "/api/commands/report-location/",
+                    data={"device_id": "phone"},
+                    format="json",
+                    HTTP_X_CSRFTOKEN=csrf_token,
+                )
+
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        assert_that(response.json()["device_id"], equal_to("browser_mqtt/phone"))
+
+
 class TestCommandViewSetSetWaypoints(TestCase):
     """Tests for CommandViewSet set_waypoints endpoint."""
 
@@ -117,9 +157,7 @@ class TestCommandViewSetSetWaypoints(TestCase):
         """Set up test user, device, and authenticated client."""
         self.client = APIClient()
         self.user = User.objects.create_user(username="alice_sw", password="pw")
-        self.device = Device.objects.create(
-            device_id="phone", owner=self.user, mqtt_user="alice_sw_mqtt"
-        )
+        self.device = Device.objects.create(device_id="phone", owner=self.user, mqtt_user="alice_sw_mqtt")
         self.client.force_authenticate(user=self.user)
 
     def test_set_waypoints_missing_device_id(self) -> None:
@@ -142,9 +180,7 @@ class TestCommandViewSetSetWaypoints(TestCase):
         )
 
         assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
-        assert_that(
-            response.json(), has_entries({"error": "waypoints must be a non-empty list"})
-        )
+        assert_that(response.json(), has_entries({"error": "waypoints must be a non-empty list"}))
 
     def test_set_waypoints_empty_list(self) -> None:
         """set_waypoints with empty list returns 400."""
@@ -155,9 +191,7 @@ class TestCommandViewSetSetWaypoints(TestCase):
         )
 
         assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
-        assert_that(
-            response.json(), has_entries({"error": "waypoints must be a non-empty list"})
-        )
+        assert_that(response.json(), has_entries({"error": "waypoints must be a non-empty list"}))
 
     def test_set_waypoints_invalid_type(self) -> None:
         """set_waypoints with non-list waypoints returns 400."""
@@ -168,9 +202,7 @@ class TestCommandViewSetSetWaypoints(TestCase):
         )
 
         assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
-        assert_that(
-            response.json(), has_entries({"error": "waypoints must be a non-empty list"})
-        )
+        assert_that(response.json(), has_entries({"error": "waypoints must be a non-empty list"}))
 
     def test_set_waypoints_device_not_found(self) -> None:
         """Unknown device_id returns 400."""
@@ -223,9 +255,7 @@ class TestCommandViewSetClearWaypoints(TestCase):
         """Set up test user, device, and authenticated client."""
         self.client = APIClient()
         self.user = User.objects.create_user(username="alice_cw", password="pw")
-        self.device = Device.objects.create(
-            device_id="phone", owner=self.user, mqtt_user="alice_cw_mqtt"
-        )
+        self.device = Device.objects.create(device_id="phone", owner=self.user, mqtt_user="alice_cw_mqtt")
         self.client.force_authenticate(user=self.user)
 
     def test_clear_waypoints_missing_device_id(self) -> None:
@@ -295,9 +325,7 @@ class TestCommandViewSetFetchWaypoints(TestCase):
         """Set up test client and fixtures."""
         self.client = APIClient()
         self.user = User.objects.create_user(username="alice_fw", password="pw")
-        self.device = Device.objects.create(
-            device_id="pixel7", owner=self.user, mqtt_user="alice_fw_mqtt"
-        )
+        self.device = Device.objects.create(device_id="pixel7", owner=self.user, mqtt_user="alice_fw_mqtt")
         self.client.force_authenticate(user=self.user)
 
     def test_fetch_waypoints_missing_device_id(self) -> None:
