@@ -13,6 +13,11 @@ export interface FriendRequestRow {
     created_at: string;
 }
 
+export interface PendingFriendRequests {
+    received: FriendRequestRow[];
+    sent: FriendRequestRow[];
+}
+
 export interface FriendRow {
     user_id: number;
     username: string;
@@ -112,7 +117,7 @@ async function readError(response: Response): Promise<string> {
     return `Request failed (${response.status})`;
 }
 
-export async function fetchFriendRequests(csrfToken: string): Promise<FriendRequestRow[]> {
+export async function fetchFriendRequests(csrfToken: string): Promise<PendingFriendRequests> {
     const response = await fetch('/api/friends/requests/', {
         headers: apiHeaders(csrfToken),
         credentials: 'same-origin',
@@ -120,7 +125,7 @@ export async function fetchFriendRequests(csrfToken: string): Promise<FriendRequ
     if (!response.ok) {
         throw new Error(await readError(response));
     }
-    return (await response.json()) as FriendRequestRow[];
+    return (await response.json()) as PendingFriendRequests;
 }
 
 export async function fetchFriends(csrfToken: string): Promise<FriendRow[]> {
@@ -178,7 +183,8 @@ export async function fetchSharesForFriend(
 export function initFriendsTab(options: FriendsTabOptions): { refresh: () => Promise<void> } {
     const { root, csrfToken, currentUsername, showMessage } = options;
 
-    const pendingList = root.querySelector<HTMLElement>('#friends-pending-list');
+    const pendingReceived = root.querySelector<HTMLElement>('#friends-pending-received');
+    const pendingSent = root.querySelector<HTMLElement>('#friends-pending-sent');
     const friendsList = root.querySelector<HTMLElement>('#friends-list');
     const addForm = root.querySelector<HTMLFormElement>('#friends-add-form');
     const usernameInput = root.querySelector<HTMLInputElement>('#friends-add-username');
@@ -187,7 +193,8 @@ export function initFriendsTab(options: FriendsTabOptions): { refresh: () => Pro
     const statusBox = root.querySelector<HTMLElement>('#friends-status');
 
     if (
-        !pendingList ||
+        !pendingReceived ||
+        !pendingSent ||
         !friendsList ||
         !addForm ||
         !usernameInput ||
@@ -198,7 +205,8 @@ export function initFriendsTab(options: FriendsTabOptions): { refresh: () => Pro
         return { refresh: async () => {} };
     }
 
-    const pendingListEl = pendingList;
+    const pendingReceivedEl = pendingReceived;
+    const pendingSentEl = pendingSent;
     const friendsListEl = friendsList;
     const addFormEl = addForm;
     const usernameInputEl = usernameInput;
@@ -354,9 +362,21 @@ export function initFriendsTab(options: FriendsTabOptions): { refresh: () => Pro
         return data.status ?? 'pending';
     }
 
-    async function acceptRequest(requestId: number): Promise<void> {
+    async function acceptRequest(requestId: number, autoAcceptReciprocal: boolean): Promise<void> {
         const response = await fetch(`/api/friends/requests/${requestId}/accept/`, {
             method: 'POST',
+            headers: apiHeaders(csrfToken, true),
+            credentials: 'same-origin',
+            body: JSON.stringify({ auto_accept_reciprocal: autoAcceptReciprocal }),
+        });
+        if (!response.ok) {
+            throw new Error(await readError(response));
+        }
+    }
+
+    async function cancelSentRequest(requestId: number): Promise<void> {
+        const response = await fetch(`/api/friends/requests/${requestId}/`, {
+            method: 'DELETE',
             headers: apiHeaders(csrfToken),
             credentials: 'same-origin',
         });
@@ -413,13 +433,13 @@ export function initFriendsTab(options: FriendsTabOptions): { refresh: () => Pro
         }
     }
 
-    function renderPending(requests: FriendRequestRow[]): void {
-        pendingListEl.replaceChildren();
+    function renderPendingReceived(requests: FriendRequestRow[]): void {
+        pendingReceivedEl.replaceChildren();
         if (requests.length === 0) {
             const empty = document.createElement('p');
             empty.className = 'cert-none';
-            empty.textContent = 'No pending friend requests.';
-            pendingListEl.appendChild(empty);
+            empty.textContent = 'No incoming friend requests.';
+            pendingReceivedEl.appendChild(empty);
             return;
         }
 
@@ -446,6 +466,18 @@ export function initFriendsTab(options: FriendsTabOptions): { refresh: () => Pro
             actionsTd.style.textAlign = 'right';
             actionsTd.style.whiteSpace = 'nowrap';
 
+            const reciprocalLabel = document.createElement('label');
+            reciprocalLabel.className = 'friend-share-item friends-accept-reciprocal';
+            reciprocalLabel.style.display = 'inline-flex';
+            reciprocalLabel.style.marginRight = '0.5rem';
+            reciprocalLabel.style.fontSize = '0.8rem';
+            const reciprocalCheckbox = document.createElement('input');
+            reciprocalCheckbox.type = 'checkbox';
+            reciprocalLabel.append(
+                reciprocalCheckbox,
+                document.createTextNode(' Send request back (auto-accept)'),
+            );
+
             const acceptBtn = document.createElement('button');
             acceptBtn.type = 'button';
             acceptBtn.className = 'cert-btn';
@@ -454,13 +486,17 @@ export function initFriendsTab(options: FriendsTabOptions): { refresh: () => Pro
             acceptBtn.addEventListener('click', () => {
                 void (async () => {
                     acceptBtn.disabled = true;
+                    declineBtn.disabled = true;
+                    reciprocalCheckbox.disabled = true;
                     try {
-                        await acceptRequest(req.id);
+                        await acceptRequest(req.id, reciprocalCheckbox.checked);
                         flash('success', `You are now friends with ${req.from_user}.`);
                         await refresh();
                     } catch (err) {
                         flash('error', err instanceof Error ? err.message : 'Accept failed.');
                         acceptBtn.disabled = false;
+                        declineBtn.disabled = false;
+                        reciprocalCheckbox.disabled = false;
                     }
                 })();
             });
@@ -475,6 +511,8 @@ export function initFriendsTab(options: FriendsTabOptions): { refresh: () => Pro
             declineBtn.addEventListener('click', () => {
                 void (async () => {
                     declineBtn.disabled = true;
+                    acceptBtn.disabled = true;
+                    reciprocalCheckbox.disabled = true;
                     try {
                         await declineRequest(req.id);
                         flash('success', `Declined request from ${req.from_user}.`);
@@ -482,17 +520,81 @@ export function initFriendsTab(options: FriendsTabOptions): { refresh: () => Pro
                     } catch (err) {
                         flash('error', err instanceof Error ? err.message : 'Decline failed.');
                         declineBtn.disabled = false;
+                        acceptBtn.disabled = false;
+                        reciprocalCheckbox.disabled = false;
                     }
                 })();
             });
 
-            actionsTd.append(acceptBtn, declineBtn);
+            actionsTd.append(reciprocalLabel, acceptBtn, declineBtn);
             tr.append(fromTd, whenTd, actionsTd);
             tbody.appendChild(tr);
         }
 
         table.appendChild(tbody);
-        pendingListEl.appendChild(table);
+        pendingReceivedEl.appendChild(table);
+    }
+
+    function renderPendingSent(requests: FriendRequestRow[]): void {
+        pendingSentEl.replaceChildren();
+        if (requests.length === 0) {
+            const empty = document.createElement('p');
+            empty.className = 'cert-none';
+            empty.textContent = 'No outgoing friend requests.';
+            pendingSentEl.appendChild(empty);
+            return;
+        }
+
+        const table = document.createElement('table');
+        table.className = 'devices-table';
+        table.innerHTML = '<thead><tr><th>To</th><th>Sent</th><th></th></tr></thead>';
+        const tbody = document.createElement('tbody');
+
+        for (const req of requests) {
+            const tr = document.createElement('tr');
+
+            const toTd = document.createElement('td');
+            toTd.textContent = req.to_user;
+
+            const whenTd = document.createElement('td');
+            whenTd.className = 'muted';
+            const when = new Date(req.created_at);
+            whenTd.textContent = Number.isNaN(when.getTime())
+                ? req.created_at
+                : when.toLocaleString();
+
+            const actionsTd = document.createElement('td');
+            actionsTd.style.textAlign = 'right';
+            actionsTd.style.whiteSpace = 'nowrap';
+
+            const cancelBtn = document.createElement('button');
+            cancelBtn.type = 'button';
+            cancelBtn.className = 'cert-btn';
+            cancelBtn.style.background = 'rgba(231,76,60,.15)';
+            cancelBtn.style.color = 'var(--error)';
+            cancelBtn.style.border = '1px solid rgba(231,76,60,.35)';
+            cancelBtn.textContent = 'Cancel';
+            cancelBtn.addEventListener('click', () => {
+                void (async () => {
+                    cancelBtn.disabled = true;
+                    try {
+                        await cancelSentRequest(req.id);
+                        flash('success', `Canceled request to ${req.to_user}.`);
+                        await refresh();
+                    } catch (err) {
+                        flash('error', err instanceof Error ? err.message : 'Cancel failed.');
+                        cancelBtn.disabled = false;
+                    }
+                })();
+            });
+
+            actionsTd.appendChild(cancelBtn);
+            tr.append(toTd, whenTd, actionsTd);
+            tbody.appendChild(tr);
+        }
+
+        table.appendChild(tbody);
+        pendingSentEl.appendChild(table);
     }
 
     function renderFriends(
@@ -624,7 +726,11 @@ export function initFriendsTab(options: FriendsTabOptions): { refresh: () => Pro
             );
             const sharesByFriendId = new Map<number, Set<string>>(shareEntries);
 
-            renderPending(requests);
+            renderPendingReceived(requests.received);
+            renderPendingSent(requests.sent);
+            if (window._friendRequestBannerRefresh) {
+                void window._friendRequestBannerRefresh();
+            }
             renderFriends(friends, ownedDevices, sharesByFriendId);
         } catch (err) {
             flash('error', err instanceof Error ? err.message : 'Failed to load friends.');
@@ -672,6 +778,7 @@ declare global {
     interface Window {
         initFriendsTab: typeof initFriendsTab;
         _friendsTabRefresh?: () => Promise<void>;
+        _friendRequestBannerRefresh?: () => Promise<void>;
     }
 }
 

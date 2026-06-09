@@ -22,6 +22,7 @@ const buildOptions = {
         'web_ui/static/web_ui/ts/main.ts',
         'web_ui/static/web_ui/ts/messages.ts',
         'web_ui/static/web_ui/ts/friends.ts',
+        'web_ui/static/web_ui/ts/friend-request-banner.ts',
     ],
     bundle: true,
     outdir: outDir,

@@ -946,6 +946,49 @@ a:hover {
     display: none !important;
 }
 
+/* ── Friend request banner ── */
+#friend-request-banner-root:not([hidden]) {
+    display: block;
+}
+
+.friend-request-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding: 0.75rem 1rem;
+    background: rgba(78, 154, 241, 0.15);
+    border: 1px solid rgba(78, 154, 241, 0.45);
+    color: var(--text, #e6e6e6);
+    font-size: 0.9rem;
+}
+
+.friend-request-banner-link {
+    color: var(--accent, #4e9af1);
+    font-weight: 600;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.friend-request-banner-link:hover {
+    text-decoration: underline;
+}
+
+body.my-tracks-live #friend-request-banner-root {
+    position: sticky;
+    top: 0;
+    z-index: 9000;
+    width: 100%;
+}
+
+body.my-tracks-live #friend-request-banner-root .friend-request-banner {
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    border-top: none;
+}
+
 /* ── Toast notifications ── */
 .toast-container {
     position: fixed;

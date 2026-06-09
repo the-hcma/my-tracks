@@ -1,6 +1,7 @@
 """Tests for the Friends API: FriendRequestViewSet, FriendViewSet, DeviceShareViewSet."""
 
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth.models import User
@@ -84,18 +85,48 @@ class TestFriendRequestAPI:
         FriendRequest.objects.create(from_user=alice, to_user=bob)
         response = bob_client.get("/api/friends/requests/")
         assert_that(response.status_code, equal_to(status.HTTP_200_OK))
-        assert_that(response.data, has_length(1))
-        assert_that(response.data[0]["from_user"], equal_to("alice"))
+        assert_that(response.data["received"], has_length(1))
+        assert_that(response.data["received"][0]["from_user"], equal_to("alice"))
+        assert_that(response.data["sent"], has_length(0))
+
+    def test_list_pending_sent_requests(self, alice_client: APIClient, alice: User, bob: User) -> None:
+        FriendRequest.objects.create(from_user=alice, to_user=bob)
+        response = alice_client.get("/api/friends/requests/")
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        assert_that(response.data["sent"], has_length(1))
+        assert_that(response.data["sent"][0]["to_user"], equal_to("bob"))
+        assert_that(response.data["received"], has_length(0))
 
     def test_list_does_not_include_accepted(self, bob_client: APIClient, accepted_request: FriendRequest) -> None:
         response = bob_client.get("/api/friends/requests/")
-        assert_that(response.data, has_length(0))
+        assert_that(response.data["received"], has_length(0))
+        assert_that(response.data["sent"], has_length(0))
 
     def test_accept_request_success(self, bob_client: APIClient, alice: User, bob: User) -> None:
         req = FriendRequest.objects.create(from_user=alice, to_user=bob)
         response = bob_client.post(f"/api/friends/requests/{req.id}/accept/")
         assert_that(response.status_code, equal_to(status.HTTP_200_OK))
         assert_that(response.data["status"], equal_to("accepted"))
+
+    def test_accept_with_reciprocal_request(self, bob_client: APIClient, alice: User, bob: User) -> None:
+        req = FriendRequest.objects.create(from_user=alice, to_user=bob)
+        response = bob_client.post(
+            f"/api/friends/requests/{req.id}/accept/",
+            {"auto_accept_reciprocal": True},
+            format="json",
+        )
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        reciprocal = FriendRequest.objects.get(from_user=bob, to_user=alice)
+        assert_that(reciprocal.status, equal_to(FriendRequest.ACCEPTED))
+        assert_that(reciprocal.auto_accept_reciprocal, equal_to(True))
+
+    def test_send_request_emails_recipient(self, alice_client: APIClient, bob: User) -> None:
+        bob.email = "bob@example.com"
+        bob.save()
+        with patch("app.notifications.send_friend_request_email") as mock_send:
+            response = alice_client.post("/api/friends/requests/", {"username": "bob"}, format="json")
+        assert_that(response.status_code, equal_to(status.HTTP_201_CREATED))
+        mock_send.assert_called_once()
 
     def test_accept_request_by_sender_returns_404(self, alice_client: APIClient, alice: User, bob: User) -> None:
         req = FriendRequest.objects.create(from_user=alice, to_user=bob)

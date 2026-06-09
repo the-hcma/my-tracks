@@ -756,6 +756,21 @@
             margin-bottom: 1.25rem;
         }
 
+        .friends-pending-subtitle {
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            color: var(--text-muted);
+            margin: 0 0 0.75rem;
+        }
+
+        .friends-accept-reciprocal input[type="checkbox"] {
+            width: 1rem;
+            height: 1rem;
+            accent-color: var(--accent);
+        }
+
         /* ── Footer meta ── */
         .meta-info {
             font-size: 0.8rem;
@@ -788,6 +803,9 @@
     </style>
 </head>
 <body>
+    <div id="friend-request-banner-root"
+         data-profile-url="{% url 'web_ui:profile' %}#friends"
+         hidden></div>
     <div class="profile-container">
         <div class="profile-card">
 
@@ -1081,7 +1099,12 @@
                     </label>
 
                     <h3 class="section-title">Pending Requests</h3>
-                    <div id="friends-pending-list">
+                    <p class="friends-pending-subtitle">Received</p>
+                    <div id="friends-pending-received">
+                        <p class="cert-none">Loading…</p>
+                    </div>
+                    <p class="friends-pending-subtitle" style="margin-top: 1.25rem;">Sent</p>
+                    <div id="friends-pending-sent">
                         <p class="cert-none">Loading…</p>
                     </div>
 
@@ -1924,6 +1947,7 @@
     })();
     </script>
     <script src="{% static 'web_ui/js/messages.js' %}"></script>
+    <script src="{% static 'web_ui/js/friend-request-banner.js' %}"></script>
     <script src="{% static 'web_ui/js/friends.js' %}"></script>
     <script>
     // ── Devices tab: local-timezone Last Seen + reason badge ───────────────

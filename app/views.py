@@ -1598,7 +1598,7 @@ class FriendRequestViewSet(viewsets.ViewSet):
     ViewSet for managing friend requests.
 
     Provides endpoints for:
-    - GET  /friends/requests/         List pending received requests
+    - GET  /friends/requests/         List pending received and sent requests
     - POST /friends/requests/         Send a friend request
     - POST /friends/requests/{id}/accept/   Accept a request
     - POST /friends/requests/{id}/decline/  Decline a request
@@ -1608,11 +1608,19 @@ class FriendRequestViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
 
     def list(self, request: Request) -> Response:
-        """List pending requests received by the current user."""
-        qs = FriendRequest.objects.filter(to_user=request.user, status=FriendRequest.PENDING).select_related(
+        """List pending friend requests received by and sent by the current user."""
+        received_qs = FriendRequest.objects.filter(to_user=request.user, status=FriendRequest.PENDING).select_related(
             "from_user"
         )
-        return Response(FriendRequestSerializer(qs, many=True).data)
+        sent_qs = FriendRequest.objects.filter(from_user=request.user, status=FriendRequest.PENDING).select_related(
+            "to_user"
+        )
+        return Response(
+            {
+                "received": FriendRequestSerializer(received_qs, many=True).data,
+                "sent": FriendRequestSerializer(sent_qs, many=True).data,
+            }
+        )
 
     def create(self, request: Request) -> Response:
         """Send a friend request to another user."""
@@ -1670,6 +1678,16 @@ class FriendRequestViewSet(viewsets.ViewSet):
             to_user=target,
             auto_accept_reciprocal=auto_accept_reciprocal,
         )
+        try:
+            from app.notifications import send_friend_request_email
+
+            send_friend_request_email(req)
+        except Exception:
+            logger.exception(
+                "Failed to send friend request email (from=%s, to=%s)",
+                request.user.username,
+                target.username,
+            )
         return Response(FriendRequestSerializer(req).data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["post"])
@@ -1686,6 +1704,18 @@ class FriendRequestViewSet(viewsets.ViewSet):
             )
         req.status = FriendRequest.ACCEPTED
         req.save()
+
+        auto_accept_reciprocal = bool(request.data.get("auto_accept_reciprocal"))
+        if auto_accept_reciprocal:
+            FriendRequest.objects.update_or_create(
+                from_user=request.user,
+                to_user=req.from_user,
+                defaults={
+                    "status": FriendRequest.ACCEPTED,
+                    "auto_accept_reciprocal": True,
+                },
+            )
+
         return Response(FriendRequestSerializer(req).data)
 
     @action(detail=True, methods=["post"])
@@ -1764,8 +1794,12 @@ class FriendViewSet(viewsets.ViewSet):
         ).select_related("from_user", "to_user")
 
         friends = []
+        seen_ids: set[int] = set()
         for req in accepted:
             other = req.to_user if req.from_user == request.user else req.from_user
+            if other.id in seen_ids:
+                continue
+            seen_ids.add(other.id)
             friends.append(
                 {
                     "user_id": other.id,
