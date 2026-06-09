@@ -46,6 +46,23 @@ New dependency versions are adopted on a staggered schedule so **dep-updater** (
      ```
    - Both commands are required: `--refresh` is the only one that checks/starts the service; the plain invocation is the only one that creates the worktree.
    - This replaces the manual `gt sync --force` step.
+   - After `start-development` finishes, **`cd` into the stack worktree** (`.worktrees/<stack-name>-wt`) before any other work. Do not stay in the primary clone.
+
+### Main worktree is off-limits (agents)
+
+The **primary clone** (repo root — first entry in `git worktree list`, usually on branch `main`) is the **main worktree**. Treat it as **read-only** unless the user explicitly authorizes touching it in the current conversation.
+
+**Never on the main worktree** (without explicit user authorization):
+
+- Edit, create, or delete source files, config, or lockfiles
+- Run `uv sync`, `pnpm install`, tests, builds, or formatters
+- Run `dep-updater` with `--dir` pointing at the primary clone (it may fast-forward `main` and mutate git state)
+- Run `gt create`, `gt modify`, `gt submit`, `gt sync`, `gt restack`, or other Graphite/git write operations
+- Leave uncommitted changes, stray branches, or detached HEAD state
+
+**Always** do implementation, investigation that mutates state, and validation in a **stack worktree** under `.worktrees/<stack-name>-wt`. Pass that path to tools (`--dir`, `cd`, etc.).
+
+`start-development` may update the main worktree for environment sync only; that is not permission to work there. If you need to inspect `main` without changing it, use read-only commands (`git log`, `git show`, `gh pr view`) or a **detached temporary worktree** — not the primary clone.
 
 **Before creating any pull request**, the following workflow MUST be completed:
 
