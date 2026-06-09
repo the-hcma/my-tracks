@@ -28,7 +28,16 @@ from rest_framework.response import Response
 
 from .apps import get_mqtt_broker, is_mqtt_degraded
 from .auth import CommandApiKeyAuthentication, get_command_api_key
-from .models import CertificateAuthority, ClientCertificate, Device, Location, OwnTracksMessage, ServerCertificate
+from .models import (
+    CertificateAuthority,
+    ClientCertificate,
+    Device,
+    DeviceShare,
+    FriendRequest,
+    Location,
+    OwnTracksMessage,
+    ServerCertificate,
+)
 from .mqtt.commands import Command, CommandPublisher
 from .pki import (
     ALLOWED_KEY_SIZES,
@@ -50,6 +59,9 @@ from .serializers import (
     ChangePasswordSerializer,
     ClientCertificateSerializer,
     DeviceSerializer,
+    DeviceShareSerializer,
+    FriendRequestSerializer,
+    FriendSerializer,
     LocationSerializer,
     ServerCertificateSerializer,
     UserProfileSerializer,
@@ -1556,3 +1568,246 @@ class HealthViewSet(viewsets.ViewSet):
             {"status": "ok", "version": app_version},
             status=status.HTTP_200_OK,
         )
+
+
+class FriendRequestViewSet(viewsets.ViewSet):
+    """
+    ViewSet for managing friend requests.
+
+    Provides endpoints for:
+    - GET  /friends/requests/         List pending received requests
+    - POST /friends/requests/         Send a friend request
+    - POST /friends/requests/{id}/accept/   Accept a request
+    - POST /friends/requests/{id}/decline/  Decline a request
+    - DELETE /friends/requests/{id}/  Cancel a sent request
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def list(self, request: Request) -> Response:
+        """List pending requests received by the current user."""
+        qs = FriendRequest.objects.filter(to_user=request.user, status=FriendRequest.PENDING).select_related(
+            "from_user"
+        )
+        return Response(FriendRequestSerializer(qs, many=True).data)
+
+    def create(self, request: Request) -> Response:
+        """Send a friend request to another user."""
+        username = str(request.data.get("username") or "").strip()
+        if not username:
+            return Response({"error": "username is required"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            target = User.objects.get(username=username)
+        except User.DoesNotExist:
+            return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+        if target == request.user:
+            return Response(
+                {"error": "Cannot send a request to yourself"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Remove any previously declined request so they can re-request.
+        FriendRequest.objects.filter(from_user=request.user, to_user=target, status=FriendRequest.DECLINED).delete()
+
+        # Already friends?
+        already_friends = (
+            FriendRequest.objects.filter(from_user=request.user, to_user=target, status=FriendRequest.ACCEPTED).exists()
+            or FriendRequest.objects.filter(
+                from_user=target, to_user=request.user, status=FriendRequest.ACCEPTED
+            ).exists()
+        )
+        if already_friends:
+            return Response({"error": "Already friends"}, status=status.HTTP_409_CONFLICT)
+
+        # Duplicate pending?
+        pending_exists = (
+            FriendRequest.objects.filter(from_user=request.user, to_user=target, status=FriendRequest.PENDING).exists()
+            or FriendRequest.objects.filter(
+                from_user=target, to_user=request.user, status=FriendRequest.PENDING
+            ).exists()
+        )
+        if pending_exists:
+            return Response(
+                {"error": "A pending request already exists"},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        req = FriendRequest.objects.create(from_user=request.user, to_user=target)
+        return Response(FriendRequestSerializer(req).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"])
+    def accept(self, request: Request, pk: str | None = None) -> Response:
+        """Accept a received friend request."""
+        try:
+            req = FriendRequest.objects.get(pk=pk, to_user=request.user)
+        except FriendRequest.DoesNotExist:
+            return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+        if req.status != FriendRequest.PENDING:
+            return Response(
+                {"error": "Request is not pending"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        req.status = FriendRequest.ACCEPTED
+        req.save()
+        return Response(FriendRequestSerializer(req).data)
+
+    @action(detail=True, methods=["post"])
+    def decline(self, request: Request, pk: str | None = None) -> Response:
+        """Decline a received friend request."""
+        try:
+            req = FriendRequest.objects.get(pk=pk, to_user=request.user)
+        except FriendRequest.DoesNotExist:
+            return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+        if req.status != FriendRequest.PENDING:
+            return Response(
+                {"error": "Request is not pending"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        req.status = FriendRequest.DECLINED
+        req.save()
+        return Response(FriendRequestSerializer(req).data)
+
+    def destroy(self, request: Request, pk: str | None = None) -> Response:
+        """Cancel a sent friend request (only the sender can cancel)."""
+        try:
+            req = FriendRequest.objects.get(pk=pk, from_user=request.user, status=FriendRequest.PENDING)
+        except FriendRequest.DoesNotExist:
+            return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+        req.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class FriendViewSet(viewsets.ViewSet):
+    """
+    ViewSet for managing accepted friendships.
+
+    Provides endpoints for:
+    - GET    /friends/           List accepted friends
+    - DELETE /friends/{user_id}/ Remove a friend
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def list(self, request: Request) -> Response:
+        """List all accepted friends of the current user."""
+        from django.db.models import Q
+
+        accepted = FriendRequest.objects.filter(
+            Q(from_user=request.user, status=FriendRequest.ACCEPTED)
+            | Q(to_user=request.user, status=FriendRequest.ACCEPTED)
+        ).select_related("from_user", "to_user")
+
+        friends = []
+        for req in accepted:
+            other = req.to_user if req.from_user == request.user else req.from_user
+            friends.append(
+                {
+                    "user_id": other.id,
+                    "username": other.username,
+                    "first_name": other.first_name,
+                    "last_name": other.last_name,
+                }
+            )
+        return Response(FriendSerializer(friends, many=True).data)
+
+    def destroy(self, request: Request, pk: str | None = None) -> Response:
+        """Remove a friend and delete all DeviceShares in both directions."""
+        from django.db.models import Q
+
+        try:
+            other = User.objects.get(pk=pk)
+        except User.DoesNotExist:
+            return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        deleted, _ = FriendRequest.objects.filter(
+            Q(from_user=request.user, to_user=other) | Q(from_user=other, to_user=request.user),
+            status=FriendRequest.ACCEPTED,
+        ).delete()
+        if deleted == 0:
+            return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        # Remove device shares in both directions.
+        DeviceShare.objects.filter(device__owner=request.user, shared_with=other).delete()
+        DeviceShare.objects.filter(device__owner=other, shared_with=request.user).delete()
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class DeviceShareViewSet(viewsets.ViewSet):
+    """
+    ViewSet for managing per-device shares with a specific friend.
+
+    URL params: user_id (friend's pk), device_id (Device.device_id string).
+
+    Provides endpoints for:
+    - GET    /friends/{user_id}/shares/             List shares granted to this friend
+    - POST   /friends/{user_id}/shares/             Share a device
+    - DELETE /friends/{user_id}/shares/{device_id}/ Unshare a device
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def _get_friend(self, request: Request, user_id: str) -> tuple[User | None, Response | None]:
+        """Return the friend User or an error Response."""
+        from django.db.models import Q
+
+        try:
+            friend = User.objects.get(pk=user_id)
+        except User.DoesNotExist:
+            return None, Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        is_friend = FriendRequest.objects.filter(
+            Q(from_user=request.user, to_user=friend) | Q(from_user=friend, to_user=request.user),
+            status=FriendRequest.ACCEPTED,
+        ).exists()
+        if not is_friend:
+            return None, Response(
+                {"error": "No accepted friendship with this user"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return friend, None
+
+    def list(self, request: Request, user_id: str = "") -> Response:
+        """List devices you have shared with this friend."""
+        friend, err = self._get_friend(request, user_id)
+        if err:
+            return err
+        qs = DeviceShare.objects.filter(device__owner=request.user, shared_with=friend).select_related(
+            "device", "shared_with"
+        )
+        return Response(DeviceShareSerializer(qs, many=True).data)
+
+    def create(self, request: Request, user_id: str = "") -> Response:
+        """Share one of your devices with this friend."""
+        friend, err = self._get_friend(request, user_id)
+        if err:
+            return err
+        device_id = str(request.data.get("device_id") or "").strip()
+        if not device_id:
+            return Response({"error": "device_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            device = Device.objects.get(device_id=device_id, owner=request.user)
+        except Device.DoesNotExist:
+            return Response(
+                {"error": "Device not found or not owned by you"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        share, created = DeviceShare.objects.get_or_create(device=device, shared_with=friend)
+        return Response(
+            DeviceShareSerializer(share).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+    def destroy(self, request: Request, user_id: str = "", device_id: str = "") -> Response:
+        """Unshare a device from this friend."""
+        friend, err = self._get_friend(request, user_id)
+        if err:
+            return err
+        deleted, _ = DeviceShare.objects.filter(
+            device__device_id=device_id,
+            device__owner=request.user,
+            shared_with=friend,
+        ).delete()
+        if deleted == 0:
+            return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response(status=status.HTTP_204_NO_CONTENT)
