@@ -708,6 +708,14 @@ class TestProfilePage:
         content = response.content.decode('utf-8')
         assert_that(content, contains_string('testuser'))
 
+    def test_profile_page_has_friends_tab(self, logged_in_client: Client) -> None:
+        """Profile page should include the Friends tab for location sharing."""
+        response = logged_in_client.get('/profile/')
+        content = response.content.decode('utf-8')
+        assert_that(content, contains_string('data-tab="friends"'))
+        assert_that(content, contains_string('id="tab-friends"'))
+        assert_that(content, contains_string('friends.js'))
+
     def test_profile_page_redirects_unauthenticated(self) -> None:
         """Unauthenticated users should be redirected to login."""
         client = Client()
