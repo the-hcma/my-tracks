@@ -23,7 +23,7 @@ from app.pki import decrypt_private_key
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
-    from app.models import GlobalAutomationRule, SmtpConfig, Transition, TransitionAction
+    from app.models import FriendRequest, GlobalAutomationRule, SmtpConfig, Transition, TransitionAction
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +184,65 @@ def send_test_email(to: str, config: "SmtpConfig", server_names: list[str] | Non
     backend = get_smtp_backend(config)
     send_test_email_via_backend(to, backend, str(config.from_address), server_names)
     logger.info("Test email sent to %s via %s:%s", to, config.host, config.port)
+
+
+def send_friend_request_email(friend_request: "FriendRequest") -> None:
+    """
+    Notify a user that they received a friend request. Raises on failure.
+
+    Skips silently (debug log) when SMTP is not configured or the recipient
+    has no email address.
+    """
+    from app.models import SmtpConfig
+
+    config = SmtpConfig.get()
+    if config is None:
+        logger.debug("send_friend_request_email: no SMTP config, skipping")
+        return
+
+    recipient = friend_request.to_user
+    if not recipient.email:
+        logger.debug("send_friend_request_email: recipient %s has no email, skipping", recipient.username)
+        return
+
+    sender = friend_request.from_user
+    sender_label = sender.get_full_name().strip() or sender.username
+    now = datetime.now(tz=_utc.utc)
+    local_ts = now.astimezone(settings.SYSTEM_TIMEZONE)
+    ts_str = f"{local_ts.strftime('%Y-%m-%d %H:%M:%S %Z')} ({now.strftime('%Y-%m-%d %H:%M:%S UTC')})"
+    public_domain = getattr(settings, "PUBLIC_DOMAIN", "")
+    sent_by = public_domain or str(config.host)
+
+    profile_path = "/profile/#friends"
+    if public_domain:
+        profile_url = f"https://{public_domain}{profile_path}"
+    else:
+        profile_url = profile_path
+
+    subject = f"[my-tracks] Friend request from {sender.username}"
+    lines = [
+        f"{sender_label} ({sender.username}) sent you a friend request on my-tracks.",
+        "",
+        "Sign in and open Profile → Friends to accept or decline:",
+        f"  {profile_url}",
+        "",
+    ]
+    body = _append_footer("\n".join(lines), sent_at=ts_str, sent_by=sent_by)
+
+    backend = get_smtp_backend(config)
+    _build_email(
+        subject=subject,
+        body=body,
+        from_email=str(config.from_address),
+        to=[str(recipient.email)],
+        connection=backend,
+    ).send()
+    logger.info(
+        "Friend request email sent to %s (from=%s, request_id=%s)",
+        recipient.email,
+        sender.username,
+        friend_request.pk,
+    )
 
 
 def send_transition_email(transition: "Transition", action: "TransitionAction") -> None:

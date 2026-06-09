@@ -86,6 +86,8 @@ class TestWebUIViews:
         assert_that(content, contains_string("<!DOCTYPE html>"))
         assert_that(content, contains_string("<title>My Tracks - OwnTracks Backend</title>"))
         assert_that(content, contains_string("leaflet"))  # Map library
+        assert_that(content, contains_string('id="friend-request-banner-root"'))
+        assert_that(content, contains_string("friend-request-banner.js"))
 
     def test_home_view_links_web_app_manifest(self, logged_in_client: Client) -> None:
         """Home page should link the PWA manifest."""
@@ -721,6 +723,9 @@ class TestProfilePage:
         assert_that(content, contains_string('data-tab="friends"'))
         assert_that(content, contains_string('id="tab-friends"'))
         assert_that(content, contains_string("friends.js"))
+        assert_that(content, contains_string('id="friends-pending-received"'))
+        assert_that(content, contains_string('id="friends-pending-sent"'))
+        assert_that(content, contains_string("friend-request-banner.js"))
         devices_pos = content.index('data-tab="devices"')
         friends_pos = content.index('data-tab="friends"')
         locations_pos = content.index('data-tab="locations"')

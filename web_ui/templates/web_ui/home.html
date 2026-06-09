@@ -17,6 +17,9 @@
     <link rel="stylesheet" href="{% static 'web_ui/js/main.css' %}">
 </head>
 <body>
+    <div id="friend-request-banner-root"
+         data-profile-url="{% url 'web_ui:profile' %}#friends"
+         hidden></div>
     <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="false"></div>
 
     <div class="container" id="main-container">
@@ -140,6 +143,7 @@
             });
         }
     </script>
+    <script src="{% static 'web_ui/js/friend-request-banner.js' %}"></script>
     <script src="{% static 'web_ui/js/main.js' %}"></script>
 </body>
 </html>
