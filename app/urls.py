@@ -19,6 +19,7 @@ from .views import (
     LocationViewSet,
     ServerCertificateViewSet,
 )
+from .admin_sync_export import AdminUsersWithDevicesExportView, AdminWaypointsExportView
 
 
 class OptionalSlashRouter(DefaultRouter):
@@ -53,6 +54,16 @@ device_share_detail = DeviceShareViewSet.as_view({"delete": "destroy"})
 urlpatterns: list[URLPattern | URLResolver] = [
     re_path(r"^account/?$", account_list, name="account"),
     re_path(r"^account/change-password/?$", account_change_password, name="account-change-password"),
+    re_path(
+        r"^admin/users-with-devices/?$",
+        AdminUsersWithDevicesExportView.as_view(),
+        name="admin-users-with-devices-export",
+    ),
+    re_path(
+        r"^admin/waypoints/?$",
+        AdminWaypointsExportView.as_view(),
+        name="admin-waypoints-export",
+    ),
     re_path(r"^friends/(?P<user_id>\d+)/shares/?$", device_share_list, name="device-share-list"),
     re_path(
         r"^friends/(?P<user_id>\d+)/shares/(?P<device_id>[^/]+)/?$",
