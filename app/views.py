@@ -15,6 +15,7 @@ from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from django.conf import settings
 from django.contrib.auth.models import User
+from django.db.models import QuerySet
 from django.http import HttpResponse as DjangoHttpResponse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -83,7 +84,6 @@ class LocationViewSet(viewsets.ModelViewSet):
     - Filter by device, date range, etc.
     """
 
-    queryset = Location.objects.all()
     serializer_class = LocationSerializer
 
     def get_permissions(self) -> list[object]:
@@ -92,12 +92,18 @@ class LocationViewSet(viewsets.ModelViewSet):
             return [AllowAny()]
         return [IsAuthenticated()]
 
-    def get_queryset(self) -> Any:
-        """Restrict to the requesting user's devices; staff see all."""
+    def get_queryset(self) -> QuerySet[Location]:
+        """Return locations for devices owned by or shared with the current user; staff see all."""
+        from django.db.models import Q
+
+        user = self.request.user
+        if not user.is_authenticated:
+            return Location.objects.all()
         qs = Location.objects.select_related("device__owner")
-        if not self.request.user.is_staff:
-            qs = qs.filter(device__owner=self.request.user)
-        return qs
+        if user.is_staff:
+            return qs
+        allowed_devices = Device.objects.filter(Q(owner=user) | Q(shares__shared_with=user)).distinct()
+        return qs.filter(device__in=allowed_devices)
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
@@ -220,17 +226,30 @@ class LocationViewSet(viewsets.ModelViewSet):
         """
         queryset = self.get_queryset()
 
-        # Filter by device — accepts "owner/device_id" or plain "device_id" (scoped to requester)
+        # Filter by device — accepts "owner/device_id" or plain "device_id"; inaccessible
+        # devices return 404 (same as non-existent, no existence leak).
         device_param = request.query_params.get("device")
         if device_param:
+            from django.db.models import Q
+
             try:
                 if "/" in device_param:
                     owner_username, dev_id = device_param.split("/", 1)
-                    device = Device.objects.get(owner__username=owner_username, device_id=dev_id)
-                elif not request.user.is_staff:
-                    device = Device.objects.get(device_id=device_param, owner=request.user)
-                else:
+                    if request.user.is_staff:
+                        device = Device.objects.get(owner__username=owner_username, device_id=dev_id)
+                    else:
+                        device = Device.objects.get(
+                            Q(owner=request.user) | Q(shares__shared_with=request.user),
+                            owner__username=owner_username,
+                            device_id=dev_id,
+                        )
+                elif request.user.is_staff:
                     device = Device.objects.get(device_id=device_param)
+                else:
+                    device = Device.objects.filter(
+                        Q(owner=request.user) | Q(shares__shared_with=request.user),
+                        device_id=device_param,
+                    ).get()
                 queryset = queryset.filter(device=device)
             except Device.DoesNotExist:
                 return Response(
@@ -342,7 +361,7 @@ class DeviceViewSet(viewsets.ReadOnlyModelViewSet):
     ViewSet for managing devices.
 
     Provides read-only endpoints for:
-    - GET /devices/: List all devices
+    - GET /devices/: List all devices owned by or shared with the current user
     - GET /devices/{id}/: Get device details
     - GET /devices/{id}/locations/: Get locations for specific device
     """
@@ -351,11 +370,14 @@ class DeviceViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
     lookup_field = "device_id"
 
-    def get_queryset(self) -> Any:
-        """Restrict to the requesting user's devices; staff see all."""
-        if self.request.user.is_staff:
+    def get_queryset(self) -> QuerySet[Device]:
+        """Return devices owned by or shared with the current user; staff see all."""
+        from django.db.models import Q
+
+        user = self.request.user
+        if user.is_staff:
             return Device.objects.all()
-        return Device.objects.filter(owner=self.request.user)
+        return Device.objects.filter(Q(owner=user) | Q(shares__shared_with=user)).distinct()
 
     @action(detail=True, methods=["get"])
     def locations(self, request: Request, device_id: str | None = None) -> Response:
