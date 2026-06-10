@@ -80,17 +80,20 @@ The **primary clone** (repo root — first entry in `git worktree list`, usually
 **Pull Request Workflow** (CRITICAL):
 
 1. **Create PR**: Once all pre-PR quality gates pass, create the pull request
-2. **Wait for CI/CD**: Poll GitHub Actions frequently (every 5 seconds) until all checks pass
-3. **User Testing**: After CI passes, inform user that PR is ready for manual testing
-4. **User Approval**: Wait for explicit user approval before proceeding
-5. **Submit to merge queue**: Only after user approval, add the `merge-mq` label to submit the PR to the Graphite merge queue: `gh pr edit <pr-number> --add-label "merge-mq"`
-6. **Cleanup**: After merge completes, `gt sync --force` to update local main and clean up branches
+2. **One commit per PR**: Each PR branch should have **exactly one commit** on top of its base when ready for review. Fold all implementation, review fixups, and CI fixups into that commit — do not leave a chain of `fix:` / `style:` commits on the branch.
+3. **Wait for CI/CD**: After every push, **actively monitor** GitHub Actions until all checks pass or fail — do not push and stop. Poll with `gh pr checks <pr-number>` (see **GitHub Actions Polling** below). If CI fails, fix locally, then **`gt modify`** (never add a new commit for CI/lint/type fixups) and push again; repeat until green.
+4. **User Testing**: After CI passes, inform user that PR is ready for manual testing
+5. **User Approval**: Wait for explicit user approval before proceeding
+6. **Submit to merge queue**: Only after user approval, add the `merge-mq` label to submit the PR to the Graphite merge queue: `gh pr edit <pr-number> --add-label "merge-mq"`
+7. **Cleanup**: After merge completes, `gt sync --force` to update local main and clean up branches
 
 **DO NOT**:
 - ❌ Create PR before all quality gates pass
 - ❌ Ask user to test before CI/CD passes
 - ❌ Merge PR without explicit user approval
-- ❌ Skip waiting for CI/CD checks
+- ❌ Skip waiting for CI/CD checks or push without monitoring CI to completion
+- ❌ **Add new commits for fixups on an open PR** — use `gt modify` to amend the single branch commit (CI failures, review comments, ruff/pyright fixes)
+- ❌ **Leave multiple commits on a PR branch** — squash to one commit before/at submit (see Branch Workflow)
 - ❌ **NEVER merge PRs directly** (`gh pr merge`, GitHub merge button, etc.) — always use the `merge-mq` label to submit to the merge queue
 
 > See [GRAPHITE.md](./GRAPHITE.md) for the full Graphite workflow reference (branch naming, stack creation, navigation, submission, troubleshooting, and advanced rebasing).
@@ -103,11 +106,12 @@ The **primary clone** (repo root — first entry in `git worktree list`, usually
   - `gt modify --all --message "msg"` (amend commits non-interactively)
   - `gt sync --force` (sync without prompts)
 - ✅ **Create branches**: `gt create --all --message "descriptive commit message"`
+- ✅ **One commit per PR**: Prefer a single commit on the branch. If you already have multiple commits, squash before submit: `git reset --soft origin/<base>` then `gt modify --all --message "..."`. Branches created outside Graphite (e.g. `git worktree add -b …`) must be tracked first: `gt track --parent main`.
 - ✅ **Submit PRs** (two steps — both required):
   1. `gt submit --no-interactive --publish` — pushes branch and creates ready-for-review PR (`--publish` is on `gt submit`, not `gt create`)
   2. Fill description: `gh api repos/{owner}/{repo}/pulls/{pr} --method PATCH --field body="..."` (no `--body` flag exists on `gt submit`)
-- ✅ **Amend commits** (incremental fixes to an existing PR): `gt modify --no-edit` (staged changes only) or `gt modify --all --message "updated message"` (re-stage + new message). Use this for corrections/additions to the same PR — **do not** create new commits for these. After amending, run `gt submit --no-interactive --publish` to push.
-- ✅ **Squash extra commits** (if you accidentally created several fixup commits): `git reset --soft HEAD~<n>` to collapse them into the staging area, then `gt modify --no-edit` to fold into the top commit.
+- ✅ **Amend commits** (incremental fixes to an existing PR): **`gt modify --all --message "..."`** — use for **every** follow-up on the same PR (review feedback, CI lint/type/test fixes, logging tweaks). **Do not** run `git commit` for these. After amending, run `gt submit --no-interactive --publish` and **monitor CI** until green.
+- ✅ **Squash extra commits** (if you accidentally created several fixup commits): `git reset --soft origin/<base>` to collapse them into the staging area, then `gt modify --all --message "..."` to fold into one commit. If `gt modify` fails with "untracked branch", run `gt track --parent main` first.
 - ✅ **View stack**: `gt log short` to see current PR stack
 - ✅ **Sync with remote**: `gt sync --force` to update local branches
 - ✅ **Prune stale branches**: Periodically run `gt fetch --prune && git branch -vv | grep ': gone]' | awk '{print $1}' | xargs -r git branch -D`
@@ -144,6 +148,12 @@ Do not proceed if any of these fail. Fix first.
 ```bash
 gt submit --no-interactive --publish
 ```
+
+**Step 2b — Monitor CI until complete** (mandatory after every push):
+```bash
+gh pr checks <pr-number>    # repeat every ~5s until all pass or one fails
+```
+If any check fails, inspect logs (`gh run view <run-id> --log-failed`), fix locally, **`gt modify --all --message "..."`** (amend — do not add commits), `gt submit --no-interactive --publish`, and poll again.
 
 **Step 3 — Verify stack health locally**:
 ```bash
@@ -204,12 +214,13 @@ Do not declare a PR ready until Steps 3, 4, and 5 all pass.
 1. Initialize session: `~/work/ai/repository-helpers/scripts/dev/start-development --refresh` — pulls the merged commit, prunes the branch, and restarts the service to pick up changes.
 2. Apply any pending migrations: `uv run python manage.py migrate`
 
-**GitHub Actions Polling**:
-- When checking CI/CD status, poll frequently to minimize wait time
-- Use short initial delay (5-10 seconds) then check every 5 seconds
-- Example: `sleep 10 && gh pr checks <pr-number>` then `sleep 5 && gh pr checks <pr-number>`
-- Avoid long waits (20-30 seconds) between checks
-- Rationale: Faster feedback loop, better user experience
+**GitHub Actions Polling** (mandatory after every `gt submit`):
+- Do **not** tell the user CI is fixed or the PR is ready until you have seen checks pass (or report the specific failure).
+- Poll frequently: `gh pr checks <pr-number>` with short sleeps (5–10 seconds between attempts).
+- On failure, fetch logs (`gh run view <run-id> --log-failed` or job logs via `gh api`), fix, **`gt modify --all`**, push, and poll again.
+- Example loop: `sleep 10 && gh pr checks <pr-number>` then repeat every 5 seconds until all green or you report a blocker.
+- Avoid long idle waits (20–30 seconds) between checks.
+- Rationale: Faster feedback loop; avoids leaving the user to discover CI failures; keeps PR branches to one amended commit.
 
 ### Data Safety Requirements
 
