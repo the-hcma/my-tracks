@@ -48,9 +48,12 @@ class LocationConsumer(AsyncWebsocketConsumer):
         """Handle new WebSocket connection."""
         user = self.scope.get("user")
         if user is not None and user.is_authenticated:
-            await self.channel_layer.group_add(user_ws_group(user.id), self.channel_name)
+            # Staff receive all device updates via the staff group only; joining
+            # user_{id} as well would duplicate every owner fix on one connection.
             if user.is_staff:
                 await self.channel_layer.group_add(STAFF_WS_GROUP, self.channel_name)
+            else:
+                await self.channel_layer.group_add(user_ws_group(user.id), self.channel_name)
         await self.accept()
 
         client_addr = self.get_client_address()
@@ -68,9 +71,10 @@ class LocationConsumer(AsyncWebsocketConsumer):
         """Handle WebSocket disconnection."""
         user = self.scope.get("user")
         if user is not None and user.is_authenticated:
-            await self.channel_layer.group_discard(user_ws_group(user.id), self.channel_name)
             if user.is_staff:
                 await self.channel_layer.group_discard(STAFF_WS_GROUP, self.channel_name)
+            else:
+                await self.channel_layer.group_discard(user_ws_group(user.id), self.channel_name)
 
         client_addr = self.get_client_address()
         logger.info(

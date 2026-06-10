@@ -177,14 +177,9 @@ class LocationViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
 
-        location_instance = serializer.instance
-        if location_instance.device.owner_id is not None:
-            from app.domesti_relay import relay_location_to_domesti_bot
-
-            relay_location_to_domesti_bot(location_instance)
+        location_data = serializer.data
 
         # Broadcast new location via WebSocket to owner, shared friends, and staff.
-        location_data = serializer.data
         try:
             from app.ws_broadcast import broadcast_device_event_sync
 

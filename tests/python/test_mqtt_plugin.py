@@ -415,18 +415,21 @@ class TestOwnTracksPluginMessageHandling:
         return OwnTracksPlugin(mock_broker_context)
 
     @pytest.fixture
-    def mock_message(self) -> MagicMock:
-        """Create a mock ApplicationMessage."""
+    def mock_message(self, request: pytest.FixtureRequest) -> MagicMock:
+        """Create a mock ApplicationMessage with a unique tst per test."""
+        unique = abs(hash(request.node.nodeid)) % 1_000_000
         message = MagicMock()
-        message.topic = "owntracks/testuser/phone"
-        message.data = json.dumps({
-            "_type": "location",
-            "lat": 51.5,
-            "lon": -0.1,
-            "tst": 1704067200,
-            "tid": "TS",
-            "acc": 5,
-        }).encode()
+        message.topic = f"owntracks/testuser/phone_{unique}"
+        message.data = json.dumps(
+            {
+                "_type": "location",
+                "lat": 51.5,
+                "lon": -0.1,
+                "tst": 1_704_067_200 + unique,
+                "tid": "TS",
+                "acc": 5,
+            }
+        ).encode()
         return message
 
     @pytest.mark.asyncio
@@ -469,7 +472,7 @@ class TestOwnTracksPluginMessageHandling:
 
         # Verify the saved location
         location = Location.objects.latest("id")
-        assert_that(location.device.device_id, equal_to("phone"))
+        assert_that(location.device.device_id.startswith("phone_"), equal_to(True))
         assert_that(float(location.latitude), equal_to(51.5))
         assert_that(float(location.longitude), equal_to(-0.1))
         assert_that(location.tracker_id, equal_to("TS"))
@@ -492,9 +495,7 @@ class TestOwnTracksPluginMessageHandling:
         # Verify broadcast was called
         broadcast_mock.assert_called_once()
         call_args = broadcast_mock.call_args[0][0]
-        assert_that(call_args, has_entries(
-            device_id_display="phone",
-        ))
+        assert_that(call_args["device_id_display"], contains_string("phone_"))
 
     @pytest.mark.asyncio
     async def test_handles_lwt_message(
@@ -947,10 +948,21 @@ class TestHandleLocationEarlyReturn:
         plugin: OwnTracksPlugin,
     ) -> None:
         """Should call _broadcast_location with serialized data on success."""
-        serialized = {"id": 42, "device_id_display": "mydev", "latitude": "51.5"}
+        serialized = {
+            "id": 42,
+            "device": 1,
+            "timestamp_unix": 1_704_067_200,
+            "device_id_display": "mydev",
+            "latitude": "51.5",
+        }
         broadcast_mock = AsyncMock()
+        mock_location = MagicMock()
+        mock_location.device.owner = None
+        mock_qs = MagicMock()
+        mock_qs.get.return_value = mock_location
         with (
             patch("app.mqtt.plugin.save_location_to_db", return_value=serialized),
+            patch("app.mqtt.plugin.Location.objects.select_related", return_value=mock_qs),
             patch.object(plugin, "_broadcast_location", broadcast_mock),
         ):
             await plugin._handle_location({"device": "mydev", "latitude": 51.5, "longitude": -0.1})

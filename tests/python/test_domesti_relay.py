@@ -132,26 +132,46 @@ def test_relay_logs_pre_send_errors_in_activity_log(location: Location) -> None:
     assert_that(recent_log[0]["response_preview"], contains_string("api_key is not configured"))
 
 
-def test_mqtt_save_location_triggers_relay(owner: User) -> None:
-    from app.mqtt.plugin import save_location_to_db
+@pytest.mark.asyncio
+async def test_mqtt_handle_location_triggers_relay(owner: User, device: Device) -> None:
+    from unittest.mock import AsyncMock, MagicMock
 
-    _pair_config()
-    with patch("app.domesti_relay.relay_location_to_domesti_bot") as mock_relay:
-        save_location_to_db(
-            {
-                "device": "pixel7pro",
-                "latitude": 41.194085,
-                "longitude": -73.888365,
-                "timestamp": timezone.now(),
-                "mqtt_user": owner.username,
-                "tls_cn": owner.username,
-                "accuracy": 12,
-            }
-        )
+    from app.mqtt.plugin import OwnTracksPlugin
+    ts = int(timezone.now().timestamp())
+    serialized = {
+        "id": 101,
+        "device": device.pk,
+        "timestamp_unix": ts,
+        "device_id_display": f"{owner.username}/pixel7pro",
+    }
+    mock_location = MagicMock()
+    mock_location.device.owner = owner
+    mock_qs = MagicMock()
+    mock_qs.get.return_value = mock_location
+
+    plugin = OwnTracksPlugin(MagicMock())
+    payload = {
+        "device": device.device_id,
+        "latitude": 41.194085,
+        "longitude": -73.888365,
+        "timestamp": timezone.now(),
+        "mqtt_user": owner.username,
+        "tls_cn": owner.username,
+        "transport": "mqtt-tls",
+    }
+
+    with (
+        patch("app.mqtt.plugin.save_location_to_db", return_value=serialized),
+        patch("app.mqtt.plugin.Location.objects.select_related", return_value=mock_qs),
+        patch("app.domesti_relay.relay_location_to_domesti_bot") as mock_relay,
+        patch.object(plugin, "_broadcast_location", AsyncMock()),
+    ):
+        await plugin._handle_location(payload)
+
     mock_relay.assert_called_once()
 
 
-def test_http_location_create_triggers_relay(owner: User) -> None:
+def test_http_location_create_does_not_trigger_relay(owner: User) -> None:
     _pair_config()
     Device.objects.create(owner=owner, device_id="pixel7pro", mqtt_user=owner.username)
     client = APIClient()
@@ -169,4 +189,4 @@ def test_http_location_create_triggers_relay(owner: User) -> None:
             format="json",
         )
     assert_that(response.status_code, equal_to(status.HTTP_200_OK))
-    mock_relay.assert_called_once()
+    mock_relay.assert_not_called()

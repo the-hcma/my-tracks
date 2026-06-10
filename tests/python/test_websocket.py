@@ -66,6 +66,90 @@ class TestLocationConsumer:
 
         await communicator.disconnect()
 
+    async def test_duplicate_location_update_is_sent_once(self):
+        """Staff users subscribe to the staff group only, so one broadcast is one delivery."""
+        import asyncio
+
+        from channels.db import database_sync_to_async
+        from django.contrib.auth.models import User
+
+        from app.ws_broadcast import STAFF_WS_GROUP, user_ws_group
+
+        user = await database_sync_to_async(User.objects.create_user)(
+            username="staff_owner",
+            password="pass",
+            is_staff=True,
+        )
+        communicator = WebsocketCommunicator(application, "/ws/locations/")
+        cast(Any, communicator.scope)["user"] = user
+        await communicator.connect()
+        welcome = await communicator.receive_json_from()
+        assert_that(welcome["type"], equal_to("welcome"))
+
+        channel_layer = get_channel_layer()
+        assert_that(channel_layer, is_not(none()))
+        test_location = {
+            "id": 4242,
+            "latitude": "37.774900",
+            "longitude": "-122.419400",
+            "device_name": "staff_owner/phone",
+            "timestamp_unix": 1705329600,
+        }
+
+        # Broadcast targets both owner and staff groups, but staff connections
+        # only join the staff group.
+        for group in (user_ws_group(user.id), STAFF_WS_GROUP):
+            await cast(Any, channel_layer).group_send(
+                group,
+                {"type": "location_update", "data": test_location},
+            )
+
+        response = await communicator.receive_json_from()
+        assert_that(response["type"], equal_to("location"))
+        assert_that(response["data"], equal_to(test_location))
+
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(communicator.receive_json_from(), timeout=0.2)
+
+        await communicator.disconnect()
+
+    async def test_different_timestamps_both_deliver(self):
+        """Different tst values are separate fixes and should both reach the client."""
+        import asyncio
+
+        from channels.db import database_sync_to_async
+        from django.contrib.auth.models import User
+
+        from app.ws_broadcast import user_ws_group
+
+        user = await database_sync_to_async(User.objects.create_user)(username="alice_ws2", password="pass")
+        communicator = WebsocketCommunicator(application, "/ws/locations/")
+        cast(Any, communicator.scope)["user"] = user
+        await communicator.connect()
+        _ = await communicator.receive_json_from()
+
+        channel_layer = get_channel_layer()
+        assert_that(channel_layer, is_not(none()))
+        for tst in (1705329600, 1705329601):
+            await cast(Any, channel_layer).group_send(
+                user_ws_group(user.id),
+                {
+                    "type": "location_update",
+                    "data": {
+                        "id": 5000 + tst,
+                        "device_name": "alice_ws2/phone",
+                        "timestamp_unix": tst,
+                    },
+                },
+            )
+            response = await communicator.receive_json_from()
+            assert_that(response["data"]["timestamp_unix"], equal_to(tst))
+
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(communicator.receive_json_from(), timeout=0.2)
+
+        await communicator.disconnect()
+
     async def test_websocket_disconnect(self):
         """Test that clients can disconnect cleanly."""
         communicator = WebsocketCommunicator(application, "/ws/locations/")
