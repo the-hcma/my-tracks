@@ -9,7 +9,7 @@ import pytest
 from django.contrib.auth.models import User
 from django.test import Client
 from django.utils import timezone
-from hamcrest import assert_that, contains_string, equal_to, has_length, is_
+from hamcrest import assert_that, contains_string, equal_to, has_length, is_, not_
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -251,9 +251,9 @@ def test_admin_panel_integrations_tab(django_admin_client: Client, admin_client:
     assert_that(content, contains_string("domesti-bot instance"))
     assert_that(content, contains_string("http://192.168.1.10:8003"))
     assert_that(content, contains_string('id="domesti-api-key-toggle"'))
-    assert_that(content, contains_string("Recent activity (last 5)"))
-    assert_that(content, contains_string("Paired with http://192.168.1.10:8003"))
-    assert "Save domesti-bot settings" not in content
+    assert_that(content, contains_string("js-domesti-paired-at"))
+    assert_that(content, not_(contains_string("Recent activity (last 5)")))
+    assert_that(content, not_(contains_string("Save domesti-bot settings")))
 
 
 def test_admin_panel_toggle_via_api(admin_client: APIClient) -> None:

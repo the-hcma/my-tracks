@@ -644,32 +644,6 @@
             border-radius: 6px;
         }
 
-        .webhook-status {
-            display: inline-block;
-            padding: 0.15rem 0.45rem;
-            border-radius: 4px;
-            font-size: 0.75rem;
-            font-weight: 600;
-        }
-
-        .webhook-status.success {
-            background: rgba(39, 174, 96, 0.2);
-            color: var(--success);
-        }
-
-        .webhook-status.failure {
-            background: rgba(231, 76, 60, 0.2);
-            color: var(--error);
-        }
-
-        .webhook-preview {
-            max-width: 14rem;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            font-size: 0.8rem;
-        }
-
         .cert-tooltip {
             position: relative;
             cursor: default;
@@ -1485,7 +1459,7 @@
                     {% if domesti_bot_is_paired %}
                     <span class="pairing-badge paired">Paired</span>
                     {% if domesti_bot_config.paired_at %}
-                    <span class="muted" style="margin-left:0.5rem;">since {{ domesti_bot_config.paired_at|date:"Y-m-d H:i T" }}</span>
+                    <span class="muted js-domesti-paired-at" style="margin-left:0.5rem; cursor:default;" data-utc="{{ domesti_bot_config.paired_at|date:'c' }}"></span>
                     {% endif %}
                     {% else %}
                     <span class="pairing-badge not-paired">Not paired</span>
@@ -1553,52 +1527,6 @@
                 </div>
                 <div id="domesti-integrations-result" style="font-size:0.9rem"></div>
             </div>
-
-            <h4 style="font-size:0.95rem; margin-bottom:0.75rem;">Recent activity (last 5)</h4>
-            {% if domesti_bot_config.recent_webhook_log %}
-            <div class="table-wrap" style="margin-bottom:1rem;">
-                <table class="data-table domesti-webhook-log">
-                    <thead>
-                        <tr>
-                            <th>Time</th>
-                            <th>Status</th>
-                            <th>Detail</th>
-                            <th>URL</th>
-                            <th>HTTP</th>
-                            <th>Source</th>
-                            <th>Response</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for entry in domesti_bot_config.recent_webhook_log %}
-                        <tr>
-                            <td class="mono">{{ entry.sent_at|default:"—" }}</td>
-                            <td>
-                                {% if entry.success %}
-                                <span class="webhook-status success">OK</span>
-                                {% else %}
-                                <span class="webhook-status failure">Failed</span>
-                                {% endif %}
-                            </td>
-                            <td class="mono webhook-preview">
-                                {% if entry.source == "pairing" %}
-                                {{ entry.payload.domesti_base_url|default:"—" }}
-                                {% else %}
-                                {{ entry.participant_id|default:"—" }}
-                                {% endif %}
-                            </td>
-                            <td class="mono webhook-preview">{{ entry.post_url|default:"—" }}</td>
-                            <td class="mono">{{ entry.http_status|default:"—" }}</td>
-                            <td>{{ entry.source|default:"live" }}</td>
-                            <td class="mono webhook-preview">{{ entry.response_preview|default:"—" }}</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            {% else %}
-            <p class="muted" style="margin-bottom:1rem;">No integration activity yet.</p>
-            {% endif %}
             </div>
 
             <script>
@@ -1613,6 +1541,25 @@
                         'Content-Type': 'application/json',
                         'X-CSRFToken': '{{ csrf_token }}',
                     };
+                }
+                var pairedAtEl = document.querySelector('.js-domesti-paired-at[data-utc]');
+                if (pairedAtEl) {
+                    var pairedUtc = pairedAtEl.getAttribute('data-utc');
+                    var pairedDate = pairedUtc ? new Date(pairedUtc) : null;
+                    if (pairedDate && !isNaN(pairedDate.getTime())) {
+                        var pairedLocalFmt = new Intl.DateTimeFormat(navigator.language, {
+                            year: 'numeric', month: '2-digit', day: '2-digit',
+                            hour: '2-digit', minute: '2-digit',
+                            timeZoneName: 'short',
+                        });
+                        var pairedUtcFmt = new Intl.DateTimeFormat('en-GB', {
+                            year: 'numeric', month: '2-digit', day: '2-digit',
+                            hour: '2-digit', minute: '2-digit', second: '2-digit',
+                            timeZone: 'UTC', timeZoneName: 'short',
+                        });
+                        pairedAtEl.textContent = 'since ' + pairedLocalFmt.format(pairedDate);
+                        pairedAtEl.title = pairedUtcFmt.format(pairedDate);
+                    }
                 }
                 var toggle = document.getElementById('domesti-location-updates-enabled');
                 if (toggle) {
@@ -1651,7 +1598,7 @@
                           .then(function(res) {
                               var d = res.d || {};
                               if (d.ok) {
-                                  domestiSetResult(true, (d.message || 'Test succeeded.') + ' Reload to refresh activity log.');
+                                  domestiSetResult(true, d.message || 'Test succeeded.');
                               } else {
                                   var lines = [
                                       d.message || 'Test location update failed.',
