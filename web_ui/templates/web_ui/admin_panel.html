@@ -1563,6 +1563,7 @@
                             <th>Time</th>
                             <th>Status</th>
                             <th>Detail</th>
+                            <th>URL</th>
                             <th>HTTP</th>
                             <th>Source</th>
                             <th>Response</th>
@@ -1586,6 +1587,7 @@
                                 {{ entry.participant_id|default:"—" }}
                                 {% endif %}
                             </td>
+                            <td class="mono webhook-preview">{{ entry.post_url|default:"—" }}</td>
                             <td class="mono">{{ entry.http_status|default:"—" }}</td>
                             <td>{{ entry.source|default:"live" }}</td>
                             <td class="mono webhook-preview">{{ entry.response_preview|default:"—" }}</td>
@@ -1645,13 +1647,22 @@
                             credentials: 'same-origin',
                             headers: domestiCsrfHeaders(),
                             body: '{}',
-                        }).then(function(r) { return r.json().then(function(d) { return { ok: r.ok, d: d }; }); })
+                        }).then(function(r) { return r.json().then(function(d) { return { httpOk: r.ok, d: d }; }); })
                           .then(function(res) {
-                              if (res.ok && res.d.ok) {
-                                  domestiSetResult(true, 'Test succeeded (HTTP ' + res.d.status_code + ', ' + res.d.elapsed_ms + ' ms). Reload to refresh activity log.');
+                              var d = res.d || {};
+                              if (d.ok) {
+                                  domestiSetResult(true, (d.message || 'Test succeeded.') + ' Reload to refresh activity log.');
                               } else {
-                                  var err = (res.d.errors && res.d.errors[0]) || res.d.response_preview || res.d.detail || 'Test failed.';
-                                  domestiSetResult(false, 'Test failed: ' + err);
+                                  var lines = [
+                                      d.message || 'Test location update failed.',
+                                      d.post_url ? ('URL: ' + d.post_url) : '',
+                                      d.response_preview ? ('Response: ' + d.response_preview) : '',
+                                  ].filter(Boolean);
+                                  domestiSetResult(false, lines.join(' '));
+                              }
+                              if (!d.ok && !res.httpOk) {
+                                  var err = (d.errors && d.errors[0]) || d.detail;
+                                  if (err) domestiSetResult(false, err);
                               }
                           })
                           .catch(function() { domestiSetResult(false, 'Request failed.'); })

@@ -153,6 +153,33 @@ def test_test_location_update_uses_test_url(admin_client: APIClient, admin_user:
     recent_log = cast(list[dict[str, Any]], config.recent_webhook_log)
     assert_that(recent_log, has_length(2))
     assert_that(recent_log[0]["source"], equal_to("test"))
+    assert_that(
+        recent_log[0]["post_url"],
+        equal_to("http://192.168.1.10:8003/v1/webhooks/presence/test"),
+    )
+
+
+def test_test_location_update_reports_failure_with_url(admin_client: APIClient, admin_user: User) -> None:
+    admin_client.post("/api/admin/domesti-bot/pair/", _pair_payload(), format="json")
+    with patch(
+        "app.domesti_bot.urllib.request.urlopen",
+        side_effect=__import__("urllib").error.URLError("connection refused"),
+    ):
+        response = admin_client.post(
+            "/api/admin/domesti-bot/test-location-update/",
+            {"participant_id": admin_user.username},
+            format="json",
+        )
+
+    assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+    body = response.json()
+    assert_that(body["ok"], is_(False))
+    assert_that(
+        body["post_url"],
+        equal_to("http://192.168.1.10:8003/v1/webhooks/presence/test"),
+    )
+    assert_that(body["message"], contains_string("connection refused"))
+    assert_that(body["message"], contains_string(body["post_url"]))
 
 
 def test_webhook_log_ring_buffer_keeps_five(admin_client: APIClient) -> None:
