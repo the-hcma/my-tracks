@@ -25,10 +25,17 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone as tz
 
 from app.apps import get_mqtt_broker
+from app.domesti_bot import (
+    DOMESTI_BOT_REPO_URL,
+    apply_config_patch,
+    default_domesti_base_url,
+    default_participant_location_update_url,
+)
 from app.models import (
     CertificateAuthority,
     ClientCertificate,
     Device,
+    DomestiBotConfig,
     GlobalAutomationRule,
     Location,
     LocationQualitySettings,
@@ -668,6 +675,33 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
                 except Exception as e:
                     context["create_error"] = str(e)
 
+        if form_type == "save_domesti_bot":
+            context["active_tab"] = "domesti_bot"
+            config = DomestiBotConfig.get_solo()
+            if not config.is_paired:
+                context["domesti_bot_error"] = "Pair from domesti-bot before changing settings."
+            else:
+                enabled = request.POST.get("domesti_location_updates_enabled") == "on"
+                base_url = str(request.POST.get("domesti_base_url", "")).strip()
+                location_url = str(request.POST.get("domesti_participant_location_update_url", "")).strip()
+                errors = apply_config_patch(
+                    config,
+                    {
+                        "location_updates_enabled": enabled,
+                        "domesti_base_url": base_url,
+                        "participant_location_update_url": location_url,
+                    },
+                )
+                if errors:
+                    context["domesti_bot_error"] = "; ".join(errors)
+                else:
+                    context["domesti_bot_success"] = "domesti-bot settings saved."
+                    logger.info(
+                        "[http] Admin '%s' updated domesti-bot config location_updates_enabled=%s",
+                        request.user.username,
+                        enabled,
+                    )
+
         if form_type == "save_location_quality":
             context["active_tab"] = "location_settings"
             enabled = request.POST.get("location_accuracy_filter_enabled") == "on"
@@ -1113,7 +1147,10 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
     smtp_has_message = any(context.get(k) for k in ("smtp_success", "smtp_error"))
     global_rules_has_message = any(context.get(k) for k in ("global_rule_success", "global_rule_error"))
     location_quality_has_message = any(context.get(k) for k in ("location_quality_success", "location_quality_error"))
-    if location_quality_has_message or context.get("active_tab") == "location_settings":
+    domesti_bot_has_message = any(context.get(k) for k in ("domesti_bot_success", "domesti_bot_error"))
+    if domesti_bot_has_message or context.get("active_tab") == "domesti_bot":
+        context["active_tab"] = "domesti_bot"
+    elif location_quality_has_message or context.get("active_tab") == "location_settings":
         context["active_tab"] = "location_settings"
     elif smtp_has_message or context.get("active_tab") == "email":
         context["active_tab"] = "email"
@@ -1207,6 +1244,23 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
     context["all_users"] = list(User.objects.order_by("username"))
 
     context["location_quality"] = LocationQualitySettings.get_solo()
+
+    domesti_config = DomestiBotConfig.get_solo()
+    domesti_hostname = request.get_host().split(":")[0]
+    domesti_default_base = default_domesti_base_url(
+        public_domain=settings.PUBLIC_DOMAIN,
+        hostname=domesti_hostname,
+    )
+    domesti_default_location_url = default_participant_location_update_url(domesti_default_base)
+    context["domesti_bot_config"] = domesti_config
+    context["domesti_bot_is_paired"] = domesti_config.is_paired
+    context["domesti_bot_repo_url"] = DOMESTI_BOT_REPO_URL
+    context["domesti_bot_default_base_url"] = domesti_default_base
+    context["domesti_bot_default_location_url"] = domesti_default_location_url
+    context["domesti_bot_display_base_url"] = domesti_config.domesti_base_url or domesti_default_base
+    context["domesti_bot_display_location_url"] = (
+        domesti_config.participant_location_update_url or domesti_default_location_url
+    )
 
     return render(request, "web_ui/admin_panel.html", context)
 

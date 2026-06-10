@@ -536,6 +536,84 @@ class SmtpConfig(models.Model):
         return cls.objects.filter(pk=1).first()
 
 
+class DomestiBotConfig(models.Model):
+    """
+    Singleton domesti-bot integration settings (pairing, relay URLs, webhook log).
+
+    Pairing is initiated by domesti-bot; my-tracks stores the API key and ingest URL.
+    """
+
+    domesti_base_url = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+        help_text="domesti-bot HTTP origin (reference and URL building)",
+    )
+    participant_location_update_url = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+        help_text="URL where my-tracks POSTs participant location fixes",
+    )
+    encrypted_api_key = models.BinaryField(
+        blank=True,
+        default=b"",
+        help_text="domesti-bot API key encrypted at rest (Fernet/SECRET_KEY)",
+    )
+    paired_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When domesti-bot last completed pairing",
+    )
+    location_updates_enabled = models.BooleanField(
+        default=False,  # type: ignore[reportArgumentType]
+        help_text="When enabled, POST each saved location to domesti-bot",
+    )
+    recent_webhook_log = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Ring buffer of the five most recent webhook delivery attempts",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "domesti-bot configuration"
+
+    def __str__(self) -> str:
+        return "domesti-bot config (paired)" if self.is_paired else "domesti-bot config (not paired)"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Enforce singleton by always writing to pk=1."""
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def get_solo(cls) -> "DomestiBotConfig":
+        """Return the singleton row, creating an empty one if missing."""
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+    @property
+    def api_key_configured(self) -> bool:
+        return bool(self.encrypted_api_key)
+
+    @property
+    def is_paired(self) -> bool:
+        return self.paired_at is not None and self.api_key_configured
+
+    def set_api_key(self, raw: str) -> None:
+        from app.domesti_bot import encrypt_api_key
+
+        self.encrypted_api_key = encrypt_api_key(raw)
+
+    def get_api_key(self) -> str | None:
+        if not self.encrypted_api_key:
+            return None
+        from app.domesti_bot import decrypt_api_key
+
+        return decrypt_api_key(cast(bytes, self.encrypted_api_key))
+
+
 class LocationQualitySettings(models.Model):
     """
     Singleton: optional GPS accuracy gate for path rendering and geofence logic.

@@ -609,6 +609,67 @@
             padding-top: 1.5rem;
         }
 
+        .pairing-badge {
+            display: inline-block;
+            padding: 0.25rem 0.65rem;
+            border-radius: 999px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .pairing-badge.paired {
+            background: rgba(39, 174, 96, 0.2);
+            color: var(--success);
+            border: 1px solid rgba(39, 174, 96, 0.45);
+        }
+
+        .pairing-badge.not-paired {
+            background: rgba(243, 156, 18, 0.15);
+            color: var(--warning);
+            border: 1px solid rgba(243, 156, 18, 0.4);
+        }
+
+        .domesti-unpaired input:disabled,
+        .domesti-unpaired .domesti-api-key-indicator {
+            opacity: 0.55;
+            cursor: not-allowed;
+        }
+
+        .domesti-api-key-indicator {
+            padding: 0.5rem 0.75rem;
+            background: var(--input-bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+        }
+
+        .webhook-status {
+            display: inline-block;
+            padding: 0.15rem 0.45rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .webhook-status.success {
+            background: rgba(39, 174, 96, 0.2);
+            color: var(--success);
+        }
+
+        .webhook-status.failure {
+            background: rgba(231, 76, 60, 0.2);
+            color: var(--error);
+        }
+
+        .webhook-preview {
+            max-width: 14rem;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 0.8rem;
+        }
+
         .cert-tooltip {
             position: relative;
             cursor: default;
@@ -755,6 +816,7 @@
                 <button type="button" class="tab-btn {% if active_tab == 'pki' %}active{% endif %}" data-tab="pki">PKI</button>
                 <button type="button" class="tab-btn {% if active_tab == 'email' %}active{% endif %}" data-tab="email">Email</button>
                 <button type="button" class="tab-btn {% if active_tab == 'location_settings' %}active{% endif %}" data-tab="location_settings">Location Settings</button>
+                <button type="button" class="tab-btn {% if active_tab == 'domesti_bot' %}active{% endif %}" data-tab="domesti_bot">domesti-bot</button>
                 <button type="button" class="tab-btn {% if active_tab == 'global_rules' %}active{% endif %}" data-tab="global_rules">Automations</button>
             </div>
 
@@ -1412,6 +1474,123 @@
             {% endif %}
             {% if location_quality_error %}
             <div class="message error">{{ location_quality_error }}</div>
+            {% endif %}
+            </div>
+
+            <div id="tab-domesti_bot" class="tab-panel {% if active_tab == 'domesti_bot' %}active{% endif %}" {% if active_tab != 'domesti_bot' %}style="display:none"{% endif %}>
+            <h3 class="section-title">
+                domesti-bot integration
+                <span class="muted" style="font-size:0.75rem; font-weight:400; text-transform:none; letter-spacing:0;">
+                    — <a href="{{ domesti_bot_repo_url }}" target="_blank" rel="noopener noreferrer">github.com/the-hcma/domesti-bot</a>
+                </span>
+            </h3>
+
+            <div style="margin-bottom:1.25rem;">
+                {% if domesti_bot_is_paired %}
+                <span class="pairing-badge paired">Paired</span>
+                {% if domesti_bot_config.paired_at %}
+                <span class="muted" style="margin-left:0.5rem;">since {{ domesti_bot_config.paired_at|date:"Y-m-d H:i T" }}</span>
+                {% endif %}
+                {% else %}
+                <span class="pairing-badge not-paired">Not paired</span>
+                {% endif %}
+            </div>
+
+            {% if not domesti_bot_is_paired %}
+            <p class="muted" style="margin-bottom:1.25rem; max-width:52rem;">
+                Complete pairing from domesti-bot (My Tracks settings → Pair). Participants and geofences are
+                synced <strong>from</strong> domesti-bot after pairing, not pushed from my-tracks.
+            </p>
+            {% else %}
+            <p class="muted" style="margin-bottom:1.25rem; max-width:52rem;">
+                To rotate the API key or refresh URLs from domesti-bot, use <strong>Pair</strong> in domesti-bot again.
+            </p>
+            {% endif %}
+
+            <form method="post" class="admin-card domesti-bot-form{% if not domesti_bot_is_paired %} domesti-unpaired{% endif %}" style="margin-bottom:1.5rem;">
+                {% csrf_token %}
+                <input type="hidden" name="form_type" value="save_domesti_bot">
+                <div class="form-group" style="margin-bottom:1rem;">
+                    <label for="domesti_base_url">domesti-bot base URL</label>
+                    <input type="url" id="domesti_base_url" name="domesti_base_url"
+                        value="{{ domesti_bot_display_base_url }}"
+                        {% if not domesti_bot_is_paired %}disabled{% endif %}
+                        placeholder="{{ domesti_bot_default_base_url }}">
+                </div>
+                <div class="form-group" style="margin-bottom:1rem;">
+                    <label for="domesti_participant_location_update_url">Participant location update URL</label>
+                    <input type="url" id="domesti_participant_location_update_url" name="domesti_participant_location_update_url"
+                        value="{{ domesti_bot_display_location_url }}"
+                        {% if not domesti_bot_is_paired %}disabled{% endif %}
+                        placeholder="{{ domesti_bot_default_location_url }}">
+                </div>
+                <div class="form-group" style="margin-bottom:1rem;">
+                    <label>API key</label>
+                    <div class="domesti-api-key-indicator" {% if not domesti_bot_is_paired %}aria-disabled="true"{% endif %}>
+                        {% if domesti_bot_config.api_key_configured %}
+                        <span class="muted">Configured</span> <code>••••••••</code>
+                        {% else %}
+                        <span class="muted">Not configured — pair from domesti-bot</span>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="form-group" style="margin-bottom:1rem;">
+                    <label style="display:flex; align-items:center; gap:0.5rem;{% if not domesti_bot_is_paired %} opacity:0.55; cursor:not-allowed;{% else %} cursor:pointer;{% endif %}">
+                        <input type="checkbox" name="domesti_location_updates_enabled" {% if not domesti_bot_is_paired %}disabled {% endif %}
+                            {% if domesti_bot_config.location_updates_enabled %}checked{% endif %}>
+                        <span>Send location updates to domesti-bot</span>
+                    </label>
+                </div>
+                <button type="submit" class="submit-btn" {% if not domesti_bot_is_paired %}disabled title="Pair from domesti-bot first"{% endif %}>Save domesti-bot settings</button>
+            </form>
+
+            {% if domesti_bot_is_paired %}
+            <h4 style="font-size:0.95rem; margin-bottom:0.75rem;">Recent location update webhooks (last 5)</h4>
+            {% if domesti_bot_config.recent_webhook_log %}
+            <div class="table-wrap" style="margin-bottom:1rem;">
+                <table class="data-table domesti-webhook-log">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Status</th>
+                            <th>Participant</th>
+                            <th>HTTP</th>
+                            <th>Source</th>
+                            <th>Payload</th>
+                            <th>Response</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for entry in domesti_bot_config.recent_webhook_log %}
+                        <tr>
+                            <td class="mono">{{ entry.sent_at|default:"—" }}</td>
+                            <td>
+                                {% if entry.success %}
+                                <span class="webhook-status success">OK</span>
+                                {% else %}
+                                <span class="webhook-status failure">Failed</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ entry.participant_id|default:"—" }}</td>
+                            <td class="mono">{{ entry.http_status|default:"—" }}</td>
+                            <td>{{ entry.source|default:"live" }}</td>
+                            <td class="mono webhook-preview">{{ entry.payload|default:"—" }}</td>
+                            <td class="mono webhook-preview">{{ entry.response_preview|default:"—" }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="muted" style="margin-bottom:1rem;">No location updates sent yet.</p>
+            {% endif %}
+            {% endif %}
+
+            {% if domesti_bot_success %}
+            <div class="message success">{{ domesti_bot_success }}</div>
+            {% endif %}
+            {% if domesti_bot_error %}
+            <div class="message error">{{ domesti_bot_error }}</div>
             {% endif %}
             </div>
 
