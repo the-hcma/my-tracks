@@ -553,7 +553,13 @@ class DomestiBotConfig(models.Model):
         max_length=500,
         blank=True,
         default="",
-        help_text="URL where my-tracks POSTs participant location fixes",
+        help_text="URL where my-tracks POSTs live participant location fixes",
+    )
+    participant_location_test_url = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+        help_text="URL where my-tracks POSTs synthetic test location fixes (not live ingest)",
     )
     encrypted_api_key = models.BinaryField(
         blank=True,
