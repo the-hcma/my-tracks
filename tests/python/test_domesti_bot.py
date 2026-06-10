@@ -86,6 +86,10 @@ def test_pair_stores_encrypted_key_and_enables_updates(admin_client: APIClient) 
         location_post_url_for_source(config, source="test"),
         equal_to("http://192.168.1.10:8003/v1/webhooks/presence/test"),
     )
+    recent_log = cast(list[dict[str, Any]], config.recent_webhook_log)
+    assert_that(recent_log, has_length(1))
+    assert_that(recent_log[0]["source"], equal_to("pairing"))
+    assert_that(recent_log[0]["success"], is_(True))
 
 
 def test_pair_rejects_invalid_url(admin_client: APIClient) -> None:
@@ -95,6 +99,17 @@ def test_pair_rejects_invalid_url(admin_client: APIClient) -> None:
         format="json",
     )
     assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
+    recent_log = cast(list[dict[str, Any]], DomestiBotConfig.get_solo().recent_webhook_log)
+    assert_that(recent_log, has_length(1))
+    assert_that(recent_log[0]["source"], equal_to("pairing"))
+    assert_that(recent_log[0]["success"], is_(False))
+
+
+def test_reveal_api_key_when_paired(admin_client: APIClient) -> None:
+    admin_client.post("/api/admin/domesti-bot/pair/", _pair_payload(), format="json")
+    response = admin_client.get("/api/admin/domesti-bot/reveal-api-key/")
+    assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+    assert_that(response.json()["api_key"], equal_to("domesti-secret-key"))
 
 
 def test_patch_config_requires_pairing(admin_client: APIClient) -> None:
@@ -136,7 +151,7 @@ def test_test_location_update_uses_test_url(admin_client: APIClient, admin_user:
     assert_that(response.json()["ok"], is_(True))
     config = DomestiBotConfig.get_solo()
     recent_log = cast(list[dict[str, Any]], config.recent_webhook_log)
-    assert_that(recent_log, has_length(1))
+    assert_that(recent_log, has_length(2))
     assert_that(recent_log[0]["source"], equal_to("test"))
 
 
@@ -162,16 +177,26 @@ def test_webhook_log_ring_buffer_keeps_five(admin_client: APIClient) -> None:
     assert_that(recent_log, has_length(5))
 
 
-def test_admin_panel_integrations_tab(django_admin_client: Client) -> None:
+def test_admin_panel_integrations_tab(django_admin_client: Client, admin_client: APIClient) -> None:
+    admin_client.post("/api/admin/domesti-bot/pair/", _pair_payload(), format="json")
     response = django_admin_client.get("/admin-panel/")
     assert_that(response.status_code, equal_to(200))
     content = response.content.decode()
     assert_that(content, contains_string('data-tab="integrations"'))
     assert_that(content, contains_string("Integrations"))
-    assert_that(content, contains_string("Complete pairing from"))
-    assert_that(content, contains_string('href="https://github.com/the-hcma/domesti-bot"'))
+    assert_that(content, contains_string('class="pairing-badge paired">Paired</span>'))
+    assert_that(
+        content,
+        contains_string(
+            'href="http://192.168.1.10:8003" target="_blank" rel="noopener noreferrer">domesti-bot</a> again.'
+        ),
+    )
     assert_that(content, contains_string("Test location update webhook"))
-    assert_that(content, contains_string('id="domesti-location-updates-enabled" disabled'))
+    assert_that(content, contains_string("domesti-bot instance"))
+    assert_that(content, contains_string("http://192.168.1.10:8003"))
+    assert_that(content, contains_string('id="domesti-api-key-toggle"'))
+    assert_that(content, contains_string("Recent activity (last 5)"))
+    assert_that(content, contains_string("Paired with http://192.168.1.10:8003"))
     assert "Save domesti-bot settings" not in content
 
 

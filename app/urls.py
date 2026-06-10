@@ -5,7 +5,12 @@ from django.urls.resolvers import URLPattern, URLResolver
 from rest_framework.routers import DefaultRouter
 
 from .admin_sync_export import AdminUsersWithDevicesExportView, AdminWaypointsExportView
-from .domesti_bot_api import DomestiBotConfigView, DomestiBotPairView, DomestiBotTestLocationUpdateView
+from .domesti_bot_api import (
+    DomestiBotConfigView,
+    DomestiBotPairView,
+    DomestiBotRevealApiKeyView,
+    DomestiBotTestLocationUpdateView,
+)
 from .views import (
     AccountViewSet,
     AdminUserViewSet,
@@ -79,6 +84,11 @@ urlpatterns: list[URLPattern | URLResolver] = [
         r"^admin/domesti-bot/test-location-update/?$",
         DomestiBotTestLocationUpdateView.as_view(),
         name="admin-domesti-bot-test-location-update",
+    ),
+    re_path(
+        r"^admin/domesti-bot/reveal-api-key/?$",
+        DomestiBotRevealApiKeyView.as_view(),
+        name="admin-domesti-bot-reveal-api-key",
     ),
     re_path(r"^friends/(?P<user_id>\d+)/shares/?$", device_share_list, name="device-share-list"),
     re_path(

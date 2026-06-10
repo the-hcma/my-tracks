@@ -1502,8 +1502,40 @@
                 {% else %}
                 <p class="muted" style="margin-bottom:1.25rem; max-width:52rem;">
                     To rotate the API key or refresh URLs, use <strong>Pair</strong> in
-                    <a href="{{ domesti_bot_repo_url }}" target="_blank" rel="noopener noreferrer">domesti-bot</a> again.
+                    <a href="{{ domesti_bot_config.domesti_base_url }}" target="_blank" rel="noopener noreferrer">domesti-bot</a> again.
                 </p>
+                <div class="form-group" style="margin-bottom:1rem;">
+                    <label>domesti-bot instance</label>
+                    <div class="domesti-api-key-indicator">
+                        <a href="{{ domesti_bot_config.domesti_base_url }}" target="_blank" rel="noopener noreferrer">{{ domesti_bot_config.domesti_base_url }}</a>
+                    </div>
+                </div>
+                <div class="form-group" style="margin-bottom:1rem;">
+                    <label>Live location update URL</label>
+                    <div class="domesti-api-key-indicator mono" style="font-size:0.85rem;">{{ domesti_bot_config.participant_location_update_url }}</div>
+                </div>
+                <div class="form-group" style="margin-bottom:1rem;">
+                    <label>Test location update URL</label>
+                    <div class="domesti-api-key-indicator mono" style="font-size:0.85rem;">{{ domesti_bot_config.participant_location_test_url }}</div>
+                </div>
+                <div class="form-group" style="margin-bottom:1rem;">
+                    <label for="domesti-api-key">API key</label>
+                    <div class="password-wrapper">
+                        <input type="password" id="domesti-api-key" class="mono" value="••••••••" readonly style="width:100%; background:var(--input-bg); border:1px solid var(--border); color:var(--text); padding:0.5rem 0.75rem; border-radius:6px;">
+                        <button type="button" class="password-toggle" id="domesti-api-key-toggle" aria-label="Reveal API key">
+                            <svg class="eye-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                <circle cx="12" cy="12" r="3"/>
+                            </svg>
+                            <svg class="eye-off-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none">
+                                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+                                <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+                                <line x1="1" y1="1" x2="23" y2="23"/>
+                                <path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
                 {% endif %}
 
                 <div class="form-group" style="margin-bottom:1rem;">
@@ -1522,8 +1554,7 @@
                 <div id="domesti-integrations-result" style="font-size:0.9rem"></div>
             </div>
 
-            {% if domesti_bot_is_paired %}
-            <h4 style="font-size:0.95rem; margin-bottom:0.75rem;">Recent location update webhooks (last 5)</h4>
+            <h4 style="font-size:0.95rem; margin-bottom:0.75rem;">Recent activity (last 5)</h4>
             {% if domesti_bot_config.recent_webhook_log %}
             <div class="table-wrap" style="margin-bottom:1rem;">
                 <table class="data-table domesti-webhook-log">
@@ -1531,10 +1562,9 @@
                         <tr>
                             <th>Time</th>
                             <th>Status</th>
-                            <th>Participant</th>
+                            <th>Detail</th>
                             <th>HTTP</th>
                             <th>Source</th>
-                            <th>Payload</th>
                             <th>Response</th>
                         </tr>
                     </thead>
@@ -1549,10 +1579,15 @@
                                 <span class="webhook-status failure">Failed</span>
                                 {% endif %}
                             </td>
-                            <td>{{ entry.participant_id|default:"—" }}</td>
+                            <td class="mono webhook-preview">
+                                {% if entry.source == "pairing" %}
+                                {{ entry.payload.domesti_base_url|default:"—" }}
+                                {% else %}
+                                {{ entry.participant_id|default:"—" }}
+                                {% endif %}
+                            </td>
                             <td class="mono">{{ entry.http_status|default:"—" }}</td>
                             <td>{{ entry.source|default:"live" }}</td>
-                            <td class="mono webhook-preview">{{ entry.payload|default:"—" }}</td>
                             <td class="mono webhook-preview">{{ entry.response_preview|default:"—" }}</td>
                         </tr>
                         {% endfor %}
@@ -1560,8 +1595,7 @@
                 </table>
             </div>
             {% else %}
-            <p class="muted" style="margin-bottom:1rem;">No location updates sent yet.</p>
-            {% endif %}
+            <p class="muted" style="margin-bottom:1rem;">No integration activity yet.</p>
             {% endif %}
             </div>
 
@@ -1614,7 +1648,7 @@
                         }).then(function(r) { return r.json().then(function(d) { return { ok: r.ok, d: d }; }); })
                           .then(function(res) {
                               if (res.ok && res.d.ok) {
-                                  domestiSetResult(true, 'Test succeeded (HTTP ' + res.d.status_code + ', ' + res.d.elapsed_ms + ' ms).');
+                                  domestiSetResult(true, 'Test succeeded (HTTP ' + res.d.status_code + ', ' + res.d.elapsed_ms + ' ms). Reload to refresh activity log.');
                               } else {
                                   var err = (res.d.errors && res.d.errors[0]) || res.d.response_preview || res.d.detail || 'Test failed.';
                                   domestiSetResult(false, 'Test failed: ' + err);
@@ -1622,6 +1656,39 @@
                           })
                           .catch(function() { domestiSetResult(false, 'Request failed.'); })
                           .finally(function() { testBtn.disabled = false; });
+                    });
+                }
+                var apiKeyInput = document.getElementById('domesti-api-key');
+                var apiKeyToggle = document.getElementById('domesti-api-key-toggle');
+                if (apiKeyInput && apiKeyToggle) {
+                    var apiKeyRevealed = false;
+                    var apiKeyCached = '';
+                    apiKeyToggle.addEventListener('click', function() {
+                        if (apiKeyRevealed) {
+                            apiKeyInput.type = 'password';
+                            apiKeyInput.value = '••••••••';
+                            apiKeyRevealed = false;
+                            apiKeyToggle.querySelector('.eye-icon').style.display = '';
+                            apiKeyToggle.querySelector('.eye-off-icon').style.display = 'none';
+                            return;
+                        }
+                        fetch('/api/admin/domesti-bot/reveal-api-key/', {
+                            credentials: 'same-origin',
+                            headers: { 'X-CSRFToken': '{{ csrf_token }}' },
+                        }).then(function(r) { return r.json().then(function(d) { return { ok: r.ok, d: d }; }); })
+                          .then(function(res) {
+                              if (!res.ok) {
+                                  domestiSetResult(false, res.d.detail || 'Could not load API key.');
+                                  return;
+                              }
+                              apiKeyCached = res.d.api_key || '';
+                              apiKeyInput.type = 'text';
+                              apiKeyInput.value = apiKeyCached;
+                              apiKeyRevealed = true;
+                              apiKeyToggle.querySelector('.eye-icon').style.display = 'none';
+                              apiKeyToggle.querySelector('.eye-off-icon').style.display = '';
+                          })
+                          .catch(function() { domestiSetResult(false, 'Could not load API key.'); });
                     });
                 }
             })();
