@@ -4,14 +4,23 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.contrib.auth.models import User
 from rest_framework import status
 from rest_framework.permissions import IsAdminUser
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from app.domesti_bot import apply_config_patch, pair_domesti_bot, serialize_domesti_bot_config
-from app.models import DomestiBotConfig
+from app.domesti_bot import (
+    TEST_LOCATION_DEFAULT_LAT,
+    TEST_LOCATION_DEFAULT_LON,
+    apply_config_patch,
+    build_location_webhook_payload,
+    pair_domesti_bot,
+    send_location_webhook,
+    serialize_domesti_bot_config,
+)
+from app.models import Device, DomestiBotConfig
 
 
 def _request_data_as_str_dict(request: Request) -> dict[str, Any]:
@@ -23,12 +32,23 @@ def _config_response(config: DomestiBotConfig) -> Response:
     return Response(serialize_domesti_bot_config(config))
 
 
+def _default_test_participant_id() -> str:
+    user = User.objects.filter(is_staff=True, is_active=True).filter(devices__isnull=False).order_by("username").first()
+    if user is not None:
+        return user.username
+    staff = User.objects.filter(is_staff=True, is_active=True).order_by("username").first()
+    if staff is not None:
+        return staff.username
+    return "admin"
+
+
 class DomestiBotConfigView(APIView):
     """``GET`` / ``PATCH /api/admin/domesti-bot/config/`` — staff config read/update."""
 
     permission_classes = [IsAdminUser]
 
     def get(self, request: Request) -> Response:
+        del request
         return _config_response(DomestiBotConfig.get_solo())
 
     def patch(self, request: Request) -> Response:
@@ -54,6 +74,7 @@ class DomestiBotPairView(APIView):
                 config,
                 api_key=str(data.get("api_key", "")),
                 participant_location_update_url=str(data.get("participant_location_update_url", "")),
+                participant_location_test_url=str(data.get("participant_location_test_url", "")),
                 domesti_base_url=str(data.get("domesti_base_url", "") or ""),
             )
         except ValueError as exc:
@@ -64,7 +85,59 @@ class DomestiBotPairView(APIView):
             {
                 "paired_at": body["paired_at"],
                 "participant_location_update_url": body["participant_location_update_url"],
+                "participant_location_test_url": body["participant_location_test_url"],
                 "location_updates_enabled": body["location_updates_enabled"],
                 "api_key_configured": body["api_key_configured"],
             }
+        )
+
+
+class DomestiBotTestLocationUpdateView(APIView):
+    """``POST /api/admin/domesti-bot/test-location-update/`` — synthetic test via test URL only."""
+
+    permission_classes = [IsAdminUser]
+
+    def post(self, request: Request) -> Response:
+        config = DomestiBotConfig.get_solo()
+        if not config.is_paired:
+            return Response({"detail": "Not paired"}, status=status.HTTP_403_FORBIDDEN)
+
+        data = _request_data_as_str_dict(request)
+        participant_id = str(data.get("participant_id") or _default_test_participant_id()).strip()
+        if not User.objects.filter(username=participant_id, is_active=True).exists():
+            return Response(
+                {"errors": [f"Unknown participant_id: {participant_id}"]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        lat_raw = data.get("lat", TEST_LOCATION_DEFAULT_LAT)
+        lon_raw = data.get("lon", TEST_LOCATION_DEFAULT_LON)
+        try:
+            lat = float(lat_raw)
+            lon = float(lon_raw)
+        except TypeError, ValueError:
+            return Response({"errors": ["lat and lon must be numbers"]}, status=status.HTTP_400_BAD_REQUEST)
+
+        device = Device.objects.filter(owner__username=participant_id).order_by("-last_seen").first()
+        device_id = device.device_id if device is not None else "test-device"
+        payload = build_location_webhook_payload(
+            participant_id=participant_id,
+            lat=lat,
+            lon=lon,
+            device_id=device_id,
+        )
+        try:
+            entry = send_location_webhook(config, payload=payload, source="test")
+        except ValueError as exc:
+            return Response({"errors": [str(exc)]}, status=status.HTTP_400_BAD_REQUEST)
+
+        ok = bool(entry["success"])
+        return Response(
+            {
+                "ok": ok,
+                "status_code": entry["http_status"],
+                "elapsed_ms": entry["elapsed_ms"],
+                "response_preview": entry["response_preview"],
+            },
+            status=status.HTTP_200_OK if ok else status.HTTP_502_BAD_GATEWAY,
         )
