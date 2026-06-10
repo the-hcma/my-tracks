@@ -1,6 +1,6 @@
 # Plan: domesti-bot location relay (my-tracks companion)
 
-This document is the **my-tracks** side of integrating with [domesti-bot](../domesti-bot/docs/RULE_ENGINE_PLAN.md). domesti-bot owns home automation rules, geofence evaluation, sunset checks, and device actions. my-tracks remains the **location ingest and map** service and relays GPS fixes to domesti-bot when paired.
+This document is the **my-tracks** side of integrating with [domesti-bot](https://github.com/the-hcma/domesti-bot). domesti-bot owns home automation rules, geofence evaluation, sunset checks, and device actions. my-tracks remains the **location ingest and map** service and relays GPS fixes to domesti-bot when paired.
 
 **Status:** planning only — no relay or admin UI implemented in this document.
 
@@ -82,25 +82,27 @@ After pairing (below), my-tracks POSTs **every saved location** for devices with
 
 Store settings in a **singleton** model (same pattern as `SmtpConfig`): `DomestiBotConfig` with `pk=1`.
 
-Admin Panel gains a **domesti-bot** section (staff only) with editable fields and **sensible prepopulated defaults** on first open:
+Admin Panel gains a **domesti-bot** section (staff only). The section header links to the [domesti-bot repository](https://github.com/the-hcma/domesti-bot) for setup docs.
 
-| Field | Purpose | Default when empty | Used for |
+**Pairing state drives the UI.** `is_paired` is derived from `paired_at` and a configured `api_key` (both set by the pairing endpoint). Until paired, config fields are **read-only and visually grayed out**; after pairing they become editable (except the API key, which stays masked).
+
+| Field | Purpose | Set by | Used for |
 | --- | --- | --- | --- |
-| `domesti_base_url` | domesti-bot HTTP origin (operator reference + URL building) | `http://<same-host-as-my-tracks>:8003` | display / pairing validation |
-| `participant_location_update_url` | Where my-tracks POSTs each participant location fix | `{domesti_base_url}/v1/webhooks/presence` | **automatic relay** |
-| `api_key` | Shared secret for outbound `X-Domesti-Api-Key` | empty until pairing | automatic relay |
-| `paired_at` | Last successful pair timestamp | null | status display |
-| `relay_enabled` | Master switch for location relay | `false` until first successful pair | automatic relay |
+| `domesti_base_url` | domesti-bot HTTP origin (reference + URL building) | pairing (optional) | display / validation |
+| `participant_location_update_url` | Where my-tracks POSTs each participant location fix | pairing | **automatic relay** |
+| `api_key` | Shared secret for outbound `X-Domesti-Api-Key` | pairing | automatic relay |
+| `paired_at` | Last successful pair timestamp | pairing | **pairing status** |
+| `relay_enabled` | Master switch for location relay | pairing (`true` on success); operator may toggle after | automatic relay |
 
-`api_key` is **encrypted at rest** (Fernet / `SECRET_KEY`, same approach as `SmtpConfig.encrypted_password`). Admin UI shows masked value (`••••••••`) unless operator enters a new key.
+`api_key` is **encrypted at rest** (Fernet / `SECRET_KEY`, same approach as `SmtpConfig.encrypted_password`). Admin UI shows “configured” with a masked value (`••••••••`); it is never displayed in full and is not typed by hand in my-tracks.
 
-**Prepopulation rules:**
+**Prepopulation on pair** (domesti-bot supplies values; my-tracks does not require manual entry):
 
-- Derive host from `PUBLIC_DOMAIN` when set (scheme + host, no path), else from the incoming request host when an admin loads the form.
-- Port `8003` matches domesti-bot’s default LAN listen port (`--listen-all --listen-port 8003`).
-- Default path `/v1/webhooks/presence` matches domesti-bot’s planned location-ingest route.
+- `participant_location_update_url` — domesti-bot sends its public ingest URL (typically `{domesti_base_url}/v1/webhooks/presence`).
+- `domesti_base_url` — optional; when omitted, derived from the location update URL origin.
+- Host hints when domesti-bot builds defaults: `PUBLIC_DOMAIN` on my-tracks, or request host; port `8003` matches domesti-bot’s default LAN listen port.
 
-Operators may override any field before or after pairing.
+Operators may override URL fields **after** pairing; re-pairing from domesti-bot refreshes key and URLs.
 
 ---
 
@@ -168,7 +170,7 @@ Content-Type: application/json
 
 (API key is never returned after save.)
 
-### domesti-bot companion (separate repo)
+### domesti-bot companion ([the-hcma/domesti-bot](https://github.com/the-hcma/domesti-bot))
 
 When the operator completes **My Tracks** settings in domesti-bot and clicks **Pair**, domesti-bot:
 
@@ -185,11 +187,56 @@ No my-tracks code pushes the API key to domesti-bot; direction is **domesti-bot 
 
 **Section: domesti-bot integration**
 
-- **Status row:** Paired / not paired, last `paired_at`, relay on/off
-- **Editable fields:** base URL, participant location update URL, relay enabled toggle
-- **API key:** “configured” indicator; optional “clear key” / re-pair hint (re-pair from domesti-bot)
-- **Test relay** button (staff): POST a synthetic fix or ping domesti-bot debug endpoint if available
-- **Help text:** Participants and geofences are synced **from domesti-bot** (Automations hub → Sync from my-tracks), not pushed from my-tracks
+Link in section header: [github.com/the-hcma/domesti-bot](https://github.com/the-hcma/domesti-bot).
+
+### Not paired
+
+- **Status badge:** “Not paired” (prominent).
+- **All config fields grayed out** (`disabled` inputs): base URL, participant location update URL, API key indicator, relay toggle.
+- **Help text:** Pair from domesti-bot (My Tracks settings → Pair). Participants and geofences are synced **from domesti-bot** after pairing, not pushed from my-tracks.
+- No test button (nothing to send yet).
+
+### Paired
+
+- **Status badge:** “Paired” with `paired_at` timestamp and relay on/off.
+- **Fields enabled:** base URL and participant location update URL editable; API key shows “configured” (masked); relay enabled toggle active.
+- **Re-pair hint:** “To rotate the API key or change URLs, use Pair in domesti-bot.”
+
+### Test location update (manual verification)
+
+Available **only when paired** (staff). Lets the operator confirm my-tracks can reach domesti-bot before relying on live GPS relay.
+
+**UI:** “Test location update” button opens a small panel (or inline result):
+
+- Optional `participant_id` (dropdown of usernames with devices, default first admin/test user).
+- Sends one **synthetic** location payload to `participant_location_update_url` using the stored `api_key` (same shape as production relay).
+- Shows result inline: HTTP status, response time, truncated response body, or error message.
+
+**Backend (to implement):**
+
+```
+POST /api/admin/domesti-bot/test-location-update/
+Content-Type: application/json
+```
+
+```json
+{
+  "participant_id": "kristen",
+  "lat": 41.194085,
+  "lon": -73.888365
+}
+```
+
+| Field | Required | Notes |
+| --- | --- | --- |
+| `participant_id` | no | Defaults to a sensible staff username; must exist in my-tracks |
+| `lat` / `lon` | no | Defaults to fixed test coordinates if omitted |
+
+- `403` when not paired or not staff.
+- `200` with `{ "ok": true, "status_code": 200, "elapsed_ms": 42, "response_preview": "..." }` on success.
+- `502` / `200` with `ok: false` when domesti-bot is unreachable or returns an error (operator sees details; no Location row is written).
+
+This is **test mode only** — it does not enqueue real device locations and does not affect the map.
 
 Do **not** add env vars as the primary configuration path. A `DOMESTI_BOT_PARTICIPANT_LOCATION_UPDATE_URL` bootstrap override may exist for headless deploys, but Admin Panel is the operator source of truth.
 
@@ -211,12 +258,12 @@ Do **not** add env vars as the primary configuration path. A `DOMESTI_BOT_PARTIC
 | --- | --- |
 | **This PR** | `docs/DOMESTI_BOT_INTEGRATION_PLAN.md` only |
 | **P1** | `DomestiBotConfig` model + migration; Admin Panel form; `GET` status for staff |
-| **P2** | `POST /api/admin/domesti-bot/pair/`; encrypt/store API key; prepopulated defaults |
+| **P2** | `POST /api/admin/domesti-bot/pair/`; encrypt/store API key; pairing-gated Admin UI |
 | **P3** | `app/domesti_relay.py` + hooks in MQTT + HTTP location save; respect `relay_enabled` |
-| **P4** | Tests, operator blurb in Admin Panel / About; link from `GLOBAL_AUTOMATIONS_PLAN.md` |
+| **P4** | `POST /api/admin/domesti-bot/test-location-update/`; tests; link from `GLOBAL_AUTOMATIONS_PLAN.md` |
 | **P5** (later) | Remove `GlobalAutomationRule` evaluator after domesti-bot cutover |
 
-**domesti-bot companion (separate repo):** pairing button + `POST` to my-tracks pair endpoint; keep manual participant/geofence sync as today.
+**domesti-bot companion** ([repo](https://github.com/the-hcma/domesti-bot)): pairing button + `POST` to my-tracks pair endpoint; keep manual participant/geofence sync as today.
 
 ---
 
@@ -226,23 +273,25 @@ Do **not** add env vars as the primary configuration path. A `DOMESTI_BOT_PARTIC
 | --- | --- |
 | Pair endpoint | Staff auth; stores encrypted key; enables relay; rejects bad URLs |
 | Relay | Mock HTTP; MQTT + HTTP ingest; skip when unpaired/disabled; failure does not fail save |
-| Admin UI | Form save, masked key, prepopulated defaults |
+| Admin UI | Pairing badge; fields disabled when not paired; masked key when paired |
+| Test location update | Staff-only; synthetic POST; clear success/failure feedback |
 | Integration | Optional manual test with LAN domesti-bot instance |
 
 ---
 
 ## Success criteria
 
-1. Operator pairs from domesti-bot; my-tracks Admin Panel shows paired status and participant location update URL.
-2. Each owned-device GPS fix triggers a location POST when relay is enabled.
-3. domesti-bot `/v1/rules/status` shows live participant fixes after manual roster sync.
-4. Participant and geofence data flow only via **manual** domesti-bot sync pulls.
-5. Relay failures appear in logs only; map and ingest unaffected.
+1. Before pairing, Admin Panel shows “Not paired” with grayed-out fields; after pairing, status and URLs are visible and editable.
+2. Operator can run **Test location update** and see a successful response from domesti-bot.
+3. Each owned-device GPS fix triggers a location POST when relay is enabled.
+4. domesti-bot `/v1/rules/status` shows live participant fixes after manual roster sync.
+5. Participant and geofence data flow only via **manual** domesti-bot sync pulls.
+6. Relay failures appear in logs only; map and ingest unaffected.
 
 ---
 
 ## References
 
-- domesti-bot: [RULE_ENGINE_PLAN.md](../domesti-bot/docs/RULE_ENGINE_PLAN.md) (evaluator, webhooks, manual sync)
+- domesti-bot: [github.com/the-hcma/domesti-bot](https://github.com/the-hcma/domesti-bot) — see `docs/RULE_ENGINE_PLAN.md` in that repo (evaluator, webhooks, manual sync)
 - my-tracks exports: `app/admin_sync_export.py` (`/api/admin/users-with-devices/`, `/api/admin/waypoints/`)
 - my-tracks global automations (to sunset): `docs/GLOBAL_AUTOMATIONS_PLAN.md`
