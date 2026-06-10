@@ -312,8 +312,8 @@ Do **not** add env vars as the primary configuration path. A `DOMESTI_BOT_PARTIC
 | Pair endpoint | Staff auth; stores encrypted key; enables relay; rejects bad URLs |
 | Relay | Mock HTTP; MQTT + HTTP ingest; skip when unpaired or toggle off; failure does not fail save |
 | Webhook log | Ring buffer keeps 5; success/failure; live + test; payload stored |
-| Admin UI | Pairing badge; toggle; last-five log table; fields disabled when not paired |
-| Test location update | Staff-only; synthetic POST; appears in webhook log |
+| Admin UI | Pairing badge; toggle; last-five log table; fields disabled when not paired; masked key when paired |
+| Test location update | Staff-only; synthetic POST; clear success/failure feedback; appears in webhook log |
 | Integration | Optional manual test with LAN domesti-bot instance |
 
 ---
