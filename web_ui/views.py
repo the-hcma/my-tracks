@@ -25,12 +25,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone as tz
 
 from app.apps import get_mqtt_broker
-from app.domesti_bot import (
-    DOMESTI_BOT_REPO_URL,
-    apply_config_patch,
-    default_domesti_base_url,
-    default_participant_location_update_url,
-)
+from app.domesti_bot import DOMESTI_BOT_REPO_URL, apply_config_patch
 from app.models import (
     CertificateAuthority,
     ClientCertificate,
@@ -1246,21 +1241,9 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
     context["location_quality"] = LocationQualitySettings.get_solo()
 
     domesti_config = DomestiBotConfig.get_solo()
-    domesti_hostname = request.get_host().split(":")[0]
-    domesti_default_base = default_domesti_base_url(
-        public_domain=settings.PUBLIC_DOMAIN,
-        hostname=domesti_hostname,
-    )
-    domesti_default_location_url = default_participant_location_update_url(domesti_default_base)
     context["domesti_bot_config"] = domesti_config
     context["domesti_bot_is_paired"] = domesti_config.is_paired
     context["domesti_bot_repo_url"] = DOMESTI_BOT_REPO_URL
-    context["domesti_bot_default_base_url"] = domesti_default_base
-    context["domesti_bot_default_location_url"] = domesti_default_location_url
-    context["domesti_bot_display_base_url"] = domesti_config.domesti_base_url or domesti_default_base
-    context["domesti_bot_display_location_url"] = (
-        domesti_config.participant_location_update_url or domesti_default_location_url
-    )
 
     return render(request, "web_ui/admin_panel.html", context)
 

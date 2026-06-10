@@ -6,7 +6,7 @@ from typing import Any, cast
 
 import pytest
 from django.contrib.auth.models import User
-from django.test import Client, override_settings
+from django.test import Client
 from django.utils import timezone
 from hamcrest import assert_that, contains_string, equal_to, has_length, is_
 from rest_framework import status
@@ -52,19 +52,15 @@ def test_config_get_requires_admin(user_client: APIClient) -> None:
     assert_that(response.status_code, equal_to(status.HTTP_403_FORBIDDEN))
 
 
-@override_settings(ALLOWED_HOSTS=["tracks.example.com", "localhost", "127.0.0.1"], PUBLIC_DOMAIN="")
-def test_config_get_unpaired_defaults(admin_client: APIClient) -> None:
-    response = admin_client.get("/api/admin/domesti-bot/config/", HTTP_HOST="tracks.example.com")
+def test_config_get_unpaired_empty(admin_client: APIClient) -> None:
+    response = admin_client.get("/api/admin/domesti-bot/config/")
     assert_that(response.status_code, equal_to(status.HTTP_200_OK))
     body = response.json()
     assert_that(body["is_paired"], is_(False))
     assert_that(body["api_key_configured"], is_(False))
     assert_that(body["location_updates_enabled"], is_(False))
-    assert_that(body["domesti_base_url"], equal_to("http://tracks.example.com:8003"))
-    assert_that(
-        body["participant_location_update_url"],
-        equal_to("http://tracks.example.com:8003/v1/webhooks/presence"),
-    )
+    assert_that(body["domesti_base_url"], equal_to(""))
+    assert_that(body["participant_location_update_url"], equal_to(""))
     assert_that(body["recent_webhook_log"], has_length(0))
     assert_that(body["domesti_bot_repo_url"], equal_to("https://github.com/the-hcma/domesti-bot"))
 

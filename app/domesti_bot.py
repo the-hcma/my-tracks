@@ -13,31 +13,7 @@ if TYPE_CHECKING:
     from app.models import DomestiBotConfig
 
 WEBHOOK_LOG_MAX = 5
-DOMESTI_DEFAULT_PORT = 8003
-PRESENCE_PATH = "/v1/webhooks/presence"
 DOMESTI_BOT_REPO_URL = "https://github.com/the-hcma/domesti-bot"
-
-
-def default_domesti_base_url(*, public_domain: str, hostname: str) -> str:
-    """Build the default domesti-bot HTTP origin for prepopulated Admin UI hints."""
-    host = _host_for_defaults(public_domain=public_domain, hostname=hostname)
-    return f"http://{host}:{DOMESTI_DEFAULT_PORT}"
-
-
-def default_participant_location_update_url(domesti_base_url: str) -> str:
-    """Default location-ingest URL on domesti-bot."""
-    return f"{domesti_base_url.rstrip('/')}{PRESENCE_PATH}"
-
-
-def _host_for_defaults(*, public_domain: str, hostname: str) -> str:
-    raw = (public_domain or hostname).strip()
-    if not raw:
-        return "localhost"
-    if "://" in raw:
-        parsed = urlparse(raw)
-        if parsed.hostname:
-            return parsed.hostname
-    return raw.split(":")[0].split("/")[0]
 
 
 def validate_absolute_http_url(url: str) -> str:
@@ -117,18 +93,13 @@ def apply_config_patch(config: DomestiBotConfig, data: dict[str, Any]) -> list[s
     return errors
 
 
-def serialize_domesti_bot_config(
-    config: DomestiBotConfig,
-    *,
-    default_base_url: str = "",
-    default_location_update_url: str = "",
-) -> dict[str, Any]:
+def serialize_domesti_bot_config(config: DomestiBotConfig) -> dict[str, Any]:
     """JSON-serializable config for Admin API and panel."""
     recent_webhook_log = cast(list[dict[str, Any]], config.recent_webhook_log or [])
     return {
         "is_paired": config.is_paired,
-        "domesti_base_url": config.domesti_base_url or default_base_url,
-        "participant_location_update_url": (config.participant_location_update_url or default_location_update_url),
+        "domesti_base_url": config.domesti_base_url,
+        "participant_location_update_url": config.participant_location_update_url,
         "api_key_configured": config.api_key_configured,
         "paired_at": config.paired_at.isoformat() if config.paired_at else None,
         "location_updates_enabled": config.location_updates_enabled,

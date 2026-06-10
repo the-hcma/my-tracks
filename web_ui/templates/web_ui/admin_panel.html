@@ -1513,16 +1513,16 @@
                 <div class="form-group" style="margin-bottom:1rem;">
                     <label for="domesti_base_url">domesti-bot base URL</label>
                     <input type="url" id="domesti_base_url" name="domesti_base_url"
-                        value="{{ domesti_bot_display_base_url }}"
+                        value="{{ domesti_bot_config.domesti_base_url }}"
                         {% if not domesti_bot_is_paired %}disabled{% endif %}
-                        placeholder="{{ domesti_bot_default_base_url }}">
+                        placeholder="Set by pairing from domesti-bot">
                 </div>
                 <div class="form-group" style="margin-bottom:1rem;">
                     <label for="domesti_participant_location_update_url">Participant location update URL</label>
                     <input type="url" id="domesti_participant_location_update_url" name="domesti_participant_location_update_url"
-                        value="{{ domesti_bot_display_location_url }}"
+                        value="{{ domesti_bot_config.participant_location_update_url }}"
                         {% if not domesti_bot_is_paired %}disabled{% endif %}
-                        placeholder="{{ domesti_bot_default_location_url }}">
+                        placeholder="Set by pairing from domesti-bot">
                 </div>
                 <div class="form-group" style="margin-bottom:1rem;">
                     <label>API key</label>
