@@ -310,9 +310,10 @@ Do **not** add env vars as the primary configuration path. A `DOMESTI_BOT_PARTIC
 | Layer | Coverage |
 | --- | --- |
 | Pair endpoint | Staff auth; stores encrypted key; enables relay; rejects bad URLs |
-| Relay | Mock HTTP; MQTT + HTTP ingest; skip when unpaired/disabled; failure does not fail save |
-| Admin UI | Pairing badge; fields disabled when not paired; masked key when paired |
-| Test location update | Staff-only; synthetic POST; clear success/failure feedback |
+| Relay | Mock HTTP; MQTT + HTTP ingest; skip when unpaired or toggle off; failure does not fail save |
+| Webhook log | Ring buffer keeps 5; success/failure; live + test; payload stored |
+| Admin UI | Pairing badge; toggle; last-five log table; fields disabled when not paired; masked key when paired |
+| Test location update | Staff-only; synthetic POST; clear success/failure feedback; appears in webhook log |
 | Integration | Optional manual test with LAN domesti-bot instance |
 
 ---
@@ -321,10 +322,12 @@ Do **not** add env vars as the primary configuration path. A `DOMESTI_BOT_PARTIC
 
 1. Before pairing, Admin Panel shows “Not paired” with grayed-out fields; after pairing, status and URLs are visible and editable.
 2. Operator can run **Test location update** and see a successful response from domesti-bot.
-3. Each owned-device GPS fix triggers a location POST when relay is enabled.
-4. domesti-bot `/v1/rules/status` shows live participant fixes after manual roster sync.
-5. Participant and geofence data flow only via **manual** domesti-bot sync pulls.
-6. Relay failures appear in logs only; map and ingest unaffected.
+3. Operator can disable **Send location updates** without unpairing; live POSTs stop while test remains available.
+4. Admin Panel shows the **last 5** webhook attempts with payload and success/failure status.
+5. Each owned-device GPS fix triggers a location POST when location updates are enabled.
+6. domesti-bot `/v1/rules/status` shows live participant fixes after manual roster sync.
+7. Participant and geofence data flow only via **manual** domesti-bot sync pulls.
+8. Relay failures appear in logs and webhook log; map and ingest unaffected.
 
 ---
 
