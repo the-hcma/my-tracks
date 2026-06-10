@@ -20,11 +20,12 @@ on:
     - cron: '0 7 * * 4'
   workflow_dispatch:
 
-# Cancel any in-progress run for the same branch/PR when a newer one starts.
-# For pull_request events the group is per-PR; for push events it is per-branch.
-# This also deduplicates simultaneous push + pull_request runs for the same SHA.
+# One CI run per commit SHA. push and pull_request for the same tip share a group,
+# so a merge-from-main push plus PR synchronize does not run the matrix twice.
+# cancel-in-progress replaces any in-progress run for the same SHA (e.g. rapid
+# re-triggers); a newer commit gets a new SHA and may run alongside an older one.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 
 jobs:
