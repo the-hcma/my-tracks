@@ -13,7 +13,14 @@ from hamcrest import assert_that, contains_string, equal_to, has_length, is_
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from app.domesti_bot import append_webhook_log_entry, location_post_url_for_source
+from app.domesti_bot import (
+    TEST_LOCATION_DEFAULT_LAT,
+    TEST_LOCATION_DEFAULT_LON,
+    append_webhook_log_entry,
+    build_location_webhook_payload,
+    location_post_url_for_source,
+    send_location_webhook,
+)
 from app.models import DomestiBotConfig
 
 
@@ -180,6 +187,28 @@ def test_test_location_update_reports_failure_with_url(admin_client: APIClient, 
     )
     assert_that(body["message"], contains_string("connection refused"))
     assert_that(body["message"], contains_string(body["post_url"]))
+
+
+def test_send_location_webhook_logs_unexpected_delivery_error(admin_client: APIClient, admin_user: User) -> None:
+    admin_client.post("/api/admin/domesti-bot/pair/", _pair_payload(), format="json")
+    config = DomestiBotConfig.get_solo()
+    payload = build_location_webhook_payload(
+        participant_id=str(admin_user.username),
+        lat=TEST_LOCATION_DEFAULT_LAT,
+        lon=TEST_LOCATION_DEFAULT_LON,
+    )
+    with patch("app.domesti_bot.urllib.request.urlopen", side_effect=RuntimeError("unexpected")):
+        entry = send_location_webhook(config, payload=payload, source="test")
+
+    assert_that(entry["success"], is_(False))
+    assert_that(entry["response_preview"], contains_string("unexpected"))
+    recent_log = cast(list[dict[str, Any]], config.recent_webhook_log)
+    assert_that(recent_log[0]["source"], equal_to("test"))
+    assert_that(recent_log[0]["success"], is_(False))
+    assert_that(
+        recent_log[0]["post_url"],
+        equal_to("http://192.168.1.10:8003/v1/webhooks/presence/test"),
+    )
 
 
 def test_webhook_log_ring_buffer_keeps_five(admin_client: APIClient) -> None:

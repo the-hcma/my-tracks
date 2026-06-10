@@ -133,17 +133,91 @@ def build_location_webhook_payload(
     lon: float,
     device_id: str = "test-device",
     mqtt_user: str | None = None,
+    timestamp_iso: str | None = None,
+    accuracy_m: int | None = None,
 ) -> dict[str, Any]:
     """Build a domesti-bot location ingest payload."""
-    return {
+    payload: dict[str, Any] = {
         "participant_id": participant_id,
         "lat": lat,
         "lon": lon,
-        "timestamp": datetime.now(dt_timezone.utc).isoformat().replace("+00:00", "Z"),
+        "timestamp": timestamp_iso or datetime.now(dt_timezone.utc).isoformat().replace("+00:00", "Z"),
         "source": "my-tracks",
         "device_id": device_id,
         "mqtt_user": mqtt_user or participant_id,
     }
+    if accuracy_m is not None:
+        payload["accuracy_m"] = accuracy_m
+    return payload
+
+
+def _record_webhook_delivery(
+    config: DomestiBotConfig,
+    *,
+    payload: dict[str, Any],
+    source: str,
+    post_url: str,
+    success: bool,
+    http_status: int | None,
+    response_preview: str,
+    elapsed_ms: int,
+) -> dict[str, Any]:
+    """Persist a webhook attempt in server logs and the activity ring buffer."""
+    entry = {
+        "sent_at": timezone.now().isoformat(),
+        "success": success,
+        "http_status": http_status,
+        "post_url": post_url,
+        "participant_id": payload.get("participant_id"),
+        "payload": payload,
+        "response_preview": response_preview,
+        "source": source,
+        "elapsed_ms": elapsed_ms,
+    }
+    if success:
+        logger.info(
+            "[domesti-bot] %s location webhook OK url=%s participant=%s http=%s elapsed_ms=%s",
+            source,
+            post_url,
+            payload.get("participant_id"),
+            http_status,
+            elapsed_ms,
+        )
+    else:
+        logger.warning(
+            "[domesti-bot] %s location webhook failed url=%s participant=%s http=%s elapsed_ms=%s response=%s",
+            source,
+            post_url,
+            payload.get("participant_id"),
+            http_status,
+            elapsed_ms,
+            response_preview,
+        )
+    append_webhook_log_entry(config, entry)
+    return entry
+
+
+def record_webhook_delivery_failure(
+    config: DomestiBotConfig,
+    *,
+    payload: dict[str, Any],
+    source: str,
+    post_url: str,
+    error_message: str,
+    http_status: int | None = None,
+    elapsed_ms: int = 0,
+) -> dict[str, Any]:
+    """Record a failed webhook attempt without performing an HTTP request."""
+    return _record_webhook_delivery(
+        config,
+        payload=payload,
+        source=source,
+        post_url=post_url,
+        success=False,
+        http_status=http_status,
+        response_preview=error_message,
+        elapsed_ms=elapsed_ms,
+    )
 
 
 def send_location_webhook(
@@ -169,12 +243,17 @@ def send_location_webhook(
         method="POST",
     )
     started = time.monotonic()
+    status_code: int | None = None
+    body_preview = ""
+    success = False
+    elapsed_ms = 0
     try:
         with urllib.request.urlopen(request, timeout=WEBHOOK_TIMEOUT_SECONDS) as response:
             elapsed_ms = int((time.monotonic() - started) * 1000)
             body_preview = response.read(200).decode(errors="replace")
-            status_code = response.status
-            success = 200 <= status_code < 300
+            response_status = response.status
+            status_code = response_status
+            success = 200 <= response_status < 300
     except urllib.error.HTTPError as exc:
         elapsed_ms = int((time.monotonic() - started) * 1000)
         status_code = exc.code
@@ -185,39 +264,28 @@ def send_location_webhook(
         status_code = None
         body_preview = str(exc.reason)
         success = False
+    except Exception as exc:
+        elapsed_ms = int((time.monotonic() - started) * 1000)
+        status_code = None
+        body_preview = str(exc)
+        success = False
+        logger.exception(
+            "[domesti-bot] %s location webhook error url=%s participant=%s",
+            source,
+            post_url,
+            payload.get("participant_id"),
+        )
 
-    entry = {
-        "sent_at": timezone.now().isoformat(),
-        "success": success,
-        "http_status": status_code,
-        "post_url": post_url,
-        "participant_id": payload.get("participant_id"),
-        "payload": payload,
-        "response_preview": body_preview,
-        "source": source,
-        "elapsed_ms": elapsed_ms,
-    }
-    if success:
-        logger.info(
-            "[domesti-bot] %s location webhook OK url=%s participant=%s http=%s elapsed_ms=%s",
-            source,
-            post_url,
-            payload.get("participant_id"),
-            status_code,
-            elapsed_ms,
-        )
-    else:
-        logger.warning(
-            "[domesti-bot] %s location webhook failed url=%s participant=%s http=%s elapsed_ms=%s response=%s",
-            source,
-            post_url,
-            payload.get("participant_id"),
-            status_code,
-            elapsed_ms,
-            body_preview,
-        )
-    append_webhook_log_entry(config, entry)
-    return entry
+    return _record_webhook_delivery(
+        config,
+        payload=payload,
+        source=source,
+        post_url=post_url,
+        success=success,
+        http_status=status_code,
+        response_preview=body_preview,
+        elapsed_ms=elapsed_ms,
+    )
 
 
 def log_pairing_activity(
