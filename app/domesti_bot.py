@@ -128,9 +128,7 @@ def serialize_domesti_bot_config(
     return {
         "is_paired": config.is_paired,
         "domesti_base_url": config.domesti_base_url or default_base_url,
-        "participant_location_update_url": (
-            config.participant_location_update_url or default_location_update_url
-        ),
+        "participant_location_update_url": (config.participant_location_update_url or default_location_update_url),
         "api_key_configured": config.api_key_configured,
         "paired_at": config.paired_at.isoformat() if config.paired_at else None,
         "location_updates_enabled": config.location_updates_enabled,
