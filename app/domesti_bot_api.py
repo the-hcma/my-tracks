@@ -141,14 +141,25 @@ class DomestiBotTestLocationUpdateView(APIView):
             return Response({"errors": [str(exc)]}, status=status.HTTP_400_BAD_REQUEST)
 
         ok = bool(entry["success"])
+        status_code = entry["http_status"]
+        response_preview = str(entry["response_preview"])
+        post_url = str(entry["post_url"])
+        if ok:
+            message = f"Test location update succeeded (HTTP {status_code})."
+        else:
+            message = (
+                f"Test location update failed for {post_url}: "
+                f"HTTP {status_code if status_code is not None else 'n/a'} — {response_preview}"
+            )
         return Response(
             {
                 "ok": ok,
-                "status_code": entry["http_status"],
+                "post_url": post_url,
+                "status_code": status_code,
                 "elapsed_ms": entry["elapsed_ms"],
-                "response_preview": entry["response_preview"],
-            },
-            status=status.HTTP_200_OK if ok else status.HTTP_502_BAD_GATEWAY,
+                "response_preview": response_preview,
+                "message": message,
+            }
         )
 
 

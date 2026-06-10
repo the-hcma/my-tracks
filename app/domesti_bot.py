@@ -190,12 +190,32 @@ def send_location_webhook(
         "sent_at": timezone.now().isoformat(),
         "success": success,
         "http_status": status_code,
+        "post_url": post_url,
         "participant_id": payload.get("participant_id"),
         "payload": payload,
         "response_preview": body_preview,
         "source": source,
         "elapsed_ms": elapsed_ms,
     }
+    if success:
+        logger.info(
+            "[domesti-bot] %s location webhook OK url=%s participant=%s http=%s elapsed_ms=%s",
+            source,
+            post_url,
+            payload.get("participant_id"),
+            status_code,
+            elapsed_ms,
+        )
+    else:
+        logger.warning(
+            "[domesti-bot] %s location webhook failed url=%s participant=%s http=%s elapsed_ms=%s response=%s",
+            source,
+            post_url,
+            payload.get("participant_id"),
+            status_code,
+            elapsed_ms,
+            body_preview,
+        )
     append_webhook_log_entry(config, entry)
     return entry
 
