@@ -16,6 +16,7 @@ from app.domesti_bot import (
     TEST_LOCATION_DEFAULT_LON,
     apply_config_patch,
     build_location_webhook_payload,
+    log_pairing_activity,
     pair_domesti_bot,
     send_location_webhook,
     serialize_domesti_bot_config,
@@ -68,8 +69,8 @@ class DomestiBotPairView(APIView):
 
     def post(self, request: Request) -> Response:
         data = _request_data_as_str_dict(request)
+        config = DomestiBotConfig.get_solo()
         try:
-            config = DomestiBotConfig.get_solo()
             pair_domesti_bot(
                 config,
                 api_key=str(data.get("api_key", "")),
@@ -78,6 +79,14 @@ class DomestiBotPairView(APIView):
                 domesti_base_url=str(data.get("domesti_base_url", "") or ""),
             )
         except ValueError as exc:
+            log_pairing_activity(
+                config,
+                success=False,
+                domesti_base_url=str(data.get("domesti_base_url", "") or ""),
+                participant_location_update_url=str(data.get("participant_location_update_url", "")),
+                participant_location_test_url=str(data.get("participant_location_test_url", "")),
+                error_message=str(exc),
+            )
             return Response({"errors": [str(exc)]}, status=status.HTTP_400_BAD_REQUEST)
 
         body = serialize_domesti_bot_config(config)
@@ -141,3 +150,19 @@ class DomestiBotTestLocationUpdateView(APIView):
             },
             status=status.HTTP_200_OK if ok else status.HTTP_502_BAD_GATEWAY,
         )
+
+
+class DomestiBotRevealApiKeyView(APIView):
+    """``GET /api/admin/domesti-bot/reveal-api-key/`` — staff-only decrypted API key for Admin UI."""
+
+    permission_classes = [IsAdminUser]
+
+    def get(self, request: Request) -> Response:
+        del request
+        config = DomestiBotConfig.get_solo()
+        if not config.is_paired:
+            return Response({"detail": "Not paired"}, status=status.HTTP_403_FORBIDDEN)
+        api_key = config.get_api_key()
+        if not api_key:
+            return Response({"detail": "API key not configured"}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"api_key": api_key})

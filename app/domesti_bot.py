@@ -72,6 +72,13 @@ def pair_domesti_bot(
     config.paired_at = timezone.now()
     config.location_updates_enabled = True
     config.save()
+    log_pairing_activity(
+        config,
+        success=True,
+        domesti_base_url=base,
+        participant_location_update_url=location_url,
+        participant_location_test_url=test_url,
+    )
 
 
 def apply_config_patch(config: DomestiBotConfig, data: dict[str, Any]) -> list[str]:
@@ -191,6 +198,50 @@ def send_location_webhook(
     }
     append_webhook_log_entry(config, entry)
     return entry
+
+
+def log_pairing_activity(
+    config: DomestiBotConfig,
+    *,
+    success: bool,
+    domesti_base_url: str = "",
+    participant_location_update_url: str = "",
+    participant_location_test_url: str = "",
+    error_message: str = "",
+) -> None:
+    """Record a pairing attempt or outcome in the integration activity log."""
+    if success:
+        preview = f"Paired with {domesti_base_url}" if domesti_base_url else "Paired successfully"
+        payload: dict[str, Any] = {
+            "domesti_base_url": domesti_base_url,
+            "participant_location_update_url": participant_location_update_url,
+            "participant_location_test_url": participant_location_test_url,
+        }
+    else:
+        preview = error_message or "Pairing failed"
+        payload = {
+            "domesti_base_url": domesti_base_url,
+            "participant_location_update_url": participant_location_update_url,
+            "participant_location_test_url": participant_location_test_url,
+        }
+    append_webhook_log_entry(
+        config,
+        {
+            "sent_at": timezone.now().isoformat(),
+            "success": success,
+            "http_status": 200 if success else 400,
+            "participant_id": None,
+            "payload": payload,
+            "response_preview": preview,
+            "source": "pairing",
+            "elapsed_ms": 0,
+        },
+    )
+    logger.info(
+        "[domesti-bot] pairing %s base_url=%s",
+        "succeeded" if success else "failed",
+        domesti_base_url or "(unknown)",
+    )
 
 
 def append_webhook_log_entry(config: DomestiBotConfig, entry: dict[str, Any]) -> None:
