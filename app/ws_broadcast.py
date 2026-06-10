@@ -25,7 +25,7 @@ def user_ws_group(user_id: int) -> str:
 def device_display_label(device: Device) -> str:
     """Human-readable owner/device label matching LocationSerializer device_name."""
     trimmed_name = (device.name or "").strip()
-    label = trimmed_name if trimmed_name and not trimmed_name.startswith("Device ") else device.device_id
+    label = trimmed_name if trimmed_name and not trimmed_name.startswith("Device ") else str(device.device_id)
     if device.owner_id and device.owner:
         return f"{device.owner.username}/{label}"
     return label
