@@ -171,16 +171,7 @@ def save_location_to_db(location_data: dict[str, Any]) -> dict[str, Any] | None:
         # Serialize for WebSocket broadcast
         serializer = LocationSerializer(location)
         # Cast to dict - serializer.data is ReturnDict which is dict-like
-        result = dict(serializer.data)
-
-        # Evaluate global automations for the device owner (location-trigger only)
-        if device.owner is not None:
-            _evaluate_global_automations_for_user(device.owner)
-            from app.domesti_relay import relay_location_to_domesti_bot
-
-            relay_location_to_domesti_bot(location)
-
-        return result
+        return dict(serializer.data)
 
     except Exception:
         logger.exception("Failed to save location from MQTT message")
@@ -674,6 +665,17 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
             serialized.get("device_id_display"),
             identity,
         )
+
+        location = await sync_to_async(
+            Location.objects.select_related("device", "device__owner").get,
+            thread_sensitive=False,
+        )(pk=serialized["id"])
+        owner = location.device.owner
+        if owner is not None:
+            from app.domesti_relay import relay_location_to_domesti_bot
+
+            await sync_to_async(_evaluate_global_automations_for_user, thread_sensitive=False)(owner)
+            await sync_to_async(relay_location_to_domesti_bot, thread_sensitive=False)(location)
 
         logger.info(
             "[%s] Broadcasting location to WebSocket (id=%s, device=%s)",
