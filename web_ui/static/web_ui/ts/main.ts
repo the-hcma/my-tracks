@@ -28,16 +28,15 @@ interface MyTracksConfig {
 
 /** Resolve the CSRF token for session-authenticated POST requests. */
 function getCsrfToken(): string {
+    const fromCookie = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+    if (fromCookie) {
+        return decodeURIComponent(fromCookie[1]);
+    }
     const fromConfig = config.csrfToken?.trim();
     if (fromConfig) {
         return fromConfig;
     }
-    const fromInput = document.querySelector<HTMLInputElement>('[name=csrfmiddlewaretoken]')?.value?.trim();
-    if (fromInput) {
-        return fromInput;
-    }
-    const match = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
-    return match ? decodeURIComponent(match[1]) : '';
+    return document.querySelector<HTMLInputElement>('[name=csrfmiddlewaretoken]')?.value?.trim() ?? '';
 }
 
 // Extend Window interface for our config

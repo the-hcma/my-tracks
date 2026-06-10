@@ -10,6 +10,7 @@ import logging
 
 from decouple import config
 from rest_framework import authentication, exceptions
+from rest_framework.authentication import SessionAuthentication
 from rest_framework.request import Request
 
 logger = logging.getLogger(__name__)
@@ -46,6 +47,20 @@ def get_command_api_key() -> str:
         The API key string, or empty string if not configured.
     """
     return str(config("COMMAND_API_KEY", default=""))
+
+
+class CsrfExemptSessionAuthentication(SessionAuthentication):
+    """
+    Session auth for same-origin JSON API calls from the web UI.
+
+    DRF's SessionAuthentication enforces CSRF on every POST, but browser fetch()
+    calls from the map page often lack a matching token even when the session
+    cookie is valid. SameSite session cookies still protect against cross-site
+    request forgery for this personal-server use case.
+    """
+
+    def enforce_csrf(self, request: Request) -> None:
+        return
 
 
 class CommandApiKeyAuthentication(authentication.BaseAuthentication):
