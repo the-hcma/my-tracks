@@ -13,7 +13,7 @@ This document is the **my-tracks** side of integrating with [domesti-bot](../dom
 | OwnTracks ingest, map, friends | my-tracks | Existing MQTT/HTTP → SQLite |
 | Participant roster | my-tracks (source of truth) | **Manual pull** by domesti-bot (`POST /v1/rules/participants/sync`) |
 | Geofence definitions (automation) | domesti-bot | **Manual pull** by domesti-bot (`POST /v1/rules/geofences/sync`) from my-tracks export APIs |
-| Live GPS fixes for rules | my-tracks → domesti-bot | **Automatic push** on each saved location (`POST` to domesti-bot presence webhook) |
+| Live GPS fixes for rules | my-tracks → domesti-bot | **Automatic push** on each saved location (`POST` to domesti-bot participant location update URL) |
 | Rule evaluation & device actions | domesti-bot | `RuleEvaluator` (not my-tracks) |
 
 We do **not** extend `GlobalAutomationRule` webhooks. Event-shaped payloads (“both inside”) are insufficient; domesti-bot needs per-fix coordinates.
@@ -27,7 +27,7 @@ We do **not** extend `GlobalAutomationRule` webhooks. Event-shaped payloads (“
 - domesti-bot operator clicks **Sync from my-tracks** (or runs sync during setup).
 - domesti-bot calls my-tracks with admin credentials and reads:
   - `GET /api/admin/users-with-devices/` (already exists)
-- my-tracks does **not** POST to `/v1/webhooks/participants` on user/device changes or startup.
+- my-tracks does **not** POST roster updates to domesti-bot on user/device changes or startup.
 
 ### Geofences
 
@@ -38,9 +38,9 @@ We do **not** extend `GlobalAutomationRule` webhooks. Event-shaped payloads (“
 
 ---
 
-## What is automatic (presence relay only)
+## What is automatic (participant location relay only)
 
-After pairing (below), my-tracks POSTs **every saved location** for devices with an `owner` to the configured domesti-bot presence webhook.
+After pairing (below), my-tracks POSTs **every saved location** for devices with an `owner` to the configured `participant_location_update_url`.
 
 **Hook points** (both ingest paths):
 
@@ -74,6 +74,8 @@ After pairing (below), my-tracks POSTs **every saved location** for devices with
 
 **Identity:** relay is per **device owner**, not per map viewer. Friends who see shared devices on the map do not change relay identity.
 
+**domesti-bot route:** the default prepopulated URL targets domesti-bot’s existing ingest endpoint `POST /v1/webhooks/presence`. my-tracks names the setting by what it does (participant location updates), not domesti-bot’s internal route name.
+
 ---
 
 ## Admin Panel configuration (not env-only)
@@ -85,11 +87,10 @@ Admin Panel gains a **domesti-bot** section (staff only) with editable fields an
 | Field | Purpose | Default when empty | Used for |
 | --- | --- | --- | --- |
 | `domesti_base_url` | domesti-bot HTTP origin (operator reference + URL building) | `http://<same-host-as-my-tracks>:8003` | display / pairing validation |
-| `presence_webhook_url` | Where my-tracks POSTs location fixes | `{domesti_base_url}/v1/webhooks/presence` | **automatic relay** |
-| `participants_webhook_url` | domesti-bot roster ingest URL (reference) | `{domesti_base_url}/v1/webhooks/participants` | **not used** for my-tracks push; shown for operator docs only |
+| `participant_location_update_url` | Where my-tracks POSTs each participant location fix | `{domesti_base_url}/v1/webhooks/presence` | **automatic relay** |
 | `api_key` | Shared secret for outbound `X-Domesti-Api-Key` | empty until pairing | automatic relay |
 | `paired_at` | Last successful pair timestamp | null | status display |
-| `relay_enabled` | Master switch for presence relay | `false` until first successful pair | automatic relay |
+| `relay_enabled` | Master switch for location relay | `false` until first successful pair | automatic relay |
 
 `api_key` is **encrypted at rest** (Fernet / `SECRET_KEY`, same approach as `SmtpConfig.encrypted_password`). Admin UI shows masked value (`••••••••`) unless operator enters a new key.
 
@@ -97,7 +98,7 @@ Admin Panel gains a **domesti-bot** section (staff only) with editable fields an
 
 - Derive host from `PUBLIC_DOMAIN` when set (scheme + host, no path), else from the incoming request host when an admin loads the form.
 - Port `8003` matches domesti-bot’s default LAN listen port (`--listen-all --listen-port 8003`).
-- Webhook paths match domesti-bot’s planned routes (`/v1/webhooks/presence`, `/v1/webhooks/participants`).
+- Default path `/v1/webhooks/presence` matches domesti-bot’s planned location-ingest route.
 
 Operators may override any field before or after pairing.
 
@@ -105,7 +106,7 @@ Operators may override any field before or after pairing.
 
 ## Pairing flow (domesti-bot → my-tracks)
 
-API key delivery is **not** typed by hand in my-tracks. **domesti-bot initiates pairing** during setup: it calls my-tracks and relays the shared secret plus the presence webhook URL my-tracks should use.
+API key delivery is **not** typed by hand in my-tracks. **domesti-bot initiates pairing** during setup: it calls my-tracks and relays the shared secret plus the participant location update URL my-tracks should use.
 
 ```mermaid
 sequenceDiagram
@@ -117,10 +118,10 @@ sequenceDiagram
   Op->>Bot: Pair / connect
   Bot->>Bot: Ensure DOMESTI_API_KEY exists
   Bot->>MT: POST /api/admin/domesti-bot/pair/ (admin auth)
-  Note over Bot,MT: api_key, presence_webhook_url
+  Note over Bot,MT: api_key, participant_location_update_url
   MT->>MT: Store DomestiBotConfig, enable relay
   MT-->>Bot: 200 paired
-  Note over MT,Bot: Later: each GPS fix → POST presence_webhook_url
+  Note over MT,Bot: Later: each GPS fix → POST participant_location_update_url
 ```
 
 ### my-tracks pairing endpoint (to implement)
@@ -137,15 +138,15 @@ Content-Type: application/json
 ```json
 {
   "api_key": "<domesti-bot DOMESTI_API_KEY>",
-  "presence_webhook_url": "http://192.168.1.10:8003/v1/webhooks/presence",
+  "participant_location_update_url": "http://192.168.1.10:8003/v1/webhooks/presence",
   "domesti_base_url": "http://192.168.1.10:8003"
 }
 ```
 
 | Field | Required | Notes |
 | --- | --- | --- |
-| `api_key` | yes | Stored encrypted; used on every presence relay |
-| `presence_webhook_url` | yes | Must be absolute HTTP(S) URL |
+| `api_key` | yes | Stored encrypted; used on every location relay |
+| `participant_location_update_url` | yes | Must be absolute HTTP(S) URL |
 | `domesti_base_url` | no | Updates reference field; defaults derived if omitted |
 
 **Responses:**
@@ -159,7 +160,7 @@ Content-Type: application/json
 ```json
 {
   "paired_at": "2026-06-09T23:00:00Z",
-  "presence_webhook_url": "http://192.168.1.10:8003/v1/webhooks/presence",
+  "participant_location_update_url": "http://192.168.1.10:8003/v1/webhooks/presence",
   "relay_enabled": true,
   "api_key_configured": true
 }
@@ -173,7 +174,7 @@ When the operator completes **My Tracks** settings in domesti-bot and clicks **P
 
 1. Reads its own `DOMESTI_API_KEY` and public base URL.
 2. Authenticates to my-tracks as the configured admin user.
-3. Calls `POST /api/admin/domesti-bot/pair/` with `api_key` and `presence_webhook_url`.
+3. Calls `POST /api/admin/domesti-bot/pair/` with `api_key` and `participant_location_update_url`.
 4. Optionally runs **participants** and **geofences** sync immediately (manual pull — unchanged).
 
 No my-tracks code pushes the API key to domesti-bot; direction is **domesti-bot → my-tracks** only.
@@ -185,21 +186,21 @@ No my-tracks code pushes the API key to domesti-bot; direction is **domesti-bot 
 **Section: domesti-bot integration**
 
 - **Status row:** Paired / not paired, last `paired_at`, relay on/off
-- **Editable fields:** base URL, presence webhook URL, participants webhook URL (informational), relay enabled toggle
+- **Editable fields:** base URL, participant location update URL, relay enabled toggle
 - **API key:** “configured” indicator; optional “clear key” / re-pair hint (re-pair from domesti-bot)
 - **Test relay** button (staff): POST a synthetic fix or ping domesti-bot debug endpoint if available
 - **Help text:** Participants and geofences are synced **from domesti-bot** (Automations hub → Sync from my-tracks), not pushed from my-tracks
 
-Do **not** add env vars as the primary configuration path. Existing `DOMESTI_BOT_*` env names may remain as **bootstrap overrides** for headless deploys, but Admin Panel is the operator source of truth.
+Do **not** add env vars as the primary configuration path. A `DOMESTI_BOT_PARTICIPANT_LOCATION_UPDATE_URL` bootstrap override may exist for headless deploys, but Admin Panel is the operator source of truth.
 
 ---
 
 ## End-to-end flow (after implementation)
 
-1. Operator pairs domesti-bot → my-tracks (API key + presence URL stored).
+1. Operator pairs domesti-bot → my-tracks (API key + participant location update URL stored).
 2. Operator runs **participant sync** and **geofence sync** manually in domesti-bot.
 3. Operator creates rules in domesti-bot (e.g. both inside + after sunset → lights + garage).
-4. Phone → MQTT → my-tracks saves location → POST presence webhook → domesti-bot evaluator runs.
+4. Phone → MQTT → my-tracks saves location → POST participant location update URL → domesti-bot evaluator runs.
 5. Global automations in my-tracks may still run in parallel until a later **sunset** PR removes them.
 
 ---
@@ -232,8 +233,8 @@ Do **not** add env vars as the primary configuration path. Existing `DOMESTI_BOT
 
 ## Success criteria
 
-1. Operator pairs from domesti-bot; my-tracks Admin Panel shows paired status and webhook URL.
-2. Each owned-device GPS fix triggers a presence POST when relay is enabled.
+1. Operator pairs from domesti-bot; my-tracks Admin Panel shows paired status and participant location update URL.
+2. Each owned-device GPS fix triggers a location POST when relay is enabled.
 3. domesti-bot `/v1/rules/status` shows live participant fixes after manual roster sync.
 4. Participant and geofence data flow only via **manual** domesti-bot sync pulls.
 5. Relay failures appear in logs only; map and ingest unaffected.
