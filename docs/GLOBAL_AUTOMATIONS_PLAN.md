@@ -1,7 +1,7 @@
 # Global Automations — Implementation Plan
 
-**Status**: Planning  
-**Last Updated**: April 28, 2026
+**Status**: Implemented (my-tracks); **sunset planned** after [domesti-bot](https://github.com/the-hcma/domesti-bot) cutover — see [DOMESTI_BOT_INTEGRATION_PLAN.md](./DOMESTI_BOT_INTEGRATION_PLAN.md) (P5).  
+**Last Updated**: June 10, 2026
 
 ---
 
@@ -25,6 +25,8 @@ Examples:
 | Server-side evaluation via latest known location | Phone-reported transition messages as the trigger |
 | State change fire-once (no spam) | Rate-limiting / debounce |
 | Re-evaluation on every new location from watched users | Push/WS notifications for rule firings |
+
+**Successor:** Multi-user geofence automations with richer actions (sunset, devices, etc.) move to **domesti-bot**, which receives live GPS fixes from my-tracks when paired. This feature remains active in my-tracks until P5 of [DOMESTI_BOT_INTEGRATION_PLAN.md](./DOMESTI_BOT_INTEGRATION_PLAN.md) removes the evaluator after production validation.
 
 ---
 
