@@ -119,16 +119,22 @@ class TestCommandViewSetSessionAuth(TestCase):
         self.client.force_authenticate(user=self.user)
 
     @patch("app.auth.get_command_api_key", return_value="command-secret")
-    def test_report_location_requires_csrf_when_api_key_configured(self, _mock_key: Any) -> None:
-        """Session-authenticated POST without CSRF is rejected (browser must send token)."""
+    def test_report_location_accepts_session_without_csrf(self, _mock_key: Any) -> None:
+        """Logged-in browser POST succeeds without X-CSRFToken (session cookie is enough)."""
+        mock_publisher = MagicMock()
+        mock_publisher.send_command = AsyncMock(return_value=True)
+
         client = Client(enforce_csrf_checks=True)
         client.force_login(self.user)
-        response = client.post(
-            "/api/commands/report-location/",
-            data='{"device_id": "phone"}',
-            content_type="application/json",
-        )
-        assert_that(response.status_code, equal_to(status.HTTP_403_FORBIDDEN))
+        with patch.object(CommandViewSet, "_get_publisher", return_value=mock_publisher):
+            response = client.post(
+                "/api/commands/report-location/",
+                data='{"device_id": "phone"}',
+                content_type="application/json",
+            )
+
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        assert_that(response.json()["device_id"], equal_to("browser_mqtt/phone"))
 
     @patch("app.auth.get_command_api_key", return_value="command-secret")
     def test_report_location_accepts_session_with_csrf(self, _mock_key: Any) -> None:

@@ -22,6 +22,41 @@ def user_ws_group(user_id: int) -> str:
     return f"user_{user_id}"
 
 
+def device_display_label(device: Device) -> str:
+    """Human-readable owner/device label matching LocationSerializer device_name."""
+    trimmed_name = (device.name or "").strip()
+    label = trimmed_name if trimmed_name and not trimmed_name.startswith("Device ") else device.device_id
+    if device.owner_id and device.owner:
+        return f"{device.owner.username}/{label}"
+    return label
+
+
+def describe_ws_groups(groups: list[str]) -> str:
+    """Turn channel-layer group names into readable audience labels."""
+    from django.contrib.auth.models import User
+
+    user_ids: list[int] = []
+    labels: list[str] = []
+    include_staff = False
+    for group in groups:
+        if group == STAFF_WS_GROUP:
+            include_staff = True
+        elif group.startswith("user_"):
+            user_ids.append(int(group.removeprefix("user_")))
+        else:
+            labels.append(group)
+
+    if user_ids:
+        usernames = {user.id: user.username for user in User.objects.filter(id__in=user_ids).only("id", "username")}
+        for user_id in sorted(user_ids):
+            labels.append(usernames.get(user_id, f"user#{user_id}"))
+
+    if include_staff:
+        labels.append("staff")
+
+    return ", ".join(labels)
+
+
 def device_location_ws_groups(device: Device) -> list[str]:
     """Return channel-layer group names that should receive updates for a device."""
     from app.models import DeviceShare
@@ -33,6 +68,11 @@ def device_location_ws_groups(device: Device) -> list[str]:
     for shared_with_id in shared_with_ids:
         groups.add(user_ws_group(shared_with_id))
     return sorted(groups)
+
+
+def format_broadcast_log(device: Device, groups: list[str]) -> tuple[str, str]:
+    """Return (device_label, audience) for structured broadcast logging."""
+    return device_display_label(device), describe_ws_groups(groups)
 
 
 async def broadcast_to_groups(
@@ -64,12 +104,13 @@ async def broadcast_device_event(
 
     # thread_sensitive=False: callers (e.g. MQTT plugin) run outside Django/ASGI request lifecycle.
     groups = await sync_to_async(device_location_ws_groups, thread_sensitive=False)(device)
+    device_label, audience = await sync_to_async(format_broadcast_log, thread_sensitive=False)(device, groups)
     await broadcast_to_groups(channel_layer, groups, message_type=message_type, data=data)
     logger.info(
-        "[ws] Broadcast %s for device %s to groups %s",
+        "[ws] Broadcast %s for %s to %s",
         message_type,
-        device.device_id,
-        groups,
+        device_label,
+        audience,
     )
 
 

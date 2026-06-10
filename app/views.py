@@ -20,14 +20,13 @@ from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status, viewsets
-from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from .apps import get_mqtt_broker, is_mqtt_degraded
-from .auth import CommandApiKeyAuthentication
+from .auth import CommandApiKeyAuthentication, CsrfExemptSessionAuthentication
 from .models import (
     CertificateAuthority,
     ClientCertificate,
@@ -417,10 +416,10 @@ class CommandViewSet(viewsets.ViewSet):
     All endpoints require a device_id parameter in the request body.
     """
 
-    # SessionAuthentication first so browser users (CSRF + session cookie)
-    # are accepted; CommandApiKeyAuthentication handles automated clients
-    # that supply an Authorization: Bearer <key> header.
-    authentication_classes = [SessionAuthentication, CommandApiKeyAuthentication]
+    # CsrfExemptSessionAuthentication accepts logged-in browser sessions without
+    # requiring X-CSRFToken on JSON fetch() calls; CommandApiKeyAuthentication
+    # handles automated clients that supply Authorization: Bearer <key>.
+    authentication_classes = [CsrfExemptSessionAuthentication, CommandApiKeyAuthentication]
     # Require an authenticated identity (logged-in session user or valid API key).
     permission_classes = [IsAuthenticated]
 
