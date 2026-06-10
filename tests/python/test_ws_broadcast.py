@@ -4,10 +4,16 @@ from typing import Any
 
 import pytest
 from django.contrib.auth.models import User
-from hamcrest import assert_that, has_item, not_
+from hamcrest import assert_that, equal_to, has_item, not_
 
 from app.models import Device, DeviceShare, FriendRequest
-from app.ws_broadcast import STAFF_WS_GROUP, device_location_ws_groups, user_ws_group
+from app.ws_broadcast import (
+    STAFF_WS_GROUP,
+    describe_ws_groups,
+    device_display_label,
+    device_location_ws_groups,
+    user_ws_group,
+)
 
 
 @pytest.fixture
@@ -53,6 +59,15 @@ class TestDeviceLocationWsGroups:
     ) -> None:
         groups = device_location_ws_groups(bob_device)
         assert_that(groups, not_(has_item(user_ws_group(alice.id))))
+
+    def test_device_display_label_uses_owner_and_name(self, bob: User, bob_device: Device) -> None:
+        assert_that(device_display_label(bob_device), equal_to("bob/Bob Phone"))
+
+    def test_describe_ws_groups_uses_usernames(
+        self, alice: User, bob: User, bob_device: Device, bob_shares_with_alice: DeviceShare
+    ) -> None:
+        groups = device_location_ws_groups(bob_device)
+        assert_that(describe_ws_groups(groups), equal_to("alice, bob, staff"))
 
 
 @pytest.mark.django_db(transaction=True)
