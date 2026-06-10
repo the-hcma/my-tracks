@@ -185,7 +185,12 @@ def test_admin_panel_integrations_tab(django_admin_client: Client, admin_client:
     assert_that(content, contains_string('data-tab="integrations"'))
     assert_that(content, contains_string("Integrations"))
     assert_that(content, contains_string('class="pairing-badge paired">Paired</span>'))
-    assert_that(content, contains_string('href="https://github.com/the-hcma/domesti-bot"'))
+    assert_that(
+        content,
+        contains_string(
+            'href="http://192.168.1.10:8003" target="_blank" rel="noopener noreferrer">domesti-bot</a> again.'
+        ),
+    )
     assert_that(content, contains_string("Test location update webhook"))
     assert_that(content, contains_string("domesti-bot instance"))
     assert_that(content, contains_string("http://192.168.1.10:8003"))
