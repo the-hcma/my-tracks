@@ -12,7 +12,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from app.models import Device, Waypoint
+from app.models import Device, Location, Waypoint
 
 _SOURCE = "my-tracks"
 
@@ -22,6 +22,20 @@ def slugify_waypoint_id(raw: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", raw.strip().lower())
     slug = slug.strip("-")
     return slug[:64] if slug else "waypoint"
+
+
+def latest_location_for_device(device: Device) -> dict[str, Any] | None:
+    """Return the newest location fix for ``device``, if any."""
+    location = Location.objects.filter(device=device).order_by("-timestamp").first()
+    if location is None:
+        return None
+    accuracy_raw = location.accuracy
+    return {
+        "lat": float(cast(Decimal, location.latitude)),
+        "lon": float(cast(Decimal, location.longitude)),
+        "accuracy_m": int(accuracy_raw) if accuracy_raw is not None else None,
+        "timestamp": location.timestamp.isoformat(),
+    }
 
 
 class AdminUsersWithDevicesExportView(APIView):
@@ -44,6 +58,7 @@ class AdminUsersWithDevicesExportView(APIView):
                     "display_name": display_name,
                     "device_name": device_name,
                     "enabled": True,
+                    "latest_location": latest_location_for_device(device),
                 }
             )
         return Response({"source": _SOURCE, "users_with_devices": rows})
