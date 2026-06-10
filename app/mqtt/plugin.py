@@ -176,6 +176,9 @@ def save_location_to_db(location_data: dict[str, Any]) -> dict[str, Any] | None:
         # Evaluate global automations for the device owner (location-trigger only)
         if device.owner is not None:
             _evaluate_global_automations_for_user(device.owner)
+            from app.domesti_relay import relay_location_to_domesti_bot
+
+            relay_location_to_domesti_bot(location)
 
         return result
 
