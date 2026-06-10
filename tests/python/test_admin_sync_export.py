@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+from decimal import Decimal
 from typing import Any
 
 import pytest
 from django.contrib.auth.models import User
-from hamcrest import assert_that, equal_to, has_length
+from django.utils import timezone
+from hamcrest import assert_that, equal_to, has_length, is_not, none
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from app.models import Device, Waypoint
+from app.models import Device, Location, Waypoint
 
 
 @pytest.fixture
@@ -59,6 +62,33 @@ def test_users_with_devices_export_lists_owner_devices(
     assert_that(body["users_with_devices"], has_length(1))
     assert_that(body["users_with_devices"][0]["username"], equal_to("henrique"))
     assert_that(body["users_with_devices"][0]["device_name"], equal_to("Henrique's iPhone"))
+    assert_that(body["users_with_devices"][0]["latest_location"], none())
+
+
+def test_users_with_devices_export_includes_latest_location(
+    admin_client: APIClient,
+    regular_user: User,
+) -> None:
+    device = Device.objects.create(
+        owner=regular_user,
+        device_id="iphone",
+        name="Henrique's iPhone",
+        mqtt_user=regular_user.username,
+    )
+    Location.objects.create(
+        device=device,
+        latitude=Decimal("41.194072"),
+        longitude=Decimal("-73.8883254"),
+        timestamp=timezone.now() - timedelta(minutes=2),
+        accuracy=12,
+    )
+    response = admin_client.get("/api/admin/users-with-devices/")
+    assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+    location = response.json()["users_with_devices"][0]["latest_location"]
+    assert_that(location, is_not(none()))
+    assert location is not None
+    assert_that(location["lat"], equal_to(41.194072))
+    assert_that(location["accuracy_m"], equal_to(12))
 
 
 def test_waypoints_export_lists_active_waypoints(
