@@ -4,8 +4,8 @@ on:
   # Run on every PR event and on direct pushes to feature branches.
   # The push trigger catches cases where a branch is restacked without
   # generating a new PR synchronize event (e.g. `gt sync` when the remote
-  # already has the rebased commit). The concurrency group below deduplicates
-  # simultaneous push + pull_request runs for the same commit.
+  # already has the rebased commit). The guard job skips push CI when a
+  # pull_request workflow is already queued for the same SHA (see below).
   pull_request:
     types: [opened, reopened, synchronize]
     branches-ignore:
@@ -20,11 +20,11 @@ on:
     - cron: '0 7 * * 4'
   workflow_dispatch:
 
-# Cancel any in-progress run for the same branch/PR when a newer one starts.
-# For pull_request events the group is per-PR; for push events it is per-branch.
-# This also deduplicates simultaneous push + pull_request runs for the same SHA.
+# Cancel in-progress reruns within the same event type only. push and pull_request
+# must not share a group: cancel-in-progress would leave CANCELLED required checks
+# on the PR commit and block merge even when pull_request CI passed.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
@@ -55,6 +55,7 @@ jobs:
         env:
           HEAD_REF: ${{ github.head_ref || github.ref_name }}
           PR_STATE: ${{ steps.pr-state.outputs.state }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           # Skip merge-queue staging branches — the merge queue validates the
           # integrated state itself; CI there duplicates work.
@@ -63,9 +64,34 @@ jobs:
           # trigger a redundant CI run on an already-validated diff.
           if [[ "$HEAD_REF" == gtmq_merge_* ]] || [[ "$PR_STATE" == "MERGED" ]]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+
+          # Skip push CI when pull_request CI is already queued for this SHA.
+          # Both events fire on every PR-branch push; only pull_request checks
+          # should run so we avoid duplicate work without cross-cancelling runs.
+          # If no pull_request run appears (e.g. gt sync restack), push CI runs.
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            BRANCH="${GITHUB_REF#refs/heads/}"
+            PR_COUNT=$(gh pr list --repo "$GITHUB_REPOSITORY" \
+              --head "${GITHUB_REPOSITORY_OWNER}:${BRANCH}" --state open \
+              --json number --jq 'length')
+            if [[ "$PR_COUNT" -gt 0 ]]; then
+              for _ in 1 2 3 4 5 6; do
+                RUNS=$(gh api \
+                  "/repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${GITHUB_SHA}&event=pull_request&per_page=1" \
+                  --jq '.total_count')
+                if [[ "$RUNS" -gt 0 ]]; then
+                  echo "skip=true" >> "$GITHUB_OUTPUT"
+                  echo "Push CI skipped: pull_request workflow covers ${GITHUB_SHA}"
+                  exit 0
+                fi
+                sleep 10
+              done
+            fi
+          fi
+
+          echo "skip=false" >> "$GITHUB_OUTPUT"
 
   frontend:
     name: Frontend (TypeScript)
