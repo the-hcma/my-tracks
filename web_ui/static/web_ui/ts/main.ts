@@ -7,6 +7,18 @@
 import * as L from 'leaflet';
 import noUiSlider, { type API as NoUiSliderAPI } from 'nouislider';
 import 'nouislider/dist/nouislider.css';
+import {
+    buildBulkLocationsUrl,
+    buildIncrementalLocationsUrl,
+    buildLocationDetailUrl,
+    canRunIncrementalRefresh,
+    liveActivityCountLabel,
+    mergeHintLocationIds,
+    sortLocationsOldestFirst,
+    updateCursorFromLocations,
+    type LiveActivityLoadKind,
+    type LiveActivityRefreshRequest,
+} from './liveActivity';
 import { getPreferredTheme, setTheme, toggleTheme } from './theme';
 import { dateAndMinutesToTimestamps, extractResultsList, formatLatLonCoordinate, formatLatLonPair, formatMinutesAsTime, getTodayDateString, selectStablePaletteColor } from './utils';
 
@@ -233,14 +245,13 @@ interface WebSocketMessage {
 // ============================================================================
 
 /** Last bulk history the user asked for; tab focus reload uses this. */
-type LiveActivityLoadKind = 'hour' | '30m' | 'latest';
-type LiveActivityRefreshRequest = LiveActivityLoadKind | 'incremental';
 let liveActivityLoadKind: LiveActivityLoadKind = 'hour';
-/** Bumps when a bulk reload starts so stale incremental fetches are ignored. */
-let liveActivityRefreshGeneration = 0;
 let liveActivityIncrementalRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+let liveActivityRefreshInFlight: Promise<void> | null = null;
+let pendingHintLocationIds: number[] = [];
 
 let lastTimestamp: number | null = null;
+let lastSeenLocationId: number | null = null;
 let eventCount = 0;
 let map: L.Map | null = null;
 let deviceMarkers: Record<string, L.CircleMarker> = {};
@@ -2451,15 +2462,17 @@ function displayHistoricWaypoints(locations: TrackLocation[], showDeviceNames = 
     }
 }
 
-function liveActivityCountLabel(kind: LiveActivityLoadKind): string {
-    switch (kind) {
-        case '30m':
-            return '(last 30min)';
-        case 'latest':
-            return '(latest)';
-        default:
-            return '(last hour)';
-    }
+function liveActivityCursor(): { lastTimestamp: number | null; lastSeenLocationId: number | null } {
+    return { lastTimestamp, lastSeenLocationId };
+}
+
+function applyLiveActivityCursor(cursor: { lastTimestamp: number | null; lastSeenLocationId: number | null }): void {
+    lastTimestamp = cursor.lastTimestamp;
+    lastSeenLocationId = cursor.lastSeenLocationId;
+}
+
+function noteLocationsInCursor(locations: TrackLocation[]): void {
+    applyLiveActivityCursor(updateCursorFromLocations(liveActivityCursor(), locations));
 }
 
 /** Build one live-activity log row (caller inserts into the container). */
@@ -2530,9 +2543,7 @@ function replaceLiveActivityFromLocations(locations: TrackLocation[], countLabel
         logCount.textContent = eventCount + ' event' + (eventCount !== 1 ? 's' : '') + ' ' + countLabel;
     }
 
-    if (sorted.length > 0) {
-        lastTimestamp = locationTimestampUnix(sorted[0]) || null;
-    }
+    noteLocationsInCursor(sorted);
 }
 
 /** Append new locations from the API (incremental reload only). */
@@ -2541,15 +2552,11 @@ function appendLiveActivityLocations(locations: TrackLocation[]): void {
         return;
     }
 
-    const sorted = [...locations].sort((a, b) => locationTimestampUnix(a) - locationTimestampUnix(b));
-    for (const loc of sorted) {
+    for (const loc of sortLocationsOldestFirst(locations)) {
         addLogEntry(loc, true);
         addLiveLocationToTrail(loc);
-        const ts = locationTimestampUnix(loc);
-        if (ts > (lastTimestamp || 0)) {
-            lastTimestamp = ts;
-        }
     }
+    noteLocationsInCursor(locations);
 }
 
 function prepareBulkLiveActivityReload(loadingMessage: string): void {
@@ -2566,10 +2573,11 @@ function prepareBulkLiveActivityReload(loadingMessage: string): void {
     needsFitBounds = true;
 }
 
-function scheduleLiveActivityIncrementalRefresh(): void {
+function scheduleLiveActivityIncrementalRefresh(hintLocationId?: number): void {
     if (!isLiveMode || skipHistoryFetch) {
         return;
     }
+    pendingHintLocationIds = mergeHintLocationIds(pendingHintLocationIds, hintLocationId);
     if (liveActivityIncrementalRefreshTimer !== null) {
         clearTimeout(liveActivityIncrementalRefreshTimer);
     }
@@ -2579,16 +2587,41 @@ function scheduleLiveActivityIncrementalRefresh(): void {
     }, 100);
 }
 
-/**
- * Single HTTP entry point for populating and refreshing live activity.
- * WebSocket location messages schedule incremental refresh here instead of writing the log directly.
- */
-async function refreshLiveActivity(request: LiveActivityRefreshRequest = liveActivityLoadKind): Promise<void> {
+async function fetchLocationById(locationId: number): Promise<TrackLocation | null> {
+    try {
+        const response = await fetch(buildLocationDetailUrl(locationId));
+        if (!response.ok) {
+            return null;
+        }
+        return (await response.json()) as TrackLocation;
+    } catch {
+        return null;
+    }
+}
+
+async function applyPendingHintLocations(): Promise<void> {
+    if (pendingHintLocationIds.length === 0) {
+        return;
+    }
+    const ids = [...pendingHintLocationIds];
+    pendingHintLocationIds = [];
+    const locations: TrackLocation[] = [];
+    for (const id of ids) {
+        const loc = await fetchLocationById(id);
+        if (loc) {
+            locations.push(loc);
+        }
+    }
+    if (locations.length > 0) {
+        appendLiveActivityLocations(locations);
+    }
+}
+
+async function runLiveActivityRefresh(request: LiveActivityRefreshRequest): Promise<void> {
     if (!isLiveMode || skipHistoryFetch) {
         return;
     }
 
-    const generation = ++liveActivityRefreshGeneration;
     if (request !== 'incremental') {
         if (liveActivityIncrementalRefreshTimer !== null) {
             clearTimeout(liveActivityIncrementalRefreshTimer);
@@ -2598,25 +2631,28 @@ async function refreshLiveActivity(request: LiveActivityRefreshRequest = liveAct
     }
 
     if (request === 'incremental') {
-        if (!lastTimestamp) {
-            await refreshLiveActivity(liveActivityLoadKind);
+        await applyPendingHintLocations();
+
+        if (!canRunIncrementalRefresh(liveActivityCursor())) {
+            await runLiveActivityRefresh(liveActivityLoadKind);
+            return;
+        }
+
+        const url = buildIncrementalLocationsUrl(liveActivityCursor(), selectedDevice || undefined);
+        if (!url) {
             return;
         }
 
         try {
-            const response = await fetch(
-                `/api/locations/?start_time=${lastTimestamp + 1}&ordering=timestamp&limit=100`,
-            );
-            if (!response.ok || generation !== liveActivityRefreshGeneration) {
+            const response = await fetch(url);
+            if (!response.ok) {
                 return;
             }
-
             const data: LocationsApiResponse = await response.json();
             const locations = data.results || [];
             if (locations.length === 0) {
                 return;
             }
-
             console.log(`📍 refreshLiveActivity(incremental) applying ${locations.length} location(s)`);
             appendLiveActivityLocations(locations);
         } catch (error) {
@@ -2626,32 +2662,23 @@ async function refreshLiveActivity(request: LiveActivityRefreshRequest = liveAct
     }
 
     const countLabel = liveActivityCountLabel(request);
-    let url: string;
     let emptyMessage: string;
     let failureMessage: string;
 
     if (request === '30m') {
         prepareBulkLiveActivityReload('Loading last 30 minutes...');
-        const thirtyMinutesAgo = Math.floor(Date.now() / 1000) - 1800;
-        url = `/api/locations/?start_time=${thirtyMinutesAgo}&ordering=-timestamp&resolution=${trailResolution}`;
         emptyMessage = 'No data in last 30 minutes. Waiting for updates...';
         failureMessage = 'Failed to load data. Waiting for updates...';
     } else if (request === 'latest') {
         prepareBulkLiveActivityReload('Loading latest locations...');
-        url = '/api/locations/?ordering=-timestamp&limit=200';
         emptyMessage = 'No location data yet. Waiting for updates...';
         failureMessage = 'Failed to load data. Waiting for updates...';
     } else {
-        const oneHourAgo = Math.floor(Date.now() / 1000) - 3600;
-        url = `/api/locations/?start_time=${oneHourAgo}&ordering=-timestamp&resolution=${trailResolution}`;
         emptyMessage = '';
         failureMessage = '';
     }
 
-    if (selectedDevice) {
-        url += `&device=${encodeURIComponent(selectedDevice)}`;
-    }
-
+    const url = buildBulkLocationsUrl(request, Date.now() / 1000, trailResolution, selectedDevice || undefined);
     console.log(`📍 refreshLiveActivity(${request}) fetching: ${url}`);
 
     try {
@@ -2664,10 +2691,6 @@ async function refreshLiveActivity(request: LiveActivityRefreshRequest = liveAct
                     container.innerHTML = `<p id="loading">${failureMessage}</p>`;
                 }
             }
-            return;
-        }
-
-        if (generation !== liveActivityRefreshGeneration) {
             return;
         }
 
@@ -2699,6 +2722,20 @@ async function refreshLiveActivity(request: LiveActivityRefreshRequest = liveAct
             }
         }
     }
+}
+
+/**
+ * Single HTTP entry point for populating and refreshing live activity.
+ * WebSocket location messages schedule incremental refresh here instead of writing the log directly.
+ */
+async function refreshLiveActivity(request: LiveActivityRefreshRequest = liveActivityLoadKind): Promise<void> {
+    if (liveActivityRefreshInFlight) {
+        await liveActivityRefreshInFlight;
+    }
+    liveActivityRefreshInFlight = runLiveActivityRefresh(request).finally(() => {
+        liveActivityRefreshInFlight = null;
+    });
+    await liveActivityRefreshInFlight;
 }
 
 /**
@@ -2775,6 +2812,7 @@ function resetEvents(): void {
 
     // Reset timestamp so new updates start fresh (don't fetch history)
     lastTimestamp = Date.now() / 1000;
+    lastSeenLocationId = null;
 
     // Skip history fetch - only show new incoming data after reset
     skipHistoryFetch = true;
@@ -2920,6 +2958,7 @@ function switchToLiveMode(): void {
     clearActivitySection('Loading last hour of activity...');
     eventCount = 0;
     lastTimestamp = null; // Reset to allow fresh load
+    lastSeenLocationId = null;
 
     // Don't clear device selection - respect user's filter choice
     // Clear trails (will be redrawn by refreshLiveActivity)
@@ -3159,7 +3198,7 @@ function connectWebSocket(): void {
                     }
 
                     // Normal live mode: WebSocket is a notification; HTTP refresh owns the log.
-                    scheduleLiveActivityIncrementalRefresh();
+                    scheduleLiveActivityIncrementalRefresh(location.id);
                 } else if (message.type === 'location' && message.data) {
                     // Not in live mode, but still update the device selector
                     // so new devices appear without needing to switch modes
@@ -3501,6 +3540,7 @@ function initEventListeners(): void {
                 clearActivitySection('Loading last hour of activity...');
                 eventCount = 0;
                 lastTimestamp = null;
+                lastSeenLocationId = null;
                 void refreshLiveActivity('hour');
             } else {
                 fetchAndDisplayTrail();
@@ -3798,7 +3838,11 @@ function init(): void {
     // Restore UI state from localStorage
     restoreUIState();
 
-    // Start WebSocket connection for real-time updates (welcome triggers live activity refresh)
+    if (isLiveMode && !skipHistoryFetch) {
+        void refreshLiveActivity('hour');
+    }
+
+    // Start WebSocket connection for real-time updates (welcome triggers incremental refresh)
     connectWebSocket();
     startWebSocketWatchdog();
 

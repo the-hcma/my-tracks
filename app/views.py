@@ -214,6 +214,7 @@ class LocationViewSet(viewsets.ModelViewSet):
         Query parameters:
         - device: Filter by device ID
         - start_time: Unix timestamp (takes precedence over start_date)
+        - since_id: Return locations with id greater than this value (incremental live refresh)
         - start_date: ISO 8601 datetime (e.g., 2024-01-01T00:00:00Z)
         - end_time: Unix timestamp (takes precedence over end_date)
         - end_date: ISO 8601 datetime
@@ -257,6 +258,20 @@ class LocationViewSet(viewsets.ModelViewSet):
                 return Response(
                     {"error": f"Expected valid device ID, got '{device_param}' which does not exist"},
                     status=status.HTTP_404_NOT_FOUND,
+                )
+
+        since_id = request.query_params.get("since_id")
+        if since_id:
+            try:
+                queryset = queryset.filter(id__gt=int(str(since_id)))
+                ordering = request.query_params.get("ordering", "id")
+                if ordering not in {"id", "-id", "timestamp", "-timestamp"}:
+                    ordering = "id"
+                queryset = queryset.order_by(ordering)
+            except ValueError as e:
+                return Response(
+                    {"error": f"Expected integer for since_id, got invalid value: {e}"},
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
 
         # Filter by date range
