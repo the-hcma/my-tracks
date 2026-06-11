@@ -234,7 +234,11 @@ interface WebSocketMessage {
 
 /** Last bulk history the user asked for; tab focus reload uses this. */
 type LiveActivityLoadKind = 'hour' | '30m' | 'latest';
+type LiveActivityRefreshRequest = LiveActivityLoadKind | 'incremental';
 let liveActivityLoadKind: LiveActivityLoadKind = 'hour';
+/** Bumps when a bulk reload starts so stale incremental fetches are ignored. */
+let liveActivityRefreshGeneration = 0;
+let liveActivityIncrementalRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
 let lastTimestamp: number | null = null;
 let eventCount = 0;
@@ -962,8 +966,8 @@ function toggleLastKnownOnly(): void {
  *
  * - Runs only in live mode (historic mode operates on a fixed trail).
  * - Honors the active device filter (selectedDevice) when set.
- * - Idempotent: skips devices that already have a row, and addLogEntry
- *   dedupes by location id when called concurrently.
+ * - Idempotent: skips devices that already have a row; missing fixes are
+ *   ingested via appendLiveActivityLocations (HTTP-sourced incremental refresh).
  */
 async function ensureLastKnownLocationsLoaded(): Promise<void> {
     if (!isLiveMode) {
@@ -1021,11 +1025,10 @@ async function ensureLastKnownLocationsLoaded(): Promise<void> {
             }),
         );
 
-        latestPerDevice.forEach((location) => {
-            if (location) {
-                addLogEntry(location, /* skipScroll */ true);
-            }
-        });
+        const missingLocations = latestPerDevice.filter((location): location is TrackLocation => location !== null);
+        if (missingLocations.length > 0) {
+            appendLiveActivityLocations(missingLocations);
+        }
 
         applyLocationSelection();
     } catch (error) {
@@ -2448,27 +2451,19 @@ function displayHistoricWaypoints(locations: TrackLocation[], showDeviceNames = 
     }
 }
 
-/**
- * Add a log entry for a new location.
- * @param location - Location data
- * @param skipScroll - Whether to skip auto-scrolling
- */
-function addLogEntry(location: TrackLocation, skipScroll = false): void {
-    const container = document.getElementById('log-container');
-    if (!container) return;
-
-    const loading = document.getElementById('loading');
-    if (loading) loading.remove();
-
-    console.log('Adding log entry:', location);
-
-    if (location.id !== undefined && location.id !== null) {
-        const existing = container.querySelector(`[data-location-id="${String(location.id)}"]`);
-        if (existing) {
-            return;
-        }
+function liveActivityCountLabel(kind: LiveActivityLoadKind): string {
+    switch (kind) {
+        case '30m':
+            return '(last 30min)';
+        case 'latest':
+            return '(latest)';
+        default:
+            return '(last hour)';
     }
+}
 
+/** Build one live-activity log row (caller inserts into the container). */
+function buildLogEntryElement(location: TrackLocation): HTMLElement {
     const entry = document.createElement('div');
     entry.className = 'log-entry';
     if (location.id !== undefined && location.id !== null) {
@@ -2484,8 +2479,6 @@ function addLogEntry(location: TrackLocation, skipScroll = false): void {
     const vel = location.velocity || 0;
     const batt = location.battery_level || 'N/A';
     const conn = location.connection_type === 'w' ? 'WiFi' : location.connection_type === 'm' ? 'Mobile' : 'N/A';
-    // For MQTT locations the IP is the nginx proxy container address, not the device.
-    // Show "MQTT" as the source label instead to avoid confusion.
     const ipDisplay = location.received_via === 'mqtt' ? 'MQTT' : (location.ip_address || 'N/A');
 
     const deviceColor = getDeviceColor(device);
@@ -2495,6 +2488,239 @@ function addLogEntry(location: TrackLocation, skipScroll = false): void {
 
     attachLocationSelectionToEntry(entry, location);
     decorateActivityLogEntryForAccuracy(entry, location);
+    return entry;
+}
+
+/** Replace the entire live activity log from an API result (bulk reload only). */
+function replaceLiveActivityFromLocations(locations: TrackLocation[], countLabel: string): void {
+    const container = document.getElementById('log-container');
+    if (!container) {
+        return;
+    }
+
+    const loading = document.getElementById('loading');
+    if (loading) {
+        loading.remove();
+    }
+
+    container.innerHTML = '';
+
+    const sorted = [...locations].sort(compareLocationsByTimestampDesc);
+    const locationsByDevice: Record<string, TrackLocation[]> = {};
+    const markerUpdatedForDevice = new Set<string>();
+
+    sorted.forEach((loc) => {
+        const device = loc.device_name || 'Unknown';
+        if (!locationsByDevice[device]) {
+            locationsByDevice[device] = [];
+        }
+        locationsByDevice[device].push(loc);
+        container.appendChild(buildLogEntryElement(loc));
+        if (!markerUpdatedForDevice.has(device)) {
+            updateDeviceMarker(loc);
+            markerUpdatedForDevice.add(device);
+        }
+    });
+
+    drawLiveTrails(locationsByDevice);
+
+    eventCount = sorted.length;
+    const logCount = document.getElementById('log-count');
+    if (logCount) {
+        logCount.textContent = eventCount + ' event' + (eventCount !== 1 ? 's' : '') + ' ' + countLabel;
+    }
+
+    if (sorted.length > 0) {
+        lastTimestamp = locationTimestampUnix(sorted[0]) || null;
+    }
+}
+
+/** Append new locations from the API (incremental reload only). */
+function appendLiveActivityLocations(locations: TrackLocation[]): void {
+    if (locations.length === 0) {
+        return;
+    }
+
+    const sorted = [...locations].sort((a, b) => locationTimestampUnix(a) - locationTimestampUnix(b));
+    for (const loc of sorted) {
+        addLogEntry(loc, true);
+        addLiveLocationToTrail(loc);
+        const ts = locationTimestampUnix(loc);
+        if (ts > (lastTimestamp || 0)) {
+            lastTimestamp = ts;
+        }
+    }
+}
+
+function prepareBulkLiveActivityReload(loadingMessage: string): void {
+    const container = document.getElementById('log-container');
+    if (container) {
+        container.innerHTML = `<p id="loading">${loadingMessage}</p>`;
+    }
+    eventCount = 0;
+    removeAllDeviceMarkers();
+    removeAllTrails();
+    selectedLocationKey = null;
+    incrementalLocations = {};
+    skipHistoryFetch = false;
+    needsFitBounds = true;
+}
+
+function scheduleLiveActivityIncrementalRefresh(): void {
+    if (!isLiveMode || skipHistoryFetch) {
+        return;
+    }
+    if (liveActivityIncrementalRefreshTimer !== null) {
+        clearTimeout(liveActivityIncrementalRefreshTimer);
+    }
+    liveActivityIncrementalRefreshTimer = setTimeout(() => {
+        liveActivityIncrementalRefreshTimer = null;
+        void refreshLiveActivity('incremental');
+    }, 100);
+}
+
+/**
+ * Single HTTP entry point for populating and refreshing live activity.
+ * WebSocket location messages schedule incremental refresh here instead of writing the log directly.
+ */
+async function refreshLiveActivity(request: LiveActivityRefreshRequest = liveActivityLoadKind): Promise<void> {
+    if (!isLiveMode || skipHistoryFetch) {
+        return;
+    }
+
+    const generation = ++liveActivityRefreshGeneration;
+    if (request !== 'incremental') {
+        if (liveActivityIncrementalRefreshTimer !== null) {
+            clearTimeout(liveActivityIncrementalRefreshTimer);
+            liveActivityIncrementalRefreshTimer = null;
+        }
+        liveActivityLoadKind = request;
+    }
+
+    if (request === 'incremental') {
+        if (!lastTimestamp) {
+            await refreshLiveActivity(liveActivityLoadKind);
+            return;
+        }
+
+        try {
+            const response = await fetch(
+                `/api/locations/?start_time=${lastTimestamp + 1}&ordering=timestamp&limit=100`,
+            );
+            if (!response.ok || generation !== liveActivityRefreshGeneration) {
+                return;
+            }
+
+            const data: LocationsApiResponse = await response.json();
+            const locations = data.results || [];
+            if (locations.length === 0) {
+                return;
+            }
+
+            console.log(`📍 refreshLiveActivity(incremental) applying ${locations.length} location(s)`);
+            appendLiveActivityLocations(locations);
+        } catch (error) {
+            console.error('Error refreshing live activity:', error);
+        }
+        return;
+    }
+
+    const countLabel = liveActivityCountLabel(request);
+    let url: string;
+    let emptyMessage: string;
+    let failureMessage: string;
+
+    if (request === '30m') {
+        prepareBulkLiveActivityReload('Loading last 30 minutes...');
+        const thirtyMinutesAgo = Math.floor(Date.now() / 1000) - 1800;
+        url = `/api/locations/?start_time=${thirtyMinutesAgo}&ordering=-timestamp&resolution=${trailResolution}`;
+        emptyMessage = 'No data in last 30 minutes. Waiting for updates...';
+        failureMessage = 'Failed to load data. Waiting for updates...';
+    } else if (request === 'latest') {
+        prepareBulkLiveActivityReload('Loading latest locations...');
+        url = '/api/locations/?ordering=-timestamp&limit=200';
+        emptyMessage = 'No location data yet. Waiting for updates...';
+        failureMessage = 'Failed to load data. Waiting for updates...';
+    } else {
+        const oneHourAgo = Math.floor(Date.now() / 1000) - 3600;
+        url = `/api/locations/?start_time=${oneHourAgo}&ordering=-timestamp&resolution=${trailResolution}`;
+        emptyMessage = '';
+        failureMessage = '';
+    }
+
+    if (selectedDevice) {
+        url += `&device=${encodeURIComponent(selectedDevice)}`;
+    }
+
+    console.log(`📍 refreshLiveActivity(${request}) fetching: ${url}`);
+
+    try {
+        const response = await fetch(url);
+        if (!response.ok) {
+            console.log(`📍 refreshLiveActivity(${request}) failed: ${response.status}`);
+            if (failureMessage) {
+                const container = document.getElementById('log-container');
+                if (container) {
+                    container.innerHTML = `<p id="loading">${failureMessage}</p>`;
+                }
+            }
+            return;
+        }
+
+        if (generation !== liveActivityRefreshGeneration) {
+            return;
+        }
+
+        const data: LocationsApiResponse = await response.json();
+        const locations = data.results || [];
+
+        if (locations.length === 0) {
+            if (request === 'hour') {
+                return;
+            }
+            const container = document.getElementById('log-container');
+            if (container) {
+                container.innerHTML = `<p id="loading">${emptyMessage}</p>`;
+            }
+            const logCount = document.getElementById('log-count');
+            if (logCount) {
+                logCount.textContent = `0 events ${countLabel}`;
+            }
+            return;
+        }
+
+        replaceLiveActivityFromLocations(locations, countLabel);
+    } catch (error) {
+        console.error(`Error in refreshLiveActivity(${request}):`, error);
+        if (failureMessage) {
+            const container = document.getElementById('log-container');
+            if (container) {
+                container.innerHTML = '<p id="loading">Error loading data. Waiting for updates...</p>';
+            }
+        }
+    }
+}
+
+/**
+ * Add a log entry for a new location (incremental ingest and post-reset WebSocket only).
+ * @param location - Location data
+ * @param skipScroll - Whether to skip auto-scrolling
+ */
+function addLogEntry(location: TrackLocation, skipScroll = false): void {
+    const container = document.getElementById('log-container');
+    if (!container) return;
+
+    const loading = document.getElementById('loading');
+    if (loading) loading.remove();
+
+    if (location.id !== undefined && location.id !== null) {
+        const existing = container.querySelector(`[data-location-id="${String(location.id)}"]`);
+        if (existing) {
+            return;
+        }
+    }
+
+    const entry = buildLogEntryElement(location);
     insertLiveLogEntryInTimestampOrder(container, entry, locationTimestampUnix(location));
 
     // Auto-scroll so newest entry is roughly in the middle of the view
@@ -2512,10 +2738,10 @@ function addLogEntry(location: TrackLocation, skipScroll = false): void {
     eventCount++;
     const logCount = document.getElementById('log-count');
     if (logCount) {
-        logCount.textContent = eventCount + ' event' + (eventCount !== 1 ? 's' : '') + ' (last hour)';
+        logCount.textContent =
+            eventCount + ' event' + (eventCount !== 1 ? 's' : '') + ' ' + liveActivityCountLabel(liveActivityLoadKind);
     }
 
-    // Update map marker
     if (map) {
         updateDeviceMarker(location);
     }
@@ -2555,279 +2781,6 @@ function resetEvents(): void {
 
     // Reset fit bounds flag so next location will center the map
     needsFitBounds = true;
-}
-
-/**
- * Load last 30 minutes of data and continue with live updates.
- * This disables skipHistoryFetch so normal live mode resumes after loading.
- */
-async function loadLast30Minutes(): Promise<void> {
-    console.log('📍 loadLast30Minutes() called');
-
-    // Clear current state (like reset, but we'll load history)
-    const container = document.getElementById('log-container');
-    if (container) {
-        container.innerHTML = '<p id="loading">Loading last 30 minutes...</p>';
-    }
-    eventCount = 0;
-
-    // Clear device markers from the map
-    removeAllDeviceMarkers();
-
-    // Clear trails from the map
-    removeAllTrails();
-    selectedLocationKey = null;
-
-    // Clear incremental locations
-    incrementalLocations = {};
-
-    // IMPORTANT: Disable skipHistoryFetch so we can load history and resume normal updates
-    skipHistoryFetch = false;
-
-    // Reset fit bounds flag so map will center on loaded data
-    needsFitBounds = true;
-
-    // Fetch last 30 minutes
-    const now = Date.now() / 1000;
-    const thirtyMinutesAgo = now - 1800; // 30 minutes in seconds
-
-    // Always include resolution to bypass pagination limit
-    let url = `/api/locations/?start_time=${Math.floor(thirtyMinutesAgo)}&ordering=-timestamp&resolution=${trailResolution}`;
-    if (selectedDevice) {
-        url += `&device=${selectedDevice}`;
-    }
-
-    console.log(`📍 loadLast30Minutes() fetching: ${url}`);
-
-    try {
-        const response = await fetch(url);
-        if (!response.ok) {
-            console.log(`📍 loadLast30Minutes() failed: ${response.status}`);
-            if (container) {
-                container.innerHTML = '<p id="loading">Failed to load data. Waiting for updates...</p>';
-            }
-            return;
-        }
-
-        const data: LocationsApiResponse = await response.json();
-        const locations = data.results || [];
-        locations.sort(compareLocationsByTimestampDesc);
-
-        console.log(`📍 loadLast30Minutes() got ${locations.length} locations`);
-
-        if (locations.length === 0) {
-            if (container) {
-                container.innerHTML = '<p id="loading">No data in last 30 minutes. Waiting for updates...</p>';
-            }
-            const logCount = document.getElementById('log-count');
-            if (logCount) {
-                logCount.textContent = '0 events (last 30min)';
-            }
-            return;
-        }
-
-        if (!container) return;
-
-        const loading = document.getElementById('loading');
-        if (loading) loading.remove();
-
-        // Clear existing entries
-        container.innerHTML = '';
-
-        // Group locations by device for trail drawing
-        const locationsByDevice: Record<string, TrackLocation[]> = {};
-        const markerUpdatedForDevice = new Set<string>();
-
-        // Display locations (sorted newest-first)
-        locations.forEach((loc) => {
-            const entry = document.createElement('div');
-            entry.className = 'log-entry';
-            entry.setAttribute('data-ts', String(locationTimestampUnix(loc)));
-            if (loc.id !== undefined && loc.id !== null) {
-                entry.setAttribute('data-location-id', String(loc.id));
-            }
-
-            const time = formatTime(loc.timestamp_unix || 0, true);
-            const device = loc.device_name || 'Unknown';
-            const lat = formatLatLonCoordinate(loc.latitude);
-            const lon = formatLatLonCoordinate(loc.longitude);
-            const acc = loc.accuracy || 'N/A';
-            const alt = loc.altitude || 0;
-            const vel = loc.velocity || 0;
-            const batt = loc.battery_level || 'N/A';
-            const conn = loc.connection_type === 'w' ? 'WiFi' : loc.connection_type === 'm' ? 'Mobile' : 'N/A';
-            // For MQTT locations the IP is often the proxy container address, not the device.
-            // Show "MQTT" as the source label instead to avoid confusion.
-            const ip = loc.received_via === 'mqtt' ? 'MQTT' : (loc.ip_address || 'N/A');
-
-            // Group locations by device for trail drawing
-            if (!locationsByDevice[device]) {
-                locationsByDevice[device] = [];
-            }
-            locationsByDevice[device].push(loc);
-
-            const deviceColor = getDeviceColor(device);
-            const deviceBadge = `<span style="background:${deviceColor};color:white;padding:1px 6px;border-radius:10px;font-size:11px;margin-left:8px;">${device}</span>`;
-
-            entry.innerHTML = `<span class="log-time">${time}</span> | <span class="log-ip">${ip}</span> | <span class="log-coords">${lat}, ${lon}</span> | <span class="log-meta">acc:${acc}m alt:${alt}m vel:${vel}km/h batt:${batt}% ${conn}</span>${deviceBadge}`;
-
-            attachLocationSelectionToEntry(entry, loc);
-            decorateActivityLogEntryForAccuracy(entry, loc);
-            container.appendChild(entry);
-
-            // Update device marker for the newest location per device.
-            // The API is newest-first, so the first time we see a device is its latest.
-            if (!markerUpdatedForDevice.has(device)) {
-                updateDeviceMarker(loc);
-                markerUpdatedForDevice.add(device);
-            }
-        });
-
-        // Draw trails for each device
-        drawLiveTrails(locationsByDevice);
-
-        eventCount = locations.length;
-        const logCount = document.getElementById('log-count');
-        if (logCount) {
-            logCount.textContent = eventCount + ' event' + (eventCount !== 1 ? 's' : '') + ' (last 30min)';
-        }
-
-        // Track the newest timestamp for incremental updates
-        if (locations.length > 0) {
-            lastTimestamp = locations[0].timestamp_unix || null;
-        }
-        liveActivityLoadKind = '30m';
-    } catch (error) {
-        console.error('Error loading last 30 minutes:', error);
-        if (container) {
-            container.innerHTML = '<p id="loading">Error loading data. Waiting for updates...</p>';
-        }
-    }
-}
-
-/**
- * Load the most recent locations (not limited to the last 30 minutes).
- * Uses the same resolution / device filter as other live bulk loads.
- */
-async function loadLatestLocations(): Promise<void> {
-    console.log('📍 loadLatestLocations() called');
-
-    const container = document.getElementById('log-container');
-    if (container) {
-        container.innerHTML = '<p id="loading">Loading latest locations...</p>';
-    }
-    eventCount = 0;
-
-    removeAllDeviceMarkers();
-    removeAllTrails();
-    selectedLocationKey = null;
-
-    incrementalLocations = {};
-    skipHistoryFetch = false;
-    needsFitBounds = true;
-
-    // Paginated fetch (do not pass resolution=0 — that would load the entire history into memory).
-    let url = '/api/locations/?ordering=-timestamp&limit=200';
-    if (selectedDevice) {
-        url += `&device=${selectedDevice}`;
-    }
-
-    console.log(`📍 loadLatestLocations() fetching: ${url}`);
-
-    try {
-        const response = await fetch(url);
-        if (!response.ok) {
-            console.log(`📍 loadLatestLocations() failed: ${response.status}`);
-            if (container) {
-                container.innerHTML = '<p id="loading">Failed to load data. Waiting for updates...</p>';
-            }
-            return;
-        }
-
-        const data: LocationsApiResponse = await response.json();
-        const locations = data.results || [];
-        locations.sort(compareLocationsByTimestampDesc);
-
-        console.log(`📍 loadLatestLocations() got ${locations.length} locations`);
-
-        if (locations.length === 0) {
-            if (container) {
-                container.innerHTML = '<p id="loading">No location data yet. Waiting for updates...</p>';
-            }
-            const logCount = document.getElementById('log-count');
-            if (logCount) {
-                logCount.textContent = '0 events (latest)';
-            }
-            return;
-        }
-
-        if (!container) return;
-
-        const loading = document.getElementById('loading');
-        if (loading) loading.remove();
-
-        container.innerHTML = '';
-
-        const locationsByDevice: Record<string, TrackLocation[]> = {};
-        const markerUpdatedForDevice = new Set<string>();
-
-        locations.forEach((loc) => {
-            const entry = document.createElement('div');
-            entry.className = 'log-entry';
-            entry.setAttribute('data-ts', String(locationTimestampUnix(loc)));
-            if (loc.id !== undefined && loc.id !== null) {
-                entry.setAttribute('data-location-id', String(loc.id));
-            }
-
-            const time = formatTime(loc.timestamp_unix || 0, true);
-            const device = loc.device_name || 'Unknown';
-            const lat = formatLatLonCoordinate(loc.latitude);
-            const lon = formatLatLonCoordinate(loc.longitude);
-            const acc = loc.accuracy || 'N/A';
-            const alt = loc.altitude || 0;
-            const vel = loc.velocity || 0;
-            const batt = loc.battery_level || 'N/A';
-            const conn = loc.connection_type === 'w' ? 'WiFi' : loc.connection_type === 'm' ? 'Mobile' : 'N/A';
-            const ip = loc.received_via === 'mqtt' ? 'MQTT' : (loc.ip_address || 'N/A');
-
-            if (!locationsByDevice[device]) {
-                locationsByDevice[device] = [];
-            }
-            locationsByDevice[device].push(loc);
-
-            const deviceColor = getDeviceColor(device);
-            const deviceBadge = `<span style="background:${deviceColor};color:white;padding:1px 6px;border-radius:10px;font-size:11px;margin-left:8px;">${device}</span>`;
-
-            entry.innerHTML = `<span class="log-time">${time}</span> | <span class="log-ip">${ip}</span> | <span class="log-coords">${lat}, ${lon}</span> | <span class="log-meta">acc:${acc}m alt:${alt}m vel:${vel}km/h batt:${batt}% ${conn}</span>${deviceBadge}`;
-
-            attachLocationSelectionToEntry(entry, loc);
-            decorateActivityLogEntryForAccuracy(entry, loc);
-            container.appendChild(entry);
-
-            if (!markerUpdatedForDevice.has(device)) {
-                updateDeviceMarker(loc);
-                markerUpdatedForDevice.add(device);
-            }
-        });
-
-        drawLiveTrails(locationsByDevice);
-
-        eventCount = locations.length;
-        const logCount = document.getElementById('log-count');
-        if (logCount) {
-            logCount.textContent = eventCount + ' event' + (eventCount !== 1 ? 's' : '') + ' (latest)';
-        }
-
-        if (locations.length > 0) {
-            lastTimestamp = locations[0].timestamp_unix || null;
-        }
-        liveActivityLoadKind = 'latest';
-    } catch (error) {
-        console.error('Error loading latest locations:', error);
-        if (container) {
-            container.innerHTML = '<p id="loading">Error loading data. Waiting for updates...</p>';
-        }
-    }
 }
 
 // ============================================================================
@@ -2925,164 +2878,6 @@ function setIconLabelButton(button: HTMLButtonElement, icon: string, label: stri
 
 // ============================================================================
 
-/**
- * Load last hour of live activity data.
- */
-async function loadLiveActivityHistory(): Promise<void> {
-    // If skipHistoryFetch is set (after reset), don't fetch history
-    // Just return and let WebSocket events add new locations incrementally
-    if (skipHistoryFetch) {
-        console.log('📍 loadLiveActivityHistory() skipped - skipHistoryFetch is true');
-        return;
-    }
-
-    liveActivityLoadKind = 'hour';
-
-    const now = Date.now() / 1000;
-    const oneHourAgo = now - 3600; // 1 hour in seconds
-
-    // Build URL with device filter if set
-    // Always include resolution to bypass pagination limit
-    let url = `/api/locations/?start_time=${Math.floor(oneHourAgo)}&ordering=-timestamp&resolution=${trailResolution}`;
-    if (selectedDevice) {
-        url += `&device=${selectedDevice}`;
-    }
-
-    console.log(`📍 loadLiveActivityHistory() fetching: ${url}`);
-
-    try {
-        const response = await fetch(url);
-        if (!response.ok) {
-            console.log(`📍 loadLiveActivityHistory() failed: ${response.status}`);
-            return;
-        }
-
-        const data: LocationsApiResponse = await response.json();
-        const locations = data.results || [];
-        locations.sort(compareLocationsByTimestampDesc);
-
-        console.log(`📍 loadLiveActivityHistory() got ${locations.length} locations`);
-
-        if (locations.length === 0) {
-            return;
-        }
-
-        const container = document.getElementById('log-container');
-        if (!container) return;
-
-        const loading = document.getElementById('loading');
-        if (loading) loading.remove();
-
-        // Clear existing entries before repopulating
-        container.innerHTML = '';
-
-        // Group locations by device for trail drawing
-        const locationsByDevice: Record<string, TrackLocation[]> = {};
-
-        // Display locations (sorted newest-first)
-        locations.forEach((loc, index) => {
-            const entry = document.createElement('div');
-            entry.className = 'log-entry';
-            entry.setAttribute('data-ts', String(locationTimestampUnix(loc)));
-            if (loc.id !== undefined && loc.id !== null) {
-                entry.setAttribute('data-location-id', String(loc.id));
-            }
-
-            const time = formatTime(loc.timestamp_unix || 0, true);
-            const device = loc.device_name || 'Unknown';
-            const lat = formatLatLonCoordinate(loc.latitude);
-            const lon = formatLatLonCoordinate(loc.longitude);
-            const acc = loc.accuracy || 'N/A';
-            const alt = loc.altitude || 0;
-            const vel = loc.velocity || 0;
-            const batt = loc.battery_level || 'N/A';
-            const conn = loc.connection_type === 'w' ? 'WiFi' : loc.connection_type === 'm' ? 'Mobile' : 'N/A';
-            const ip = loc.received_via === 'mqtt' ? 'MQTT' : (loc.ip_address || 'N/A');
-
-            // Group locations by device for trail drawing
-            if (!locationsByDevice[device]) {
-                locationsByDevice[device] = [];
-            }
-            locationsByDevice[device].push(loc);
-
-            const deviceColor = getDeviceColor(device);
-            const deviceBadge = `<span style="background:${deviceColor};color:white;padding:1px 6px;border-radius:10px;font-size:11px;margin-left:8px;">${device}</span>`;
-
-            entry.innerHTML = `<span class="log-time">${time}</span> | <span class="log-ip">${ip}</span> | <span class="log-coords">${lat}, ${lon}</span> | <span class="log-meta">acc:${acc}m alt:${alt}m vel:${vel}km/h batt:${batt}% ${conn}</span>${deviceBadge}`;
-
-            attachLocationSelectionToEntry(entry, loc);
-            decorateActivityLogEntryForAccuracy(entry, loc);
-            container.appendChild(entry);
-
-            // Update device marker (only for latest position of each device)
-            if (index === 0 || !deviceMarkers[device]) {
-                updateDeviceMarker(loc);
-            }
-        });
-
-        // Draw trails for each device
-        drawLiveTrails(locationsByDevice);
-
-        eventCount = locations.length;
-        const logCount = document.getElementById('log-count');
-        if (logCount) {
-            logCount.textContent = eventCount + ' event' + (eventCount !== 1 ? 's' : '') + ' (last hour)';
-        }
-
-        // Track the newest timestamp for incremental updates
-        if (locations.length > 0) {
-            lastTimestamp = locations[0].timestamp_unix || null;
-        }
-    } catch (error) {
-        console.error('Error loading live activity history:', error);
-    }
-}
-
-/**
- * Refresh live activity with updates since last known timestamp (for reconnect).
- */
-async function refreshLiveActivitySinceLastUpdate(): Promise<void> {
-    // If skipHistoryFetch is true (after reset), don't fetch any history
-    if (skipHistoryFetch) {
-        console.log('📍 refreshLiveActivitySinceLastUpdate() skipped - skipHistoryFetch is true');
-        return;
-    }
-
-    if (!lastTimestamp) {
-        // No previous data, do a full load
-        loadLiveActivityHistory();
-        return;
-    }
-
-    try {
-        // Fetch only locations newer than our last known timestamp
-        const response = await fetch(`/api/locations/?start_time=${lastTimestamp + 1}&ordering=timestamp&limit=100`);
-        if (!response.ok) return;
-
-        const data: LocationsApiResponse = await response.json();
-        const locations = data.results || [];
-
-        if (locations.length === 0) {
-            console.log('No new locations since last update');
-            return;
-        }
-
-        console.log(`Found ${locations.length} new location(s) since last update`);
-
-        // Oldest first so insert-sorted log order stays correct
-        locations.sort((a, b) => locationTimestampUnix(a) - locationTimestampUnix(b));
-        locations.forEach(loc => {
-            addLogEntry(loc);
-            // Update lastTimestamp to track what we've seen
-            if (loc.timestamp_unix && loc.timestamp_unix > (lastTimestamp || 0)) {
-                lastTimestamp = loc.timestamp_unix;
-            }
-        });
-    } catch (error) {
-        console.error('Error refreshing live activity:', error);
-    }
-}
-
 // ============================================================================
 // Mode Switching
 // ============================================================================
@@ -3127,15 +2922,14 @@ function switchToLiveMode(): void {
     lastTimestamp = null; // Reset to allow fresh load
 
     // Don't clear device selection - respect user's filter choice
-    // Clear trails (will be redrawn by loadLiveActivityHistory)
+    // Clear trails (will be redrawn by refreshLiveActivity)
     removeAllTrails();
 
     // Clear device markers for fresh load
     removeAllDeviceMarkers();
     selectedLocationKey = null;
 
-    // Load last hour of activity data
-    loadLiveActivityHistory();
+    void refreshLiveActivity('hour');
 
     // Save UI state
     saveUIState();
@@ -3322,7 +3116,7 @@ function connectWebSocket(): void {
                         refreshDeviceSelector();
                         if (isLiveMode) {
                             console.log('WebSocket first connection, refreshing live activity...');
-                            refreshLiveActivitySinceLastUpdate();
+                            void refreshLiveActivity('incremental');
                         }
                     } else if (serverStartupTimestamp !== message.server_startup) {
                         // Server has restarted, refresh the page
@@ -3340,7 +3134,7 @@ function connectWebSocket(): void {
                         console.log('WebSocket reconnected, refreshing device selector and live activity...');
                         refreshDeviceSelector();
                         if (isLiveMode) {
-                            refreshLiveActivitySinceLastUpdate();
+                            void refreshLiveActivity('incremental');
                         }
                     }
                 }
@@ -3357,29 +3151,15 @@ function connectWebSocket(): void {
                         return;
                     }
 
-                    // If skipHistoryFetch is true (after reset), add locations incrementally
-                    // instead of fetching history
+                    // After reset, WebSocket is the only source (no API history).
                     if (skipHistoryFetch) {
-                        console.log('📍 Adding location incrementally (skipHistoryFetch mode)');
                         addLogEntry(location);
                         addLocationToTrail(location);
                         return;
                     }
 
-                    // Optimistically update the UI immediately so live updates feel responsive.
-                    // We still do a debounced history reload below to reconcile trails and ensure
-                    // state remains consistent even after reconnects.
-                    addLogEntry(location, true);
-                    if (location.timestamp_unix && location.timestamp_unix > (lastTimestamp || 0)) {
-                        lastTimestamp = location.timestamp_unix;
-                    }
-                    addLiveLocationToTrail(location);
-
-                    // Avoid re-fetching and re-rendering the full last-hour history on every
-                    // incoming message; it clears/rebuilds the DOM and redraws all trails,
-                    // which can make live updates feel laggy. We rely on:
-                    // - `addLogEntry()` + `addLiveLocationToTrail()` for instant incremental updates
-                    // - `refreshLiveActivitySinceLastUpdate()` on reconnect for reconciliation
+                    // Normal live mode: WebSocket is a notification; HTTP refresh owns the log.
+                    scheduleLiveActivityIncrementalRefresh();
                 } else if (message.type === 'location' && message.data) {
                     // Not in live mode, but still update the device selector
                     // so new devices appear without needing to switch modes
@@ -3435,7 +3215,7 @@ function startWebSocketWatchdog(): void {
 
         // If we have no WS, or it has gone silent, do an incremental HTTP refresh.
         if (!ws || ws.readyState !== WebSocket.OPEN || !last || (now - last) > staleAfterMs) {
-            refreshLiveActivitySinceLastUpdate();
+            void refreshLiveActivity('incremental');
         }
     }, watchdogIntervalMs);
 }
@@ -3445,76 +3225,15 @@ function startWebSocketWatchdog(): void {
 // ============================================================================
 
 /**
- * Fetch locations for polling fallback.
- */
-async function fetchLocations(): Promise<void> {
-    try {
-        const url = '/api/locations/?ordering=-timestamp&limit=20';
-
-        const response = await fetch(url);
-        const data: LocationsApiResponse = await response.json();
-
-        console.log('Fetched data:', data);
-
-        if (data.results && data.results.length > 0) {
-            console.log('Processing', data.results.length, 'locations');
-            // Process all results (only in live mode)
-            if (isLiveMode) {
-                const isInitialLoad = lastTimestamp === null;
-                const sorted = [...data.results].sort(compareLocationsByTimestampDesc);
-                const locsToProcess = isInitialLoad
-                    ? [...sorted].sort((a, b) => locationTimestampUnix(a) - locationTimestampUnix(b))
-                    : sorted;
-
-                let newestEntry: TrackLocation | null = null;
-                for (const loc of locsToProcess) {
-                    // Only add if we haven't seen this timestamp yet
-                    if (!lastTimestamp || (loc.timestamp_unix && loc.timestamp_unix > lastTimestamp)) {
-                        // Skip scrolling during batch load, we'll scroll once at the end
-                        addLogEntry(loc, isInitialLoad);
-                        if (
-                            !newestEntry ||
-                            locationTimestampUnix(loc) > locationTimestampUnix(newestEntry)
-                        ) {
-                            newestEntry = loc;
-                        }
-                    }
-                }
-
-                // After initial batch load, scroll to show the newest entry
-                if (isInitialLoad && newestEntry) {
-                    // Use setTimeout to ensure DOM is fully rendered before scrolling
-                    setTimeout(() => {
-                        const container = document.getElementById('log-container');
-                        const row = container?.querySelector<HTMLElement>(
-                            `[data-location-id="${String(newestEntry!.id)}"]`,
-                        );
-                        const target = row ?? (container?.firstChild as HTMLElement | null);
-                        if (target) {
-                            target.scrollIntoView({ behavior: 'instant', block: 'center' });
-                        }
-                    }, 100);
-                }
-
-                // Update last timestamp to the newest one
-                if (sorted.length > 0) {
-                    lastTimestamp = locationTimestampUnix(sorted[0]) || null;
-                }
-            }
-        }
-    } catch (error) {
-        console.error('Error fetching locations:', error);
-    }
-}
-
-/**
  * Start polling fallback for when WebSocket is not available.
  */
 function startPolling(): void {
     if (!pollingInterval && isLiveMode) {
         console.log('Starting polling fallback');
-        fetchLocations(); // Initial fetch
-        pollingInterval = setInterval(fetchLocations, 2000);
+        void refreshLiveActivity(lastTimestamp ? 'incremental' : 'hour');
+        pollingInterval = setInterval(() => {
+            void refreshLiveActivity('incremental');
+        }, 2000);
     }
 }
 
@@ -3739,13 +3458,15 @@ function initEventListeners(): void {
     // Load history button
     const loadHistoryButton = document.getElementById('load-history-button');
     if (loadHistoryButton) {
-        loadHistoryButton.addEventListener('click', loadLast30Minutes);
+        loadHistoryButton.addEventListener('click', () => {
+            void refreshLiveActivity('30m');
+        });
     }
 
     const refreshLiveLatestButton = document.getElementById('refresh-live-latest-button');
     if (refreshLiveLatestButton) {
         refreshLiveLatestButton.addEventListener('click', () => {
-            void loadLatestLocations();
+            void refreshLiveActivity('latest');
         });
     }
 
@@ -3780,7 +3501,7 @@ function initEventListeners(): void {
                 clearActivitySection('Loading last hour of activity...');
                 eventCount = 0;
                 lastTimestamp = null;
-                loadLiveActivityHistory();
+                void refreshLiveActivity('hour');
             } else {
                 fetchAndDisplayTrail();
             }
@@ -3858,7 +3579,7 @@ function initEventListeners(): void {
                 // Clear existing trails and reload
                 removeAllTrails();
                 selectedLocationKey = null;
-                loadLiveActivityHistory();
+                void refreshLiveActivity('hour');
             } else {
                 fetchAndDisplayTrail();
             }
@@ -3901,15 +3622,7 @@ function initEventListeners(): void {
         if (document.visibilityState !== 'visible' || !isLiveMode) {
             return;
         }
-        if (skipHistoryFetch) {
-            void refreshLiveActivitySinceLastUpdate();
-        } else if (liveActivityLoadKind === '30m') {
-            void loadLast30Minutes();
-        } else if (liveActivityLoadKind === 'latest') {
-            void loadLatestLocations();
-        } else {
-            void loadLiveActivityHistory();
-        }
+        void refreshLiveActivity(skipHistoryFetch ? 'incremental' : liveActivityLoadKind);
         if (map) {
             map.invalidateSize();
         }
@@ -4085,10 +3798,7 @@ function init(): void {
     // Restore UI state from localStorage
     restoreUIState();
 
-    // Initial fetch for historical data (always needed to populate device list)
-    fetchLocations();
-
-    // Start WebSocket connection for real-time updates
+    // Start WebSocket connection for real-time updates (welcome triggers live activity refresh)
     connectWebSocket();
     startWebSocketWatchdog();
 
