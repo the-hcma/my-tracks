@@ -583,6 +583,49 @@ class TestLocationAPI:
         results = response.data['results']
         assert_that(results, has_length(2))  # Should get last 2 locations within 2 hours
 
+    def test_filter_locations_by_since_id(
+        self,
+        auth_api_client: APIClient,
+        sample_device: Device,
+    ) -> None:
+        """Incremental live refresh uses since_id to fetch only newer location rows."""
+        first = Location.objects.create(
+            device=sample_device,
+            latitude=Decimal('1.0'),
+            longitude=Decimal('1.0'),
+            timestamp=timezone.now() - timedelta(minutes=10),
+        )
+        second = Location.objects.create(
+            device=sample_device,
+            latitude=Decimal('2.0'),
+            longitude=Decimal('2.0'),
+            timestamp=timezone.now() - timedelta(minutes=5),
+        )
+        third = Location.objects.create(
+            device=sample_device,
+            latitude=Decimal('3.0'),
+            longitude=Decimal('3.0'),
+            timestamp=timezone.now(),
+        )
+
+        response = auth_api_client.get(
+            '/api/locations/',
+            {'since_id': first.id, 'ordering': 'id', 'device': sample_device.device_id},
+        )
+
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        result_ids = [row['id'] for row in response.data['results']]
+        assert_that(result_ids, equal_to([second.id, third.id]))
+
+    def test_filter_locations_by_invalid_since_id(
+        self,
+        auth_api_client: APIClient,
+    ) -> None:
+        """Invalid since_id returns 400."""
+        response = auth_api_client.get('/api/locations/', {'since_id': 'not-a-number'})
+        assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
+        assert_that(response.data['error'], contains_string('since_id'))
+
     def test_filter_locations_by_end_time(
         self,
         auth_api_client: APIClient,
