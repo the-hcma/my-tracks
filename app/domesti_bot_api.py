@@ -33,7 +33,7 @@ def _config_response(config: DomestiBotConfig) -> Response:
     return Response(serialize_domesti_bot_config(config))
 
 
-def _default_test_participant_id() -> str:
+def _default_test_user_id() -> str:
     user = User.objects.filter(is_staff=True, is_active=True).filter(devices__isnull=False).order_by("username").first()
     if user is not None:
         return user.username
@@ -112,10 +112,15 @@ class DomestiBotTestLocationUpdateView(APIView):
             return Response({"detail": "Not paired"}, status=status.HTTP_403_FORBIDDEN)
 
         data = _request_data_as_str_dict(request)
-        participant_id = str(data.get("participant_id") or _default_test_participant_id()).strip()
-        if not User.objects.filter(username=participant_id, is_active=True).exists():
+        if "participant_id" in data:
             return Response(
-                {"errors": [f"Unknown participant_id: {participant_id}"]},
+                {"errors": ["Expected user_id, got legacy participant_id field"]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        user_id = str(data.get("user_id") or _default_test_user_id()).strip()
+        if not User.objects.filter(username=user_id, is_active=True).exists():
+            return Response(
+                {"errors": [f"Unknown user_id: {user_id}"]},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -127,12 +132,12 @@ class DomestiBotTestLocationUpdateView(APIView):
         except TypeError, ValueError:
             return Response({"errors": ["lat and lon must be numbers"]}, status=status.HTTP_400_BAD_REQUEST)
 
-        device = Device.objects.filter(owner__username=participant_id).order_by("-last_seen").first()
+        device = Device.objects.filter(owner__username=user_id).order_by("-last_seen").first()
         device_id = device.device_id if device is not None else "test-device"
         payload = build_location_webhook_payload(
-            participant_id=participant_id,
             lat=lat,
             lon=lon,
+            user_id=user_id,
             device_id=device_id,
         )
         try:
