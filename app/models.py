@@ -549,17 +549,17 @@ class DomestiBotConfig(models.Model):
         default="",
         help_text="domesti-bot HTTP origin (reference and URL building)",
     )
-    participant_location_update_url = models.CharField(
-        max_length=500,
-        blank=True,
-        default="",
-        help_text="URL where my-tracks POSTs live participant location fixes",
-    )
-    participant_location_test_url = models.CharField(
+    user_location_test_url = models.CharField(
         max_length=500,
         blank=True,
         default="",
         help_text="URL where my-tracks POSTs synthetic test location fixes (not live ingest)",
+    )
+    user_location_update_url = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+        help_text="URL where my-tracks POSTs live user location updates",
     )
     encrypted_api_key = models.BinaryField(
         blank=True,
