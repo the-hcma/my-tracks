@@ -1,6 +1,6 @@
 # Plan: domesti-bot location relay (my-tracks companion)
 
-This document is the **my-tracks** side of integrating with [domesti-bot](https://github.com/the-hcma/domesti-bot). domesti-bot owns home automation rules, geofence evaluation, sunset checks, and device actions. my-tracks remains the **location ingest and map** service and relays GPS fixes to domesti-bot when paired.
+This document is the **my-tracks** side of integrating with [domesti-bot](https://github.com/the-hcma/domesti-bot). domesti-bot owns home automation rules, geofence evaluation, sunset checks, and device actions. my-tracks remains the **location ingest and map** service and relays location updates to domesti-bot when paired.
 
 **Status:** **P1–P4 implemented** (merged #1087–#1091, #1093). **P5** (sunset `GlobalAutomationRule`) waits until domesti-bot is validated in production. **domesti-bot companion** pairing UI is out of scope here — see that repo.
 
@@ -15,10 +15,10 @@ This document is the **my-tracks** side of integrating with [domesti-bot](https:
 | OwnTracks ingest, map, friends | my-tracks | Existing MQTT/HTTP → SQLite |
 | User roster | my-tracks (source of truth) | **Manual pull** by domesti-bot (`POST /v1/rules/users/sync`) |
 | Geofence definitions (automation) | domesti-bot | **Manual pull** by domesti-bot (`POST /v1/rules/geofences/sync`) from my-tracks export APIs |
-| Live GPS fixes for rules | my-tracks → domesti-bot | **Automatic push** on each saved location (`POST` to domesti-bot user location update URL) |
+| Live location updates for rules | my-tracks → domesti-bot | **Automatic push** on each saved location (`POST` to domesti-bot user location update URL) |
 | Rule evaluation & device actions | domesti-bot | `RuleEvaluator` (not my-tracks) |
 
-We do **not** extend `GlobalAutomationRule` webhooks. Event-shaped payloads (“both inside”) are insufficient; domesti-bot needs per-fix coordinates.
+We do **not** extend `GlobalAutomationRule` webhooks. Event-shaped payloads (“both inside”) are insufficient; domesti-bot needs per-update coordinates.
 
 ---
 
@@ -49,7 +49,7 @@ After pairing (below), and when **location update webhooks are enabled** (`locat
 - `save_location_to_db` (MQTT) — after `Location` row is created
 - `LocationViewSet.create` (HTTP OwnTracks POST) — after `perform_create`
 
-**Payload** (per fix):
+**Payload** (per location update):
 
 ```json
 {
@@ -148,7 +148,7 @@ sequenceDiagram
   Note over Bot,MT: api_key, user_location_update_url
   MT->>MT: Store DomestiBotConfig, location_updates_enabled=true
   MT-->>Bot: 200 paired
-  Note over MT,Bot: Later: each GPS fix → POST user_location_update_url
+  Note over MT,Bot: Later: each location update → POST user_location_update_url
 ```
 
 ### my-tracks pairing endpoint (to implement)
@@ -328,7 +328,7 @@ Do **not** add env vars as the primary configuration path. A `DOMESTI_BOT_PARTIC
 2. Operator can run **Test location update** and see a successful response from domesti-bot.
 3. Operator can disable **Send location updates** without unpairing; live POSTs stop while test remains available.
 4. Relay failures appear in server logs and `recent_webhook_log` (config API); map and ingest unaffected.
-5. Each owned-device GPS fix triggers a location POST when location updates are enabled.
+5. Each owned-device location update triggers a location POST when location updates are enabled.
 6. domesti-bot `/v1/rules/status` shows live user locations after manual roster sync.
 7. Participant and geofence data flow only via **manual** domesti-bot sync pulls.
 

@@ -26,7 +26,7 @@ Examples:
 | State change fire-once (no spam) | Rate-limiting / debounce |
 | Re-evaluation on every new location from watched users | Push/WS notifications for rule firings |
 
-**Successor:** Multi-user geofence automations with richer actions (sunset, devices, etc.) move to **domesti-bot**, which receives live GPS fixes from my-tracks when paired. This feature remains active in my-tracks until P5 of [DOMESTI_BOT_INTEGRATION_PLAN.md](./DOMESTI_BOT_INTEGRATION_PLAN.md) removes the evaluator after production validation.
+**Successor:** Multi-user geofence automations with richer actions (sunset, devices, etc.) move to **domesti-bot**, which receives live location updates from my-tracks when paired. This feature remains active in my-tracks until P5 of [DOMESTI_BOT_INTEGRATION_PLAN.md](./DOMESTI_BOT_INTEGRATION_PLAN.md) removes the evaluator after production validation.
 
 ---
 
@@ -55,7 +55,7 @@ Global automation rules are re-evaluated **only when a new location update
 watched user list.
 
 `_type: transition` messages and waypoint syncs do **not** trigger evaluation —
-only a fresh location fix does. This ensures the state check always uses a
+only a fresh location update does. This ensures the state check always uses a
 GPS position reported by the device, not a phone-side geofence event.
 
 ### 4. Fire-once per state transition
