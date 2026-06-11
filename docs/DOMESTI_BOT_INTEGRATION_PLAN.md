@@ -4,6 +4,8 @@ This document is the **my-tracks** side of integrating with [domesti-bot](https:
 
 **Status:** **P1–P4 implemented** (merged #1087–#1091, #1093). **P5** (sunset `GlobalAutomationRule`) waits until domesti-bot is validated in production. **domesti-bot companion** pairing UI is out of scope here — see that repo.
 
+**Nomenclature:** integration docs and wire payloads use **user** + **location** (`user_id`, `user_location_update_url`, …). domesti-bot’s `.cursor/rules/presence-user-location-nomenclature.mdc` is the canonical vocabulary reference.
+
 ---
 
 ## Responsibilities split
@@ -13,7 +15,7 @@ This document is the **my-tracks** side of integrating with [domesti-bot](https:
 | OwnTracks ingest, map, friends | my-tracks | Existing MQTT/HTTP → SQLite |
 | User roster | my-tracks (source of truth) | **Manual pull** by domesti-bot (`POST /v1/rules/users/sync`) |
 | Geofence definitions (automation) | domesti-bot | **Manual pull** by domesti-bot (`POST /v1/rules/geofences/sync`) from my-tracks export APIs |
-| Live GPS fixes for rules | my-tracks → domesti-bot | **Automatic push** on each saved location (`POST` to domesti-bot participant location update URL) |
+| Live GPS fixes for rules | my-tracks → domesti-bot | **Automatic push** on each saved location (`POST` to domesti-bot user location update URL) |
 | Rule evaluation & device actions | domesti-bot | `RuleEvaluator` (not my-tracks) |
 
 We do **not** extend `GlobalAutomationRule` webhooks. Event-shaped payloads (“both inside”) are insufficient; domesti-bot needs per-fix coordinates.
@@ -76,7 +78,7 @@ After pairing (below), and when **location update webhooks are enabled** (`locat
 
 **Identity:** relay is per **device owner**, not per map viewer. Friends who see shared devices on the map do not change relay identity.
 
-**domesti-bot route:** the default prepopulated URL targets domesti-bot’s existing ingest endpoint `POST /v1/webhooks/presence`. my-tracks names the setting by what it does (participant location updates), not domesti-bot’s internal route name.
+**domesti-bot route:** the default prepopulated URL targets domesti-bot’s existing ingest endpoint `POST /v1/webhooks/location_update`. my-tracks names the setting by what it does (user location updates), not domesti-bot’s internal route name.
 
 ---
 
@@ -91,7 +93,7 @@ Admin Panel gains a **domesti-bot** section (staff only). The section header lin
 | Field | Purpose | Set by | Used for |
 | --- | --- | --- | --- |
 | `domesti_base_url` | domesti-bot HTTP origin (reference + URL building) | pairing (optional) | display / validation |
-| `user_location_update_url` | Where my-tracks POSTs each participant location fix | pairing | **automatic relay** |
+| `user_location_update_url` | Where my-tracks POSTs each user location update | pairing | **automatic relay** |
 | `user_location_test_url` | Where my-tracks POSTs synthetic test fixes | pairing | **test button only** |
 | `api_key` | Shared secret for outbound `X-Domesti-Api-Key` | pairing | automatic relay + test |
 | `paired_at` | Last successful pair timestamp | pairing | **pairing status** |
@@ -131,7 +133,7 @@ Included in `GET /api/admin/domesti-bot/config/` for staff (newest first, max 5)
 
 ## Pairing flow (domesti-bot → my-tracks)
 
-API key delivery is **not** typed by hand in my-tracks. **domesti-bot initiates pairing** during setup: it calls my-tracks and relays the shared secret plus the participant location update URL my-tracks should use.
+API key delivery is **not** typed by hand in my-tracks. **domesti-bot initiates pairing** during setup: it calls my-tracks and relays the shared secret plus the user location update URL my-tracks should use.
 
 ```mermaid
 sequenceDiagram
@@ -202,7 +204,7 @@ When the operator completes **My Tracks** settings in domesti-bot and clicks **P
 1. Reads its own `DOMESTI_API_KEY` and public base URL.
 2. Authenticates to my-tracks as the configured admin user.
 3. Calls `POST /api/admin/domesti-bot/pair/` with `api_key`, `user_location_update_url`, and `user_location_test_url`.
-4. Optionally runs **participants** and **geofences** sync immediately (manual pull — unchanged).
+4. Optionally runs **users** and **geofences** sync immediately (manual pull — unchanged).
 
 No my-tracks code pushes the API key to domesti-bot; direction is **domesti-bot → my-tracks** only.
 
@@ -285,7 +287,7 @@ Do **not** add env vars as the primary configuration path. A `DOMESTI_BOT_PARTIC
 ## End-to-end flow (production cutover)
 
 1. Operator pairs domesti-bot → my-tracks (API key + live and test location URLs stored).
-2. Operator runs **participant sync** and **geofence sync** manually in domesti-bot.
+2. Operator runs **user sync** and **geofence sync** manually in domesti-bot.
 3. Operator creates rules in domesti-bot (e.g. both inside + after sunset → lights + garage).
 4. Phone → MQTT → my-tracks saves location → (if `location_updates_enabled`) POST live URL → domesti-bot evaluator runs.
 5. Global automations in my-tracks may still run in parallel until **P5** removes them after domesti-bot cutover is validated.
@@ -303,7 +305,7 @@ Do **not** add env vars as the primary configuration path. A `DOMESTI_BOT_PARTIC
 | **P4** | `POST /api/admin/domesti-bot/test-location-update/`; tests; doc cross-link | ✅ #1088, #1090 |
 | **P5** (later) | Remove `GlobalAutomationRule` evaluator after domesti-bot cutover | ⏳ pending |
 
-**domesti-bot companion** ([repo](https://github.com/the-hcma/domesti-bot)): pairing button + `POST` to my-tracks pair endpoint; keep manual participant/geofence sync as today.
+**domesti-bot companion** ([repo](https://github.com/the-hcma/domesti-bot)): pairing button + `POST` to my-tracks pair endpoint; keep manual user/geofence sync as today.
 
 ---
 
@@ -327,7 +329,7 @@ Do **not** add env vars as the primary configuration path. A `DOMESTI_BOT_PARTIC
 3. Operator can disable **Send location updates** without unpairing; live POSTs stop while test remains available.
 4. Relay failures appear in server logs and `recent_webhook_log` (config API); map and ingest unaffected.
 5. Each owned-device GPS fix triggers a location POST when location updates are enabled.
-6. domesti-bot `/v1/rules/status` shows live participant fixes after manual roster sync.
+6. domesti-bot `/v1/rules/status` shows live user locations after manual roster sync.
 7. Participant and geofence data flow only via **manual** domesti-bot sync pulls.
 
 ---
