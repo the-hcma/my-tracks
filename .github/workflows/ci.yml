@@ -24,7 +24,7 @@ on:
 # must not share a group: cancel-in-progress would leave CANCELLED required checks
 # on the PR commit and block merge even when pull_request CI passed.
 concurrency:
-  group: ci-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.event_name }}
+  group: ci-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 
 jobs:
@@ -233,6 +233,7 @@ jobs:
     needs: guard
     if: needs.guard.outputs.skip != 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6.0.2
         with:
