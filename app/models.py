@@ -35,7 +35,7 @@ class Device(models.Model):
         auto_now=True, help_text="Last time any MQTT activity was received from this device"
     )
     last_location_at = models.DateTimeField(
-        null=True, blank=True, help_text="Last time a GPS location fix was received from this device"
+        null=True, blank=True, help_text="Last time a GPS location update was received from this device"
     )
     is_online = models.BooleanField(
         default=False,  # type: ignore[reportArgumentType]  # django-stubs issue
@@ -553,7 +553,7 @@ class DomestiBotConfig(models.Model):
         max_length=500,
         blank=True,
         default="",
-        help_text="URL where my-tracks POSTs synthetic test location fixes (not live ingest)",
+        help_text="URL where my-tracks POSTs synthetic test location updates (not live ingest)",
     )
     user_location_update_url = models.CharField(
         max_length=500,
@@ -626,19 +626,19 @@ class LocationQualitySettings(models.Model):
 
     When ``filter_accuracy_enabled`` is true, any Location with a known
     ``accuracy`` value strictly greater than ``minimum_accuracy_meters`` is ignored
-    when choosing the latest fix for server-side geofence state (and the web UI
+    when choosing the latest location reading for server-side geofence state (and the web UI
     excludes those points from live/historic polylines). Rows with null
     accuracy are always treated as passing the gate.
     """
 
     filter_accuracy_enabled = models.BooleanField(
         default=False,  # type: ignore[reportArgumentType]
-        help_text="When enabled, ignore fixes whose reported accuracy exceeds minimum_accuracy_meters.",
+        help_text="When enabled, ignore location readings whose reported accuracy exceeds minimum_accuracy_meters.",
     )
     minimum_accuracy_meters = models.PositiveIntegerField(
         default=100,  # type: ignore[reportArgumentType]
         help_text=(
-            "Minimum accuracy (meters): use a fix only if accuracy is unknown or "
+            "Minimum accuracy (meters): use a reading only if accuracy is unknown or "
             "≤ this value (discard when reported accuracy is greater than this)."
         ),
     )
