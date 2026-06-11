@@ -86,6 +86,8 @@ def test_relay_posts_live_payload(location: Location) -> None:
 
     recent_log = cast(list[dict[str, Any]], DomestiBotConfig.get_solo().recent_webhook_log)
     assert_that(recent_log[0]["source"], equal_to("live"))
+    assert_that(recent_log[0]["user_id"], equal_to("kristen"))
+    assert_that(recent_log[0]["payload"]["user_id"], equal_to("kristen"))
     assert_that(
         recent_log[0]["post_url"],
         equal_to("http://192.168.1.10:8003/v1/webhooks/presence"),
@@ -137,6 +139,7 @@ async def test_mqtt_handle_location_triggers_relay(owner: User, device: Device) 
     from unittest.mock import AsyncMock, MagicMock
 
     from app.mqtt.plugin import OwnTracksPlugin
+
     ts = int(timezone.now().timestamp())
     serialized = {
         "id": 101,

@@ -38,7 +38,7 @@ We do **not** extend `GlobalAutomationRule` webhooks. Event-shaped payloads (“
 
 ---
 
-## What is automatic (participant location relay only)
+## What is automatic (user location relay only)
 
 After pairing (below), and when **location update webhooks are enabled** (`location_updates_enabled`), my-tracks POSTs **every saved location** for devices with an `owner` to the configured `participant_location_update_url`. Each attempt is recorded in a **last-five delivery log** (see Admin Panel).
 
@@ -51,7 +51,7 @@ After pairing (below), and when **location update webhooks are enabled** (`locat
 
 ```json
 {
-  "participant_id": "kristen",
+  "user_id": "kristen",
   "lat": 41.194085,
   "lon": -73.888365,
   "accuracy_m": 12,
@@ -64,7 +64,7 @@ After pairing (below), and when **location update webhooks are enabled** (`locat
 
 | Field | Source |
 | --- | --- |
-| `participant_id` | `device.owner.username` |
+| `user_id` | `device.owner.username` (domesti-bot roster `user_id`) |
 | `lat` / `lon` | `Location.latitude` / `Location.longitude` |
 | `accuracy_m` | `Location.accuracy` (omit when null) |
 | `timestamp` | `Location.timestamp` ISO-8601 UTC |
@@ -119,7 +119,7 @@ Each entry:
 | `sent_at` | UTC timestamp |
 | `success` | `true` if HTTP 2xx |
 | `http_status` | Response status code, or `null` on connection error |
-| `participant_id` | From payload |
+| `user_id` | From payload |
 | `payload` | Full JSON body sent (or truncated in API if oversized) |
 | `response_preview` | First ~200 chars of response body, or error string |
 | `source` | `live` (real GPS relay) or `test` (manual test button) |
@@ -248,7 +248,7 @@ Available **only when paired** (staff). Lets the operator confirm my-tracks can 
 
 **UI:** “Test location update” button opens a small panel (or inline result):
 
-- Optional `participant_id` (dropdown of usernames with devices, default first admin/test user).
+- Optional `user_id` (dropdown of usernames with devices, default first admin/test user).
 - Sends one **synthetic** location payload to `participant_location_test_url` using the stored `api_key` (same shape as production relay).
 - Shows result inline: HTTP status, response time, truncated response body, or error message.
 
@@ -261,7 +261,7 @@ Content-Type: application/json
 
 ```json
 {
-  "participant_id": "kristen",
+  "user_id": "kristen",
   "lat": 41.194085,
   "lon": -73.888365
 }
@@ -269,7 +269,7 @@ Content-Type: application/json
 
 | Field | Required | Notes |
 | --- | --- | --- |
-| `participant_id` | no | Defaults to a sensible staff username; must exist in my-tracks |
+| `user_id` | no | Defaults to a sensible staff username; must exist in my-tracks |
 | `lat` / `lon` | no | Defaults to fixed test coordinates if omitted |
 
 - `403` when not paired or not staff.

@@ -139,6 +139,33 @@ def test_patch_config_updates_toggle_when_paired(admin_client: APIClient) -> Non
     assert_that(response.json()["location_updates_enabled"], is_(False))
 
 
+def test_build_location_webhook_payload_uses_user_id(admin_user: User) -> None:
+    username = str(admin_user.username)
+    payload = build_location_webhook_payload(
+        lat=TEST_LOCATION_DEFAULT_LAT,
+        lon=TEST_LOCATION_DEFAULT_LON,
+        user_id=username,
+    )
+    assert_that(payload["user_id"], equal_to(username))
+
+
+def test_test_location_update_rejects_legacy_participant_id_field(
+    admin_client: APIClient,
+    admin_user: User,
+) -> None:
+    admin_client.post("/api/admin/domesti-bot/pair/", _pair_payload(), format="json")
+    response = admin_client.post(
+        "/api/admin/domesti-bot/test-location-update/",
+        {"participant_id": admin_user.username},
+        format="json",
+    )
+    assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
+    assert_that(
+        response.json()["errors"][0],
+        contains_string("participant_id"),
+    )
+
+
 def test_test_location_update_uses_test_url(admin_client: APIClient, admin_user: User) -> None:
     admin_client.post("/api/admin/domesti-bot/pair/", _pair_payload(), format="json")
     mock_response = MagicMock()
@@ -150,7 +177,7 @@ def test_test_location_update_uses_test_url(admin_client: APIClient, admin_user:
     with patch("app.domesti_bot.urllib.request.urlopen", return_value=mock_response):
         response = admin_client.post(
             "/api/admin/domesti-bot/test-location-update/",
-            {"participant_id": admin_user.username},
+            {"user_id": admin_user.username},
             format="json",
         )
 
@@ -160,6 +187,8 @@ def test_test_location_update_uses_test_url(admin_client: APIClient, admin_user:
     recent_log = cast(list[dict[str, Any]], config.recent_webhook_log)
     assert_that(recent_log, has_length(2))
     assert_that(recent_log[0]["source"], equal_to("test"))
+    assert_that(recent_log[0]["user_id"], equal_to(admin_user.username))
+    assert_that(recent_log[0]["payload"]["user_id"], equal_to(admin_user.username))
     assert_that(
         recent_log[0]["post_url"],
         equal_to("http://192.168.1.10:8003/v1/webhooks/presence/test"),
@@ -174,7 +203,7 @@ def test_test_location_update_reports_failure_with_url(admin_client: APIClient, 
     ):
         response = admin_client.post(
             "/api/admin/domesti-bot/test-location-update/",
-            {"participant_id": admin_user.username},
+            {"user_id": admin_user.username},
             format="json",
         )
 
@@ -193,9 +222,9 @@ def test_send_location_webhook_logs_unexpected_delivery_error(admin_client: APIC
     admin_client.post("/api/admin/domesti-bot/pair/", _pair_payload(), format="json")
     config = DomestiBotConfig.get_solo()
     payload = build_location_webhook_payload(
-        participant_id=str(admin_user.username),
         lat=TEST_LOCATION_DEFAULT_LAT,
         lon=TEST_LOCATION_DEFAULT_LON,
+        user_id=str(admin_user.username),
     )
     with patch("app.domesti_bot.urllib.request.urlopen", side_effect=RuntimeError("unexpected")):
         entry = send_location_webhook(config, payload=payload, source="test")
@@ -220,7 +249,7 @@ def test_webhook_log_ring_buffer_keeps_five(admin_client: APIClient) -> None:
                 "sent_at": timezone.now().isoformat(),
                 "success": index % 2 == 0,
                 "http_status": 200 if index % 2 == 0 else 500,
-                "participant_id": f"user{index}",
+                "user_id": f"user{index}",
                 "payload": {"n": index},
                 "response_preview": "ok",
                 "source": "live",
