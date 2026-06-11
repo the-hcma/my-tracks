@@ -58,8 +58,8 @@ def django_admin_client(admin_user: User) -> Client:
 def _pair_payload() -> dict[str, str]:
     return {
         "api_key": "domesti-secret-key",
-        "participant_location_update_url": "http://192.168.1.10:8003/v1/webhooks/presence",
-        "participant_location_test_url": "http://192.168.1.10:8003/v1/webhooks/presence/test",
+        "user_location_test_url": "http://192.168.1.10:8003/v1/webhooks/presence/test",
+        "user_location_update_url": "http://192.168.1.10:8003/v1/webhooks/presence",
         "domesti_base_url": "http://192.168.1.10:8003",
     }
 
@@ -74,7 +74,7 @@ def test_config_get_unpaired_empty(admin_client: APIClient) -> None:
     assert_that(response.status_code, equal_to(status.HTTP_200_OK))
     body = response.json()
     assert_that(body["is_paired"], is_(False))
-    assert_that(body["participant_location_test_url"], equal_to(""))
+    assert_that(body["user_location_test_url"], equal_to(""))
     assert_that(body["recent_webhook_log"], has_length(0))
 
 
@@ -84,7 +84,7 @@ def test_pair_stores_encrypted_key_and_enables_updates(admin_client: APIClient) 
     body = response.json()
     assert_that(body["api_key_configured"], is_(True))
     assert_that(
-        body["participant_location_test_url"],
+        body["user_location_test_url"],
         equal_to("http://192.168.1.10:8003/v1/webhooks/presence/test"),
     )
 
@@ -99,10 +99,28 @@ def test_pair_stores_encrypted_key_and_enables_updates(admin_client: APIClient) 
     assert_that(recent_log[0]["success"], is_(True))
 
 
+def test_pair_accepts_legacy_participant_location_url_keys(admin_client: APIClient) -> None:
+    response = admin_client.post(
+        "/api/admin/domesti-bot/pair/",
+        {
+            "api_key": "domesti-secret-key",
+            "participant_location_test_url": "http://192.168.1.10:8003/v1/webhooks/presence/test",
+            "participant_location_update_url": "http://192.168.1.10:8003/v1/webhooks/presence",
+        },
+        format="json",
+    )
+    assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+    body = response.json()
+    assert_that(
+        body["user_location_update_url"],
+        equal_to("http://192.168.1.10:8003/v1/webhooks/presence"),
+    )
+
+
 def test_pair_rejects_invalid_url(admin_client: APIClient) -> None:
     response = admin_client.post(
         "/api/admin/domesti-bot/pair/",
-        {"api_key": "x", "participant_location_update_url": "not-a-url", "participant_location_test_url": "x"},
+        {"api_key": "x", "user_location_test_url": "x", "user_location_update_url": "not-a-url"},
         format="json",
     )
     assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
