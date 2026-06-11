@@ -47,13 +47,13 @@ def relay_location_to_domesti_bot(location: Location) -> None:
 
         accuracy_raw = location.accuracy
         payload = build_location_webhook_payload(
-            participant_id=owner.username,
             lat=float(cast(Decimal, location.latitude)),
             lon=float(cast(Decimal, location.longitude)),
+            user_id=owner.username,
+            accuracy_m=int(cast(int, accuracy_raw)) if accuracy_raw is not None else None,
             device_id=device.device_id,
             mqtt_user=device.mqtt_user or owner.username,
             timestamp_iso=_format_timestamp(cast(datetime, location.timestamp)),
-            accuracy_m=int(cast(int, accuracy_raw)) if accuracy_raw is not None else None,
         )
         post_url = location_post_url_for_source(config, source="live")
         send_location_webhook(config, payload=payload, source="live")

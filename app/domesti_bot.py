@@ -42,7 +42,7 @@ def validate_absolute_http_url(url: str) -> str:
 
 
 def extract_base_url_from_location_url(location_url: str) -> str:
-    """Derive domesti base origin from a participant location update URL."""
+    """Derive domesti base origin from a user location update URL."""
     parsed = urlparse(location_url)
     return urlunparse((parsed.scheme, parsed.netloc, "", "", "", ""))
 
@@ -128,23 +128,23 @@ def location_post_url_for_source(config: DomestiBotConfig, *, source: str) -> st
 
 def build_location_webhook_payload(
     *,
-    participant_id: str,
     lat: float,
     lon: float,
+    user_id: str,
+    accuracy_m: int | None = None,
     device_id: str = "test-device",
     mqtt_user: str | None = None,
     timestamp_iso: str | None = None,
-    accuracy_m: int | None = None,
 ) -> dict[str, Any]:
     """Build a domesti-bot location ingest payload."""
     payload: dict[str, Any] = {
-        "participant_id": participant_id,
+        "user_id": user_id,
         "lat": lat,
         "lon": lon,
         "timestamp": timestamp_iso or datetime.now(dt_timezone.utc).isoformat().replace("+00:00", "Z"),
         "source": "my-tracks",
         "device_id": device_id,
-        "mqtt_user": mqtt_user or participant_id,
+        "mqtt_user": mqtt_user or user_id,
     }
     if accuracy_m is not None:
         payload["accuracy_m"] = accuracy_m
@@ -168,7 +168,7 @@ def _record_webhook_delivery(
         "success": success,
         "http_status": http_status,
         "post_url": post_url,
-        "participant_id": payload.get("participant_id"),
+        "user_id": payload.get("user_id"),
         "payload": payload,
         "response_preview": response_preview,
         "source": source,
@@ -176,19 +176,19 @@ def _record_webhook_delivery(
     }
     if success:
         logger.info(
-            "[domesti-bot] %s location webhook OK url=%s participant=%s http=%s elapsed_ms=%s",
+            "[domesti-bot] %s location webhook OK url=%s user=%s http=%s elapsed_ms=%s",
             source,
             post_url,
-            payload.get("participant_id"),
+            payload.get("user_id"),
             http_status,
             elapsed_ms,
         )
     else:
         logger.warning(
-            "[domesti-bot] %s location webhook failed url=%s participant=%s http=%s elapsed_ms=%s response=%s",
+            "[domesti-bot] %s location webhook failed url=%s user=%s http=%s elapsed_ms=%s response=%s",
             source,
             post_url,
-            payload.get("participant_id"),
+            payload.get("user_id"),
             http_status,
             elapsed_ms,
             response_preview,
@@ -270,10 +270,10 @@ def send_location_webhook(
         body_preview = str(exc)
         success = False
         logger.exception(
-            "[domesti-bot] %s location webhook error url=%s participant=%s",
+            "[domesti-bot] %s location webhook error url=%s user=%s",
             source,
             post_url,
-            payload.get("participant_id"),
+            payload.get("user_id"),
         )
 
     return _record_webhook_delivery(
@@ -318,7 +318,7 @@ def log_pairing_activity(
             "sent_at": timezone.now().isoformat(),
             "success": success,
             "http_status": 200 if success else 400,
-            "participant_id": None,
+            "user_id": None,
             "payload": payload,
             "response_preview": preview,
             "source": "pairing",
