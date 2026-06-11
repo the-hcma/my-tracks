@@ -99,24 +99,6 @@ def test_pair_stores_encrypted_key_and_enables_updates(admin_client: APIClient) 
     assert_that(recent_log[0]["success"], is_(True))
 
 
-def test_pair_accepts_legacy_participant_location_url_keys(admin_client: APIClient) -> None:
-    response = admin_client.post(
-        "/api/admin/domesti-bot/pair/",
-        {
-            "api_key": "domesti-secret-key",
-            "participant_location_test_url": "http://192.168.1.10:8003/v1/webhooks/presence/test",
-            "participant_location_update_url": "http://192.168.1.10:8003/v1/webhooks/presence",
-        },
-        format="json",
-    )
-    assert_that(response.status_code, equal_to(status.HTTP_200_OK))
-    body = response.json()
-    assert_that(
-        body["user_location_update_url"],
-        equal_to("http://192.168.1.10:8003/v1/webhooks/presence"),
-    )
-
-
 def test_pair_rejects_invalid_url(admin_client: APIClient) -> None:
     response = admin_client.post(
         "/api/admin/domesti-bot/pair/",
@@ -165,23 +147,6 @@ def test_build_location_webhook_payload_uses_user_id(admin_user: User) -> None:
         user_id=username,
     )
     assert_that(payload["user_id"], equal_to(username))
-
-
-def test_test_location_update_rejects_legacy_participant_id_field(
-    admin_client: APIClient,
-    admin_user: User,
-) -> None:
-    admin_client.post("/api/admin/domesti-bot/pair/", _pair_payload(), format="json")
-    response = admin_client.post(
-        "/api/admin/domesti-bot/test-location-update/",
-        {"participant_id": admin_user.username},
-        format="json",
-    )
-    assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
-    assert_that(
-        response.json()["errors"][0],
-        contains_string("participant_id"),
-    )
 
 
 def test_test_location_update_uses_test_url(admin_client: APIClient, admin_user: User) -> None:

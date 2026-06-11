@@ -114,11 +114,6 @@ class DomestiBotTestLocationUpdateView(APIView):
             return Response({"detail": "Not paired"}, status=status.HTTP_403_FORBIDDEN)
 
         data = _request_data_as_str_dict(request)
-        if "participant_id" in data:
-            return Response(
-                {"errors": ["Expected user_id, got legacy participant_id field"]},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
         user_id = str(data.get("user_id") or _default_test_user_id()).strip()
         if not User.objects.filter(username=user_id, is_active=True).exists():
             return Response(
