@@ -47,12 +47,19 @@ def extract_base_url_from_location_url(location_url: str) -> str:
     return urlunparse((parsed.scheme, parsed.netloc, "", "", "", ""))
 
 
+def pairing_location_urls_from_data(data: dict[str, Any]) -> tuple[str, str]:
+    """Read live/test ingest URLs from a domesti-bot pair request."""
+    update_url = str(data.get("user_location_update_url") or data.get("participant_location_update_url", ""))
+    test_url = str(data.get("user_location_test_url") or data.get("participant_location_test_url", ""))
+    return update_url, test_url
+
+
 def pair_domesti_bot(
     config: DomestiBotConfig,
     *,
     api_key: str,
-    participant_location_update_url: str,
-    participant_location_test_url: str,
+    user_location_test_url: str,
+    user_location_update_url: str,
     domesti_base_url: str = "",
 ) -> None:
     """Apply pairing payload from domesti-bot and persist."""
@@ -60,14 +67,14 @@ def pair_domesti_bot(
     if not key:
         msg = "api_key is required"
         raise ValueError(msg)
-    location_url = validate_absolute_http_url(participant_location_update_url)
-    test_url = validate_absolute_http_url(participant_location_test_url)
+    location_url = validate_absolute_http_url(user_location_update_url)
+    test_url = validate_absolute_http_url(user_location_test_url)
     base = domesti_base_url.strip() or extract_base_url_from_location_url(location_url)
     validate_absolute_http_url(base)
 
     config.set_api_key(key)
-    config.participant_location_update_url = location_url
-    config.participant_location_test_url = test_url
+    config.user_location_test_url = test_url
+    config.user_location_update_url = location_url
     config.domesti_base_url = base
     config.paired_at = timezone.now()
     config.location_updates_enabled = True
@@ -76,8 +83,8 @@ def pair_domesti_bot(
         config,
         success=True,
         domesti_base_url=base,
-        participant_location_update_url=location_url,
-        participant_location_test_url=test_url,
+        user_location_test_url=test_url,
+        user_location_update_url=location_url,
     )
 
 
@@ -101,8 +108,8 @@ def serialize_domesti_bot_config(config: DomestiBotConfig) -> dict[str, Any]:
     return {
         "is_paired": config.is_paired,
         "domesti_base_url": config.domesti_base_url,
-        "participant_location_update_url": config.participant_location_update_url,
-        "participant_location_test_url": config.participant_location_test_url,
+        "user_location_test_url": config.user_location_test_url,
+        "user_location_update_url": config.user_location_update_url,
         "api_key_configured": config.api_key_configured,
         "paired_at": config.paired_at.isoformat() if config.paired_at else None,
         "location_updates_enabled": config.location_updates_enabled,
@@ -114,14 +121,14 @@ def serialize_domesti_bot_config(config: DomestiBotConfig) -> dict[str, Any]:
 def location_post_url_for_source(config: DomestiBotConfig, *, source: str) -> str:
     """Return the ingest URL for live GPS relay or manual test posts."""
     if source == "test":
-        test_url = config.participant_location_test_url.strip()
+        test_url = config.user_location_test_url.strip()
         if not test_url:
-            msg = "participant_location_test_url is not configured"
+            msg = "user_location_test_url is not configured"
             raise ValueError(msg)
         return test_url
-    live_url = config.participant_location_update_url.strip()
+    live_url = config.user_location_update_url.strip()
     if not live_url:
-        msg = "participant_location_update_url is not configured"
+        msg = "user_location_update_url is not configured"
         raise ValueError(msg)
     return live_url
 
@@ -293,24 +300,24 @@ def log_pairing_activity(
     *,
     success: bool,
     domesti_base_url: str = "",
-    participant_location_update_url: str = "",
-    participant_location_test_url: str = "",
     error_message: str = "",
+    user_location_test_url: str = "",
+    user_location_update_url: str = "",
 ) -> None:
     """Record a pairing attempt or outcome in the integration activity log."""
     if success:
         preview = f"Paired with {domesti_base_url}" if domesti_base_url else "Paired successfully"
         payload: dict[str, Any] = {
             "domesti_base_url": domesti_base_url,
-            "participant_location_update_url": participant_location_update_url,
-            "participant_location_test_url": participant_location_test_url,
+            "user_location_test_url": user_location_test_url,
+            "user_location_update_url": user_location_update_url,
         }
     else:
         preview = error_message or "Pairing failed"
         payload = {
             "domesti_base_url": domesti_base_url,
-            "participant_location_update_url": participant_location_update_url,
-            "participant_location_test_url": participant_location_test_url,
+            "user_location_test_url": user_location_test_url,
+            "user_location_update_url": user_location_update_url,
         }
     append_webhook_log_entry(
         config,

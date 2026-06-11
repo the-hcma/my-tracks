@@ -50,8 +50,8 @@ def _pair_config() -> DomestiBotConfig:
     pair_domesti_bot(
         config,
         api_key="domesti-secret-key",
-        participant_location_update_url="http://192.168.1.10:8003/v1/webhooks/presence",
-        participant_location_test_url="http://192.168.1.10:8003/v1/webhooks/presence/test",
+        user_location_test_url="http://192.168.1.10:8003/v1/webhooks/presence/test",
+        user_location_update_url="http://192.168.1.10:8003/v1/webhooks/presence",
         domesti_base_url="http://192.168.1.10:8003",
     )
     return DomestiBotConfig.get_solo()

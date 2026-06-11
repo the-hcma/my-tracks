@@ -18,6 +18,7 @@ from app.domesti_bot import (
     build_location_webhook_payload,
     log_pairing_activity,
     pair_domesti_bot,
+    pairing_location_urls_from_data,
     send_location_webhook,
     serialize_domesti_bot_config,
 )
@@ -70,12 +71,13 @@ class DomestiBotPairView(APIView):
     def post(self, request: Request) -> Response:
         data = _request_data_as_str_dict(request)
         config = DomestiBotConfig.get_solo()
+        update_url, test_url = pairing_location_urls_from_data(data)
         try:
             pair_domesti_bot(
                 config,
                 api_key=str(data.get("api_key", "")),
-                participant_location_update_url=str(data.get("participant_location_update_url", "")),
-                participant_location_test_url=str(data.get("participant_location_test_url", "")),
+                user_location_test_url=test_url,
+                user_location_update_url=update_url,
                 domesti_base_url=str(data.get("domesti_base_url", "") or ""),
             )
         except ValueError as exc:
@@ -83,8 +85,8 @@ class DomestiBotPairView(APIView):
                 config,
                 success=False,
                 domesti_base_url=str(data.get("domesti_base_url", "") or ""),
-                participant_location_update_url=str(data.get("participant_location_update_url", "")),
-                participant_location_test_url=str(data.get("participant_location_test_url", "")),
+                user_location_test_url=test_url,
+                user_location_update_url=update_url,
                 error_message=str(exc),
             )
             return Response({"errors": [str(exc)]}, status=status.HTTP_400_BAD_REQUEST)
@@ -93,8 +95,8 @@ class DomestiBotPairView(APIView):
         return Response(
             {
                 "paired_at": body["paired_at"],
-                "participant_location_update_url": body["participant_location_update_url"],
-                "participant_location_test_url": body["participant_location_test_url"],
+                "user_location_test_url": body["user_location_test_url"],
+                "user_location_update_url": body["user_location_update_url"],
                 "location_updates_enabled": body["location_updates_enabled"],
                 "api_key_configured": body["api_key_configured"],
             }
