@@ -1,4 +1,4 @@
-"""Relay saved GPS fixes to domesti-bot when integration is paired and enabled."""
+"""Relay saved location updates to domesti-bot when integration is paired and enabled."""
 
 from __future__ import annotations
 

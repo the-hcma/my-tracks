@@ -25,7 +25,7 @@ def slugify_waypoint_id(raw: str) -> str:
 
 
 def latest_location_for_device(device: Device) -> dict[str, Any] | None:
-    """Return the newest location fix for ``device``, if any."""
+    """Return the newest location reading for ``device``, if any."""
     location = Location.objects.filter(device=device).order_by("-timestamp").first()
     if location is None:
         return None
