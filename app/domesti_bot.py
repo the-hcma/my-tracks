@@ -49,8 +49,8 @@ def extract_base_url_from_location_url(location_url: str) -> str:
 
 def pairing_location_urls_from_data(data: dict[str, Any]) -> tuple[str, str]:
     """Read live/test ingest URLs from a domesti-bot pair request."""
-    update_url = str(data.get("user_location_update_url") or data.get("participant_location_update_url", ""))
-    test_url = str(data.get("user_location_test_url") or data.get("participant_location_test_url", ""))
+    update_url = str(data.get("user_location_update_url", ""))
+    test_url = str(data.get("user_location_test_url", ""))
     return update_url, test_url
 
 
