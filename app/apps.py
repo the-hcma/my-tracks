@@ -496,6 +496,8 @@ class MyTracksConfig(AppConfig):
         1. A runtime config file exists (written by ``my-tracks-server``)
         2. The process is running the server (not a management command)
         """
+        import app.location_latest  # noqa: F401  # register Location post_save signal
+
         if not CONFIG_FILE.exists():
             logger.debug("No runtime config — skipping MQTT broker startup")
             return

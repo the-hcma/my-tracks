@@ -10,6 +10,7 @@ from hamcrest import assert_that, equal_to
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from app.location_latest import refresh_device_latest_location
 from app.models import Device, DeviceShare, FriendRequest, Location
 from app.views import CommandViewSet
 
@@ -47,6 +48,18 @@ def bob_client(bob: User) -> APIClient:
 def charlie_client(charlie: User) -> APIClient:
     c = APIClient()
     c.force_authenticate(user=charlie)
+    return c
+
+
+@pytest.fixture
+def staff_user(db: Any) -> User:
+    return User.objects.create_user(username="staff", password="pass", is_staff=True)
+
+
+@pytest.fixture
+def staff_client(staff_user: User) -> APIClient:
+    c = APIClient()
+    c.force_authenticate(user=staff_user)
     return c
 
 
@@ -279,6 +292,80 @@ class TestLocationVisibility:
 
 
 class TestLastKnownLocations:
+    def test_location_create_maintains_device_latest_location(
+        self,
+        alice_device: Device,
+    ) -> None:
+        older = timezone.now() - timezone.timedelta(hours=1)
+        newer = timezone.now()
+        Location.objects.create(
+            device=alice_device,
+            latitude=Decimal("51.0"),
+            longitude=Decimal("-0.1"),
+            timestamp=older,
+        )
+        alice_latest = Location.objects.create(
+            device=alice_device,
+            latitude=Decimal("51.1"),
+            longitude=Decimal("-0.2"),
+            timestamp=newer,
+        )
+
+        alice_device.refresh_from_db()
+        assert_that(alice_device.latest_location_id, equal_to(alice_latest.id))
+
+    def test_refresh_device_latest_location_backfills_pointer(
+        self,
+        alice_device: Device,
+    ) -> None:
+        older = timezone.now() - timezone.timedelta(hours=1)
+        newer = timezone.now()
+        Location.objects.create(
+            device=alice_device,
+            latitude=Decimal("51.0"),
+            longitude=Decimal("-0.1"),
+            timestamp=older,
+        )
+        alice_latest = Location.objects.create(
+            device=alice_device,
+            latitude=Decimal("51.1"),
+            longitude=Decimal("-0.2"),
+            timestamp=newer,
+        )
+        Device.objects.filter(pk=alice_device.pk).update(latest_location_id=None)
+
+        refresh_device_latest_location(alice_device.pk)
+
+        alice_device.refresh_from_db()
+        assert_that(alice_device.latest_location_id, equal_to(alice_latest.id))
+
+    def test_staff_last_known_returns_all_devices(
+        self,
+        staff_client: APIClient,
+        db: Any,
+    ) -> None:
+        now = timezone.now()
+        expected_ids: list[int] = []
+        for index in range(10):
+            owner = User.objects.create_user(username=f"user{index}", password="pass")
+            device = Device.objects.create(device_id=f"phone-{index}", owner=owner)
+            location = Location.objects.create(
+                device=device,
+                latitude=Decimal("51.0") + Decimal(index) / Decimal("100"),
+                longitude=Decimal("-0.1"),
+                timestamp=now + timezone.timedelta(seconds=index),
+            )
+            expected_ids.append(location.id)
+
+        expected_device_names = {f"user{index}/phone-{index}" for index in range(10)}
+
+        response = staff_client.get("/api/locations/last-known/")
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        results = response.json()["results"]
+        created_results = [row for row in results if row["device_name"] in expected_device_names]
+        assert_that(len(created_results), equal_to(10))
+        assert_that(sorted(row["id"] for row in created_results), equal_to(sorted(expected_ids)))
+
     def test_returns_latest_per_visible_device(
         self,
         alice_client: APIClient,
