@@ -293,9 +293,13 @@ export async function fetchLastKnownLocations<T extends LocationWithDeviceName &
                 return [];
             }
             const data = await devicesResp.json();
-            const devices = Array.isArray(data?.results) ? data.results : Array.isArray(data) ? data : [];
+            const devices: Array<{ device_name?: string }> = Array.isArray(data?.results)
+                ? data.results
+                : Array.isArray(data)
+                  ? data
+                  : [];
             queryDeviceNames = devices
-                .map((device: { device_name?: string }) => device.device_name)
+                .map((device) => device.device_name)
                 .filter((name): name is string => Boolean(name));
         } catch (error) {
             console.warn('Last Known: device list fetch error', error);
