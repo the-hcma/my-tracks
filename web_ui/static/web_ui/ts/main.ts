@@ -19,6 +19,24 @@ import {
     type LiveActivityLoadKind,
     type LiveActivityRefreshRequest,
 } from './liveActivity';
+import {
+    LIVE_ACTIVITY_BUTTON_IDS,
+    attachLiveActivityToolbar,
+    createLiveActivityResetPatch,
+    devicePollSummaryMessage,
+    devicePollSummaryToastType,
+    fetchAndPollOnlineMqttDevices,
+    buildLastKnownDeviceTargets,
+    fetchMissingLastKnownLocations,
+    findDevicesMissingFromActivityLog,
+    formatDeviceDisplayName,
+    resolveLastKnownOnlyToggleEffect,
+    resolveLiveDeviceFilterChange,
+    resolveLiveLocationIngestPath,
+    resolveSkipHistoryFetchForRefresh,
+    setIconLabelButton,
+    toggleLastKnownOnlyFlag,
+} from './liveActivityToolbar';
 import { getPreferredTheme, setTheme, toggleTheme } from './theme';
 import { dateAndMinutesToTimestamps, extractResultsList, formatLatLonCoordinate, formatLatLonPair, formatMinutesAsTime, getTodayDateString, selectStablePaletteColor } from './utils';
 
@@ -224,13 +242,6 @@ interface DeviceInfo {
     device_id: string;
     name: string;
     owner_username?: string;
-}
-
-/** Match LocationSerializer device_name: owner/label where label is name or device_id. */
-function formatDeviceDisplayName(device: DeviceInfo): string {
-    const trimmedName = device.name?.trim() ?? '';
-    const label = trimmedName && !trimmedName.startsWith('Device ') ? trimmedName : device.device_id;
-    return device.owner_username ? `${device.owner_username}/${label}` : label;
 }
 
 /** WebSocket message from server */
@@ -952,18 +963,15 @@ function updateLastKnownOnlyButton(): void {
 }
 
 function toggleLastKnownOnly(): void {
-    showLastKnownOnly = !showLastKnownOnly;
+    showLastKnownOnly = toggleLastKnownOnlyFlag(showLastKnownOnly);
     updateLastKnownOnlyButton();
     applyLocationSelection();
     syncTrailPolylineVisibilityForLastKnownMode();
     saveUIState();
 
-    if (showLastKnownOnly) {
-        if (isLiveMode) {
-            void ensureLastKnownLocationsLoaded();
-        } else {
-            scheduleMapFitAfterLastKnownUiChange();
-        }
+    const effect = resolveLastKnownOnlyToggleEffect(isLiveMode, showLastKnownOnly);
+    if ('loadLocations' in effect) {
+        void ensureLastKnownLocationsLoaded();
         return;
     }
     scheduleMapFitAfterLastKnownUiChange();
@@ -998,13 +1006,7 @@ async function ensureLastKnownLocationsLoaded(): Promise<void> {
         }
         const devicesData = await devicesResp.json();
         const deviceList = extractResultsList<DeviceInfo>(devicesData);
-
-        const targets = deviceList
-            .map((d) => ({
-                device_id: d.device_id,
-                display_name: formatDeviceDisplayName(d),
-            }))
-            .filter((d) => !selectedDevice || d.display_name === selectedDevice);
+        const targets = buildLastKnownDeviceTargets(deviceList, selectedDevice || undefined);
 
         const renderedDeviceNames = new Set<string>();
         document.querySelectorAll<HTMLElement>('.log-entry[data-device-name]').forEach((entry) => {
@@ -1014,29 +1016,16 @@ async function ensureLastKnownLocationsLoaded(): Promise<void> {
             }
         });
 
-        const missing = targets.filter((d) => !renderedDeviceNames.has(d.display_name));
+        const missing = findDevicesMissingFromActivityLog(targets, renderedDeviceNames);
         if (missing.length === 0) {
             return;
         }
 
-        const latestPerDevice = await Promise.all(
-            missing.map(async (device) => {
-                try {
-                    const url = `/api/devices/${encodeURIComponent(device.device_id)}/locations/?limit=1`;
-                    const resp = await fetch(url);
-                    if (!resp.ok) {
-                        return null;
-                    }
-                    const data = await resp.json();
-                    return extractResultsList<TrackLocation>(data)[0] ?? null;
-                } catch (error) {
-                    console.error(`Last Known Only: failed to fetch latest location for ${device.display_name}`, error);
-                    return null;
-                }
-            }),
-        );
-
-        const missingLocations = latestPerDevice.filter((location): location is TrackLocation => location !== null);
+        const missingLocations = await fetchMissingLastKnownLocations<TrackLocation>({
+            fetchFn: fetch,
+            missingDevices: missing,
+            extractResults: (data) => extractResultsList<TrackLocation>(data),
+        });
         if (missingLocations.length > 0) {
             appendLiveActivityLocations(missingLocations);
         }
@@ -2618,9 +2607,15 @@ async function applyPendingHintLocations(): Promise<void> {
 }
 
 async function runLiveActivityRefresh(request: LiveActivityRefreshRequest): Promise<void> {
-    if (!isLiveMode || skipHistoryFetch) {
+    if (!isLiveMode) {
         return;
     }
+
+    const skipResolution = resolveSkipHistoryFetchForRefresh(skipHistoryFetch, request);
+    if (skipResolution.blocked) {
+        return;
+    }
+    skipHistoryFetch = skipResolution.skipHistoryFetch;
 
     if (request !== 'incremental') {
         if (liveActivityIncrementalRefreshTimer !== null) {
@@ -2807,18 +2802,12 @@ function resetEvents(): void {
     removeAllTrails();
     clearRegisteredLocationMarkers();
 
-    // Clear incremental locations used for building trails after reset
-    incrementalLocations = {};
-
-    // Reset timestamp so new updates start fresh (don't fetch history)
-    lastTimestamp = Date.now() / 1000;
-    lastSeenLocationId = null;
-
-    // Skip history fetch - only show new incoming data after reset
-    skipHistoryFetch = true;
-
-    // Reset fit bounds flag so next location will center the map
-    needsFitBounds = true;
+    const resetPatch = createLiveActivityResetPatch(Date.now() / 1000);
+    incrementalLocations = resetPatch.incrementalLocations;
+    lastTimestamp = resetPatch.lastTimestamp;
+    lastSeenLocationId = resetPatch.lastSeenLocationId;
+    skipHistoryFetch = resetPatch.skipHistoryFetch;
+    needsFitBounds = resetPatch.needsFitBounds;
 }
 
 // ============================================================================
@@ -2829,64 +2818,23 @@ function resetEvents(): void {
  * device that has a known MQTT topic.
  */
 async function requestDeviceLocations(): Promise<void> {
-    const btn = document.getElementById('request-location-button') as HTMLButtonElement | null;
+    const btn = document.getElementById(LIVE_ACTIVITY_BUTTON_IDS.pollDevices) as HTMLButtonElement | null;
     if (btn) {
         btn.disabled = true;
         setIconLabelButton(btn, '⏳', 'Polling...');
     }
 
     try {
-        const devicesResp = await fetch('/api/devices/');
-        if (!devicesResp.ok) {
-            console.warn('Failed to fetch devices:', devicesResp.status);
-            showToast('Could not load device list to poll.', { type: 'error' });
-            return;
+        const summary = await fetchAndPollOnlineMqttDevices({
+            fetchFn: fetch,
+            getCsrfToken,
+        });
+        if (summary.kind === 'all-success') {
+            console.log(`Polled ${summary.count}/${summary.count} MQTT devices`);
+        } else if (summary.kind === 'partial') {
+            console.log(`Polled ${summary.succeeded}/${summary.total} MQTT devices`);
         }
-
-        interface DeviceInfo {
-            device_id: string;
-            mqtt_topic_id: string;
-            is_online: boolean;
-        }
-        const data = await devicesResp.json();
-        const devices: DeviceInfo[] = extractResultsList<DeviceInfo>(data);
-
-        const mqttDevices = devices.filter(d => d.mqtt_topic_id && d.is_online);
-        if (mqttDevices.length === 0) {
-            console.log('No online MQTT devices to poll');
-            showToast('No online MQTT devices to poll.', { type: 'warning' });
-            return;
-        }
-
-        const csrfToken = getCsrfToken();
-
-        const results = await Promise.allSettled(
-            mqttDevices.map(d =>
-                fetch('/api/commands/report-location/', {
-                    method: 'POST',
-                    credentials: 'same-origin',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': csrfToken,
-                    },
-                    body: JSON.stringify({ device_id: d.mqtt_topic_id }),
-                })
-            ),
-        );
-
-        const succeeded = results.filter(r => r.status === 'fulfilled' && (r as PromiseFulfilledResult<Response>).value.ok).length;
-        console.log(`Polled ${succeeded}/${mqttDevices.length} MQTT devices`);
-        if (succeeded === mqttDevices.length) {
-            const deviceWord = succeeded === 1 ? 'device' : 'devices';
-            showToast(`Location request sent to ${succeeded} ${deviceWord}.`, { type: 'success' });
-        } else if (succeeded > 0) {
-            showToast(
-                `Location request sent to ${succeeded} of ${mqttDevices.length} devices; ${mqttDevices.length - succeeded} failed.`,
-                { type: 'warning' },
-            );
-        } else {
-            showToast('Failed to send location request to any device.', { type: 'error' });
-        }
+        showToast(devicePollSummaryMessage(summary), { type: devicePollSummaryToastType(summary) });
     } catch (err) {
         console.error('requestDeviceLocations error:', err);
         showToast('Failed to send location request.', { type: 'error' });
@@ -2896,22 +2844,6 @@ async function requestDeviceLocations(): Promise<void> {
             setIconLabelButton(btn, '📍', 'Poll Devices');
         }
     }
-}
-
-/**
- * Update an icon/label button while preserving the `.btn-icon` / `.btn-label`
- * span structure so the mobile responsive CSS can keep collapsing it to
- * icon-only. Falls back to setting textContent if the spans are not present.
- */
-function setIconLabelButton(button: HTMLButtonElement, icon: string, label: string): void {
-    const iconSpan = button.querySelector<HTMLElement>('.btn-icon');
-    const labelSpan = button.querySelector<HTMLElement>('.btn-label');
-    if (iconSpan && labelSpan) {
-        iconSpan.textContent = icon;
-        labelSpan.textContent = label;
-        return;
-    }
-    button.textContent = `${icon} ${label}`;
 }
 
 // ============================================================================
@@ -3184,20 +3116,23 @@ function connectWebSocket(): void {
                     const deviceName = location.device_name || 'Unknown';
                     console.log(`📍 Live mode location received from ${deviceName}`, location);
 
-                    // Check if we should display this location based on device filter
-                    if (selectedDevice && deviceName !== selectedDevice) {
-                        console.log(`Ignoring location from ${deviceName} (filter: ${selectedDevice})`);
+                    const ingestPath = resolveLiveLocationIngestPath({
+                        isLiveMode: true,
+                        skipHistoryFetch,
+                        matchesDeviceFilter: !selectedDevice || deviceName === selectedDevice,
+                    });
+                    if (ingestPath === 'ignored') {
+                        if (selectedDevice && deviceName !== selectedDevice) {
+                            console.log(`Ignoring location from ${deviceName} (filter: ${selectedDevice})`);
+                        }
                         return;
                     }
-
-                    // After reset, WebSocket is the only source (no API history).
-                    if (skipHistoryFetch) {
+                    if (ingestPath === 'direct') {
                         addLogEntry(location);
                         addLocationToTrail(location);
                         return;
                     }
 
-                    // Normal live mode: WebSocket is a notification; HTTP refresh owns the log.
                     scheduleLiveActivityIncrementalRefresh(location.id);
                 } else if (message.type === 'location' && message.data) {
                     // Not in live mode, but still update the device selector
@@ -3488,37 +3423,14 @@ function initEventListeners(): void {
         themeToggle.addEventListener('click', toggleTheme);
     }
 
-    // Reset button
-    const resetButton = document.getElementById('reset-button');
-    if (resetButton) {
-        resetButton.addEventListener('click', resetEvents);
-    }
-
-    // Load history button
-    const loadHistoryButton = document.getElementById('load-history-button');
-    if (loadHistoryButton) {
-        loadHistoryButton.addEventListener('click', () => {
-            void refreshLiveActivity('30m');
-        });
-    }
-
-    const refreshLiveLatestButton = document.getElementById('refresh-live-latest-button');
-    if (refreshLiveLatestButton) {
-        refreshLiveLatestButton.addEventListener('click', () => {
-            void refreshLiveActivity('latest');
-        });
-    }
-
-    const lastKnownOnlyButton = document.getElementById('last-known-only-button');
-    if (lastKnownOnlyButton) {
-        lastKnownOnlyButton.addEventListener('click', toggleLastKnownOnly);
-    }
-
-    // Request location button
-    const requestLocationButton = document.getElementById('request-location-button');
-    if (requestLocationButton) {
-        requestLocationButton.addEventListener('click', requestDeviceLocations);
-    }
+    attachLiveActivityToolbar({
+        onRefresh: (request) => {
+            void refreshLiveActivity(request);
+        },
+        onReset: resetEvents,
+        onToggleLastKnownOnly: toggleLastKnownOnly,
+        onPollDevices: requestDeviceLocations,
+    });
 
     // Device selector
     const deviceSelector = document.getElementById('device-selector') as HTMLSelectElement | null;
@@ -3534,9 +3446,8 @@ function initEventListeners(): void {
             // Fit bounds when changing device selection
             needsFitBounds = true;
 
-            // Refresh data based on current mode
-            if (isLiveMode) {
-                // Clear and reload live activity with filter
+            const filterAction = resolveLiveDeviceFilterChange(isLiveMode);
+            if (filterAction.action === 'refresh-hour') {
                 clearActivitySection('Loading last hour of activity...');
                 eventCount = 0;
                 lastTimestamp = null;
