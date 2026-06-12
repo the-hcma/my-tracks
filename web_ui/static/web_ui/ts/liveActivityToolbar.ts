@@ -163,11 +163,71 @@ export function buildLastKnownHighlightKeys<T extends LocationWithDeviceName & {
     return keys;
 }
 
+export type LastKnownMergeStrategy = 'replace' | 'append';
+
+/** Whether Last Known should replace the log or append API rows into the existing log. */
+export function resolveLastKnownMergeStrategy(options: {
+    skipHistoryFetch: boolean;
+    renderedDeviceCount: number;
+}): LastKnownMergeStrategy {
+    if (options.skipHistoryFetch || options.renderedDeviceCount === 0) {
+        return 'replace';
+    }
+    return 'append';
+}
+
+export interface LastKnownUiPlan<T extends LocationWithDeviceName & { id?: number | null }> {
+    highlightKeys: Set<string> | null;
+    mergeStrategy: LastKnownMergeStrategy | null;
+    locations: T[];
+}
+
+/** Plan highlight keys and log merge after a last-known API response. */
+export function planLastKnownUiUpdate<T extends LocationWithDeviceName & { id?: number | null }>(options: {
+    locations: T[];
+    skipHistoryFetch: boolean;
+    renderedDeviceCount: number;
+    renderedDeviceNames: Iterable<string>;
+}): LastKnownUiPlan<T> {
+    if (options.locations.length === 0) {
+        return { highlightKeys: null, mergeStrategy: null, locations: [] };
+    }
+    const mergeStrategy = resolveLastKnownMergeStrategy({
+        skipHistoryFetch: options.skipHistoryFetch,
+        renderedDeviceCount: options.renderedDeviceCount,
+    });
+    const locationsToMerge =
+        mergeStrategy === 'append'
+            ? filterLastKnownLocationsToMissingDevices(options.locations, options.renderedDeviceNames)
+            : options.locations;
+    return {
+        highlightKeys: buildLastKnownHighlightKeys(options.locations),
+        mergeStrategy,
+        locations: locationsToMerge,
+    };
+}
+
+/** Whether a device should appear in live activity markers/trails/websocket ingest. */
+export function devicePassesLiveActivityFilter(options: {
+    deviceName: string;
+    selectedDevice?: string;
+    skipHistoryFetch: boolean;
+}): boolean {
+    if (
+        !shouldFilterLiveActivityByDevice({
+            selectedDevice: options.selectedDevice,
+            skipHistoryFetch: options.skipHistoryFetch,
+        })
+    ) {
+        return true;
+    }
+    return options.deviceName === options.selectedDevice;
+}
+
 export async function fetchLastKnownLocations<T extends LocationWithDeviceName & { id?: number | null }>(options: {
     fetchFn: typeof fetch;
     selectedDevice?: string;
     skipHistoryFetch: boolean;
-    renderedDeviceNames: Iterable<string>;
     extractResults: (data: unknown) => T[];
 }): Promise<T[]> {
     const url = buildLastKnownLocationsUrl({
