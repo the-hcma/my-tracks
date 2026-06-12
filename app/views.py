@@ -89,17 +89,32 @@ def _resolve_device_param(user: User, device_param: str) -> Device:
         owner_username, dev_id = device_param.split("/", 1)
         if user.is_staff:
             return Device.objects.get(owner__username=owner_username, device_id=dev_id)
-        return Device.objects.get(
-            Q(owner=user) | Q(shares__shared_with=user),
-            owner__username=owner_username,
-            device_id=dev_id,
+        return (
+            Device.objects.filter(
+                Q(owner=user) | Q(shares__shared_with=user),
+                owner__username=owner_username,
+                device_id=dev_id,
+            )
+            .distinct()
+            .get()
         )
     if user.is_staff:
         return Device.objects.get(device_id=device_param)
-    return Device.objects.filter(
-        Q(owner=user) | Q(shares__shared_with=user),
-        device_id=device_param,
-    ).get()
+    return (
+        Device.objects.filter(
+            Q(owner=user) | Q(shares__shared_with=user),
+            device_id=device_param,
+        )
+        .distinct()
+        .get()
+    )
+
+
+def _ambiguous_device_filter_response(device_param: str) -> Response:
+    return Response(
+        {"error": f"Ambiguous device ID '{device_param}'; use owner/device_id"},
+        status=status.HTTP_400_BAD_REQUEST,
+    )
 
 
 @method_decorator(csrf_exempt, name="dispatch")
@@ -271,6 +286,8 @@ class LocationViewSet(viewsets.ModelViewSet):
                     {"error": f"Expected valid device ID, got '{device_param}' which does not exist"},
                     status=status.HTTP_404_NOT_FOUND,
                 )
+            except Device.MultipleObjectsReturned:
+                return _ambiguous_device_filter_response(str(device_param))
 
         since_id = request.query_params.get("since_id")
         if since_id:
@@ -403,6 +420,8 @@ class LocationViewSet(viewsets.ModelViewSet):
                     {"error": f"Expected valid device ID, got '{device_param}' which does not exist"},
                     status=status.HTTP_404_NOT_FOUND,
                 )
+            except Device.MultipleObjectsReturned:
+                return _ambiguous_device_filter_response(str(device_param))
 
         location_ids: list[int] = []
         for device in devices.select_related("owner"):
@@ -1957,7 +1976,7 @@ class DeviceShareViewSet(viewsets.ViewSet):
         if err:
             return err
         qs = DeviceShare.objects.filter(device__owner=request.user, shared_with=friend).select_related(
-            "device", "shared_with"
+            "device", "device__owner", "shared_with"
         )
         return Response(DeviceShareSerializer(qs, many=True).data)
 

@@ -60,7 +60,7 @@ class TestDeviceLocationWsGroups:
         groups = device_location_ws_groups(bob_device)
         assert_that(groups, not_(has_item(user_ws_group(alice.id))))
 
-    def test_device_display_label_uses_owner_and_name(self, bob: User, bob_device: Device) -> None:
+    def test_device_display_label_uses_canonical_owner_device_id(self, bob: User, bob_device: Device) -> None:
         assert_that(device_display_label(bob_device), equal_to("bob/bob-phone"))
 
     def test_describe_ws_groups_uses_usernames(
