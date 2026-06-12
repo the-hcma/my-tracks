@@ -15,7 +15,9 @@ import {
     fetchAndPollOnlineMqttDevices,
     fetchLastKnownLocations,
     filterLastKnownLocationsToMissingDevices,
+    lastKnownLocationKeysFromLogEntries,
     pollOnlineMqttDevices,
+    resolveLastKnownHighlightKeys,
     resolveLastKnownOnlyToggleEffect,
     resolveLiveActivityToolbarClick,
     resolveLiveDeviceFilterChange,
@@ -207,12 +209,7 @@ describe('post-reset Last Known Only workflow', () => {
         const resetPatch = createLiveActivityResetPatch(1_700_000_100);
 
         expect(resetPatch.showLastKnownOnly).toBe(false);
-        expect(
-            buildLastKnownLocationsUrl({
-                selectedDevice: 'kristen/pixel7',
-                skipHistoryFetch: resetPatch.skipHistoryFetch,
-            }),
-        ).toBe('/api/locations/last-known/');
+        expect(buildLastKnownLocationsUrl()).toBe('/api/locations/last-known/');
     });
 
     it('fetches all visible devices from the last-known API after reset', async () => {
@@ -268,14 +265,8 @@ describe('Last Known Only helpers', () => {
         { id: 12, device_name: 'bob/phone' },
     ];
 
-    it('builds the last-known URL with an optional device filter', () => {
-        expect(buildLastKnownLocationsUrl({ skipHistoryFetch: false })).toBe('/api/locations/last-known/');
-        expect(
-            buildLastKnownLocationsUrl({
-                selectedDevice: 'kristen/pixel7',
-                skipHistoryFetch: false,
-            }),
-        ).toBe('/api/locations/last-known/?device=kristen%2Fpixel7');
+    it('builds the last-known URL without device filter', () => {
+        expect(buildLastKnownLocationsUrl()).toBe('/api/locations/last-known/');
     });
 
     it('filters out devices that already have rows in the activity log', () => {
@@ -303,6 +294,20 @@ describe('Last Known Only helpers', () => {
 
     it('builds highlight keys from last-known location ids', () => {
         expect(buildLastKnownHighlightKeys(locations)).toEqual(new Set(['id:11', 'id:12']));
+    });
+
+    it('prefers log-derived keys over API snapshot when live rows arrive', () => {
+        const logKeys = lastKnownLocationKeysFromLogEntries([
+            { deviceName: 'kristen/pixel7', locationKey: 'id:99', timestampUnix: 300 },
+        ]);
+        const apiSnapshot = new Set(['id:11', 'id:12']);
+        expect(resolveLastKnownHighlightKeys(logKeys, apiSnapshot)).toEqual(new Set(['id:99']));
+    });
+
+    it('falls back to API snapshot only while the log is empty', () => {
+        const logKeys = new Set<string>();
+        const apiSnapshot = new Set(['id:11', 'id:12']);
+        expect(resolveLastKnownHighlightKeys(logKeys, apiSnapshot)).toEqual(apiSnapshot);
     });
 
     it('loads locations when enabled in live mode and only refits the map when disabled', () => {

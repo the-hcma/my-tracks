@@ -127,16 +127,9 @@ export function shouldFilterLiveActivityByDevice(options: {
     return Boolean(options.selectedDevice) && !options.skipHistoryFetch;
 }
 
-export function buildLastKnownLocationsUrl(options: {
-    selectedDevice?: string;
-    skipHistoryFetch: boolean;
-}): string {
-    const params = new URLSearchParams();
-    if (!options.skipHistoryFetch && options.selectedDevice) {
-        params.set('device', options.selectedDevice);
-    }
-    const qs = params.toString();
-    return qs ? `/api/locations/last-known/?${qs}` : '/api/locations/last-known/';
+/** Last-known always returns every visible device; device selector is UI-only. */
+export function buildLastKnownLocationsUrl(): string {
+    return '/api/locations/last-known/';
 }
 
 export function filterLastKnownLocationsToMissingDevices<T extends LocationWithDeviceName>(
@@ -148,6 +141,40 @@ export function filterLastKnownLocationsToMissingDevices<T extends LocationWithD
         const deviceName = location.device_name;
         return deviceName !== undefined && !rendered.has(deviceName);
     });
+}
+
+export interface LastKnownLogEntry {
+    deviceName: string;
+    locationKey: string;
+    timestampUnix: number;
+}
+
+/** Newest log row per device — used for Last Known dimming as live rows arrive. */
+export function lastKnownLocationKeysFromLogEntries(entries: LastKnownLogEntry[]): Set<string> {
+    const locationKeys = new Set<string>();
+    const seenDevices = new Set<string>();
+    for (const entry of [...entries].sort((a, b) => b.timestampUnix - a.timestampUnix)) {
+        if (!entry.deviceName || !entry.locationKey || seenDevices.has(entry.deviceName)) {
+            continue;
+        }
+        seenDevices.add(entry.deviceName);
+        locationKeys.add(entry.locationKey);
+    }
+    return locationKeys;
+}
+
+/**
+ * Prefer keys derived from the current log so new websocket rows update highlighting.
+ * Fall back to the last-known API snapshot only while the log is still empty.
+ */
+export function resolveLastKnownHighlightKeys(
+    logKeys: Set<string>,
+    apiSnapshot: Set<string> | null,
+): Set<string> {
+    if (logKeys.size > 0) {
+        return logKeys;
+    }
+    return apiSnapshot ?? logKeys;
 }
 
 /** Highlight keys for Last Known dimming — matches main.ts locationKeyFor for API rows with id. */
@@ -230,10 +257,7 @@ export async function fetchLastKnownLocations<T extends LocationWithDeviceName &
     skipHistoryFetch: boolean;
     extractResults: (data: unknown) => T[];
 }): Promise<T[]> {
-    const url = buildLastKnownLocationsUrl({
-        selectedDevice: options.selectedDevice,
-        skipHistoryFetch: options.skipHistoryFetch,
-    });
+    const url = buildLastKnownLocationsUrl();
     try {
         const response = await options.fetchFn(url);
         if (!response.ok) {
