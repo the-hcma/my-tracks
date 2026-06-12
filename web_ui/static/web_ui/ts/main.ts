@@ -28,7 +28,9 @@ import {
     fetchAndPollOnlineMqttDevices,
     devicePassesLiveActivityFilter,
     fetchLastKnownLocations,
+    lastKnownLocationKeysFromLogEntries,
     planLastKnownUiUpdate,
+    resolveLastKnownHighlightKeys,
     resolveLastKnownOnlyToggleEffect,
     resolveLiveDeviceFilterChange,
     resolveLiveLocationIngestPath,
@@ -36,6 +38,7 @@ import {
     setIconLabelButton,
     shouldFilterLiveActivityByDevice,
     toggleLastKnownOnlyFlag,
+    type LastKnownLogEntry,
 } from './liveActivityToolbar';
 import { getPreferredTheme, setTheme, toggleTheme } from './theme';
 import { dateAndMinutesToTimestamps, extractResultsList, formatLatLonCoordinate, formatLatLonPair, formatMinutesAsTime, getTodayDateString, selectStablePaletteColor } from './utils';
@@ -268,6 +271,7 @@ let map: L.Map | null = null;
 let deviceMarkers: Record<string, L.CircleMarker> = {};
 let deviceTrails: Record<string, TrailElements> = {};
 const locationMarkersByKey = new Map<string, RegisteredLocationMarker[]>();
+let applyLocationSelectionFrame: number | null = null;
 let selectedLocationKey: string | null = null;
 let showLastKnownOnly = false;
 /** Authoritative per-device highlight keys from the last-known API (when loaded). */
@@ -674,6 +678,17 @@ function applyLocationSelection(): void {
     });
 }
 
+/** Coalesce dimming updates during Last Known + live ingest (one pass per frame). */
+function scheduleApplyLocationSelection(): void {
+    if (applyLocationSelectionFrame !== null) {
+        return;
+    }
+    applyLocationSelectionFrame = requestAnimationFrame(() => {
+        applyLocationSelectionFrame = null;
+        applyLocationSelection();
+    });
+}
+
 function focusLocationMarker(locationKey: string, openPopup: boolean): void {
     const registeredMarkers = locationMarkersByKey.get(locationKey);
     const registeredMarker = registeredMarkers?.[0];
@@ -760,7 +775,11 @@ function registerLocationMarker(location: TrackLocation, marker: LocationMarker,
         });
         selectableMarker._myTracksSelectionHandlerAttached = true;
     }
-    applyLocationSelection();
+    if (showLastKnownOnly) {
+        scheduleApplyLocationSelection();
+    } else {
+        applyLocationSelection();
+    }
 }
 
 function removeTrailElements(trail: TrailElements): void {
@@ -936,27 +955,17 @@ function fitMapToLastKnownLocations(): void {
 }
 
 function getLastKnownLocationKeysByDevice(): Set<string> {
-    if (lastKnownHighlightKeys !== null) {
-        return lastKnownHighlightKeys;
-    }
-
-    const locationKeys = new Set<string>();
-    const seenDevices = new Set<string>();
-    const entries = [...document.querySelectorAll<HTMLElement>('.log-entry[data-location-key][data-device-name]')];
-
-    entries
-        .sort((a, b) => Number(b.dataset.ts ?? 0) - Number(a.dataset.ts ?? 0))
-        .forEach((entry) => {
-            const deviceName = entry.dataset.deviceName;
-            const locationKey = entry.dataset.locationKey;
-            if (!deviceName || !locationKey || seenDevices.has(deviceName)) {
-                return;
-            }
-            seenDevices.add(deviceName);
-            locationKeys.add(locationKey);
-        });
-
-    return locationKeys;
+    const entries: LastKnownLogEntry[] = [];
+    document.querySelectorAll<HTMLElement>('.log-entry[data-location-key][data-device-name]').forEach((entry) => {
+        const deviceName = entry.dataset.deviceName;
+        const locationKey = entry.dataset.locationKey;
+        const ts = Number(entry.dataset.ts ?? 0);
+        if (deviceName && locationKey && Number.isFinite(ts)) {
+            entries.push({ deviceName, locationKey, timestampUnix: ts });
+        }
+    });
+    const logKeys = lastKnownLocationKeysFromLogEntries(entries);
+    return resolveLastKnownHighlightKeys(logKeys, lastKnownHighlightKeys);
 }
 
 function updateLastKnownOnlyButton(): void {
@@ -993,9 +1002,8 @@ function toggleLastKnownOnly(): void {
  * there is always something to highlight when the user activates it.
  *
  * - Runs only in live mode (historic mode operates on a fixed trail).
- * - Honors the active device filter unless post-reset (then every /api/devices/ row).
- * - After reset, fetches latest for all visible devices even if the log has rows.
- * - Otherwise idempotent: skips devices that already have a row.
+ * - Fetches last-known for all visible devices (device selector does not narrow the API).
+ * - After reset, replaces the log; after Latest, appends only devices missing from the log.
  */
 async function ensureLastKnownLocationsLoaded(): Promise<void> {
     if (!isLiveMode) {
