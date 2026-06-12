@@ -267,7 +267,7 @@ def send_transition_email(transition: "Transition", action: "TransitionAction") 
         transition.waypoint.label if transition.waypoint else transition.description
     ) or "unknown geofence"
     owner = transition.device.owner
-    display_name = owner.get_full_name() or owner.username if owner else device_display
+    display_name = (owner.get_full_name() or owner.username) if owner else device_display
 
     verb = "entered" if transition.event == "enter" else "left"
     local_ts = transition.timestamp.astimezone(settings.SYSTEM_TIMEZONE)
