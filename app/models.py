@@ -52,6 +52,14 @@ class Device(models.Model):
         related_name="devices",
         help_text="Django user who owns this device (matched from mqtt_user)",
     )
+    latest_location = models.ForeignKey(
+        "Location",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        help_text="Most recent location row for this device (by timestamp)",
+    )
 
     class Meta:
         ordering = ["-last_seen"]
