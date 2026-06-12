@@ -11,6 +11,7 @@ import {
     buildLastKnownDeviceTargets,
     buildLastKnownFetchTargets,
     buildReportLocationBody,
+    buildDeviceIdDisplay,
     createLiveActivityResetPatch,
     devicePollSummaryMessage,
     devicePollSummaryToastType,
@@ -18,6 +19,8 @@ import {
     fetchLatestLocationsForVisibleDevices,
     fetchMissingLastKnownLocations,
     findDevicesMissingFromActivityLog,
+    locationMatchesDevice,
+    pickLatestLocationForDevices,
     pickLatestLocationPerDevice,
     formatDeviceDisplayName,
     pollOnlineMqttDevices,
@@ -235,9 +238,117 @@ describe('post-reset Last Known Only workflow', () => {
         expect(fetchFn).toHaveBeenCalledOnce();
         expect(fetchFn).toHaveBeenCalledWith(buildLastKnownBulkLocationsUrl());
         expect(locations).toEqual([
-            { id: 12, device_name: 'bob/Phone', timestamp: 200 },
             { id: 11, device_name: 'kristen/Pixel 7', timestamp: 100 },
+            { id: 12, device_name: 'bob/Phone', timestamp: 200 },
         ]);
+    });
+
+    it('matches locations via device_id_display when device_name differs', async () => {
+        const fetchFn = vi.fn().mockResolvedValue({
+            ok: true,
+            json: async () => ({
+                results: [
+                    {
+                        id: 11,
+                        device_name: 'kristen/Pixel 7 ',
+                        device_id_display: 'kristen/pixel7',
+                        timestamp: 100,
+                    },
+                ],
+            }),
+        });
+
+        const locations = await fetchLatestLocationsForVisibleDevices({
+            fetchFn: fetchFn as unknown as typeof fetch,
+            devices: [devices[0]],
+            extractResults: (data) =>
+                (data as {
+                    results: {
+                        id: number;
+                        device_name: string;
+                        device_id_display: string;
+                        timestamp: number;
+                    }[];
+                }).results,
+        });
+
+        expect(locations).toEqual([
+            {
+                id: 11,
+                device_name: 'kristen/Pixel 7 ',
+                device_id_display: 'kristen/pixel7',
+                timestamp: 100,
+            },
+        ]);
+    });
+
+    it('falls back to per-device fetch when bulk list misses a quiet device', async () => {
+        const fetchFn = vi
+            .fn()
+            .mockResolvedValueOnce({
+                ok: true,
+                json: async () => ({
+                    results: [{ id: 11, device_name: 'kristen/Pixel 7', timestamp: 100 }],
+                }),
+            })
+            .mockResolvedValueOnce({
+                ok: true,
+                json: async () => ({ results: [{ id: 12, device_name: 'bob/Phone', timestamp: 200 }] }),
+            });
+
+        const locations = await fetchLatestLocationsForVisibleDevices({
+            fetchFn: fetchFn as unknown as typeof fetch,
+            devices,
+            extractResults: (data) =>
+                (data as { results: { id: number; device_name: string; timestamp: number }[] }).results,
+        });
+
+        expect(fetchFn).toHaveBeenCalledTimes(2);
+        expect(fetchFn).toHaveBeenNthCalledWith(1, buildLastKnownBulkLocationsUrl());
+        expect(fetchFn).toHaveBeenNthCalledWith(2, buildDeviceLatestLocationUrl('phone'));
+        expect(locations).toEqual([
+            { id: 11, device_name: 'kristen/Pixel 7', timestamp: 100 },
+            { id: 12, device_name: 'bob/Phone', timestamp: 200 },
+        ]);
+    });
+});
+
+describe('pickLatestLocationForDevices', () => {
+    const devices = [
+        { device_id: 'pixel7', name: 'Pixel 7', owner_username: 'kristen' },
+        { device_id: 'phone', name: 'Phone', owner_username: 'bob' },
+    ];
+
+    it('keeps the first row per device from -timestamp ordered results', () => {
+        const locations = [
+            { id: 3, device_name: 'bob/Phone', timestamp: 300 },
+            { id: 2, device_name: 'kristen/Pixel 7', timestamp: 200 },
+            { id: 1, device_name: 'kristen/Pixel 7', timestamp: 100 },
+        ];
+
+        expect(pickLatestLocationForDevices(locations, devices)).toEqual([
+            { id: 2, device_name: 'kristen/Pixel 7', timestamp: 200 },
+            { id: 3, device_name: 'bob/Phone', timestamp: 300 },
+        ]);
+    });
+
+    it('matches via device_id_display when device_name does not match display name', () => {
+        const locations = [
+            {
+                id: 2,
+                device_name: 'kristen/Pixel 7 Pro',
+                device_id_display: 'kristen/pixel7',
+                timestamp: 200,
+            },
+        ];
+
+        expect(locationMatchesDevice(locations[0], devices[0])).toBe(true);
+        expect(pickLatestLocationForDevices(locations, [devices[0]])).toEqual(locations);
+    });
+
+    it('builds device_id_display like the API serializer', () => {
+        expect(buildDeviceIdDisplay(devices[0])).toBe('kristen/pixel7');
+        expect(buildDeviceIdDisplay({ device_id: 'phone1', name: 'Phone', owner_username: undefined })).toBe('phone1');
     });
 });
 
@@ -385,6 +496,17 @@ describe('Last Known Only helpers', () => {
                 renderedDeviceNames: ['kristen/Pixel 7'],
             }),
         ).toBe('fill-missing-per-device');
+    });
+
+    it('uses bulk-all-visible load plan when the activity log is empty', () => {
+        const targets = buildLastKnownDeviceTargets(devices);
+        expect(
+            resolveLastKnownLoadPlan({
+                skipHistoryFetch: false,
+                targets,
+                renderedDeviceNames: [],
+            }),
+        ).toBe('bulk-all-visible');
     });
 
     it('builds the bulk locations URL used for post-reset Last Known loads', () => {

@@ -134,6 +134,11 @@ export function formatDeviceDisplayName(device: LastKnownDeviceRow): string {
     return device.owner_username ? `${device.owner_username}/${label}` : label;
 }
 
+/** Match LocationSerializer device_id_display: owner/device_id or plain device_id. */
+export function buildDeviceIdDisplay(device: LastKnownDeviceRow): string {
+    return device.owner_username ? `${device.owner_username}/${device.device_id}` : device.device_id;
+}
+
 export function buildLastKnownDeviceTargets(
     devices: LastKnownDeviceRow[],
     selectedDevice?: string,
@@ -193,7 +198,7 @@ export type LastKnownLoadPlan = 'bulk-all-visible' | 'fill-missing-per-device';
 
 /**
  * Post-reset Last Known loads use the bulk locations API (like Latest).
- * Otherwise fetch only the latest row per device missing from the log.
+ * An empty activity log also uses bulk fetch. Otherwise fetch only missing devices.
  */
 export function resolveLastKnownLoadPlan(options: {
     skipHistoryFetch: boolean;
@@ -203,14 +208,50 @@ export function resolveLastKnownLoadPlan(options: {
     if (options.skipHistoryFetch) {
         return 'bulk-all-visible';
     }
+    const renderedCount = [...options.renderedDeviceNames].length;
+    if (renderedCount === 0) {
+        return 'bulk-all-visible';
+    }
     return 'fill-missing-per-device';
 }
 
 export interface LocationWithDeviceName {
     device_name?: string;
+    device_id_display?: string;
 }
 
-/** From API rows ordered by -timestamp, keep the first row per visible device. */
+/** True when a location row belongs to the given device row. */
+export function locationMatchesDevice(
+    location: LocationWithDeviceName,
+    device: LastKnownDeviceRow,
+): boolean {
+    const locName = location.device_name?.trim();
+    const locIdDisplay = location.device_id_display?.trim();
+    if (!locName && !locIdDisplay) {
+        return false;
+    }
+    const expectedName = formatDeviceDisplayName(device);
+    const expectedIdDisplay = buildDeviceIdDisplay(device);
+    const identifiers = [locName, locIdDisplay].filter(Boolean) as string[];
+    return identifiers.some((id) => id === expectedName || id === expectedIdDisplay);
+}
+
+/** From API rows ordered by -timestamp, pick the newest row for each device. */
+export function pickLatestLocationForDevices<T extends LocationWithDeviceName>(
+    locations: T[],
+    devices: LastKnownDeviceRow[],
+): T[] {
+    const picked: T[] = [];
+    for (const device of devices) {
+        const match = locations.find((location) => locationMatchesDevice(location, device));
+        if (match) {
+            picked.push(match);
+        }
+    }
+    return picked;
+}
+
+/** From API rows ordered by -timestamp, keep the first row per visible device name. */
 export function pickLatestLocationPerDevice<T extends LocationWithDeviceName>(
     locations: T[],
     visibleDeviceNames: Iterable<string>,
@@ -229,27 +270,49 @@ export function pickLatestLocationPerDevice<T extends LocationWithDeviceName>(
     return picked;
 }
 
+function devicesMissingLatestLocations<T extends LocationWithDeviceName>(
+    devices: LastKnownDeviceRow[],
+    locations: T[],
+): LastKnownDeviceTarget[] {
+    return buildLastKnownDeviceTargets(devices).filter((target) => {
+        const device = devices.find((row) => row.device_id === target.device_id);
+        return device && !locations.some((location) => locationMatchesDevice(location, device));
+    });
+}
+
 export async function fetchLatestLocationsForVisibleDevices<T extends LocationWithDeviceName>(options: {
     fetchFn: typeof fetch;
     devices: LastKnownDeviceRow[];
     extractResults: (data: unknown) => T[];
     locationsApiUrl?: string;
 }): Promise<T[]> {
-    const visibleNames = buildLastKnownDeviceTargets(options.devices).map((target) => target.display_name);
-    if (visibleNames.length === 0) {
+    if (options.devices.length === 0) {
         return [];
     }
 
+    let bulkLocations: T[] = [];
     try {
         const response = await options.fetchFn(options.locationsApiUrl ?? buildLastKnownBulkLocationsUrl());
-        if (!response.ok) {
-            return [];
+        if (response.ok) {
+            const data = await response.json();
+            bulkLocations = options.extractResults(data);
         }
-        const data = await response.json();
-        return pickLatestLocationPerDevice(options.extractResults(data), visibleNames);
     } catch {
-        return [];
+        // fall through to per-device fallback
     }
+
+    const picked = pickLatestLocationForDevices(bulkLocations, options.devices);
+    const missingDevices = devicesMissingLatestLocations(options.devices, picked);
+    if (missingDevices.length === 0) {
+        return picked;
+    }
+
+    const fallbackLocations = await fetchMissingLastKnownLocations<T>({
+        fetchFn: options.fetchFn,
+        missingDevices,
+        extractResults: options.extractResults,
+    });
+    return [...picked, ...fallbackLocations];
 }
 
 export type LastKnownOnlyToggleEffect = { loadLocations: true } | { refitMap: true };

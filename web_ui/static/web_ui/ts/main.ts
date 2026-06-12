@@ -1035,6 +1035,12 @@ async function ensureLastKnownLocationsLoaded(): Promise<void> {
                 devices: visibleDevices,
                 extractResults: (data) => extractResultsList<TrackLocation>(data),
             });
+            if (locations.length === 0 && visibleDevices.length > 0) {
+                console.warn(
+                    'Last Known Only: devices visible but no locations loaded',
+                    visibleDevices.map((device) => formatDeviceDisplayName(device)),
+                );
+            }
             if (locations.length > 0) {
                 if (renderedDeviceNames.size === 0) {
                     replaceLiveActivityFromLocations(locations, '(last known)');
@@ -1055,6 +1061,12 @@ async function ensureLastKnownLocationsLoaded(): Promise<void> {
                 missingDevices: devicesToFetch,
                 extractResults: (data) => extractResultsList<TrackLocation>(data),
             });
+            if (missingLocations.length === 0) {
+                console.warn(
+                    'Last Known Only: devices visible but no locations loaded',
+                    devicesToFetch.map((device) => device.display_name),
+                );
+            }
             if (missingLocations.length > 0) {
                 appendLiveActivityLocations(missingLocations);
             }
