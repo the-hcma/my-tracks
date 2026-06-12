@@ -15,6 +15,7 @@ export default defineConfig({
                 'web_ui/static/web_ui/ts/friends.ts',
                 'web_ui/static/web_ui/ts/friend-request-banner.ts',
                 'web_ui/static/web_ui/ts/liveActivity.ts',
+                'web_ui/static/web_ui/ts/liveActivityToolbar.ts',
             ],
             exclude: ['web_ui/static/web_ui/ts/**/*.test.ts'],
         },
