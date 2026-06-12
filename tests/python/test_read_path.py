@@ -240,3 +240,84 @@ class TestLocationVisibility:
             )
         assert_that(response.status_code, equal_to(status.HTTP_200_OK))
         assert_that(response.json()["device_id"], equal_to("bob_mqtt/bob-phone"))
+
+
+class TestLastKnownLocations:
+    def test_returns_latest_per_visible_device(
+        self,
+        alice_client: APIClient,
+        alice_device: Device,
+        bob_device: Device,
+        bob_shares_with_alice: DeviceShare,
+    ) -> None:
+        older = timezone.now() - timezone.timedelta(hours=1)
+        newer = timezone.now()
+        Location.objects.create(
+            device=alice_device,
+            latitude=Decimal("51.0"),
+            longitude=Decimal("-0.1"),
+            timestamp=older,
+        )
+        alice_latest = Location.objects.create(
+            device=alice_device,
+            latitude=Decimal("51.1"),
+            longitude=Decimal("-0.2"),
+            timestamp=newer,
+        )
+        bob_latest = Location.objects.create(
+            device=bob_device,
+            latitude=Decimal("52.0"),
+            longitude=Decimal("-0.3"),
+            timestamp=newer,
+        )
+
+        response = alice_client.get("/api/locations/last-known/")
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        results = response.json()["results"]
+        assert_that(len(results), equal_to(2))
+        by_name = {row["device_name"]: row["id"] for row in results}
+        assert_that(by_name["alice/alice-phone"], equal_to(alice_latest.id))
+        assert_that(by_name["bob/bob-phone"], equal_to(bob_latest.id))
+
+    def test_excludes_unshared_devices(
+        self,
+        alice_client: APIClient,
+        bob_device: Device,
+        bob_location: Location,
+        friendship: FriendRequest,
+    ) -> None:
+        response = alice_client.get("/api/locations/last-known/")
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        assert_that(response.json()["results"], equal_to([]))
+
+    def test_device_filter_accepts_owner_device_id(
+        self,
+        alice_client: APIClient,
+        bob_location: Location,
+        bob_shares_with_alice: DeviceShare,
+    ) -> None:
+        response = alice_client.get("/api/locations/last-known/?device=bob/bob-phone")
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        results = response.json()["results"]
+        assert_that(len(results), equal_to(1))
+        assert_that(results[0]["device_name"], equal_to("bob/bob-phone"))
+
+    def test_device_filter_404_for_inaccessible_device(
+        self,
+        alice_client: APIClient,
+        bob_device: Device,
+        bob_location: Location,
+    ) -> None:
+        response = alice_client.get("/api/locations/last-known/?device=bob-phone")
+        assert_that(response.status_code, equal_to(status.HTTP_404_NOT_FOUND))
+
+
+class TestDeviceNameInApi:
+    def test_device_list_includes_canonical_device_name(
+        self,
+        alice_client: APIClient,
+        alice_device: Device,
+    ) -> None:
+        response = alice_client.get("/api/devices/")
+        device = response.data["results"][0]
+        assert_that(device["device_name"], equal_to("alice/alice-phone"))

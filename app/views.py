@@ -384,6 +384,38 @@ class LocationViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
+    @action(detail=False, methods=["get"], url_path="last-known")
+    def last_known(self, request: Request) -> Response:
+        """
+        Return the latest location for each visible device.
+
+        Optional query parameter:
+        - device: Filter to one device (``owner/device_id`` or plain ``device_id``)
+        """
+        devices = _visible_devices_for_user(request.user)
+        device_param = request.query_params.get("device")
+        if device_param:
+            try:
+                device = _resolve_device_param(request.user, str(device_param))
+                devices = devices.filter(pk=device.pk)
+            except Device.DoesNotExist:
+                return Response(
+                    {"error": f"Expected valid device ID, got '{device_param}' which does not exist"},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+        location_ids: list[int] = []
+        for device in devices.select_related("owner"):
+            loc_id = device.locations.order_by("-timestamp").values_list("id", flat=True).first()
+            if loc_id is not None:
+                location_ids.append(loc_id)
+
+        queryset = (
+            self.get_queryset().filter(id__in=location_ids).select_related("device__owner").order_by("-timestamp")
+        )
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({"results": serializer.data})
+
 
 class DeviceViewSet(viewsets.ReadOnlyModelViewSet):
     """
