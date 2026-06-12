@@ -166,7 +166,7 @@ class TestSendTransitionEmail:
                 mock_msg_cls.return_value = MagicMock()
                 send_transition_email(transition, action)
         body = mock_msg_cls.call_args[1]['body']
-        assert f"  Device:   {user.username}/{device.name}" in body
+        assert f"  Device:   {user.username}/{device.device_id}" in body
 
     def test_body_when_line_includes_utc(self, setup) -> None:
         """When: field should include UTC timestamp in parens."""

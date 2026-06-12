@@ -145,7 +145,7 @@ async def test_mqtt_handle_location_triggers_relay(owner: User, device: Device) 
         "id": 101,
         "device": device.pk,
         "timestamp_unix": ts,
-        "device_id_display": f"{owner.username}/pixel7pro",
+        "device_name": f"{owner.username}/pixel7pro",
     }
     mock_location = MagicMock()
     mock_location.device.owner = owner
