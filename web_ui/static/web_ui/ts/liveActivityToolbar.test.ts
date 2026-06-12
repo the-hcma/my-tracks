@@ -6,6 +6,7 @@ import {
     LIVE_ACTIVITY_BUTTON_IDS,
     REPORT_LOCATION_API,
     attachLiveActivityToolbar,
+    buildLastKnownHighlightKeys,
     buildLastKnownLocationsUrl,
     buildReportLocationBody,
     createLiveActivityResetPatch,
@@ -21,6 +22,7 @@ import {
     resolveLiveLocationIngestPath,
     resolveSkipHistoryFetchForRefresh,
     selectOnlineMqttDevices,
+    shouldFilterLiveActivityByDevice,
     summarizeDevicePollResults,
     toggleLastKnownOnlyFlag,
 } from './liveActivityToolbar';
@@ -171,6 +173,35 @@ describe('resolveLiveLocationIngestPath', () => {
     });
 });
 
+describe('shouldFilterLiveActivityByDevice', () => {
+    it('filters when a device is selected and history fetch is enabled', () => {
+        expect(
+            shouldFilterLiveActivityByDevice({
+                selectedDevice: 'kristen/pixel7',
+                skipHistoryFetch: false,
+            }),
+        ).toBe(true);
+    });
+
+    it('does not filter when no device is selected', () => {
+        expect(
+            shouldFilterLiveActivityByDevice({
+                selectedDevice: undefined,
+                skipHistoryFetch: false,
+            }),
+        ).toBe(false);
+    });
+
+    it('does not filter after reset even when a device remains selected in state', () => {
+        expect(
+            shouldFilterLiveActivityByDevice({
+                selectedDevice: 'kristen/pixel7',
+                skipHistoryFetch: true,
+            }),
+        ).toBe(false);
+    });
+});
+
 describe('post-reset Last Known Only workflow', () => {
     it('reset turns Last Known Only off and post-reset loads ignore the device selector', () => {
         const resetPatch = createLiveActivityResetPatch(1_700_000_100);
@@ -254,7 +285,7 @@ describe('Last Known Only helpers', () => {
         ]);
     });
 
-    it('loads only missing devices outside post-reset mode', async () => {
+    it('returns all devices from the last-known API even when some are already in the log', async () => {
         const fetchFn = vi.fn().mockResolvedValue({
             ok: true,
             json: async () => ({ results: locations }),
@@ -269,7 +300,11 @@ describe('Last Known Only helpers', () => {
         });
 
         expect(fetchFn).toHaveBeenCalledWith('/api/locations/last-known/');
-        expect(result).toEqual([{ id: 12, device_name: 'bob/phone' }]);
+        expect(result).toEqual(locations);
+    });
+
+    it('builds highlight keys from last-known location ids', () => {
+        expect(buildLastKnownHighlightKeys(locations)).toEqual(new Set(['id:11', 'id:12']));
     });
 
     it('loads locations when enabled in live mode and only refits the map when disabled', () => {

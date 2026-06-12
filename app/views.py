@@ -14,7 +14,7 @@ from typing import Any, cast
 from asgiref.sync import async_to_sync
 from django.conf import settings
 from django.contrib.auth.models import User
-from django.db.models import QuerySet
+from django.db.models import OuterRef, QuerySet, Subquery
 from django.http import HttpResponse as DjangoHttpResponse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -424,10 +424,12 @@ class LocationViewSet(viewsets.ModelViewSet):
                 return _ambiguous_device_filter_response(str(device_param))
 
         location_ids: list[int] = []
-        for device in devices.select_related("owner"):
-            loc_id = device.locations.order_by("-timestamp").values_list("id", flat=True).first()
-            if loc_id is not None:
-                location_ids.append(loc_id)
+        latest_location = Location.objects.filter(device=OuterRef("pk")).order_by("-timestamp")
+        location_ids = list(
+            devices.annotate(latest_location_id=Subquery(latest_location.values("id")[:1]))
+            .exclude(latest_location_id__isnull=True)
+            .values_list("latest_location_id", flat=True)
+        )
 
         queryset = (
             self.get_queryset().filter(id__in=location_ids).select_related("device__owner").order_by("-timestamp")

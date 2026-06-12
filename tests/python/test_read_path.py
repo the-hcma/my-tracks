@@ -315,6 +315,34 @@ class TestLastKnownLocations:
         assert_that(by_name["alice/alice-phone"], equal_to(alice_latest.id))
         assert_that(by_name["bob/bob-phone"], equal_to(bob_latest.id))
 
+    def test_returns_stale_latest_outside_recent_activity_window(
+        self,
+        alice_client: APIClient,
+        alice_device: Device,
+        bob_device: Device,
+        bob_shares_with_alice: DeviceShare,
+    ) -> None:
+        """Last-known returns true DB latest even when a device has no recent pings."""
+        recent = timezone.now()
+        stale = timezone.now() - timezone.timedelta(days=30)
+        Location.objects.create(
+            device=alice_device,
+            latitude=Decimal("51.0"),
+            longitude=Decimal("-0.1"),
+            timestamp=recent,
+        )
+        bob_stale = Location.objects.create(
+            device=bob_device,
+            latitude=Decimal("52.0"),
+            longitude=Decimal("-0.3"),
+            timestamp=stale,
+        )
+
+        response = alice_client.get("/api/locations/last-known/")
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        by_name = {row["device_name"]: row["id"] for row in response.json()["results"]}
+        assert_that(by_name["bob/bob-phone"], equal_to(bob_stale.id))
+
     def test_excludes_unshared_devices(
         self,
         alice_client: APIClient,

@@ -120,6 +120,13 @@ export interface LocationWithDeviceName {
     device_name?: string;
 }
 
+export function shouldFilterLiveActivityByDevice(options: {
+    selectedDevice?: string;
+    skipHistoryFetch: boolean;
+}): boolean {
+    return Boolean(options.selectedDevice) && !options.skipHistoryFetch;
+}
+
 export function buildLastKnownLocationsUrl(options: {
     selectedDevice?: string;
     skipHistoryFetch: boolean;
@@ -143,7 +150,20 @@ export function filterLastKnownLocationsToMissingDevices<T extends LocationWithD
     });
 }
 
-export async function fetchLastKnownLocations<T extends LocationWithDeviceName>(options: {
+/** Highlight keys for Last Known dimming — matches main.ts locationKeyFor for API rows with id. */
+export function buildLastKnownHighlightKeys<T extends LocationWithDeviceName & { id?: number | null }>(
+    locations: T[],
+): Set<string> {
+    const keys = new Set<string>();
+    for (const location of locations) {
+        if (location.id !== undefined && location.id !== null) {
+            keys.add(`id:${location.id}`);
+        }
+    }
+    return keys;
+}
+
+export async function fetchLastKnownLocations<T extends LocationWithDeviceName & { id?: number | null }>(options: {
     fetchFn: typeof fetch;
     selectedDevice?: string;
     skipHistoryFetch: boolean;
@@ -157,15 +177,13 @@ export async function fetchLastKnownLocations<T extends LocationWithDeviceName>(
     try {
         const response = await options.fetchFn(url);
         if (!response.ok) {
+            console.warn('Last Known: fetch failed', response.status, url);
             return [];
         }
         const data = await response.json();
-        const locations = options.extractResults(data);
-        if (options.skipHistoryFetch) {
-            return locations;
-        }
-        return filterLastKnownLocationsToMissingDevices(locations, options.renderedDeviceNames);
-    } catch {
+        return options.extractResults(data);
+    } catch (error) {
+        console.warn('Last Known: fetch error', error);
         return [];
     }
 }
