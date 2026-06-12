@@ -27,7 +27,9 @@ import {
     devicePollSummaryToastType,
     fetchAndPollOnlineMqttDevices,
     buildLastKnownFetchTargets,
+    fetchLatestLocationsForVisibleDevices,
     fetchMissingLastKnownLocations,
+    resolveLastKnownLoadPlan,
     selectLastKnownDevicesToFetch,
     formatDeviceDisplayName,
     resolveLastKnownOnlyToggleEffect,
@@ -1019,20 +1021,43 @@ async function ensureLastKnownLocationsLoaded(): Promise<void> {
             }
         });
 
-        const devicesToFetch = selectLastKnownDevicesToFetch(targets, renderedDeviceNames, {
+        const loadPlan = resolveLastKnownLoadPlan({
             skipHistoryFetch,
+            targets,
+            renderedDeviceNames,
         });
-        if (devicesToFetch.length === 0) {
-            return;
-        }
 
-        const missingLocations = await fetchMissingLastKnownLocations<TrackLocation>({
-            fetchFn: fetch,
-            missingDevices: devicesToFetch,
-            extractResults: (data) => extractResultsList<TrackLocation>(data),
-        });
-        if (missingLocations.length > 0) {
-            appendLiveActivityLocations(missingLocations);
+        if (loadPlan === 'bulk-all-visible') {
+            const targetDeviceIds = new Set(targets.map((target) => target.device_id));
+            const visibleDevices = deviceList.filter((device) => targetDeviceIds.has(device.device_id));
+            const locations = await fetchLatestLocationsForVisibleDevices<TrackLocation>({
+                fetchFn: fetch,
+                devices: visibleDevices,
+                extractResults: (data) => extractResultsList<TrackLocation>(data),
+            });
+            if (locations.length > 0) {
+                if (renderedDeviceNames.size === 0) {
+                    replaceLiveActivityFromLocations(locations, '(last known)');
+                } else {
+                    appendLiveActivityLocations(locations);
+                }
+            }
+        } else {
+            const devicesToFetch = selectLastKnownDevicesToFetch(targets, renderedDeviceNames, {
+                skipHistoryFetch,
+            });
+            if (devicesToFetch.length === 0) {
+                return;
+            }
+
+            const missingLocations = await fetchMissingLastKnownLocations<TrackLocation>({
+                fetchFn: fetch,
+                missingDevices: devicesToFetch,
+                extractResults: (data) => extractResultsList<TrackLocation>(data),
+            });
+            if (missingLocations.length > 0) {
+                appendLiveActivityLocations(missingLocations);
+            }
         }
 
         applyLocationSelection();

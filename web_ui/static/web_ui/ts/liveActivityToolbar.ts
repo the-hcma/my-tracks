@@ -185,6 +185,73 @@ export function buildDeviceLatestLocationUrl(deviceId: string): string {
     return `/api/devices/${encodeURIComponent(deviceId)}/locations/?limit=1`;
 }
 
+export function buildLastKnownBulkLocationsUrl(): string {
+    return '/api/locations/?ordering=-timestamp&limit=500';
+}
+
+export type LastKnownLoadPlan = 'bulk-all-visible' | 'fill-missing-per-device';
+
+/**
+ * Post-reset Last Known loads use the bulk locations API (like Latest).
+ * Otherwise fetch only the latest row per device missing from the log.
+ */
+export function resolveLastKnownLoadPlan(options: {
+    skipHistoryFetch: boolean;
+    targets: LastKnownDeviceTarget[];
+    renderedDeviceNames: Iterable<string>;
+}): LastKnownLoadPlan {
+    if (options.skipHistoryFetch) {
+        return 'bulk-all-visible';
+    }
+    return 'fill-missing-per-device';
+}
+
+export interface LocationWithDeviceName {
+    device_name?: string;
+}
+
+/** From API rows ordered by -timestamp, keep the first row per visible device. */
+export function pickLatestLocationPerDevice<T extends LocationWithDeviceName>(
+    locations: T[],
+    visibleDeviceNames: Iterable<string>,
+): T[] {
+    const visible = new Set(visibleDeviceNames);
+    const seen = new Set<string>();
+    const picked: T[] = [];
+    for (const location of locations) {
+        const deviceName = location.device_name;
+        if (!deviceName || !visible.has(deviceName) || seen.has(deviceName)) {
+            continue;
+        }
+        seen.add(deviceName);
+        picked.push(location);
+    }
+    return picked;
+}
+
+export async function fetchLatestLocationsForVisibleDevices<T extends LocationWithDeviceName>(options: {
+    fetchFn: typeof fetch;
+    devices: LastKnownDeviceRow[];
+    extractResults: (data: unknown) => T[];
+    locationsApiUrl?: string;
+}): Promise<T[]> {
+    const visibleNames = buildLastKnownDeviceTargets(options.devices).map((target) => target.display_name);
+    if (visibleNames.length === 0) {
+        return [];
+    }
+
+    try {
+        const response = await options.fetchFn(options.locationsApiUrl ?? buildLastKnownBulkLocationsUrl());
+        if (!response.ok) {
+            return [];
+        }
+        const data = await response.json();
+        return pickLatestLocationPerDevice(options.extractResults(data), visibleNames);
+    } catch {
+        return [];
+    }
+}
+
 export type LastKnownOnlyToggleEffect = { loadLocations: true } | { refitMap: true };
 
 export function resolveLastKnownOnlyToggleEffect(
