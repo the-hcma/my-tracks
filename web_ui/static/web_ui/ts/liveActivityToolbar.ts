@@ -116,137 +116,55 @@ export function resolveLiveLocationIngestPath(options: {
     return 'http-incremental';
 }
 
-export interface LastKnownDeviceRow {
-    device_id: string;
-    name: string;
-    owner_username?: string;
-}
-
-export interface LastKnownDeviceTarget {
-    device_id: string;
-    display_name: string;
-}
-
-/** Match LocationSerializer device_name: owner/label where label is name or device_id. */
-export function formatDeviceDisplayName(device: LastKnownDeviceRow): string {
-    const trimmedName = device.name?.trim() ?? '';
-    const label = trimmedName && !trimmedName.startsWith('Device ') ? trimmedName : device.device_id;
-    return device.owner_username ? `${device.owner_username}/${label}` : label;
-}
-
-export function buildLastKnownDeviceTargets(
-    devices: LastKnownDeviceRow[],
-    selectedDevice?: string,
-): LastKnownDeviceTarget[] {
-    return devices
-        .map((device) => ({
-            device_id: device.device_id,
-            display_name: formatDeviceDisplayName(device),
-        }))
-        .filter((target) => !selectedDevice || target.display_name === selectedDevice);
-}
-
-/**
- * Build Last Known fetch targets. After reset, ignore the device selector and
- * use every device returned by /api/devices/ (owned, shared, or all for staff).
- */
-export function buildLastKnownFetchTargets(
-    devices: LastKnownDeviceRow[],
-    options: { selectedDevice?: string; skipHistoryFetch: boolean },
-): LastKnownDeviceTarget[] {
-    const selectedDevice = options.skipHistoryFetch ? undefined : options.selectedDevice;
-    return buildLastKnownDeviceTargets(devices, selectedDevice);
-}
-
-export function findDevicesMissingFromActivityLog(
-    targets: LastKnownDeviceTarget[],
-    renderedDeviceNames: Iterable<string>,
-): LastKnownDeviceTarget[] {
-    const rendered = new Set(renderedDeviceNames);
-    return targets.filter((target) => !rendered.has(target.display_name));
-}
-
-/**
- * After reset, fetch the latest location for every visible device even if the
- * log already has organic websocket rows for some of them.
- */
-export function selectLastKnownDevicesToFetch(
-    targets: LastKnownDeviceTarget[],
-    renderedDeviceNames: Iterable<string>,
-    options: { skipHistoryFetch: boolean },
-): LastKnownDeviceTarget[] {
-    if (options.skipHistoryFetch) {
-        return targets;
-    }
-    return findDevicesMissingFromActivityLog(targets, renderedDeviceNames);
-}
-
-export function buildDeviceLatestLocationUrl(deviceId: string): string {
-    return `/api/devices/${encodeURIComponent(deviceId)}/locations/?limit=1`;
-}
-
-export function buildLastKnownBulkLocationsUrl(): string {
-    return '/api/locations/?ordering=-timestamp&limit=500';
-}
-
-export type LastKnownLoadPlan = 'bulk-all-visible' | 'fill-missing-per-device';
-
-/**
- * Post-reset Last Known loads use the bulk locations API (like Latest).
- * Otherwise fetch only the latest row per device missing from the log.
- */
-export function resolveLastKnownLoadPlan(options: {
-    skipHistoryFetch: boolean;
-    targets: LastKnownDeviceTarget[];
-    renderedDeviceNames: Iterable<string>;
-}): LastKnownLoadPlan {
-    if (options.skipHistoryFetch) {
-        return 'bulk-all-visible';
-    }
-    return 'fill-missing-per-device';
-}
-
 export interface LocationWithDeviceName {
     device_name?: string;
 }
 
-/** From API rows ordered by -timestamp, keep the first row per visible device. */
-export function pickLatestLocationPerDevice<T extends LocationWithDeviceName>(
-    locations: T[],
-    visibleDeviceNames: Iterable<string>,
-): T[] {
-    const visible = new Set(visibleDeviceNames);
-    const seen = new Set<string>();
-    const picked: T[] = [];
-    for (const location of locations) {
-        const deviceName = location.device_name;
-        if (!deviceName || !visible.has(deviceName) || seen.has(deviceName)) {
-            continue;
-        }
-        seen.add(deviceName);
-        picked.push(location);
+export function buildLastKnownLocationsUrl(options: {
+    selectedDevice?: string;
+    skipHistoryFetch: boolean;
+}): string {
+    const params = new URLSearchParams();
+    if (!options.skipHistoryFetch && options.selectedDevice) {
+        params.set('device', options.selectedDevice);
     }
-    return picked;
+    const qs = params.toString();
+    return qs ? `/api/locations/last-known/?${qs}` : '/api/locations/last-known/';
 }
 
-export async function fetchLatestLocationsForVisibleDevices<T extends LocationWithDeviceName>(options: {
-    fetchFn: typeof fetch;
-    devices: LastKnownDeviceRow[];
-    extractResults: (data: unknown) => T[];
-    locationsApiUrl?: string;
-}): Promise<T[]> {
-    const visibleNames = buildLastKnownDeviceTargets(options.devices).map((target) => target.display_name);
-    if (visibleNames.length === 0) {
-        return [];
-    }
+export function filterLastKnownLocationsToMissingDevices<T extends LocationWithDeviceName>(
+    locations: T[],
+    renderedDeviceNames: Iterable<string>,
+): T[] {
+    const rendered = new Set(renderedDeviceNames);
+    return locations.filter((location) => {
+        const deviceName = location.device_name;
+        return deviceName !== undefined && !rendered.has(deviceName);
+    });
+}
 
+export async function fetchLastKnownLocations<T extends LocationWithDeviceName>(options: {
+    fetchFn: typeof fetch;
+    selectedDevice?: string;
+    skipHistoryFetch: boolean;
+    renderedDeviceNames: Iterable<string>;
+    extractResults: (data: unknown) => T[];
+}): Promise<T[]> {
+    const url = buildLastKnownLocationsUrl({
+        selectedDevice: options.selectedDevice,
+        skipHistoryFetch: options.skipHistoryFetch,
+    });
     try {
-        const response = await options.fetchFn(options.locationsApiUrl ?? buildLastKnownBulkLocationsUrl());
+        const response = await options.fetchFn(url);
         if (!response.ok) {
             return [];
         }
         const data = await response.json();
-        return pickLatestLocationPerDevice(options.extractResults(data), visibleNames);
+        const locations = options.extractResults(data);
+        if (options.skipHistoryFetch) {
+            return locations;
+        }
+        return filterLastKnownLocationsToMissingDevices(locations, options.renderedDeviceNames);
     } catch {
         return [];
     }
@@ -265,28 +183,6 @@ export function resolveLastKnownOnlyToggleEffect(
         return { loadLocations: true };
     }
     return { refitMap: true };
-}
-
-export async function fetchMissingLastKnownLocations<T>(options: {
-    fetchFn: typeof fetch;
-    missingDevices: LastKnownDeviceTarget[];
-    extractResults: (data: unknown) => T[];
-}): Promise<T[]> {
-    const locations = await Promise.all(
-        options.missingDevices.map(async (device) => {
-            try {
-                const response = await options.fetchFn(buildDeviceLatestLocationUrl(device.device_id));
-                if (!response.ok) {
-                    return null;
-                }
-                const data = await response.json();
-                return options.extractResults(data)[0] ?? null;
-            } catch {
-                return null;
-            }
-        }),
-    );
-    return locations.filter((location) => location !== null) as T[];
 }
 
 export interface PollableMqttDevice {
