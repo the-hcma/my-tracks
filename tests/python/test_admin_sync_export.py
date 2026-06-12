@@ -61,7 +61,7 @@ def test_users_with_devices_export_lists_owner_devices(
     assert_that(body["source"], equal_to("my-tracks"))
     assert_that(body["users_with_devices"], has_length(1))
     assert_that(body["users_with_devices"][0]["username"], equal_to("henrique"))
-    assert_that(body["users_with_devices"][0]["device_name"], equal_to("Henrique's iPhone"))
+    assert_that(body["users_with_devices"][0]["device_name"], equal_to("henrique/iphone"))
     assert_that(body["users_with_devices"][0]["latest_location"], none())
 
 

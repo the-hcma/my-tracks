@@ -12,7 +12,7 @@ import smtplib
 import socket
 from datetime import datetime
 from datetime import timezone as _utc
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from django.conf import settings
 from django.core.mail import EmailMessage
@@ -253,20 +253,21 @@ def send_transition_email(transition: "Transition", action: "TransitionAction") 
         transition: The Transition instance that fired.
         action: The TransitionAction rule that matched.
     """
-    from app.models import SmtpConfig
+    from app.models import Device, SmtpConfig
 
     config = SmtpConfig.get()
     if config is None:
         logger.debug("send_transition_email: no SMTP config, skipping")
         return
 
-    device_name = transition.device.name or transition.device.device_id
+    from app.device_names import device_name_for
+
+    device_display = device_name_for(cast(Device, transition.device))
     waypoint_label = (
         transition.waypoint.label if transition.waypoint else transition.description
     ) or "unknown geofence"
     owner = transition.device.owner
-    display_name = owner.get_full_name() or owner.username if owner else device_name
-    device_display = f"{owner.username}/{device_name}" if owner else device_name
+    display_name = owner.get_full_name() or owner.username if owner else device_display
 
     verb = "entered" if transition.event == "enter" else "left"
     local_ts = transition.timestamp.astimezone(settings.SYSTEM_TIMEZONE)

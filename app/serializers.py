@@ -7,7 +7,7 @@ OwnTracks JSON payloads and model instances.
 
 import logging
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from django.conf import settings
 from django.contrib.auth.models import User
@@ -19,6 +19,7 @@ from django.contrib.auth.password_validation import (
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
+from .device_names import device_name_for
 from .models import (
     CertificateAuthority,
     ClientCertificate,
@@ -40,12 +41,14 @@ class DeviceSerializer(serializers.ModelSerializer):
     location_count = serializers.SerializerMethodField()
     mqtt_topic_id = serializers.SerializerMethodField()
     owner_username = serializers.CharField(source="owner.username", read_only=True, default="")
+    device_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Device
         fields = [
             "id",
             "device_id",
+            "device_name",
             "name",
             "owner_username",
             "created_at",
@@ -66,6 +69,10 @@ class DeviceSerializer(serializers.ModelSerializer):
         if obj.mqtt_user:
             return f"{obj.mqtt_user}/{obj.device_id}"
         return ""
+
+    def get_device_name(self, obj: Device) -> str:
+        """Return canonical owner/device_id identifier."""
+        return device_name_for(obj)
 
 
 class LocationSerializer(serializers.ModelSerializer):
@@ -102,24 +109,12 @@ class LocationSerializer(serializers.ModelSerializer):
 
     # Custom read-only fields for UI display
     device_name = serializers.SerializerMethodField()
-    device_id_display = serializers.SerializerMethodField()
     tid_display = serializers.SerializerMethodField()
     timestamp_unix = serializers.SerializerMethodField()
 
     def get_device_name(self, obj: Location) -> str:
-        """Return the device name for display, always prefixed with owner/ when owned."""
-        name = (
-            obj.device.name if (obj.device.name and not obj.device.name.startswith("Device ")) else obj.device.device_id
-        )
-        if obj.device.owner_id and obj.device.owner:
-            return f"{obj.device.owner.username}/{name}"
-        return name
-
-    def get_device_id_display(self, obj: Location) -> str:
-        """Return owner/device_id for display, or just device_id if no owner."""
-        if obj.device.owner_id and obj.device.owner:
-            return f"{obj.device.owner.username}/{obj.device.device_id}"
-        return obj.device.device_id
+        """Return canonical owner/device_id identifier."""
+        return device_name_for(cast(Device, obj.device))
 
     def get_tid_display(self, obj: Location) -> str:
         """Return the tracker ID (tid) from the original message if available."""
@@ -138,7 +133,6 @@ class LocationSerializer(serializers.ModelSerializer):
             "tid",
             "topic",
             "device_name",
-            "device_id_display",
             "tid_display",
             "timestamp_unix",
             "latitude",
@@ -480,8 +474,11 @@ class DeviceShareSerializer(serializers.ModelSerializer):
     """Serializer for DeviceShare model."""
 
     device_id = serializers.CharField(source="device.device_id", read_only=True)
-    device_name = serializers.CharField(source="device.name", read_only=True)
+    device_name = serializers.SerializerMethodField()
     shared_with_id = serializers.IntegerField(source="shared_with.id", read_only=True)
+
+    def get_device_name(self, obj: DeviceShare) -> str:
+        return device_name_for(cast(Device, obj.device))
 
     class Meta:
         model = DeviceShare
