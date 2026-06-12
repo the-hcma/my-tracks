@@ -26,9 +26,9 @@ import {
     devicePollSummaryMessage,
     devicePollSummaryToastType,
     fetchAndPollOnlineMqttDevices,
-    buildLastKnownDeviceTargets,
+    buildLastKnownFetchTargets,
     fetchMissingLastKnownLocations,
-    findDevicesMissingFromActivityLog,
+    selectLastKnownDevicesToFetch,
     formatDeviceDisplayName,
     resolveLastKnownOnlyToggleEffect,
     resolveLiveDeviceFilterChange,
@@ -984,9 +984,9 @@ function toggleLastKnownOnly(): void {
  * there is always something to highlight when the user activates it.
  *
  * - Runs only in live mode (historic mode operates on a fixed trail).
- * - Honors the active device filter (selectedDevice) when set.
- * - Idempotent: skips devices that already have a row; missing fixes are
- *   ingested via appendLiveActivityLocations (HTTP-sourced incremental refresh).
+ * - Honors the active device filter unless post-reset (then every /api/devices/ row).
+ * - After reset, fetches latest for all visible devices even if the log has rows.
+ * - Otherwise idempotent: skips devices that already have a row.
  */
 async function ensureLastKnownLocationsLoaded(): Promise<void> {
     if (!isLiveMode) {
@@ -1006,7 +1006,10 @@ async function ensureLastKnownLocationsLoaded(): Promise<void> {
         }
         const devicesData = await devicesResp.json();
         const deviceList = extractResultsList<DeviceInfo>(devicesData);
-        const targets = buildLastKnownDeviceTargets(deviceList, selectedDevice || undefined);
+        const targets = buildLastKnownFetchTargets(deviceList, {
+            selectedDevice: selectedDevice || undefined,
+            skipHistoryFetch,
+        });
 
         const renderedDeviceNames = new Set<string>();
         document.querySelectorAll<HTMLElement>('.log-entry[data-device-name]').forEach((entry) => {
@@ -1016,14 +1019,16 @@ async function ensureLastKnownLocationsLoaded(): Promise<void> {
             }
         });
 
-        const missing = findDevicesMissingFromActivityLog(targets, renderedDeviceNames);
-        if (missing.length === 0) {
+        const devicesToFetch = selectLastKnownDevicesToFetch(targets, renderedDeviceNames, {
+            skipHistoryFetch,
+        });
+        if (devicesToFetch.length === 0) {
             return;
         }
 
         const missingLocations = await fetchMissingLastKnownLocations<TrackLocation>({
             fetchFn: fetch,
-            missingDevices: missing,
+            missingDevices: devicesToFetch,
             extractResults: (data) => extractResultsList<TrackLocation>(data),
         });
         if (missingLocations.length > 0) {
@@ -2808,6 +2813,11 @@ function resetEvents(): void {
     lastSeenLocationId = resetPatch.lastSeenLocationId;
     skipHistoryFetch = resetPatch.skipHistoryFetch;
     needsFitBounds = resetPatch.needsFitBounds;
+    showLastKnownOnly = resetPatch.showLastKnownOnly;
+    updateLastKnownOnlyButton();
+    applyLocationSelection();
+    syncTrailPolylineVisibilityForLastKnownMode();
+    saveUIState();
 }
 
 // ============================================================================

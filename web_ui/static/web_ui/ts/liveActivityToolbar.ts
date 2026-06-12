@@ -76,6 +76,7 @@ export interface LiveActivityResetPatch {
     skipHistoryFetch: true;
     needsFitBounds: true;
     incrementalLocations: Record<string, never>;
+    showLastKnownOnly: false;
 }
 
 /** State applied when the user clicks Reset in live activity. */
@@ -87,6 +88,7 @@ export function createLiveActivityResetPatch(nowUnix: number): LiveActivityReset
         skipHistoryFetch: true,
         needsFitBounds: true,
         incrementalLocations: {},
+        showLastKnownOnly: false,
     };
 }
 
@@ -144,12 +146,39 @@ export function buildLastKnownDeviceTargets(
         .filter((target) => !selectedDevice || target.display_name === selectedDevice);
 }
 
+/**
+ * Build Last Known fetch targets. After reset, ignore the device selector and
+ * use every device returned by /api/devices/ (owned, shared, or all for staff).
+ */
+export function buildLastKnownFetchTargets(
+    devices: LastKnownDeviceRow[],
+    options: { selectedDevice?: string; skipHistoryFetch: boolean },
+): LastKnownDeviceTarget[] {
+    const selectedDevice = options.skipHistoryFetch ? undefined : options.selectedDevice;
+    return buildLastKnownDeviceTargets(devices, selectedDevice);
+}
+
 export function findDevicesMissingFromActivityLog(
     targets: LastKnownDeviceTarget[],
     renderedDeviceNames: Iterable<string>,
 ): LastKnownDeviceTarget[] {
     const rendered = new Set(renderedDeviceNames);
     return targets.filter((target) => !rendered.has(target.display_name));
+}
+
+/**
+ * After reset, fetch the latest location for every visible device even if the
+ * log already has organic websocket rows for some of them.
+ */
+export function selectLastKnownDevicesToFetch(
+    targets: LastKnownDeviceTarget[],
+    renderedDeviceNames: Iterable<string>,
+    options: { skipHistoryFetch: boolean },
+): LastKnownDeviceTarget[] {
+    if (options.skipHistoryFetch) {
+        return targets;
+    }
+    return findDevicesMissingFromActivityLog(targets, renderedDeviceNames);
 }
 
 export function buildDeviceLatestLocationUrl(deviceId: string): string {
