@@ -6,28 +6,20 @@ import {
     LIVE_ACTIVITY_BUTTON_IDS,
     REPORT_LOCATION_API,
     attachLiveActivityToolbar,
-    buildDeviceLatestLocationUrl,
-    buildLastKnownBulkLocationsUrl,
-    buildLastKnownDeviceTargets,
-    buildLastKnownFetchTargets,
+    buildLastKnownLocationsUrl,
     buildReportLocationBody,
     createLiveActivityResetPatch,
     devicePollSummaryMessage,
     devicePollSummaryToastType,
     fetchAndPollOnlineMqttDevices,
-    fetchLatestLocationsForVisibleDevices,
-    fetchMissingLastKnownLocations,
-    findDevicesMissingFromActivityLog,
-    pickLatestLocationPerDevice,
-    formatDeviceDisplayName,
+    fetchLastKnownLocations,
+    filterLastKnownLocationsToMissingDevices,
     pollOnlineMqttDevices,
-    resolveLastKnownLoadPlan,
     resolveLastKnownOnlyToggleEffect,
     resolveLiveActivityToolbarClick,
     resolveLiveDeviceFilterChange,
     resolveLiveLocationIngestPath,
     resolveSkipHistoryFetchForRefresh,
-    selectLastKnownDevicesToFetch,
     selectOnlineMqttDevices,
     summarizeDevicePollResults,
     toggleLastKnownOnlyFlag,
@@ -180,85 +172,44 @@ describe('resolveLiveLocationIngestPath', () => {
 });
 
 describe('post-reset Last Known Only workflow', () => {
-    const devices = [
-        { device_id: 'pixel7', name: 'Pixel 7', owner_username: 'kristen' },
-        { device_id: 'phone', name: 'Phone', owner_username: 'bob' },
-    ];
-
-    it('reset turns Last Known Only off and a subsequent enable fetches all visible devices', () => {
+    it('reset turns Last Known Only off and post-reset loads ignore the device selector', () => {
         const resetPatch = createLiveActivityResetPatch(1_700_000_100);
 
         expect(resetPatch.showLastKnownOnly).toBe(false);
-
-        const targets = buildLastKnownFetchTargets(devices, {
-            selectedDevice: 'kristen/Pixel 7',
-            skipHistoryFetch: resetPatch.skipHistoryFetch,
-        });
-        expect(selectLastKnownDevicesToFetch(targets, [], { skipHistoryFetch: true })).toEqual(targets);
-    });
-
-    it('uses bulk-all-visible load plan after reset', () => {
-        const resetPatch = createLiveActivityResetPatch(1_700_000_100);
-        const targets = buildLastKnownFetchTargets(devices, {
-            selectedDevice: 'kristen/Pixel 7',
-            skipHistoryFetch: resetPatch.skipHistoryFetch,
-        });
-
         expect(
-            resolveLastKnownLoadPlan({
+            buildLastKnownLocationsUrl({
+                selectedDevice: 'kristen/pixel7',
                 skipHistoryFetch: resetPatch.skipHistoryFetch,
-                targets,
-                renderedDeviceNames: [],
             }),
-        ).toBe('bulk-all-visible');
+        ).toBe('/api/locations/last-known/');
     });
 
-    it('bulk-fetches latest per visible device after reset via the locations API', async () => {
+    it('fetches all visible devices from the last-known API after reset', async () => {
         const fetchFn = vi.fn().mockResolvedValue({
             ok: true,
             json: async () => ({
                 results: [
-                    { id: 12, device_name: 'bob/Phone', timestamp: 200 },
-                    { id: 11, device_name: 'kristen/Pixel 7', timestamp: 100 },
-                    { id: 10, device_name: 'kristen/Pixel 7', timestamp: 50 },
+                    { id: 12, device_name: 'bob/phone', timestamp: 200 },
+                    { id: 11, device_name: 'kristen/pixel7', timestamp: 100 },
                 ],
             }),
         });
 
-        const locations = await fetchLatestLocationsForVisibleDevices({
+        const locations = await fetchLastKnownLocations({
             fetchFn: fetchFn as unknown as typeof fetch,
-            devices,
+            selectedDevice: 'kristen/pixel7',
+            skipHistoryFetch: true,
+            renderedDeviceNames: ['kristen/pixel7'],
             extractResults: (data) =>
                 (data as { results: { id: number; device_name: string; timestamp: number }[] }).results,
         });
 
         expect(fetchFn).toHaveBeenCalledOnce();
-        expect(fetchFn).toHaveBeenCalledWith(buildLastKnownBulkLocationsUrl());
+        expect(fetchFn).toHaveBeenCalledWith('/api/locations/last-known/');
         expect(locations).toEqual([
-            { id: 12, device_name: 'bob/Phone', timestamp: 200 },
-            { id: 11, device_name: 'kristen/Pixel 7', timestamp: 100 },
+            { id: 12, device_name: 'bob/phone', timestamp: 200 },
+            { id: 11, device_name: 'kristen/pixel7', timestamp: 100 },
         ]);
-    });
-});
-
-describe('pickLatestLocationPerDevice', () => {
-    it('keeps the first row per visible device from -timestamp ordered results', () => {
-        const locations = [
-            { id: 3, device_name: 'bob/Phone', timestamp: 300 },
-            { id: 2, device_name: 'kristen/Pixel 7', timestamp: 200 },
-            { id: 1, device_name: 'kristen/Pixel 7', timestamp: 100 },
-            { id: 4, device_name: 'alice/iPad', timestamp: 400 },
-        ];
-
-        expect(pickLatestLocationPerDevice(locations, ['kristen/Pixel 7', 'bob/Phone'])).toEqual([
-            { id: 3, device_name: 'bob/Phone', timestamp: 300 },
-            { id: 2, device_name: 'kristen/Pixel 7', timestamp: 200 },
-        ]);
-    });
-
-    it('ignores devices outside the visible set', () => {
-        const locations = [{ id: 1, device_name: 'alice/iPad', timestamp: 100 }];
-        expect(pickLatestLocationPerDevice(locations, ['kristen/Pixel 7'])).toEqual([]);
     });
 });
 
@@ -282,113 +233,49 @@ describe('post-reset organic live updates', () => {
 });
 
 describe('Last Known Only helpers', () => {
-    const devices = [
-        { device_id: 'pixel7', name: 'Pixel 7', owner_username: 'kristen' },
-        { device_id: 'phone', name: 'Phone', owner_username: 'bob' },
+    const locations = [
+        { id: 11, device_name: 'kristen/pixel7' },
+        { id: 12, device_name: 'bob/phone' },
     ];
 
-    it('formats device display names like the API device_name field', () => {
-        expect(formatDeviceDisplayName(devices[0])).toBe('kristen/Pixel 7');
-        expect(formatDeviceDisplayName({ device_id: 'abc', name: 'Device abc', owner_username: 'alice' })).toBe(
-            'alice/abc',
-        );
-    });
-
-    it('builds fetch targets and honors the selected device filter', () => {
-        expect(buildLastKnownDeviceTargets(devices)).toEqual([
-            { device_id: 'pixel7', display_name: 'kristen/Pixel 7' },
-            { device_id: 'phone', display_name: 'bob/Phone' },
-        ]);
-        expect(buildLastKnownDeviceTargets(devices, 'kristen/Pixel 7')).toEqual([
-            { device_id: 'pixel7', display_name: 'kristen/Pixel 7' },
-        ]);
-    });
-
-    it('after reset fetches latest for every device from the API list, ignoring the selector', () => {
+    it('builds the last-known URL with an optional device filter', () => {
+        expect(buildLastKnownLocationsUrl({ skipHistoryFetch: false })).toBe('/api/locations/last-known/');
         expect(
-            buildLastKnownFetchTargets(devices, {
-                selectedDevice: 'kristen/Pixel 7',
-                skipHistoryFetch: true,
-            }),
-        ).toEqual([
-            { device_id: 'pixel7', display_name: 'kristen/Pixel 7' },
-            { device_id: 'phone', display_name: 'bob/Phone' },
-        ]);
-    });
-
-    it('still honors the device selector outside post-reset mode', () => {
-        expect(
-            buildLastKnownFetchTargets(devices, {
-                selectedDevice: 'kristen/Pixel 7',
+            buildLastKnownLocationsUrl({
+                selectedDevice: 'kristen/pixel7',
                 skipHistoryFetch: false,
             }),
-        ).toEqual([{ device_id: 'pixel7', display_name: 'kristen/Pixel 7' }]);
+        ).toBe('/api/locations/last-known/?device=kristen%2Fpixel7');
     });
 
-    it('after reset refetches every visible device even when the log already has rows', () => {
-        const targets = buildLastKnownFetchTargets(devices, { skipHistoryFetch: true });
-        expect(
-            selectLastKnownDevicesToFetch(targets, ['kristen/Pixel 7'], { skipHistoryFetch: true }),
-        ).toEqual(targets);
-    });
-
-    it('treats an empty log after reset as missing every device', () => {
-        const targets = buildLastKnownDeviceTargets(devices);
-        expect(findDevicesMissingFromActivityLog(targets, [])).toEqual(targets);
-    });
-
-    it('skips devices that already have rows in the activity log', () => {
-        const targets = buildLastKnownDeviceTargets(devices);
-        expect(findDevicesMissingFromActivityLog(targets, ['kristen/Pixel 7'])).toEqual([
-            { device_id: 'phone', display_name: 'bob/Phone' },
+    it('filters out devices that already have rows in the activity log', () => {
+        expect(filterLastKnownLocationsToMissingDevices(locations, ['kristen/pixel7'])).toEqual([
+            { id: 12, device_name: 'bob/phone' },
         ]);
     });
 
-    it('loads latest locations for missing devices after reset', async () => {
-        const fetchFn = vi
-            .fn()
-            .mockResolvedValueOnce({
-                ok: true,
-                json: async () => ({ results: [{ id: 11, device_name: 'kristen/Pixel 7' }] }),
-            })
-            .mockResolvedValueOnce({
-                ok: true,
-                json: async () => ({ results: [{ id: 12, device_name: 'bob/Phone' }] }),
-            });
-
-        const locations = await fetchMissingLastKnownLocations({
-            fetchFn: fetchFn as unknown as typeof fetch,
-            missingDevices: buildLastKnownDeviceTargets(devices),
-            extractResults: (data) => (data as { results: { id: number; device_name: string }[] }).results,
+    it('loads only missing devices outside post-reset mode', async () => {
+        const fetchFn = vi.fn().mockResolvedValue({
+            ok: true,
+            json: async () => ({ results: locations }),
         });
 
-        expect(locations).toEqual([
-            { id: 11, device_name: 'kristen/Pixel 7' },
-            { id: 12, device_name: 'bob/Phone' },
-        ]);
-        expect(fetchFn).toHaveBeenNthCalledWith(1, buildDeviceLatestLocationUrl('pixel7'));
-        expect(fetchFn).toHaveBeenNthCalledWith(2, buildDeviceLatestLocationUrl('phone'));
+        const result = await fetchLastKnownLocations({
+            fetchFn: fetchFn as unknown as typeof fetch,
+            selectedDevice: undefined,
+            skipHistoryFetch: false,
+            renderedDeviceNames: ['kristen/pixel7'],
+            extractResults: (data) => (data as { results: typeof locations }).results,
+        });
+
+        expect(fetchFn).toHaveBeenCalledWith('/api/locations/last-known/');
+        expect(result).toEqual([{ id: 12, device_name: 'bob/phone' }]);
     });
 
     it('loads locations when enabled in live mode and only refits the map when disabled', () => {
         expect(resolveLastKnownOnlyToggleEffect(true, true)).toEqual({ loadLocations: true });
         expect(resolveLastKnownOnlyToggleEffect(true, false)).toEqual({ refitMap: true });
         expect(resolveLastKnownOnlyToggleEffect(false, true)).toEqual({ refitMap: true });
-    });
-
-    it('uses fill-missing-per-device load plan outside post-reset mode', () => {
-        const targets = buildLastKnownDeviceTargets(devices);
-        expect(
-            resolveLastKnownLoadPlan({
-                skipHistoryFetch: false,
-                targets,
-                renderedDeviceNames: ['kristen/Pixel 7'],
-            }),
-        ).toBe('fill-missing-per-device');
-    });
-
-    it('builds the bulk locations URL used for post-reset Last Known loads', () => {
-        expect(buildLastKnownBulkLocationsUrl()).toBe('/api/locations/?ordering=-timestamp&limit=500');
     });
 });
 
