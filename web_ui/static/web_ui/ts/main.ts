@@ -26,12 +26,7 @@ import {
     devicePollSummaryMessage,
     devicePollSummaryToastType,
     fetchAndPollOnlineMqttDevices,
-    buildLastKnownFetchTargets,
-    fetchLatestLocationsForVisibleDevices,
-    fetchMissingLastKnownLocations,
-    resolveLastKnownLoadPlan,
-    selectLastKnownDevicesToFetch,
-    formatDeviceDisplayName,
+    fetchLastKnownLocations,
     resolveLastKnownOnlyToggleEffect,
     resolveLiveDeviceFilterChange,
     resolveLiveLocationIngestPath,
@@ -155,7 +150,6 @@ function insertLiveLogEntryInTimestampOrder(container: HTMLElement, entry: HTMLE
 interface TrackLocation {
     id?: number;
     device_name?: string;
-    device_id_display?: string;
     tid_display?: string;
     latitude: string | number;
     longitude: string | number;
@@ -242,6 +236,7 @@ interface NetworkInfo {
 /** Device info from the API */
 interface DeviceInfo {
     device_id: string;
+    device_name: string;
     name: string;
     owner_username?: string;
 }
@@ -1001,18 +996,6 @@ async function ensureLastKnownLocationsLoaded(): Promise<void> {
     }
 
     try {
-        const devicesResp = await fetch('/api/devices/');
-        if (!devicesResp.ok) {
-            console.warn('Last Known Only: failed to fetch devices', devicesResp.status);
-            return;
-        }
-        const devicesData = await devicesResp.json();
-        const deviceList = extractResultsList<DeviceInfo>(devicesData);
-        const targets = buildLastKnownFetchTargets(deviceList, {
-            selectedDevice: selectedDevice || undefined,
-            skipHistoryFetch,
-        });
-
         const renderedDeviceNames = new Set<string>();
         document.querySelectorAll<HTMLElement>('.log-entry[data-device-name]').forEach((entry) => {
             const name = entry.dataset.deviceName;
@@ -1021,42 +1004,19 @@ async function ensureLastKnownLocationsLoaded(): Promise<void> {
             }
         });
 
-        const loadPlan = resolveLastKnownLoadPlan({
+        const locations = await fetchLastKnownLocations<TrackLocation>({
+            fetchFn: fetch,
+            selectedDevice: selectedDevice || undefined,
             skipHistoryFetch,
-            targets,
             renderedDeviceNames,
+            extractResults: (data) => extractResultsList<TrackLocation>(data),
         });
 
-        if (loadPlan === 'bulk-all-visible') {
-            const targetDeviceIds = new Set(targets.map((target) => target.device_id));
-            const visibleDevices = deviceList.filter((device) => targetDeviceIds.has(device.device_id));
-            const locations = await fetchLatestLocationsForVisibleDevices<TrackLocation>({
-                fetchFn: fetch,
-                devices: visibleDevices,
-                extractResults: (data) => extractResultsList<TrackLocation>(data),
-            });
-            if (locations.length > 0) {
-                if (renderedDeviceNames.size === 0) {
-                    replaceLiveActivityFromLocations(locations, '(last known)');
-                } else {
-                    appendLiveActivityLocations(locations);
-                }
-            }
-        } else {
-            const devicesToFetch = selectLastKnownDevicesToFetch(targets, renderedDeviceNames, {
-                skipHistoryFetch,
-            });
-            if (devicesToFetch.length === 0) {
-                return;
-            }
-
-            const missingLocations = await fetchMissingLastKnownLocations<TrackLocation>({
-                fetchFn: fetch,
-                missingDevices: devicesToFetch,
-                extractResults: (data) => extractResultsList<TrackLocation>(data),
-            });
-            if (missingLocations.length > 0) {
-                appendLiveActivityLocations(missingLocations);
+        if (locations.length > 0) {
+            if (renderedDeviceNames.size === 0) {
+                replaceLiveActivityFromLocations(locations, '(last known)');
+            } else {
+                appendLiveActivityLocations(locations);
             }
         }
 
@@ -1356,7 +1316,7 @@ async function refreshDeviceSelector(): Promise<void> {
         const selector = document.getElementById('device-selector') as HTMLSelectElement;
         if (!selector) return;
 
-        const serverDeviceNames = deviceList.map(formatDeviceDisplayName);
+        const serverDeviceNames = deviceList.map((device) => device.device_name);
 
         // Sort case-insensitively
         serverDeviceNames.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
