@@ -26,8 +26,9 @@ import {
     devicePollSummaryMessage,
     devicePollSummaryToastType,
     fetchAndPollOnlineMqttDevices,
-    buildLastKnownHighlightKeys,
+    devicePassesLiveActivityFilter,
     fetchLastKnownLocations,
+    planLastKnownUiUpdate,
     resolveLastKnownOnlyToggleEffect,
     resolveLiveDeviceFilterChange,
     resolveLiveLocationIngestPath,
@@ -1019,19 +1020,20 @@ async function ensureLastKnownLocationsLoaded(): Promise<void> {
             fetchFn: fetch,
             selectedDevice: selectedDevice || undefined,
             skipHistoryFetch,
-            renderedDeviceNames,
             extractResults: (data) => extractResultsList<TrackLocation>(data),
         });
 
-        if (locations.length > 0) {
-            lastKnownHighlightKeys = buildLastKnownHighlightKeys(locations);
-            if (skipHistoryFetch || renderedDeviceNames.size === 0) {
-                replaceLiveActivityFromLocations(locations, '(last known)');
-            } else {
-                appendLiveActivityLocations(locations);
-            }
-        } else {
-            lastKnownHighlightKeys = null;
+        const plan = planLastKnownUiUpdate({
+            locations,
+            skipHistoryFetch,
+            renderedDeviceCount: renderedDeviceNames.size,
+            renderedDeviceNames,
+        });
+        lastKnownHighlightKeys = plan.highlightKeys;
+        if (plan.mergeStrategy === 'replace') {
+            replaceLiveActivityFromLocations(plan.locations, '(last known)');
+        } else if (plan.mergeStrategy === 'append') {
+            appendLiveActivityLocations(plan.locations);
         }
 
         applyLocationSelection();
@@ -1384,8 +1386,11 @@ function updateDeviceMarker(location: TrackLocation): void {
 
     // In live mode, filter by selection if set; in historic mode, also filter
     if (
-        shouldFilterLiveActivityByDevice({ selectedDevice: selectedDevice || undefined, skipHistoryFetch }) &&
-        selectedDevice !== deviceName
+        !devicePassesLiveActivityFilter({
+            deviceName,
+            selectedDevice: selectedDevice || undefined,
+            skipHistoryFetch,
+        })
     ) {
         // Hide marker if it exists
         if (deviceMarkers[deviceName]) {
@@ -1606,8 +1611,11 @@ function addLocationToTrail(location: TrackLocation): void {
 
     // Check if we should display this location based on device filter
     if (
-        shouldFilterLiveActivityByDevice({ selectedDevice: selectedDevice || undefined, skipHistoryFetch }) &&
-        deviceName !== selectedDevice
+        !devicePassesLiveActivityFilter({
+            deviceName,
+            selectedDevice: selectedDevice || undefined,
+            skipHistoryFetch,
+        })
     ) {
         return;
     }
@@ -1730,8 +1738,11 @@ function addLiveLocationToTrail(location: TrackLocation): void {
 
     // Respect device filter
     if (
-        shouldFilterLiveActivityByDevice({ selectedDevice: selectedDevice || undefined, skipHistoryFetch }) &&
-        deviceName !== selectedDevice
+        !devicePassesLiveActivityFilter({
+            deviceName,
+            selectedDevice: selectedDevice || undefined,
+            skipHistoryFetch,
+        })
     ) {
         return;
     }
@@ -3140,17 +3151,23 @@ function connectWebSocket(): void {
                     const deviceName = location.device_name || 'Unknown';
                     console.log(`📍 Live mode location received from ${deviceName}`, location);
 
-                    const filterByDevice = shouldFilterLiveActivityByDevice({
-                        selectedDevice: selectedDevice || undefined,
-                        skipHistoryFetch,
-                    });
                     const ingestPath = resolveLiveLocationIngestPath({
                         isLiveMode: true,
                         skipHistoryFetch,
-                        matchesDeviceFilter: !filterByDevice || deviceName === selectedDevice,
+                        matchesDeviceFilter: devicePassesLiveActivityFilter({
+                            deviceName,
+                            selectedDevice: selectedDevice || undefined,
+                            skipHistoryFetch,
+                        }),
                     });
                     if (ingestPath === 'ignored') {
-                        if (filterByDevice && deviceName !== selectedDevice) {
+                        if (
+                            shouldFilterLiveActivityByDevice({
+                                selectedDevice: selectedDevice || undefined,
+                                skipHistoryFetch,
+                            }) &&
+                            deviceName !== selectedDevice
+                        ) {
                             console.log(`Ignoring location from ${deviceName} (filter: ${selectedDevice})`);
                         }
                         return;

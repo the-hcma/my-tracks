@@ -230,7 +230,6 @@ describe('post-reset Last Known Only workflow', () => {
             fetchFn: fetchFn as unknown as typeof fetch,
             selectedDevice: 'kristen/pixel7',
             skipHistoryFetch: true,
-            renderedDeviceNames: ['kristen/pixel7'],
             extractResults: (data) =>
                 (data as { results: { id: number; device_name: string; timestamp: number }[] }).results,
         });
@@ -295,7 +294,6 @@ describe('Last Known Only helpers', () => {
             fetchFn: fetchFn as unknown as typeof fetch,
             selectedDevice: undefined,
             skipHistoryFetch: false,
-            renderedDeviceNames: ['kristen/pixel7'],
             extractResults: (data) => (data as { results: typeof locations }).results,
         });
 
