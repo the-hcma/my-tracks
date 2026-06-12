@@ -204,6 +204,42 @@ class TestLocationVisibility:
         assert_that(response.status_code, equal_to(status.HTTP_200_OK))
         assert_that(response.data["count"], equal_to(1))
 
+    def test_device_filter_returns_400_for_ambiguous_plain_device_id(
+        self,
+        alice_client: APIClient,
+        alice: User,
+        bob: User,
+        friendship: FriendRequest,
+    ) -> None:
+        alice_phone = Device.objects.create(device_id="phone", name="Alice Phone", owner=alice)
+        bob_phone = Device.objects.create(device_id="phone", name="Bob Phone", owner=bob)
+        DeviceShare.objects.create(device=bob_phone, shared_with=alice)
+        Location.objects.create(
+            device=alice_phone,
+            latitude=Decimal("51.5074"),
+            longitude=Decimal("-0.1278"),
+            timestamp=timezone.now(),
+        )
+
+        response = alice_client.get("/api/locations/?device=phone")
+        assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
+        assert_that(response.json()["error"], equal_to("Ambiguous device ID 'phone'; use owner/device_id"))
+
+    def test_last_known_returns_400_for_ambiguous_plain_device_id(
+        self,
+        alice_client: APIClient,
+        alice: User,
+        bob: User,
+        friendship: FriendRequest,
+    ) -> None:
+        Device.objects.create(device_id="phone", name="Alice Phone", owner=alice)
+        bob_phone = Device.objects.create(device_id="phone", name="Bob Phone", owner=bob)
+        DeviceShare.objects.create(device=bob_phone, shared_with=alice)
+
+        response = alice_client.get("/api/locations/last-known/?device=phone")
+        assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
+        assert_that(response.json()["error"], equal_to("Ambiguous device ID 'phone'; use owner/device_id"))
+
     def test_device_locations_action_accessible_to_friend(
         self,
         alice_client: APIClient,
