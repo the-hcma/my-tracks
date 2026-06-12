@@ -68,7 +68,7 @@ class TestSaveLocationToDb(TestCase):
         assert_that(result, is_not(none()))
         assert_that(result, is_not(none()))
         assert_that(result, has_entries({
-            "device_id_display": "phone",
+            "device_name": "phone",
             "latitude": "51.5074000000",
             "longitude": "-0.1278000000",
         }))
@@ -94,7 +94,7 @@ class TestSaveLocationToDb(TestCase):
 
         assert_that(result, is_not(none()))
         assert_that(result, is_not(none()))
-        assert_that(result["device_id_display"], equal_to("device"))
+        assert_that(result["device_name"], equal_to("device"))
 
     def test_save_location_exception(self) -> None:
         """Should return None on database error."""
@@ -495,7 +495,7 @@ class TestOwnTracksPluginMessageHandling:
         # Verify broadcast was called
         broadcast_mock.assert_called_once()
         call_args = broadcast_mock.call_args[0][0]
-        assert_that(call_args["device_id_display"], contains_string("phone_"))
+        assert_that(call_args["device_name"], contains_string("phone_"))
 
     @pytest.mark.asyncio
     async def test_handles_lwt_message(
@@ -952,7 +952,7 @@ class TestHandleLocationEarlyReturn:
             "id": 42,
             "device": 1,
             "timestamp_unix": 1_704_067_200,
-            "device_id_display": "mydev",
+            "device_name": "mydev",
             "latitude": "51.5",
         }
         broadcast_mock = AsyncMock()

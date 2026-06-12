@@ -662,7 +662,7 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
             "[%s] Location saved: id=%s, device=%s%s",
             transport,
             serialized.get("id"),
-            serialized.get("device_id_display"),
+            serialized.get("device_name"),
             identity,
         )
 
@@ -681,7 +681,7 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
             "[%s] Broadcasting location to WebSocket (id=%s, device=%s)",
             transport,
             serialized.get("id"),
-            serialized.get("device_id_display"),
+            serialized.get("device_name"),
         )
         await self._broadcast_location(serialized, transport=transport)
 

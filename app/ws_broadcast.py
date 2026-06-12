@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from app.models import Device
 
+from app.device_names import device_name_for
+
 logger = logging.getLogger(__name__)
 
 STAFF_WS_GROUP = "staff"
@@ -23,12 +25,8 @@ def user_ws_group(user_id: int) -> str:
 
 
 def device_display_label(device: Device) -> str:
-    """Human-readable owner/device label matching LocationSerializer device_name."""
-    trimmed_name = (device.name or "").strip()
-    label = trimmed_name if trimmed_name and not trimmed_name.startswith("Device ") else str(device.device_id)
-    if device.owner_id and device.owner:
-        return f"{device.owner.username}/{label}"
-    return label
+    """Canonical device key matching LocationSerializer device_name."""
+    return device_name_for(device)
 
 
 def describe_ws_groups(groups: list[str]) -> str:
