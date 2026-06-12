@@ -406,22 +406,25 @@ class LocationViewSet(viewsets.ModelViewSet):
         """
         Return the latest location for each visible device.
 
-        Optional query parameter:
-        - device: Filter to one device (``owner/device_id`` or plain ``device_id``)
+        Optional query parameters:
+        - device: Repeat to filter to specific devices (``owner/device_id`` or plain ``device_id``)
         """
         devices = _visible_devices_for_user(request.user)
-        device_param = request.query_params.get("device")
-        if device_param:
-            try:
-                device = _resolve_device_param(request.user, str(device_param))
-                devices = devices.filter(pk=device.pk)
-            except Device.DoesNotExist:
-                return Response(
-                    {"error": f"Expected valid device ID, got '{device_param}' which does not exist"},
-                    status=status.HTTP_404_NOT_FOUND,
-                )
-            except Device.MultipleObjectsReturned:
-                return _ambiguous_device_filter_response(str(device_param))
+        device_params = request.query_params.getlist("device")
+        if device_params:
+            resolved_pks: list[int] = []
+            for device_param in device_params:
+                try:
+                    device = _resolve_device_param(request.user, str(device_param))
+                    resolved_pks.append(device.pk)
+                except Device.DoesNotExist:
+                    return Response(
+                        {"error": f"Expected valid device ID, got '{device_param}' which does not exist"},
+                        status=status.HTTP_404_NOT_FOUND,
+                    )
+                except Device.MultipleObjectsReturned:
+                    return _ambiguous_device_filter_response(str(device_param))
+            devices = devices.filter(pk__in=resolved_pks)
 
         latest_location_ids = devices.filter(latest_location_id__isnull=False).values_list(
             "latest_location_id", flat=True

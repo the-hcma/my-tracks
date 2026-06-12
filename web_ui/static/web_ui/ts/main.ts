@@ -55,6 +55,8 @@ interface MyTracksConfig {
      * ≤ this value (discard when accuracy is greater than this).
      */
     locationAccuracyMinimumM?: number;
+    /** Django staff flag — staff may use unfiltered last-known API requests. */
+    isStaff?: boolean;
     /** Django CSRF token for unsafe API requests from the map UI. */
     csrfToken?: string;
 }
@@ -759,6 +761,9 @@ function attachLocationSelectionToEntry(entry: HTMLElement, location: TrackLocat
 }
 
 function registerLocationMarker(location: TrackLocation, marker: LocationMarker, kind: RegisteredLocationMarker['kind']): void {
+    if (showLastKnownOnly && kind === 'waypoint') {
+        return;
+    }
     unregisterLocationMarker(marker);
     const locationKey = locationKeyFor(location);
     const registeredMarkers = locationMarkersByKey.get(locationKey) ?? [];
@@ -977,10 +982,20 @@ function updateLastKnownOnlyButton(): void {
     button.setAttribute('aria-pressed', String(showLastKnownOnly));
 }
 
+function unregisterTrailWaypointMarkersFromSelection(): void {
+    Object.values(deviceTrails).forEach((trail) => {
+        trail.markers.forEach((marker) => {
+            unregisterLocationMarker(marker);
+        });
+    });
+}
+
 function toggleLastKnownOnly(): void {
     showLastKnownOnly = toggleLastKnownOnlyFlag(showLastKnownOnly);
     if (!showLastKnownOnly) {
         lastKnownHighlightKeys = null;
+    } else {
+        unregisterTrailWaypointMarkersFromSelection();
     }
     updateLastKnownOnlyButton();
     applyLocationSelection();
@@ -1002,7 +1017,7 @@ function toggleLastKnownOnly(): void {
  * there is always something to highlight when the user activates it.
  *
  * - Runs only in live mode (historic mode operates on a fixed trail).
- * - Fetches last-known for all visible devices (device selector does not narrow the API).
+ * - Staff fetch unfiltered last-known; non-staff pass visible device query params.
  * - After reset, replaces the log; after Latest, appends only devices missing from the log.
  */
 async function ensureLastKnownLocationsLoaded(): Promise<void> {
@@ -1026,8 +1041,8 @@ async function ensureLastKnownLocationsLoaded(): Promise<void> {
 
         const locations = await fetchLastKnownLocations<TrackLocation>({
             fetchFn: fetch,
-            selectedDevice: selectedDevice || undefined,
-            skipHistoryFetch,
+            isStaff: Boolean(config.isStaff),
+            visibleDeviceNames: Array.from(devices),
             extractResults: (data) => extractResultsList<TrackLocation>(data),
         });
 
@@ -1669,56 +1684,58 @@ function addLocationToTrail(location: TrackLocation): void {
     }
 
     // Add numbered waypoint markers (using collapsed locations)
-    collapsedLocations.forEach((loc, index) => {
-        const waypointNumber = index + 1;
-        const latLng: [number, number] = [parseFloat(String(loc.latitude)), parseFloat(String(loc.longitude))];
-        const collapsedCount = loc._collapsedCount || 1;
+    if (!showLastKnownOnly) {
+        collapsedLocations.forEach((loc, index) => {
+            const waypointNumber = index + 1;
+            const latLng: [number, number] = [parseFloat(String(loc.latitude)), parseFloat(String(loc.longitude))];
+            const collapsedCount = loc._collapsedCount || 1;
 
-        // Create custom numbered icon with device-specific color
-        const waypointIcon = L.divIcon({
-            className: 'waypoint-marker',
-            html: `<div style="
-                background-color: ${deviceColor};
-                color: white;
-                border: 2px solid white;
-                border-radius: 50%;
-                width: 24px;
-                height: 24px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                font-size: 12px;
-                font-weight: bold;
-                box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-            ">${waypointNumber}</div>`,
-            iconSize: [24, 24],
-            iconAnchor: [12, 12],
+            // Create custom numbered icon with device-specific color
+            const waypointIcon = L.divIcon({
+                className: 'waypoint-marker',
+                html: `<div style="
+                    background-color: ${deviceColor};
+                    color: white;
+                    border: 2px solid white;
+                    border-radius: 50%;
+                    width: 24px;
+                    height: 24px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 12px;
+                    font-weight: bold;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+                ">${waypointNumber}</div>`,
+                iconSize: [24, 24],
+                iconAnchor: [12, 12],
+            });
+
+            // Format timestamp for display
+            const timestamp = loc.timestamp_unix
+                ? new Date(loc.timestamp_unix * 1000).toLocaleString()
+                : 'Unknown time';
+
+            // Show count if multiple waypoints were collapsed at this location
+            const countInfo = collapsedCount > 1 ? `<br><i>(${collapsedCount} waypoints)</i>` : '';
+
+            const marker = L.marker(latLng, {
+                icon: waypointIcon,
+            }).addTo(map!);
+
+            // Add tooltip with waypoint info (shown on hover)
+            const deviceInfo = selectedDevice ? '' : ` ${deviceName}`;
+            marker.bindTooltip(`<b>#${waypointNumber}</b>${deviceInfo}<br>${timestamp}${countInfo}`, {
+                permanent: false,
+                direction: 'top',
+                offset: [0, -12],
+                className: 'waypoint-tooltip',
+            });
+
+            registerLocationMarker(loc, marker, 'waypoint');
+            trailElements.markers.push(marker);
         });
-
-        // Format timestamp for display
-        const timestamp = loc.timestamp_unix
-            ? new Date(loc.timestamp_unix * 1000).toLocaleString()
-            : 'Unknown time';
-
-        // Show count if multiple waypoints were collapsed at this location
-        const countInfo = collapsedCount > 1 ? `<br><i>(${collapsedCount} waypoints)</i>` : '';
-
-        const marker = L.marker(latLng, {
-            icon: waypointIcon,
-        }).addTo(map!);
-
-        // Add tooltip with waypoint info (shown on hover)
-        const deviceInfo = selectedDevice ? '' : ` ${deviceName}`;
-        marker.bindTooltip(`<b>#${waypointNumber}</b>${deviceInfo}<br>${timestamp}${countInfo}`, {
-            permanent: false,
-            direction: 'top',
-            offset: [0, -12],
-            className: 'waypoint-tooltip',
-        });
-
-        registerLocationMarker(loc, marker, 'waypoint');
-        trailElements.markers.push(marker);
-    });
+    }
 
     deviceTrails[deviceName] = trailElements;
 
@@ -1845,57 +1862,59 @@ function drawLiveTrails(locationsByDevice: Record<string, TrackLocation[]>): voi
         }
 
         // Add numbered waypoint markers (using collapsed locations)
-        collapsedLocations.forEach((loc, index) => {
-            const waypointNumber = index + 1;
-            const latLng: [number, number] = [parseFloat(String(loc.latitude)), parseFloat(String(loc.longitude))];
-            const collapsedCount = loc._collapsedCount || 1;
+        if (!showLastKnownOnly) {
+            collapsedLocations.forEach((loc, index) => {
+                const waypointNumber = index + 1;
+                const latLng: [number, number] = [parseFloat(String(loc.latitude)), parseFloat(String(loc.longitude))];
+                const collapsedCount = loc._collapsedCount || 1;
 
-            // Create custom numbered icon with device-specific color
-            const waypointIcon = L.divIcon({
-                className: 'waypoint-marker',
-                html: `<div style="
-                    background-color: ${deviceColor};
-                    color: white;
-                    border: 2px solid white;
-                    border-radius: 50%;
-                    width: 24px;
-                    height: 24px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    font-size: 12px;
-                    font-weight: bold;
-                    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-                ">${waypointNumber}</div>`,
-                iconSize: [24, 24],
-                iconAnchor: [12, 12],
+                // Create custom numbered icon with device-specific color
+                const waypointIcon = L.divIcon({
+                    className: 'waypoint-marker',
+                    html: `<div style="
+                        background-color: ${deviceColor};
+                        color: white;
+                        border: 2px solid white;
+                        border-radius: 50%;
+                        width: 24px;
+                        height: 24px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        font-size: 12px;
+                        font-weight: bold;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+                    ">${waypointNumber}</div>`,
+                    iconSize: [24, 24],
+                    iconAnchor: [12, 12],
+                });
+
+                // Format timestamp for display
+                const timestamp = loc.timestamp_unix
+                    ? new Date(loc.timestamp_unix * 1000).toLocaleString()
+                    : 'Unknown time';
+
+                // Show count if multiple waypoints were collapsed at this location
+                const countInfo = collapsedCount > 1 ? `<br><i>(${collapsedCount} waypoints)</i>` : '';
+
+                const marker = L.marker(latLng, {
+                    icon: waypointIcon,
+                }).addTo(map!);
+
+                // Add tooltip with waypoint info (shown on hover)
+                // Show device name only when "All Devices" is selected
+                const deviceInfo = selectedDevice ? '' : ` ${deviceName}`;
+                marker.bindTooltip(`<b>#${waypointNumber}</b>${deviceInfo}<br>${timestamp}${countInfo}`, {
+                    permanent: false,
+                    direction: 'top',
+                    offset: [0, -12],
+                    className: 'waypoint-tooltip',
+                });
+
+                registerLocationMarker(loc, marker, 'waypoint');
+                trailElements.markers.push(marker);
             });
-
-            // Format timestamp for display
-            const timestamp = loc.timestamp_unix
-                ? new Date(loc.timestamp_unix * 1000).toLocaleString()
-                : 'Unknown time';
-
-            // Show count if multiple waypoints were collapsed at this location
-            const countInfo = collapsedCount > 1 ? `<br><i>(${collapsedCount} waypoints)</i>` : '';
-
-            const marker = L.marker(latLng, {
-                icon: waypointIcon,
-            }).addTo(map!);
-
-            // Add tooltip with waypoint info (shown on hover)
-            // Show device name only when "All Devices" is selected
-            const deviceInfo = selectedDevice ? '' : ` ${deviceName}`;
-            marker.bindTooltip(`<b>#${waypointNumber}</b>${deviceInfo}<br>${timestamp}${countInfo}`, {
-                permanent: false,
-                direction: 'top',
-                offset: [0, -12],
-                className: 'waypoint-tooltip',
-            });
-
-            registerLocationMarker(loc, marker, 'waypoint');
-            trailElements.markers.push(marker);
-        });
+        }
 
         deviceTrails[deviceName] = trailElements;
     });

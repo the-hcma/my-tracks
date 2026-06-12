@@ -19,6 +19,7 @@ import {
     pollOnlineMqttDevices,
     resolveLastKnownHighlightKeys,
     resolveLastKnownOnlyToggleEffect,
+    resolveLastKnownQueryDeviceNames,
     resolveLiveActivityToolbarClick,
     resolveLiveDeviceFilterChange,
     resolveLiveLocationIngestPath,
@@ -205,14 +206,13 @@ describe('shouldFilterLiveActivityByDevice', () => {
 });
 
 describe('post-reset Last Known Only workflow', () => {
-    it('reset turns Last Known Only off and post-reset loads ignore the device selector', () => {
+    it('reset turns Last Known Only off', () => {
         const resetPatch = createLiveActivityResetPatch(1_700_000_100);
 
         expect(resetPatch.showLastKnownOnly).toBe(false);
-        expect(buildLastKnownLocationsUrl()).toBe('/api/locations/last-known/');
     });
 
-    it('fetches all visible devices from the last-known API after reset', async () => {
+    it('staff fetches unfiltered last-known after reset', async () => {
         const fetchFn = vi.fn().mockResolvedValue({
             ok: true,
             json: async () => ({
@@ -225,8 +225,8 @@ describe('post-reset Last Known Only workflow', () => {
 
         const locations = await fetchLastKnownLocations({
             fetchFn: fetchFn as unknown as typeof fetch,
-            selectedDevice: 'kristen/pixel7',
-            skipHistoryFetch: true,
+            isStaff: true,
+            visibleDeviceNames: ['kristen/pixel7'],
             extractResults: (data) =>
                 (data as { results: { id: number; device_name: string; timestamp: number }[] }).results,
         });
@@ -237,6 +237,29 @@ describe('post-reset Last Known Only workflow', () => {
             { id: 12, device_name: 'bob/phone', timestamp: 200 },
             { id: 11, device_name: 'kristen/pixel7', timestamp: 100 },
         ]);
+    });
+
+    it('non-staff passes visible device query params after reset', async () => {
+        const fetchFn = vi.fn().mockResolvedValue({
+            ok: true,
+            json: async () => ({
+                results: [{ id: 11, device_name: 'kristen/pixel7', timestamp: 100 }],
+            }),
+        });
+
+        const locations = await fetchLastKnownLocations({
+            fetchFn: fetchFn as unknown as typeof fetch,
+            isStaff: false,
+            visibleDeviceNames: ['kristen/pixel7', 'bob/phone'],
+            extractResults: (data) =>
+                (data as { results: { id: number; device_name: string; timestamp: number }[] }).results,
+        });
+
+        expect(fetchFn).toHaveBeenCalledOnce();
+        expect(fetchFn).toHaveBeenCalledWith(
+            '/api/locations/last-known/?device=kristen%2Fpixel7&device=bob%2Fphone',
+        );
+        expect(locations).toEqual([{ id: 11, device_name: 'kristen/pixel7', timestamp: 100 }]);
     });
 });
 
@@ -265,8 +288,32 @@ describe('Last Known Only helpers', () => {
         { id: 12, device_name: 'bob/phone' },
     ];
 
-    it('builds the last-known URL without device filter', () => {
-        expect(buildLastKnownLocationsUrl()).toBe('/api/locations/last-known/');
+    it('resolveLastKnownQueryDeviceNames returns null for staff', () => {
+        expect(
+            resolveLastKnownQueryDeviceNames({
+                isStaff: true,
+                visibleDeviceNames: ['kristen/pixel7'],
+            }),
+        ).toBeNull();
+    });
+
+    it('resolveLastKnownQueryDeviceNames copies visible names for non-staff', () => {
+        expect(
+            resolveLastKnownQueryDeviceNames({
+                isStaff: false,
+                visibleDeviceNames: ['kristen/pixel7', 'bob/phone'],
+            }),
+        ).toEqual(['kristen/pixel7', 'bob/phone']);
+    });
+
+    it('builds an unfiltered last-known URL for staff', () => {
+        expect(buildLastKnownLocationsUrl({ queryDeviceNames: null })).toBe('/api/locations/last-known/');
+    });
+
+    it('builds a filtered last-known URL for non-staff devices', () => {
+        expect(
+            buildLastKnownLocationsUrl({ queryDeviceNames: ['kristen/pixel7', 'bob/phone'] }),
+        ).toBe('/api/locations/last-known/?device=kristen%2Fpixel7&device=bob%2Fphone');
     });
 
     it('filters out devices that already have rows in the activity log', () => {
@@ -275,7 +322,37 @@ describe('Last Known Only helpers', () => {
         ]);
     });
 
-    it('returns all devices from the last-known API even when some are already in the log', async () => {
+    it('non-staff fetches devices first when visible names are empty', async () => {
+        const fetchFn = vi
+            .fn()
+            .mockResolvedValueOnce({
+                ok: true,
+                json: async () => ({
+                    results: [{ device_name: 'kristen/pixel7' }, { device_name: 'bob/phone' }],
+                }),
+            })
+            .mockResolvedValueOnce({
+                ok: true,
+                json: async () => ({ results: locations }),
+            });
+
+        const result = await fetchLastKnownLocations({
+            fetchFn: fetchFn as unknown as typeof fetch,
+            isStaff: false,
+            visibleDeviceNames: [],
+            extractResults: (data) => (data as { results: typeof locations }).results,
+        });
+
+        expect(fetchFn).toHaveBeenCalledTimes(2);
+        expect(fetchFn).toHaveBeenNthCalledWith(1, '/api/devices/');
+        expect(fetchFn).toHaveBeenNthCalledWith(
+            2,
+            '/api/locations/last-known/?device=kristen%2Fpixel7&device=bob%2Fphone',
+        );
+        expect(result).toEqual(locations);
+    });
+
+    it('staff fetches unfiltered last-known even when some devices are already in the log', async () => {
         const fetchFn = vi.fn().mockResolvedValue({
             ok: true,
             json: async () => ({ results: locations }),
@@ -283,8 +360,8 @@ describe('Last Known Only helpers', () => {
 
         const result = await fetchLastKnownLocations({
             fetchFn: fetchFn as unknown as typeof fetch,
-            selectedDevice: undefined,
-            skipHistoryFetch: false,
+            isStaff: true,
+            visibleDeviceNames: ['kristen/pixel7'],
             extractResults: (data) => (data as { results: typeof locations }).results,
         });
 

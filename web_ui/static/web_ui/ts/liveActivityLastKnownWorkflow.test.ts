@@ -16,7 +16,7 @@ describe('Latest → Last Known', () => {
     const bob = { id: 12, device_name: 'bob/phone', timestamp: 100 };
     const apiResults = [alice, bob];
 
-    it('fetches full last-known API even when log only shows alice', async () => {
+    it('staff fetches unfiltered last-known even when log only shows alice', async () => {
         const fetchFn = vi.fn().mockResolvedValue({
             ok: true,
             json: async () => ({ results: apiResults }),
@@ -24,13 +24,33 @@ describe('Latest → Last Known', () => {
 
         const locations = await fetchLastKnownLocations({
             fetchFn: fetchFn as unknown as typeof fetch,
-            selectedDevice: undefined,
-            skipHistoryFetch: false,
+            isStaff: true,
+            visibleDeviceNames: ['alice/phone'],
             extractResults: (data) => (data as { results: typeof apiResults }).results,
         });
 
         expect(fetchFn).toHaveBeenCalledOnce();
         expect(fetchFn).toHaveBeenCalledWith('/api/locations/last-known/');
+        expect(locations).toEqual(apiResults);
+    });
+
+    it('non-staff scopes last-known fetch to visible devices', async () => {
+        const fetchFn = vi.fn().mockResolvedValue({
+            ok: true,
+            json: async () => ({ results: apiResults }),
+        });
+
+        const locations = await fetchLastKnownLocations({
+            fetchFn: fetchFn as unknown as typeof fetch,
+            isStaff: false,
+            visibleDeviceNames: ['alice/phone', 'bob/phone'],
+            extractResults: (data) => (data as { results: typeof apiResults }).results,
+        });
+
+        expect(fetchFn).toHaveBeenCalledOnce();
+        expect(fetchFn).toHaveBeenCalledWith(
+            '/api/locations/last-known/?device=alice%2Fphone&device=bob%2Fphone',
+        );
         expect(locations).toEqual(apiResults);
     });
 
@@ -106,8 +126,8 @@ describe('Regression guard', () => {
 
         const locations = await fetchLastKnownLocations({
             fetchFn: fetchFn as unknown as typeof fetch,
-            selectedDevice: undefined,
-            skipHistoryFetch: false,
+            isStaff: false,
+            visibleDeviceNames: ['alice/phone', 'bob/phone'],
             extractResults: (data) => (data as { results: typeof apiResults }).results,
         });
 

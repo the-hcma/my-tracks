@@ -127,9 +127,31 @@ export function shouldFilterLiveActivityByDevice(options: {
     return Boolean(options.selectedDevice) && !options.skipHistoryFetch;
 }
 
-/** Last-known always returns every visible device; device selector is UI-only. */
-export function buildLastKnownLocationsUrl(): string {
-    return '/api/locations/last-known/';
+/**
+ * Staff use an unfiltered last-known request; non-staff pass explicit device params
+ * for devices visible to the logged-in user.
+ */
+export function resolveLastKnownQueryDeviceNames(options: {
+    isStaff: boolean;
+    visibleDeviceNames: readonly string[];
+}): string[] | null {
+    if (options.isStaff) {
+        return null;
+    }
+    return [...options.visibleDeviceNames];
+}
+
+/** Build the last-known API URL; null queryDeviceNames means unfiltered (staff). */
+export function buildLastKnownLocationsUrl(options: { queryDeviceNames: string[] | null }): string {
+    if (options.queryDeviceNames === null) {
+        return '/api/locations/last-known/';
+    }
+    const params = new URLSearchParams();
+    for (const deviceName of options.queryDeviceNames) {
+        params.append('device', deviceName);
+    }
+    const query = params.toString();
+    return query ? `/api/locations/last-known/?${query}` : '/api/locations/last-known/';
 }
 
 export function filterLastKnownLocationsToMissingDevices<T extends LocationWithDeviceName>(
@@ -253,11 +275,35 @@ export function devicePassesLiveActivityFilter(options: {
 
 export async function fetchLastKnownLocations<T extends LocationWithDeviceName & { id?: number | null }>(options: {
     fetchFn: typeof fetch;
-    selectedDevice?: string;
-    skipHistoryFetch: boolean;
+    isStaff: boolean;
+    visibleDeviceNames: readonly string[];
     extractResults: (data: unknown) => T[];
+    devicesApiUrl?: string;
 }): Promise<T[]> {
-    const url = buildLastKnownLocationsUrl();
+    let queryDeviceNames = resolveLastKnownQueryDeviceNames({
+        isStaff: options.isStaff,
+        visibleDeviceNames: options.visibleDeviceNames,
+    });
+
+    if (queryDeviceNames !== null && queryDeviceNames.length === 0) {
+        try {
+            const devicesResp = await options.fetchFn(options.devicesApiUrl ?? '/api/devices/');
+            if (!devicesResp.ok) {
+                console.warn('Last Known: device list fetch failed', devicesResp.status);
+                return [];
+            }
+            const data = await devicesResp.json();
+            const devices = Array.isArray(data?.results) ? data.results : Array.isArray(data) ? data : [];
+            queryDeviceNames = devices
+                .map((device: { device_name?: string }) => device.device_name)
+                .filter((name): name is string => Boolean(name));
+        } catch (error) {
+            console.warn('Last Known: device list fetch error', error);
+            return [];
+        }
+    }
+
+    const url = buildLastKnownLocationsUrl({ queryDeviceNames });
     try {
         const response = await options.fetchFn(url);
         if (!response.ok) {
