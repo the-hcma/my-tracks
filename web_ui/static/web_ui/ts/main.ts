@@ -26,12 +26,14 @@ import {
     devicePollSummaryMessage,
     devicePollSummaryToastType,
     fetchAndPollOnlineMqttDevices,
+    buildLastKnownHighlightKeys,
     fetchLastKnownLocations,
     resolveLastKnownOnlyToggleEffect,
     resolveLiveDeviceFilterChange,
     resolveLiveLocationIngestPath,
     resolveSkipHistoryFetchForRefresh,
     setIconLabelButton,
+    shouldFilterLiveActivityByDevice,
     toggleLastKnownOnlyFlag,
 } from './liveActivityToolbar';
 import { getPreferredTheme, setTheme, toggleTheme } from './theme';
@@ -267,6 +269,8 @@ let deviceTrails: Record<string, TrailElements> = {};
 const locationMarkersByKey = new Map<string, RegisteredLocationMarker[]>();
 let selectedLocationKey: string | null = null;
 let showLastKnownOnly = false;
+/** Authoritative per-device highlight keys from the last-known API (when loaded). */
+let lastKnownHighlightKeys: Set<string> | null = null;
 let mobileLayoutMode: MobileLayoutMode = 'split';
 const devices = new Set<string>();
 let selectedDevice = '';
@@ -931,6 +935,10 @@ function fitMapToLastKnownLocations(): void {
 }
 
 function getLastKnownLocationKeysByDevice(): Set<string> {
+    if (lastKnownHighlightKeys !== null) {
+        return lastKnownHighlightKeys;
+    }
+
     const locationKeys = new Set<string>();
     const seenDevices = new Set<string>();
     const entries = [...document.querySelectorAll<HTMLElement>('.log-entry[data-location-key][data-device-name]')];
@@ -961,6 +969,9 @@ function updateLastKnownOnlyButton(): void {
 
 function toggleLastKnownOnly(): void {
     showLastKnownOnly = toggleLastKnownOnlyFlag(showLastKnownOnly);
+    if (!showLastKnownOnly) {
+        lastKnownHighlightKeys = null;
+    }
     updateLastKnownOnlyButton();
     applyLocationSelection();
     syncTrailPolylineVisibilityForLastKnownMode();
@@ -1013,11 +1024,14 @@ async function ensureLastKnownLocationsLoaded(): Promise<void> {
         });
 
         if (locations.length > 0) {
-            if (renderedDeviceNames.size === 0) {
+            lastKnownHighlightKeys = buildLastKnownHighlightKeys(locations);
+            if (skipHistoryFetch || renderedDeviceNames.size === 0) {
                 replaceLiveActivityFromLocations(locations, '(last known)');
             } else {
                 appendLiveActivityLocations(locations);
             }
+        } else {
+            lastKnownHighlightKeys = null;
         }
 
         applyLocationSelection();
@@ -1369,7 +1383,10 @@ function updateDeviceMarker(location: TrackLocation): void {
     ensureDeviceInSelector(deviceName);
 
     // In live mode, filter by selection if set; in historic mode, also filter
-    if (selectedDevice && selectedDevice !== deviceName) {
+    if (
+        shouldFilterLiveActivityByDevice({ selectedDevice: selectedDevice || undefined, skipHistoryFetch }) &&
+        selectedDevice !== deviceName
+    ) {
         // Hide marker if it exists
         if (deviceMarkers[deviceName]) {
             unregisterLocationMarker(deviceMarkers[deviceName]);
@@ -1588,7 +1605,10 @@ function addLocationToTrail(location: TrackLocation): void {
     const deviceColor = getDeviceColor(deviceName);
 
     // Check if we should display this location based on device filter
-    if (selectedDevice && deviceName !== selectedDevice) {
+    if (
+        shouldFilterLiveActivityByDevice({ selectedDevice: selectedDevice || undefined, skipHistoryFetch }) &&
+        deviceName !== selectedDevice
+    ) {
         return;
     }
 
@@ -1709,7 +1729,10 @@ function addLiveLocationToTrail(location: TrackLocation): void {
     const deviceName = location.device_name || 'Unknown';
 
     // Respect device filter
-    if (selectedDevice && deviceName !== selectedDevice) {
+    if (
+        shouldFilterLiveActivityByDevice({ selectedDevice: selectedDevice || undefined, skipHistoryFetch }) &&
+        deviceName !== selectedDevice
+    ) {
         return;
     }
 
@@ -2799,6 +2822,12 @@ function resetEvents(): void {
     skipHistoryFetch = resetPatch.skipHistoryFetch;
     needsFitBounds = resetPatch.needsFitBounds;
     showLastKnownOnly = resetPatch.showLastKnownOnly;
+    lastKnownHighlightKeys = null;
+    selectedDevice = '';
+    const deviceSelector = document.getElementById('device-selector') as HTMLSelectElement | null;
+    if (deviceSelector) {
+        deviceSelector.value = '';
+    }
     updateLastKnownOnlyButton();
     applyLocationSelection();
     syncTrailPolylineVisibilityForLastKnownMode();
@@ -3111,13 +3140,17 @@ function connectWebSocket(): void {
                     const deviceName = location.device_name || 'Unknown';
                     console.log(`📍 Live mode location received from ${deviceName}`, location);
 
+                    const filterByDevice = shouldFilterLiveActivityByDevice({
+                        selectedDevice: selectedDevice || undefined,
+                        skipHistoryFetch,
+                    });
                     const ingestPath = resolveLiveLocationIngestPath({
                         isLiveMode: true,
                         skipHistoryFetch,
-                        matchesDeviceFilter: !selectedDevice || deviceName === selectedDevice,
+                        matchesDeviceFilter: !filterByDevice || deviceName === selectedDevice,
                     });
                     if (ingestPath === 'ignored') {
-                        if (selectedDevice && deviceName !== selectedDevice) {
+                        if (filterByDevice && deviceName !== selectedDevice) {
                             console.log(`Ignoring location from ${deviceName} (filter: ${selectedDevice})`);
                         }
                         return;
