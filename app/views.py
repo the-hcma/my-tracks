@@ -72,6 +72,36 @@ from .utils import extract_device_id
 logger = logging.getLogger(__name__)
 
 
+def _visible_devices_for_user(user: User) -> QuerySet[Device]:
+    """Devices the user may view (owned, shared, or all for staff)."""
+    from django.db.models import Q
+
+    if user.is_staff:
+        return Device.objects.all()
+    return Device.objects.filter(Q(owner=user) | Q(shares__shared_with=user)).distinct()
+
+
+def _resolve_device_param(user: User, device_param: str) -> Device:
+    """Resolve a device query param to a Device the user may access."""
+    from django.db.models import Q
+
+    if "/" in device_param:
+        owner_username, dev_id = device_param.split("/", 1)
+        if user.is_staff:
+            return Device.objects.get(owner__username=owner_username, device_id=dev_id)
+        return Device.objects.get(
+            Q(owner=user) | Q(shares__shared_with=user),
+            owner__username=owner_username,
+            device_id=dev_id,
+        )
+    if user.is_staff:
+        return Device.objects.get(device_id=device_param)
+    return Device.objects.filter(
+        Q(owner=user) | Q(shares__shared_with=user),
+        device_id=device_param,
+    ).get()
+
+
 @method_decorator(csrf_exempt, name="dispatch")
 class LocationViewSet(viewsets.ModelViewSet):
     """
@@ -186,7 +216,7 @@ class LocationViewSet(viewsets.ModelViewSet):
             logger.info(
                 "[http] Broadcasting location to WebSocket (id=%s, device=%s)",
                 location_data.get("id"),
-                location_data.get("device_id_display"),
+                location_data.get("device_name"),
             )
             broadcast_device_event_sync(
                 serializer.instance.device,
@@ -233,26 +263,8 @@ class LocationViewSet(viewsets.ModelViewSet):
         # devices return 404 (same as non-existent, no existence leak).
         device_param = request.query_params.get("device")
         if device_param:
-            from django.db.models import Q
-
             try:
-                if "/" in device_param:
-                    owner_username, dev_id = device_param.split("/", 1)
-                    if request.user.is_staff:
-                        device = Device.objects.get(owner__username=owner_username, device_id=dev_id)
-                    else:
-                        device = Device.objects.get(
-                            Q(owner=request.user) | Q(shares__shared_with=request.user),
-                            owner__username=owner_username,
-                            device_id=dev_id,
-                        )
-                elif request.user.is_staff:
-                    device = Device.objects.get(device_id=device_param)
-                else:
-                    device = Device.objects.filter(
-                        Q(owner=request.user) | Q(shares__shared_with=request.user),
-                        device_id=device_param,
-                    ).get()
+                device = _resolve_device_param(request.user, str(device_param))
                 queryset = queryset.filter(device=device)
             except Device.DoesNotExist:
                 return Response(

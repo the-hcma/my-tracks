@@ -12,6 +12,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from app.device_names import device_name_for
 from app.models import Device, Location, Waypoint
 
 _SOURCE = "my-tracks"
@@ -51,12 +52,11 @@ class AdminUsersWithDevicesExportView(APIView):
             if device is None:
                 continue
             display_name = user.get_full_name().strip() or user.username
-            device_name = device.name.strip() if device.name.strip() else device.device_id
             rows.append(
                 {
                     "username": user.username,
                     "display_name": display_name,
-                    "device_name": device_name,
+                    "device_name": device_name_for(device),
                     "enabled": True,
                     "latest_location": latest_location_for_device(device),
                 }

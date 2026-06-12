@@ -165,10 +165,22 @@ class TestDeviceSerializer:
         data = DeviceSerializer(device_no_mqtt).data
         assert_that(data["mqtt_topic_id"], equal_to(""))
 
+    def test_device_name_without_owner(self, device: Device) -> None:
+        """device_name returns device_id when the device has no owner."""
+        data = DeviceSerializer(device).data
+        assert_that(data["device_name"], equal_to("phone1"))
+
+    def test_device_name_with_owner(self, db: Any) -> None:
+        """device_name returns owner/device_id when the device has an owner."""
+        owner = User.objects.create_user(username="alice_dev", password="pw")
+        dev = Device.objects.create(device_id="pixel7", name="Pixel 7", owner=owner)
+        data = DeviceSerializer(dev).data
+        assert_that(data["device_name"], equal_to("alice_dev/pixel7"))
+
     def test_serialized_fields_present(self, device: Device) -> None:
         """All expected fields are present in serialized output."""
         data = DeviceSerializer(device).data
-        for field in ("id", "device_id", "name", "owner_username", "created_at", "last_seen",
+        for field in ("id", "device_id", "device_name", "name", "owner_username", "created_at", "last_seen",
                       "is_online", "location_count", "mqtt_user", "mqtt_topic_id"):
             assert_that(data, has_key(field))
 
@@ -182,25 +194,13 @@ class TestDeviceSerializer:
 class TestLocationSerializerRead:
     """Tests for LocationSerializer read-only / computed fields."""
 
-    def test_device_name_custom(self, location: Location) -> None:
-        """device_name returns custom name when set."""
+    def test_device_name_without_owner(self, location: Location) -> None:
+        """device_name returns device_id when the device has no owner."""
         data = LocationSerializer(location).data
-        assert_that(data["device_name"], equal_to("My Phone"))
-
-    def test_device_name_falls_back_to_device_id(self, db: Any) -> None:
-        """device_name returns device_id when name starts with 'Device '."""
-        dev = Device.objects.create(device_id="fallback01", name="Device fallback01")
-        loc = Location.objects.create(
-            device=dev,
-            latitude=Decimal("40.0"),
-            longitude=Decimal("-74.0"),
-            timestamp=timezone.now(),
-        )
-        data = LocationSerializer(loc).data
-        assert_that(data["device_name"], equal_to("fallback01"))
+        assert_that(data["device_name"], equal_to("phone1"))
 
     def test_device_name_includes_owner_prefix(self, db: Any) -> None:
-        """device_name prefixes with 'owner/' when the device has an owner."""
+        """device_name returns owner/device_id when the device has an owner."""
         owner = User.objects.create_user(username="alice_dn", password="pw")
         dev = Device.objects.create(device_id="pixel7", name="Pixel 7", owner=owner)
         loc = Location.objects.create(
@@ -210,10 +210,10 @@ class TestLocationSerializerRead:
             timestamp=timezone.now(),
         )
         data = LocationSerializer(loc).data
-        assert_that(data["device_name"], equal_to("alice_dn/Pixel 7"))
+        assert_that(data["device_name"], equal_to("alice_dn/pixel7"))
 
-    def test_device_name_owner_prefix_with_fallback_device_id(self, db: Any) -> None:
-        """device_name uses owner/device_id when name is the auto-generated default."""
+    def test_device_name_ignores_friendly_name(self, db: Any) -> None:
+        """device_name always uses device_id, not the friendly name field."""
         owner = User.objects.create_user(username="bob_dn", password="pw")
         dev = Device.objects.create(device_id="tracker01", name="Device tracker01", owner=owner)
         loc = Location.objects.create(
@@ -224,24 +224,6 @@ class TestLocationSerializerRead:
         )
         data = LocationSerializer(loc).data
         assert_that(data["device_name"], equal_to("bob_dn/tracker01"))
-
-    def test_device_id_display_without_owner(self, location: Location) -> None:
-        """device_id_display returns plain device_id when device has no owner."""
-        data = LocationSerializer(location).data
-        assert_that(data["device_id_display"], equal_to("phone1"))
-
-    def test_device_id_display_with_owner(self, db: Any) -> None:
-        """device_id_display returns 'owner/device_id' when device has an owner."""
-        owner = User.objects.create_user(username="alice_disp", password="pw")
-        dev = Device.objects.create(device_id="pixel", owner=owner)
-        loc = Location.objects.create(
-            device=dev,
-            latitude=Decimal("51.5"),
-            longitude=Decimal("-0.1"),
-            timestamp=timezone.now(),
-        )
-        data = LocationSerializer(loc).data
-        assert_that(data["device_id_display"], equal_to("alice_disp/pixel"))
 
     def test_tid_display_with_tracker_id(self, location: Location) -> None:
         """tid_display returns the tracker_id when present."""
