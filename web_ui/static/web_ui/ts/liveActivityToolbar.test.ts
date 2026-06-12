@@ -8,6 +8,7 @@ import {
     attachLiveActivityToolbar,
     buildDeviceLatestLocationUrl,
     buildLastKnownDeviceTargets,
+    buildLastKnownFetchTargets,
     buildReportLocationBody,
     createLiveActivityResetPatch,
     devicePollSummaryMessage,
@@ -22,6 +23,7 @@ import {
     resolveLiveDeviceFilterChange,
     resolveLiveLocationIngestPath,
     resolveSkipHistoryFetchForRefresh,
+    selectLastKnownDevicesToFetch,
     selectOnlineMqttDevices,
     summarizeDevicePollResults,
     toggleLastKnownOnlyFlag,
@@ -124,7 +126,13 @@ describe('createLiveActivityResetPatch', () => {
             skipHistoryFetch: true,
             needsFitBounds: true,
             incrementalLocations: {},
+            showLastKnownOnly: false,
         });
+    });
+
+    it('turns Last Known Only off when reset is applied', () => {
+        const patch = createLiveActivityResetPatch(1_700_000_000);
+        expect(patch.showLastKnownOnly).toBe(false);
     });
 });
 
@@ -164,6 +172,24 @@ describe('resolveLiveLocationIngestPath', () => {
                 matchesDeviceFilter: false,
             }),
         ).toBe('ignored');
+    });
+});
+
+describe('post-reset Last Known Only workflow', () => {
+    it('reset turns Last Known Only off and a subsequent enable fetches all visible devices', () => {
+        const resetPatch = createLiveActivityResetPatch(1_700_000_100);
+        const devices = [
+            { device_id: 'pixel7', name: 'Pixel 7', owner_username: 'kristen' },
+            { device_id: 'phone', name: 'Phone', owner_username: 'bob' },
+        ];
+
+        expect(resetPatch.showLastKnownOnly).toBe(false);
+
+        const targets = buildLastKnownFetchTargets(devices, {
+            selectedDevice: 'kristen/Pixel 7',
+            skipHistoryFetch: resetPatch.skipHistoryFetch,
+        });
+        expect(selectLastKnownDevicesToFetch(targets, [], { skipHistoryFetch: true })).toEqual(targets);
     });
 });
 
@@ -207,6 +233,34 @@ describe('Last Known Only helpers', () => {
         expect(buildLastKnownDeviceTargets(devices, 'kristen/Pixel 7')).toEqual([
             { device_id: 'pixel7', display_name: 'kristen/Pixel 7' },
         ]);
+    });
+
+    it('after reset fetches latest for every device from the API list, ignoring the selector', () => {
+        expect(
+            buildLastKnownFetchTargets(devices, {
+                selectedDevice: 'kristen/Pixel 7',
+                skipHistoryFetch: true,
+            }),
+        ).toEqual([
+            { device_id: 'pixel7', display_name: 'kristen/Pixel 7' },
+            { device_id: 'phone', display_name: 'bob/Phone' },
+        ]);
+    });
+
+    it('still honors the device selector outside post-reset mode', () => {
+        expect(
+            buildLastKnownFetchTargets(devices, {
+                selectedDevice: 'kristen/Pixel 7',
+                skipHistoryFetch: false,
+            }),
+        ).toEqual([{ device_id: 'pixel7', display_name: 'kristen/Pixel 7' }]);
+    });
+
+    it('after reset refetches every visible device even when the log already has rows', () => {
+        const targets = buildLastKnownFetchTargets(devices, { skipHistoryFetch: true });
+        expect(
+            selectLastKnownDevicesToFetch(targets, ['kristen/Pixel 7'], { skipHistoryFetch: true }),
+        ).toEqual(targets);
     });
 
     it('treats an empty log after reset as missing every device', () => {
