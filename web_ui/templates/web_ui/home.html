@@ -126,6 +126,7 @@
             collapsePrecision: {{ collapse_precision }},
             locationAccuracyFilterEnabled: {{ location_accuracy_filter_enabled|yesno:"true,false" }},
             locationAccuracyMinimumM: {{ location_accuracy_minimum_m }},
+            isStaff: {{ user.is_staff|yesno:"true,false" }},
             csrfToken: "{{ csrf_token }}"
         };
 

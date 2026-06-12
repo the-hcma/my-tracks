@@ -117,6 +117,44 @@ def _ambiguous_device_filter_response(device_param: str) -> Response:
     )
 
 
+def _filter_visible_devices_by_params(
+    visible_devices: QuerySet[Device],
+    device_params: list[str],
+) -> QuerySet[Device] | Response:
+    """Resolve repeated device query params against visible devices in one query."""
+    visible = list(visible_devices.select_related("owner").only("pk", "device_id", "owner__username"))
+    by_owner_device_id: dict[str, int] = {}
+    by_device_id: dict[str, list[int]] = {}
+    for device in visible:
+        owner_device_id = f"{device.owner.username}/{device.device_id}"
+        by_owner_device_id[owner_device_id] = device.pk
+        by_device_id.setdefault(device.device_id, []).append(device.pk)
+
+    resolved_pks: list[int] = []
+    for device_param in device_params:
+        if "/" in device_param:
+            device_pk = by_owner_device_id.get(device_param)
+            if device_pk is None:
+                return Response(
+                    {"error": f"Expected valid device ID, got '{device_param}' which does not exist"},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            resolved_pks.append(device_pk)
+            continue
+
+        matches = by_device_id.get(device_param, [])
+        if not matches:
+            return Response(
+                {"error": f"Expected valid device ID, got '{device_param}' which does not exist"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        if len(matches) > 1:
+            return _ambiguous_device_filter_response(device_param)
+        resolved_pks.append(matches[0])
+
+    return visible_devices.filter(pk__in=resolved_pks)
+
+
 @method_decorator(csrf_exempt, name="dispatch")
 class LocationViewSet(viewsets.ModelViewSet):
     """
@@ -406,22 +444,16 @@ class LocationViewSet(viewsets.ModelViewSet):
         """
         Return the latest location for each visible device.
 
-        Optional query parameter:
-        - device: Filter to one device (``owner/device_id`` or plain ``device_id``)
+        Optional query parameters:
+        - device: Repeat to filter to specific devices (``owner/device_id`` or plain ``device_id``)
         """
         devices = _visible_devices_for_user(request.user)
-        device_param = request.query_params.get("device")
-        if device_param:
-            try:
-                device = _resolve_device_param(request.user, str(device_param))
-                devices = devices.filter(pk=device.pk)
-            except Device.DoesNotExist:
-                return Response(
-                    {"error": f"Expected valid device ID, got '{device_param}' which does not exist"},
-                    status=status.HTTP_404_NOT_FOUND,
-                )
-            except Device.MultipleObjectsReturned:
-                return _ambiguous_device_filter_response(str(device_param))
+        device_params = request.query_params.getlist("device")
+        if device_params:
+            filtered = _filter_visible_devices_by_params(devices, [str(param) for param in device_params])
+            if isinstance(filtered, Response):
+                return filtered
+            devices = filtered
 
         latest_location_ids = devices.filter(latest_location_id__isnull=False).values_list(
             "latest_location_id", flat=True

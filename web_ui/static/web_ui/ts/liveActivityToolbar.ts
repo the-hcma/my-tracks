@@ -3,6 +3,7 @@
  */
 
 import type { LiveActivityRefreshRequest } from './liveActivity';
+import { extractResultsList } from './utils';
 
 export const LIVE_ACTIVITY_BUTTON_IDS = {
     load30m: 'load-history-button',
@@ -127,9 +128,31 @@ export function shouldFilterLiveActivityByDevice(options: {
     return Boolean(options.selectedDevice) && !options.skipHistoryFetch;
 }
 
-/** Last-known always returns every visible device; device selector is UI-only. */
-export function buildLastKnownLocationsUrl(): string {
-    return '/api/locations/last-known/';
+/**
+ * Staff use an unfiltered last-known request; non-staff pass explicit device params
+ * for devices visible to the logged-in user.
+ */
+export function resolveLastKnownQueryDeviceNames(options: {
+    isStaff: boolean;
+    visibleDeviceNames: readonly string[];
+}): string[] | null {
+    if (options.isStaff) {
+        return null;
+    }
+    return [...options.visibleDeviceNames];
+}
+
+/** Build the last-known API URL; null queryDeviceNames means unfiltered (staff). */
+export function buildLastKnownLocationsUrl(options: { queryDeviceNames: string[] | null }): string {
+    if (options.queryDeviceNames === null) {
+        return '/api/locations/last-known/';
+    }
+    const params = new URLSearchParams();
+    for (const deviceName of options.queryDeviceNames) {
+        params.append('device', deviceName);
+    }
+    const query = params.toString();
+    return query ? `/api/locations/last-known/?${query}` : '/api/locations/last-known/';
 }
 
 export function filterLastKnownLocationsToMissingDevices<T extends LocationWithDeviceName>(
@@ -251,13 +274,54 @@ export function devicePassesLiveActivityFilter(options: {
     return options.deviceName === options.selectedDevice;
 }
 
+export async function fetchAllDeviceNamesFromApi(options: {
+    fetchFn: typeof fetch;
+    devicesApiUrl?: string;
+}): Promise<string[]> {
+    const names: string[] = [];
+    let url: string | null = options.devicesApiUrl ?? '/api/devices/';
+    while (url) {
+        const devicesResp = await options.fetchFn(url);
+        if (!devicesResp.ok) {
+            throw new Error(`device list fetch failed: ${devicesResp.status}`);
+        }
+        const data: { next?: string | null } = await devicesResp.json();
+        const devices = extractResultsList<{ device_name?: string }>(data);
+        for (const device of devices) {
+            if (device.device_name) {
+                names.push(device.device_name);
+            }
+        }
+        url = typeof data.next === 'string' && data.next.length > 0 ? data.next : null;
+    }
+    return names;
+}
+
 export async function fetchLastKnownLocations<T extends LocationWithDeviceName & { id?: number | null }>(options: {
     fetchFn: typeof fetch;
-    selectedDevice?: string;
-    skipHistoryFetch: boolean;
+    isStaff: boolean;
+    visibleDeviceNames: readonly string[];
     extractResults: (data: unknown) => T[];
+    devicesApiUrl?: string;
 }): Promise<T[]> {
-    const url = buildLastKnownLocationsUrl();
+    let queryDeviceNames = resolveLastKnownQueryDeviceNames({
+        isStaff: options.isStaff,
+        visibleDeviceNames: options.visibleDeviceNames,
+    });
+
+    if (queryDeviceNames !== null && queryDeviceNames.length === 0) {
+        try {
+            queryDeviceNames = await fetchAllDeviceNamesFromApi({
+                fetchFn: options.fetchFn,
+                devicesApiUrl: options.devicesApiUrl,
+            });
+        } catch (error) {
+            console.warn('Last Known: device list fetch error', error);
+            return [];
+        }
+    }
+
+    const url = buildLastKnownLocationsUrl({ queryDeviceNames });
     try {
         const response = await options.fetchFn(url);
         if (!response.ok) {

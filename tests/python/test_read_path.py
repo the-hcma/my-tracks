@@ -453,6 +453,37 @@ class TestLastKnownLocations:
         assert_that(len(results), equal_to(1))
         assert_that(results[0]["device_name"], equal_to("bob/bob-phone"))
 
+    def test_device_filter_accepts_multiple_devices(
+        self,
+        alice_client: APIClient,
+        alice_device: Device,
+        bob_device: Device,
+        bob_shares_with_alice: DeviceShare,
+    ) -> None:
+        newer = timezone.now()
+        alice_latest = Location.objects.create(
+            device=alice_device,
+            latitude=Decimal("51.1"),
+            longitude=Decimal("-0.2"),
+            timestamp=newer,
+        )
+        bob_latest = Location.objects.create(
+            device=bob_device,
+            latitude=Decimal("52.0"),
+            longitude=Decimal("-0.3"),
+            timestamp=newer,
+        )
+
+        response = alice_client.get(
+            "/api/locations/last-known/?device=alice/alice-phone&device=bob/bob-phone"
+        )
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        results = response.json()["results"]
+        assert_that(len(results), equal_to(2))
+        by_name = {row["device_name"]: row["id"] for row in results}
+        assert_that(by_name["alice/alice-phone"], equal_to(alice_latest.id))
+        assert_that(by_name["bob/bob-phone"], equal_to(bob_latest.id))
+
     def test_device_filter_404_for_inaccessible_device(
         self,
         alice_client: APIClient,
