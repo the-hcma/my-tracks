@@ -12,6 +12,7 @@ import {
     createLiveActivityResetPatch,
     devicePollSummaryMessage,
     devicePollSummaryToastType,
+    fetchAllDeviceNamesFromApi,
     fetchAndPollOnlineMqttDevices,
     fetchLastKnownLocations,
     filterLastKnownLocationsToMissingDevices,
@@ -320,6 +321,34 @@ describe('Last Known Only helpers', () => {
         expect(filterLastKnownLocationsToMissingDevices(locations, ['kristen/pixel7'])).toEqual([
             { id: 12, device_name: 'bob/phone' },
         ]);
+    });
+
+    it('fetchAllDeviceNamesFromApi follows paginated device list responses', async () => {
+        const fetchFn = vi
+            .fn()
+            .mockResolvedValueOnce({
+                ok: true,
+                json: async () => ({
+                    next: '/api/devices/?offset=100',
+                    results: [{ device_name: 'alice/phone' }],
+                }),
+            })
+            .mockResolvedValueOnce({
+                ok: true,
+                json: async () => ({
+                    next: null,
+                    results: [{ device_name: 'bob/phone' }],
+                }),
+            });
+
+        const names = await fetchAllDeviceNamesFromApi({
+            fetchFn: fetchFn as unknown as typeof fetch,
+        });
+
+        expect(fetchFn).toHaveBeenCalledTimes(2);
+        expect(fetchFn).toHaveBeenNthCalledWith(1, '/api/devices/');
+        expect(fetchFn).toHaveBeenNthCalledWith(2, '/api/devices/?offset=100');
+        expect(names).toEqual(['alice/phone', 'bob/phone']);
     });
 
     it('non-staff fetches devices first when visible names are empty', async () => {

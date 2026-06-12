@@ -990,10 +990,28 @@ function unregisterTrailWaypointMarkersFromSelection(): void {
     });
 }
 
+function registerTrailWaypointMarkersForSelection(): void {
+    Object.values(deviceTrails).forEach((trail) => {
+        trail.markers.forEach((marker) => {
+            const locationKey = (marker as SelectableLocationMarker)._myTracksLocationKey;
+            if (!locationKey) {
+                return;
+            }
+            const registeredMarkers = locationMarkersByKey.get(locationKey) ?? [];
+            if (registeredMarkers.some((registeredMarker) => registeredMarker.marker === marker)) {
+                return;
+            }
+            registeredMarkers.push({ marker, kind: 'waypoint' });
+            locationMarkersByKey.set(locationKey, registeredMarkers);
+        });
+    });
+}
+
 function toggleLastKnownOnly(): void {
     showLastKnownOnly = toggleLastKnownOnlyFlag(showLastKnownOnly);
     if (!showLastKnownOnly) {
         lastKnownHighlightKeys = null;
+        registerTrailWaypointMarkersForSelection();
     } else {
         unregisterTrailWaypointMarkersFromSelection();
     }

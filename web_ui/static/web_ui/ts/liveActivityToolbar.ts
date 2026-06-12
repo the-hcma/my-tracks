@@ -3,6 +3,7 @@
  */
 
 import type { LiveActivityRefreshRequest } from './liveActivity';
+import { extractResultsList } from './utils';
 
 export const LIVE_ACTIVITY_BUTTON_IDS = {
     load30m: 'load-history-button',
@@ -273,6 +274,29 @@ export function devicePassesLiveActivityFilter(options: {
     return options.deviceName === options.selectedDevice;
 }
 
+export async function fetchAllDeviceNamesFromApi(options: {
+    fetchFn: typeof fetch;
+    devicesApiUrl?: string;
+}): Promise<string[]> {
+    const names: string[] = [];
+    let url: string | null = options.devicesApiUrl ?? '/api/devices/';
+    while (url) {
+        const devicesResp = await options.fetchFn(url);
+        if (!devicesResp.ok) {
+            throw new Error(`device list fetch failed: ${devicesResp.status}`);
+        }
+        const data: { next?: string | null } = await devicesResp.json();
+        const devices = extractResultsList<{ device_name?: string }>(data);
+        for (const device of devices) {
+            if (device.device_name) {
+                names.push(device.device_name);
+            }
+        }
+        url = typeof data.next === 'string' && data.next.length > 0 ? data.next : null;
+    }
+    return names;
+}
+
 export async function fetchLastKnownLocations<T extends LocationWithDeviceName & { id?: number | null }>(options: {
     fetchFn: typeof fetch;
     isStaff: boolean;
@@ -287,20 +311,10 @@ export async function fetchLastKnownLocations<T extends LocationWithDeviceName &
 
     if (queryDeviceNames !== null && queryDeviceNames.length === 0) {
         try {
-            const devicesResp = await options.fetchFn(options.devicesApiUrl ?? '/api/devices/');
-            if (!devicesResp.ok) {
-                console.warn('Last Known: device list fetch failed', devicesResp.status);
-                return [];
-            }
-            const data = await devicesResp.json();
-            const devices: Array<{ device_name?: string }> = Array.isArray(data?.results)
-                ? data.results
-                : Array.isArray(data)
-                  ? data
-                  : [];
-            queryDeviceNames = devices
-                .map((device) => device.device_name)
-                .filter((name): name is string => Boolean(name));
+            queryDeviceNames = await fetchAllDeviceNamesFromApi({
+                fetchFn: options.fetchFn,
+                devicesApiUrl: options.devicesApiUrl,
+            });
         } catch (error) {
             console.warn('Last Known: device list fetch error', error);
             return [];
