@@ -2957,7 +2957,7 @@ async function requestDeviceLocations(): Promise<void> {
 
     try {
         const summary = await fetchAndPollOnlineMqttDevices({
-            fetchFn: fetch,
+            fetchFn: boundFetch,
             getCsrfToken,
         });
         if (summary.kind === 'all-success') {
