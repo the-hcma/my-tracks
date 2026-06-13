@@ -1041,11 +1041,19 @@ function toggleLastKnownOnly(): void {
  */
 function setLiveActivityLogMessage(message: string): void {
     const container = document.getElementById('log-container');
-    if (!container) {
-        return;
+    if (container) {
+        const loading = document.createElement('p');
+        loading.id = 'loading';
+        loading.textContent = message;
+        container.replaceChildren(loading);
     }
-    container.innerHTML = `<p id="loading">${message}</p>`;
+    // The map state can outlive temporary log-container re-renders, so cleanup
+    // always runs to avoid stale markers/trails after Last Known load failures.
     eventCount = 0;
+    removeAllDeviceMarkers();
+    removeAllTrails();
+    selectedLocationKey = null;
+    incrementalLocations = {};
     const logCount = document.getElementById('log-count');
     if (logCount) {
         logCount.textContent = '0 events';
