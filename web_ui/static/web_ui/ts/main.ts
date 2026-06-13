@@ -35,6 +35,7 @@ import {
     resolveLiveLocationIngestPath,
     resolveSkipHistoryFetchForRefresh,
     setIconLabelButton,
+    shouldFetchLastKnownLocations,
     shouldFilterLiveActivityByDevice,
     toggleLastKnownOnlyFlag,
     type LastKnownLogEntry,
@@ -1008,6 +1009,17 @@ function registerTrailWaypointMarkersForSelection(): void {
     });
 }
 
+function countRenderedLogDeviceEntries(): number {
+    return document.querySelectorAll<HTMLElement>('.log-entry[data-device-name]').length;
+}
+
+function shouldLoadLastKnownFromApi(): boolean {
+    return shouldFetchLastKnownLocations({
+        renderedDeviceCount: countRenderedLogDeviceEntries(),
+        skipHistoryFetch,
+    });
+}
+
 function toggleLastKnownOnly(): void {
     showLastKnownOnly = toggleLastKnownOnlyFlag(showLastKnownOnly);
     if (!showLastKnownOnly) {
@@ -1023,7 +1035,11 @@ function toggleLastKnownOnly(): void {
 
     const effect = resolveLastKnownOnlyToggleEffect(isLiveMode, showLastKnownOnly);
     if ('loadLocations' in effect) {
-        void ensureLastKnownLocationsLoaded();
+        if (shouldLoadLastKnownFromApi()) {
+            void ensureLastKnownLocationsLoaded();
+        } else {
+            scheduleMapFitAfterLastKnownUiChange();
+        }
         return;
     }
     scheduleMapFitAfterLastKnownUiChange();
@@ -1037,7 +1053,8 @@ function toggleLastKnownOnly(): void {
  *
  * - Runs only in live mode (historic mode operates on a fixed trail).
  * - Staff fetch unfiltered last-known; non-staff pass visible device query params.
- * - Always replaces the log with the authoritative last-known row per device.
+ * - After Reset (empty log) or post-reset rows, fetches authoritative last-known from the API.
+ * - After Latest/hour loads, dims the existing log in place without replacing it.
  */
 function setLiveActivityLogMessage(message: string): void {
     const container = document.getElementById('log-container');
@@ -1260,7 +1277,7 @@ function restoreUIState(): void {
     showLastKnownOnly = Boolean(state.showLastKnownOnly);
     updateLastKnownOnlyButton();
 
-    if (showLastKnownOnly && isLiveMode) {
+    if (showLastKnownOnly && isLiveMode && shouldLoadLastKnownFromApi()) {
         void ensureLastKnownLocationsLoaded();
     }
 

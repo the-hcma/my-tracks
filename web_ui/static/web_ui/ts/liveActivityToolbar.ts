@@ -383,6 +383,21 @@ export async function fetchLastKnownLocations<T extends LocationWithDeviceName &
 
 export type LastKnownOnlyToggleEffect = { loadLocations: true } | { refitMap: true };
 
+/**
+ * Whether toggling Last Known Only should call the last-known API.
+ * After Latest/hour loads, dim the existing log in place; after Reset (empty log)
+ * or post-reset websocket rows, fetch authoritative last-known for all devices.
+ */
+export function shouldFetchLastKnownLocations(options: {
+    renderedDeviceCount: number;
+    skipHistoryFetch: boolean;
+}): boolean {
+    if (options.renderedDeviceCount === 0) {
+        return true;
+    }
+    return options.skipHistoryFetch;
+}
+
 export function resolveLastKnownOnlyToggleEffect(
     isLiveMode: boolean,
     enabledAfterToggle: boolean,

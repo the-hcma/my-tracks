@@ -10,6 +10,7 @@ import {
     LAST_KNOWN_FETCH_INIT,
     planLastKnownUiUpdate,
     resolveLastKnownMergeStrategy,
+    shouldFetchLastKnownLocations,
 } from './liveActivityToolbar';
 
 function jsonFetchResponse(body: unknown, ok = true, status = 200): {
@@ -25,6 +26,20 @@ function jsonFetchResponse(body: unknown, ok = true, status = 200): {
 }
 
 describe('Latest → Last Known', () => {
+    it('does not fetch when log already has rows after Latest', () => {
+        expect(
+            shouldFetchLastKnownLocations({ renderedDeviceCount: 2, skipHistoryFetch: false }),
+        ).toBe(false);
+    });
+
+    it('does not fetch when log has one row after Latest', () => {
+        expect(
+            shouldFetchLastKnownLocations({ renderedDeviceCount: 1, skipHistoryFetch: false }),
+        ).toBe(false);
+    });
+});
+
+describe('When Last Known fetch runs', () => {
     const alice = { id: 11, device_name: 'alice/phone', timestamp: 200 };
     const bob = { id: 12, device_name: 'bob/phone', timestamp: 100 };
     const apiResults = [alice, bob];
@@ -61,24 +76,23 @@ describe('Latest → Last Known', () => {
         );
         expect(locations).toEqual(apiResults);
     });
-
-    it('planLastKnownUiUpdate replaces log with full API even when alice is already rendered', () => {
-        const plan = planLastKnownUiUpdate({
-            locations: apiResults,
-            skipHistoryFetch: false,
-            renderedDeviceCount: 1,
-            renderedDeviceNames: ['alice/phone'],
-        });
-
-        expect(plan.mergeStrategy).toBe('replace');
-        expect(plan.highlightKeys).toEqual(new Set(['id:11', 'id:12']));
-        expect(plan.locations).toEqual(apiResults);
-    });
 });
 
 describe('Reset → Last Known', () => {
     const alice = { id: 11, device_name: 'alice/phone', timestamp: 200 };
     const bob = { id: 12, device_name: 'bob/phone', timestamp: 100 };
+
+    it('fetches when log is empty after Reset', () => {
+        expect(
+            shouldFetchLastKnownLocations({ renderedDeviceCount: 0, skipHistoryFetch: true }),
+        ).toBe(true);
+    });
+
+    it('fetches when websocket added rows after Reset', () => {
+        expect(
+            shouldFetchLastKnownLocations({ renderedDeviceCount: 1, skipHistoryFetch: true }),
+        ).toBe(true);
+    });
 
     it('planLastKnownUiUpdate uses replace when skipHistoryFetch even with rendered devices', () => {
         expect(
