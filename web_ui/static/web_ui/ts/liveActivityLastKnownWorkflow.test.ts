@@ -10,20 +10,11 @@ import {
     LAST_KNOWN_FETCH_INIT,
     planLastKnownUiUpdate,
     resolveLastKnownMergeStrategy,
+    resolveLastKnownOnlyLoadAction,
     shouldFetchLastKnownLocations,
 } from './liveActivityToolbar';
 
-function jsonFetchResponse(body: unknown, ok = true, status = 200): {
-    ok: boolean;
-    status: number;
-    text: () => Promise<string>;
-} {
-    return {
-        ok,
-        status,
-        text: async () => JSON.stringify(body),
-    };
-}
+import { jsonFetchResponse } from './test/fetchMock';
 
 describe('Latest → Last Known', () => {
     it('does not fetch when log already has rows after Latest', () => {
@@ -36,6 +27,28 @@ describe('Latest → Last Known', () => {
         expect(
             shouldFetchLastKnownLocations({ renderedDeviceCount: 1, skipHistoryFetch: false }),
         ).toBe(false);
+    });
+
+    it('highlights in place without fetch after Latest load', () => {
+        expect(
+            resolveLastKnownOnlyLoadAction({
+                isLiveMode: true,
+                enabledAfterToggle: true,
+                renderedDeviceCount: 4,
+                skipHistoryFetch: false,
+            }),
+        ).toBe('highlight-in-place');
+    });
+
+    it('refits map when turning Last Known off after Latest', () => {
+        expect(
+            resolveLastKnownOnlyLoadAction({
+                isLiveMode: true,
+                enabledAfterToggle: false,
+                renderedDeviceCount: 4,
+                skipHistoryFetch: false,
+            }),
+        ).toBe('refit-map');
     });
 });
 
@@ -92,6 +105,39 @@ describe('Reset → Last Known', () => {
         expect(
             shouldFetchLastKnownLocations({ renderedDeviceCount: 1, skipHistoryFetch: true }),
         ).toBe(true);
+    });
+
+    it('fetches from API when log is empty after Reset', () => {
+        expect(
+            resolveLastKnownOnlyLoadAction({
+                isLiveMode: true,
+                enabledAfterToggle: true,
+                renderedDeviceCount: 0,
+                skipHistoryFetch: true,
+            }),
+        ).toBe('fetch');
+    });
+
+    it('fetches from API when websocket added rows after Reset', () => {
+        expect(
+            resolveLastKnownOnlyLoadAction({
+                isLiveMode: true,
+                enabledAfterToggle: true,
+                renderedDeviceCount: 1,
+                skipHistoryFetch: true,
+            }),
+        ).toBe('fetch');
+    });
+
+    it('refits map in historic mode instead of fetching', () => {
+        expect(
+            resolveLastKnownOnlyLoadAction({
+                isLiveMode: false,
+                enabledAfterToggle: true,
+                renderedDeviceCount: 0,
+                skipHistoryFetch: true,
+            }),
+        ).toBe('refit-map');
     });
 
     it('planLastKnownUiUpdate uses replace when skipHistoryFetch even with rendered devices', () => {

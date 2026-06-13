@@ -107,6 +107,16 @@ class TestWebUIViews:
             contains_string("addEventListener"),
         )
 
+    def test_service_worker_bypasses_live_api_paths(self) -> None:
+        """SW must delegate /api/ and /ws/ to the network (Last Known depends on this)."""
+        sw_path = (
+            Path(__file__).parent.parent.parent / "web_ui" / "static" / "web_ui" / "sw.js"
+        )
+        content = sw_path.read_text(encoding="utf-8")
+        assert_that(content, contains_string("function shouldBypassServiceWorker(pathname)"))
+        assert_that(content, contains_string('pathname.startsWith("/api/")'))
+        assert_that(content, contains_string("shouldBypassServiceWorker(url.pathname)"))
+
     def test_static_manifest_webmanifest_defines_icons(self) -> None:
         """PWA manifest should declare standalone display and launcher icons."""
         manifest_path = Path(__file__).parent.parent.parent / "web_ui" / "static" / "web_ui" / "manifest.webmanifest"
