@@ -398,6 +398,30 @@ export function shouldFetchLastKnownLocations(options: {
     return options.skipHistoryFetch;
 }
 
+/** What toggling Last Known Only should do after UI state is updated. */
+export type LastKnownOnlyLoadAction = 'fetch' | 'highlight-in-place' | 'refit-map';
+
+export function resolveLastKnownOnlyLoadAction(options: {
+    isLiveMode: boolean;
+    enabledAfterToggle: boolean;
+    renderedDeviceCount: number;
+    skipHistoryFetch: boolean;
+}): LastKnownOnlyLoadAction {
+    const effect = resolveLastKnownOnlyToggleEffect(options.isLiveMode, options.enabledAfterToggle);
+    if ('refitMap' in effect) {
+        return 'refit-map';
+    }
+    if (
+        shouldFetchLastKnownLocations({
+            renderedDeviceCount: options.renderedDeviceCount,
+            skipHistoryFetch: options.skipHistoryFetch,
+        })
+    ) {
+        return 'fetch';
+    }
+    return 'highlight-in-place';
+}
+
 export function resolveLastKnownOnlyToggleEffect(
     isLiveMode: boolean,
     enabledAfterToggle: boolean,

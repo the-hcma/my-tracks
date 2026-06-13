@@ -30,12 +30,11 @@ import {
     buildLastKnownHighlightKeys,
     lastKnownLocationKeysFromLogEntries,
     resolveLastKnownHighlightKeys,
-    resolveLastKnownOnlyToggleEffect,
+    resolveLastKnownOnlyLoadAction,
     resolveLiveDeviceFilterChange,
     resolveLiveLocationIngestPath,
     resolveSkipHistoryFetchForRefresh,
     setIconLabelButton,
-    shouldFetchLastKnownLocations,
     shouldFilterLiveActivityByDevice,
     toggleLastKnownOnlyFlag,
     type LastKnownLogEntry,
@@ -1013,8 +1012,10 @@ function countRenderedLogDeviceEntries(): number {
     return document.querySelectorAll<HTMLElement>('.log-entry[data-device-name]').length;
 }
 
-function shouldLoadLastKnownFromApi(): boolean {
-    return shouldFetchLastKnownLocations({
+function lastKnownOnlyLoadAction(enabledAfterToggle: boolean): ReturnType<typeof resolveLastKnownOnlyLoadAction> {
+    return resolveLastKnownOnlyLoadAction({
+        isLiveMode,
+        enabledAfterToggle,
         renderedDeviceCount: countRenderedLogDeviceEntries(),
         skipHistoryFetch,
     });
@@ -1033,13 +1034,9 @@ function toggleLastKnownOnly(): void {
     syncTrailPolylineVisibilityForLastKnownMode();
     saveUIState();
 
-    const effect = resolveLastKnownOnlyToggleEffect(isLiveMode, showLastKnownOnly);
-    if ('loadLocations' in effect) {
-        if (shouldLoadLastKnownFromApi()) {
-            void ensureLastKnownLocationsLoaded();
-        } else {
-            scheduleMapFitAfterLastKnownUiChange();
-        }
+    const action = lastKnownOnlyLoadAction(showLastKnownOnly);
+    if (action === 'fetch') {
+        void ensureLastKnownLocationsLoaded();
         return;
     }
     scheduleMapFitAfterLastKnownUiChange();
@@ -1277,7 +1274,7 @@ function restoreUIState(): void {
     showLastKnownOnly = Boolean(state.showLastKnownOnly);
     updateLastKnownOnlyButton();
 
-    if (showLastKnownOnly && isLiveMode && shouldLoadLastKnownFromApi()) {
+    if (lastKnownOnlyLoadAction(showLastKnownOnly) === 'fetch') {
         void ensureLastKnownLocationsLoaded();
     }
 
