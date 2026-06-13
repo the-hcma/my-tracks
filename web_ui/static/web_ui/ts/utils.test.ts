@@ -18,6 +18,7 @@ import {
     formatMinutesAsTime,
     getTodayDateString,
     dateAndMinutesToTimestamps,
+    sameOriginApiPath,
     LocationData,
 } from './utils';
 
@@ -428,6 +429,26 @@ describe('dateAndMinutesToTimestamps', () => {
         const [start, end] = dateAndMinutesToTimestamps('2026-02-20', 720, 720);
         // Both at minute 720 but end gets +59 seconds
         expect(end - start).toBe(59);
+    });
+});
+
+describe('sameOriginApiPath', () => {
+    it('returns relative paths unchanged', () => {
+        expect(sameOriginApiPath('/api/devices/?offset=100', 'http://localhost')).toBe(
+            '/api/devices/?offset=100',
+        );
+    });
+
+    it('normalizes absolute same-origin pagination URLs', () => {
+        expect(
+            sameOriginApiPath('http://localhost/api/devices/?offset=100', 'http://localhost'),
+        ).toBe('/api/devices/?offset=100');
+    });
+
+    it('rejects cross-origin pagination URLs', () => {
+        expect(() =>
+            sameOriginApiPath('https://evil.example/api/devices/', 'http://localhost'),
+        ).toThrow(/cross-origin API URL/);
     });
 });
 

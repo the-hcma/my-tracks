@@ -32,17 +32,7 @@ import {
     toggleLastKnownOnlyFlag,
 } from './liveActivityToolbar';
 
-function jsonFetchResponse(body: unknown, ok = true, status = 200): {
-    ok: boolean;
-    status: number;
-    text: () => Promise<string>;
-} {
-    return {
-        ok,
-        status,
-        text: async () => JSON.stringify(body),
-    };
-}
+import { jsonFetchResponse } from './test/fetchMock';
 
 describe('resolveLiveActivityToolbarClick', () => {
     it('maps Last 30min to a 30m refresh', () => {
@@ -418,6 +408,36 @@ describe('Last Known Only helpers', () => {
                 extractResults: (data) => (data as { results: typeof locations }).results,
             }),
         ).rejects.toMatchObject({ kind: 'http', status: 503, name: 'LastKnownFetchError' });
+    });
+
+    it('throws LastKnownFetchError when last-known response is not valid JSON', async () => {
+        const fetchFn = vi.fn().mockResolvedValue({
+            ok: true,
+            status: 200,
+            text: async () => 'not-json',
+        });
+
+        await expect(
+            fetchLastKnownLocations({
+                fetchFn: fetchFn as unknown as typeof fetch,
+                isStaff: true,
+                visibleDeviceNames: [],
+                extractResults: (data) => (data as { results: typeof locations }).results,
+            }),
+        ).rejects.toMatchObject({ kind: 'json', name: 'LastKnownFetchError' });
+    });
+
+    it('throws LastKnownFetchError when fetch rejects', async () => {
+        const fetchFn = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+
+        await expect(
+            fetchLastKnownLocations({
+                fetchFn: fetchFn as unknown as typeof fetch,
+                isStaff: true,
+                visibleDeviceNames: [],
+                extractResults: (data) => (data as { results: typeof locations }).results,
+            }),
+        ).rejects.toMatchObject({ kind: 'network', name: 'LastKnownFetchError' });
     });
 
     it('staff fetches unfiltered last-known even when some devices are already in the log', async () => {
