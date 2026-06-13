@@ -9,6 +9,7 @@ import {
     planLastKnownUiUpdate,
     type LocationWithDeviceName,
 } from './liveActivityToolbar';
+import { unregisterAllServiceWorkers } from './serviceWorkerRecovery';
 
 export type LastKnownLoadResult = 'success' | 'empty' | 'error' | 'stale';
 
@@ -39,7 +40,8 @@ export function lastKnownFetchErrorMessage(error: LastKnownFetchError): string {
     if (error.kind === 'http') {
         return `Last Known: fetch failed (${error.status}).`;
     }
-    return 'Last Known: fetch failed (network error).';
+    const detail = error.causeMessage ? `: ${error.causeMessage}` : '';
+    return `Last Known: fetch failed (network error${detail}).`;
 }
 
 let lastKnownLoadGeneration = 0;
@@ -66,12 +68,7 @@ export async function runLastKnownLoad<T extends LastKnownLoadLocation>(
 
         const renderedDeviceNames = new Set(deps.renderedDeviceNames);
         try {
-            const locations = await fetchLastKnownLocations<T>({
-                fetchFn: deps.fetchFn,
-                isStaff: deps.isStaff,
-                visibleDeviceNames: deps.visibleDeviceNames,
-                extractResults: deps.extractResults,
-            });
+            const locations = await fetchLastKnownLocationsWithRecovery(deps);
 
             if (generation !== lastKnownLoadGeneration) {
                 return 'stale';
@@ -115,4 +112,33 @@ export async function runLastKnownLoad<T extends LastKnownLoadLocation>(
         }
     });
     return promise;
+}
+
+async function fetchLastKnownLocationsWithRecovery<T extends LastKnownLoadLocation>(
+    deps: LastKnownLoadDeps<T>,
+    attempt = 0,
+): Promise<T[]> {
+    try {
+        return await fetchLastKnownLocations<T>({
+            fetchFn: deps.fetchFn,
+            isStaff: deps.isStaff,
+            visibleDeviceNames: deps.visibleDeviceNames,
+            extractResults: deps.extractResults,
+        });
+    } catch (error) {
+        const canRecoverFromServiceWorker =
+            attempt === 0 &&
+            error instanceof LastKnownFetchError &&
+            error.kind === 'network' &&
+            typeof navigator !== 'undefined' &&
+            'serviceWorker' in navigator;
+
+        if (canRecoverFromServiceWorker) {
+            const removed = await unregisterAllServiceWorkers();
+            if (removed > 0) {
+                return fetchLastKnownLocationsWithRecovery(deps, attempt + 1);
+            }
+        }
+        throw error;
+    }
 }

@@ -227,8 +227,9 @@ export type LastKnownFetchFailureKind = 'http' | 'network' | 'json';
 export class LastKnownFetchError extends Error {
     readonly kind: LastKnownFetchFailureKind;
     readonly status: number;
+    readonly causeMessage?: string;
 
-    constructor(kind: LastKnownFetchFailureKind, status = 0) {
+    constructor(kind: LastKnownFetchFailureKind, status = 0, cause?: unknown) {
         super(
             kind === 'http' && status > 0
                 ? `last-known fetch failed: ${status}`
@@ -239,6 +240,9 @@ export class LastKnownFetchError extends Error {
         this.name = 'LastKnownFetchError';
         this.kind = kind;
         this.status = status;
+        if (cause instanceof Error && cause.message) {
+            this.causeMessage = cause.message;
+        }
     }
 }
 
@@ -373,7 +377,7 @@ export async function fetchLastKnownLocations<T extends LocationWithDeviceName &
             throw error;
         }
         console.warn('Last Known: fetch error', error);
-        throw new LastKnownFetchError('network');
+        throw new LastKnownFetchError('network', 0, error);
     }
 }
 

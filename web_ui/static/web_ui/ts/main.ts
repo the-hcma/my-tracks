@@ -40,6 +40,7 @@ import {
     type LastKnownLogEntry,
 } from './liveActivityToolbar';
 import { runLastKnownLoad } from './lastKnownLoad';
+import { registerAndUpdateServiceWorker } from './serviceWorkerRecovery';
 import { getPreferredTheme, setTheme, toggleTheme } from './theme';
 import { dateAndMinutesToTimestamps, extractResultsList, formatLatLonCoordinate, formatLatLonPair, formatMinutesAsTime, getTodayDateString, selectStablePaletteColor } from './utils';
 
@@ -1087,9 +1088,15 @@ async function ensureLastKnownLocationsLoaded(): Promise<void> {
                 renderedDeviceNames,
                 extractResults: (data) => extractResultsList<TrackLocation>(data),
                 waitForRefresh: async () => {
-                    if (liveActivityRefreshInFlight) {
-                        await liveActivityRefreshInFlight;
+                    if (!liveActivityRefreshInFlight) {
+                        return;
                     }
+                    await Promise.race([
+                        liveActivityRefreshInFlight,
+                        new Promise<void>((resolve) => {
+                            setTimeout(resolve, 15_000);
+                        }),
+                    ]);
                 },
             },
             {
@@ -3859,7 +3866,7 @@ function registerServiceWorker(): void {
     window.addEventListener(
         'load',
         () => {
-            void navigator.serviceWorker.register('/sw.js', { scope: '/' });
+            void registerAndUpdateServiceWorker();
         },
         { once: true },
     );
