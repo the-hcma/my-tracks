@@ -215,15 +215,12 @@ export function buildLastKnownHighlightKeys<T extends LocationWithDeviceName & {
 
 export type LastKnownMergeStrategy = 'replace' | 'append';
 
-/** Whether Last Known should replace the log or append API rows into the existing log. */
-export function resolveLastKnownMergeStrategy(options: {
+/** Last-known API rows always replace the log — partial append left stale rows after Latest. */
+export function resolveLastKnownMergeStrategy(_options: {
     skipHistoryFetch: boolean;
     renderedDeviceCount: number;
 }): LastKnownMergeStrategy {
-    if (options.skipHistoryFetch || options.renderedDeviceCount === 0) {
-        return 'replace';
-    }
-    return 'append';
+    return 'replace';
 }
 
 export interface LastKnownUiPlan<T extends LocationWithDeviceName & { id?: number | null }> {
@@ -262,7 +259,11 @@ export function devicePassesLiveActivityFilter(options: {
     deviceName: string;
     selectedDevice?: string;
     skipHistoryFetch: boolean;
+    showLastKnownOnly?: boolean;
 }): boolean {
+    if (options.showLastKnownOnly) {
+        return true;
+    }
     if (
         !shouldFilterLiveActivityByDevice({
             selectedDevice: options.selectedDevice,

@@ -1036,7 +1036,7 @@ function toggleLastKnownOnly(): void {
  *
  * - Runs only in live mode (historic mode operates on a fixed trail).
  * - Staff fetch unfiltered last-known; non-staff pass visible device query params.
- * - After reset, replaces the log; after Latest, appends only devices missing from the log.
+ * - Always replaces the log with the authoritative last-known row per device.
  */
 async function ensureLastKnownLocationsLoaded(): Promise<void> {
     if (!isLiveMode) {
@@ -1431,6 +1431,7 @@ function updateDeviceMarker(location: TrackLocation): void {
             deviceName,
             selectedDevice: selectedDevice || undefined,
             skipHistoryFetch,
+            showLastKnownOnly,
         })
     ) {
         // Hide marker if it exists
@@ -1656,6 +1657,7 @@ function addLocationToTrail(location: TrackLocation): void {
             deviceName,
             selectedDevice: selectedDevice || undefined,
             skipHistoryFetch,
+            showLastKnownOnly,
         })
     ) {
         return;
@@ -1785,6 +1787,7 @@ function addLiveLocationToTrail(location: TrackLocation): void {
             deviceName,
             selectedDevice: selectedDevice || undefined,
             skipHistoryFetch,
+            showLastKnownOnly,
         })
     ) {
         return;
@@ -3203,6 +3206,7 @@ function connectWebSocket(): void {
                             deviceName,
                             selectedDevice: selectedDevice || undefined,
                             skipHistoryFetch,
+                            showLastKnownOnly,
                         }),
                     });
                     if (ingestPath === 'ignored') {

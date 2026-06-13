@@ -54,7 +54,7 @@ describe('Latest → Last Known', () => {
         expect(locations).toEqual(apiResults);
     });
 
-    it('planLastKnownUiUpdate highlight keys include both ids but append only missing devices', () => {
+    it('planLastKnownUiUpdate replaces log with full API even when alice is already rendered', () => {
         const plan = planLastKnownUiUpdate({
             locations: apiResults,
             skipHistoryFetch: false,
@@ -62,9 +62,9 @@ describe('Latest → Last Known', () => {
             renderedDeviceNames: ['alice/phone'],
         });
 
-        expect(plan.mergeStrategy).toBe('append');
+        expect(plan.mergeStrategy).toBe('replace');
         expect(plan.highlightKeys).toEqual(new Set(['id:11', 'id:12']));
-        expect(plan.locations).toEqual([bob]);
+        expect(plan.locations).toEqual(apiResults);
     });
 });
 
@@ -108,6 +108,17 @@ describe('Reset → Last Known', () => {
             }),
         ).toBe(false);
     });
+
+    it('devicePassesLiveActivityFilter shows all devices when Last Known Only is on', () => {
+        expect(
+            devicePassesLiveActivityFilter({
+                deviceName: 'bob/phone',
+                selectedDevice: 'alice/phone',
+                skipHistoryFetch: false,
+                showLastKnownOnly: true,
+            }),
+        ).toBe(true);
+    });
 });
 
 describe('Regression guard', () => {
@@ -115,10 +126,11 @@ describe('Regression guard', () => {
     const bob = { id: 12, device_name: 'bob/phone', timestamp: 100 };
     const apiResults = [alice, bob];
 
-    it('fetchLastKnownLocations returns full API; planLastKnownUiUpdate filters append rows', async () => {
-        const missingOnly = filterLastKnownLocationsToMissingDevices(apiResults, ['alice/phone']);
-        expect(missingOnly).toEqual([bob]);
+    it('filterLastKnownLocationsToMissingDevices still filters for append callers', () => {
+        expect(filterLastKnownLocationsToMissingDevices(apiResults, ['alice/phone'])).toEqual([bob]);
+    });
 
+    it('fetchLastKnownLocations returns full API; planLastKnownUiUpdate replaces with all rows', async () => {
         const fetchFn = vi.fn().mockResolvedValue({
             ok: true,
             json: async () => ({ results: apiResults }),
@@ -139,6 +151,6 @@ describe('Regression guard', () => {
             renderedDeviceCount: 1,
             renderedDeviceNames: ['alice/phone'],
         });
-        expect(plan.locations).toEqual(missingOnly);
+        expect(plan.locations).toEqual(apiResults);
     });
 });
