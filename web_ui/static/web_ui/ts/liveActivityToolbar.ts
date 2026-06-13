@@ -3,7 +3,13 @@
  */
 
 import type { LiveActivityRefreshRequest } from './liveActivity';
-import { extractResultsList } from './utils';
+import { extractResultsList, sameOriginApiPath } from './utils';
+
+export const LAST_KNOWN_FETCH_INIT: RequestInit = {
+    credentials: 'same-origin',
+    cache: 'no-store',
+    headers: { Accept: 'application/json' },
+};
 
 export const LIVE_ACTIVITY_BUTTON_IDS = {
     load30m: 'load-history-button',
@@ -216,13 +222,32 @@ export function buildLastKnownHighlightKeys<T extends LocationWithDeviceName & {
 export type LastKnownMergeStrategy = 'replace' | 'append';
 
 /** Thrown when the last-known locations API returns a non-OK HTTP status or network failure. */
+export type LastKnownFetchFailureKind = 'http' | 'network' | 'json';
+
 export class LastKnownFetchError extends Error {
+    readonly kind: LastKnownFetchFailureKind;
     readonly status: number;
 
-    constructor(status: number) {
-        super(status > 0 ? `last-known fetch failed: ${status}` : 'last-known fetch failed: network error');
+    constructor(kind: LastKnownFetchFailureKind, status = 0) {
+        super(
+            kind === 'http' && status > 0
+                ? `last-known fetch failed: ${status}`
+                : kind === 'json'
+                  ? 'last-known fetch failed: invalid JSON'
+                  : 'last-known fetch failed: network error',
+        );
         this.name = 'LastKnownFetchError';
+        this.kind = kind;
         this.status = status;
+    }
+}
+
+async function readJsonResponse(response: Response): Promise<unknown> {
+    const text = await response.text();
+    try {
+        return JSON.parse(text) as unknown;
+    } catch {
+        throw new LastKnownFetchError('json');
     }
 }
 
@@ -293,18 +318,19 @@ export async function fetchAllDeviceNamesFromApi(options: {
     const names: string[] = [];
     let url: string | null = options.devicesApiUrl ?? '/api/devices/';
     while (url) {
-        const devicesResp = await options.fetchFn(url, { credentials: 'same-origin' });
+        const devicesResp = await options.fetchFn(url, LAST_KNOWN_FETCH_INIT);
         if (!devicesResp.ok) {
             throw new Error(`device list fetch failed: ${devicesResp.status}`);
         }
-        const data: { next?: string | null } = await devicesResp.json();
+        const data = (await readJsonResponse(devicesResp)) as { next?: string | null };
         const devices = extractResultsList<{ device_name?: string }>(data);
         for (const device of devices) {
             if (device.device_name) {
                 names.push(device.device_name);
             }
         }
-        url = typeof data.next === 'string' && data.next.length > 0 ? data.next : null;
+        url =
+            typeof data.next === 'string' && data.next.length > 0 ? sameOriginApiPath(data.next) : null;
     }
     return names;
 }
@@ -335,19 +361,19 @@ export async function fetchLastKnownLocations<T extends LocationWithDeviceName &
 
     const url = buildLastKnownLocationsUrl({ queryDeviceNames });
     try {
-        const response = await options.fetchFn(url, { credentials: 'same-origin' });
+        const response = await options.fetchFn(url, LAST_KNOWN_FETCH_INIT);
         if (!response.ok) {
             console.warn('Last Known: fetch failed', response.status, url);
-            throw new LastKnownFetchError(response.status);
+            throw new LastKnownFetchError('http', response.status);
         }
-        const data = await response.json();
+        const data = await readJsonResponse(response);
         return options.extractResults(data);
     } catch (error) {
         if (error instanceof LastKnownFetchError) {
             throw error;
         }
         console.warn('Last Known: fetch error', error);
-        throw new LastKnownFetchError(0);
+        throw new LastKnownFetchError('network');
     }
 }
 

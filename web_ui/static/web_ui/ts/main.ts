@@ -1110,9 +1110,11 @@ async function ensureLastKnownLocationsLoaded(): Promise<void> {
         console.error('Last Known Only: unexpected error while fetching device locations', error);
         if (error instanceof LastKnownFetchError) {
             const message =
-                error.status > 0
-                    ? `Last Known: fetch failed (${error.status}).`
-                    : 'Last Known: fetch failed (network error).';
+                error.kind === 'json'
+                    ? 'Last Known: server returned an invalid response.'
+                    : error.kind === 'http'
+                      ? `Last Known: fetch failed (${error.status}).`
+                      : 'Last Known: fetch failed (network error).';
             setLiveActivityLogMessage(message);
         } else {
             setLiveActivityLogMessage('Last Known: unexpected error while loading locations.');

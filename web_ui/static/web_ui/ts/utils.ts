@@ -262,6 +262,24 @@ export function dateAndMinutesToTimestamps(
  * This helper normalises both paginated and plain-array responses into a
  * flat array so callers don't need to know the response shape.
  */
+/**
+ * Normalize a DRF pagination URL to a same-origin path for browser fetch().
+ * Throws when the URL targets a different origin (would fail from the browser).
+ */
+export function sameOriginApiPath(
+    url: string,
+    origin = typeof globalThis.location !== 'undefined' ? globalThis.location.origin : 'http://localhost',
+): string {
+    if (url.startsWith('/')) {
+        return url;
+    }
+    const parsed = new URL(url, origin);
+    if (parsed.origin !== origin) {
+        throw new Error(`cross-origin API URL: ${url}`);
+    }
+    return `${parsed.pathname}${parsed.search}`;
+}
+
 export function extractResultsList<T>(data: unknown): T[] {
     if (Array.isArray(data)) {
         return data as T[];
