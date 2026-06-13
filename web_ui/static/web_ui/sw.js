@@ -1,7 +1,7 @@
 // Minimal service worker: precache shell assets and stale-while-revalidate for
 // the JS bundle so installs get a usable offline banner (not live API data).
 
-const VERSION = "my-tracks-pwa-v1";
+const VERSION = "my-tracks-pwa-v2";
 const PRECACHE = [
   "/",
   "/static/web_ui/manifest.webmanifest",

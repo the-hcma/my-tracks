@@ -30,7 +30,7 @@ describe('Latest → Last Known', () => {
         });
 
         expect(fetchFn).toHaveBeenCalledOnce();
-        expect(fetchFn).toHaveBeenCalledWith('/api/locations/last-known/');
+        expect(fetchFn).toHaveBeenCalledWith('/api/locations/last-known/', { credentials: 'same-origin' });
         expect(locations).toEqual(apiResults);
     });
 
@@ -50,6 +50,7 @@ describe('Latest → Last Known', () => {
         expect(fetchFn).toHaveBeenCalledOnce();
         expect(fetchFn).toHaveBeenCalledWith(
             '/api/locations/last-known/?device=alice%2Fphone&device=bob%2Fphone',
+            { credentials: 'same-origin' },
         );
         expect(locations).toEqual(apiResults);
     });

@@ -233,7 +233,7 @@ describe('post-reset Last Known Only workflow', () => {
         });
 
         expect(fetchFn).toHaveBeenCalledOnce();
-        expect(fetchFn).toHaveBeenCalledWith('/api/locations/last-known/');
+        expect(fetchFn).toHaveBeenCalledWith('/api/locations/last-known/', { credentials: 'same-origin' });
         expect(locations).toEqual([
             { id: 12, device_name: 'bob/phone', timestamp: 200 },
             { id: 11, device_name: 'kristen/pixel7', timestamp: 100 },
@@ -259,6 +259,7 @@ describe('post-reset Last Known Only workflow', () => {
         expect(fetchFn).toHaveBeenCalledOnce();
         expect(fetchFn).toHaveBeenCalledWith(
             '/api/locations/last-known/?device=kristen%2Fpixel7&device=bob%2Fphone',
+            { credentials: 'same-origin' },
         );
         expect(locations).toEqual([{ id: 11, device_name: 'kristen/pixel7', timestamp: 100 }]);
     });
@@ -346,8 +347,8 @@ describe('Last Known Only helpers', () => {
         });
 
         expect(fetchFn).toHaveBeenCalledTimes(2);
-        expect(fetchFn).toHaveBeenNthCalledWith(1, '/api/devices/');
-        expect(fetchFn).toHaveBeenNthCalledWith(2, '/api/devices/?offset=100');
+        expect(fetchFn).toHaveBeenNthCalledWith(1, '/api/devices/', { credentials: 'same-origin' });
+        expect(fetchFn).toHaveBeenNthCalledWith(2, '/api/devices/?offset=100', { credentials: 'same-origin' });
         expect(names).toEqual(['alice/phone', 'bob/phone']);
     });
 
@@ -373,12 +374,48 @@ describe('Last Known Only helpers', () => {
         });
 
         expect(fetchFn).toHaveBeenCalledTimes(2);
-        expect(fetchFn).toHaveBeenNthCalledWith(1, '/api/devices/');
+        expect(fetchFn).toHaveBeenNthCalledWith(1, '/api/devices/', { credentials: 'same-origin' });
         expect(fetchFn).toHaveBeenNthCalledWith(
             2,
             '/api/locations/last-known/?device=kristen%2Fpixel7&device=bob%2Fphone',
+            { credentials: 'same-origin' },
         );
         expect(result).toEqual(locations);
+    });
+
+    it('non-staff falls back to unfiltered last-known when device list fetch fails', async () => {
+        const fetchFn = vi
+            .fn()
+            .mockResolvedValueOnce({ ok: false, status: 500 })
+            .mockResolvedValueOnce({
+                ok: true,
+                json: async () => ({ results: locations }),
+            });
+
+        const result = await fetchLastKnownLocations({
+            fetchFn: fetchFn as unknown as typeof fetch,
+            isStaff: false,
+            visibleDeviceNames: [],
+            extractResults: (data) => (data as { results: typeof locations }).results,
+        });
+
+        expect(fetchFn).toHaveBeenCalledTimes(2);
+        expect(fetchFn).toHaveBeenNthCalledWith(1, '/api/devices/', { credentials: 'same-origin' });
+        expect(fetchFn).toHaveBeenNthCalledWith(2, '/api/locations/last-known/', { credentials: 'same-origin' });
+        expect(result).toEqual(locations);
+    });
+
+    it('throws LastKnownFetchError when last-known API returns non-OK status', async () => {
+        const fetchFn = vi.fn().mockResolvedValue({ ok: false, status: 503 });
+
+        await expect(
+            fetchLastKnownLocations({
+                fetchFn: fetchFn as unknown as typeof fetch,
+                isStaff: true,
+                visibleDeviceNames: [],
+                extractResults: (data) => (data as { results: typeof locations }).results,
+            }),
+        ).rejects.toMatchObject({ status: 503, name: 'LastKnownFetchError' });
     });
 
     it('staff fetches unfiltered last-known even when some devices are already in the log', async () => {
@@ -394,7 +431,7 @@ describe('Last Known Only helpers', () => {
             extractResults: (data) => (data as { results: typeof locations }).results,
         });
 
-        expect(fetchFn).toHaveBeenCalledWith('/api/locations/last-known/');
+        expect(fetchFn).toHaveBeenCalledWith('/api/locations/last-known/', { credentials: 'same-origin' });
         expect(result).toEqual(locations);
     });
 

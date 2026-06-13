@@ -215,6 +215,17 @@ export function buildLastKnownHighlightKeys<T extends LocationWithDeviceName & {
 
 export type LastKnownMergeStrategy = 'replace' | 'append';
 
+/** Thrown when the last-known locations API returns a non-OK HTTP status or network failure. */
+export class LastKnownFetchError extends Error {
+    readonly status: number;
+
+    constructor(status: number) {
+        super(status > 0 ? `last-known fetch failed: ${status}` : 'last-known fetch failed: network error');
+        this.name = 'LastKnownFetchError';
+        this.status = status;
+    }
+}
+
 /** Last-known API rows always replace the log — partial append left stale rows after Latest. */
 export function resolveLastKnownMergeStrategy(_options: {
     skipHistoryFetch: boolean;
@@ -282,7 +293,7 @@ export async function fetchAllDeviceNamesFromApi(options: {
     const names: string[] = [];
     let url: string | null = options.devicesApiUrl ?? '/api/devices/';
     while (url) {
-        const devicesResp = await options.fetchFn(url);
+        const devicesResp = await options.fetchFn(url, { credentials: 'same-origin' });
         if (!devicesResp.ok) {
             throw new Error(`device list fetch failed: ${devicesResp.status}`);
         }
@@ -317,23 +328,26 @@ export async function fetchLastKnownLocations<T extends LocationWithDeviceName &
                 devicesApiUrl: options.devicesApiUrl,
             });
         } catch (error) {
-            console.warn('Last Known: device list fetch error', error);
-            return [];
+            console.warn('Last Known: device list fetch failed; trying unfiltered last-known', error);
+            queryDeviceNames = null;
         }
     }
 
     const url = buildLastKnownLocationsUrl({ queryDeviceNames });
     try {
-        const response = await options.fetchFn(url);
+        const response = await options.fetchFn(url, { credentials: 'same-origin' });
         if (!response.ok) {
             console.warn('Last Known: fetch failed', response.status, url);
-            return [];
+            throw new LastKnownFetchError(response.status);
         }
         const data = await response.json();
         return options.extractResults(data);
     } catch (error) {
+        if (error instanceof LastKnownFetchError) {
+            throw error;
+        }
         console.warn('Last Known: fetch error', error);
-        return [];
+        throw new LastKnownFetchError(0);
     }
 }
 

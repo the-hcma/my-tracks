@@ -29,6 +29,7 @@ import {
     devicePassesLiveActivityFilter,
     fetchLastKnownLocations,
     lastKnownLocationKeysFromLogEntries,
+    LastKnownFetchError,
     planLastKnownUiUpdate,
     resolveLastKnownHighlightKeys,
     resolveLastKnownOnlyToggleEffect,
@@ -1038,6 +1039,19 @@ function toggleLastKnownOnly(): void {
  * - Staff fetch unfiltered last-known; non-staff pass visible device query params.
  * - Always replaces the log with the authoritative last-known row per device.
  */
+function setLiveActivityLogMessage(message: string): void {
+    const container = document.getElementById('log-container');
+    if (!container) {
+        return;
+    }
+    container.innerHTML = `<p id="loading">${message}</p>`;
+    eventCount = 0;
+    const logCount = document.getElementById('log-count');
+    if (logCount) {
+        logCount.textContent = '0 events';
+    }
+}
+
 async function ensureLastKnownLocationsLoaded(): Promise<void> {
     if (!isLiveMode) {
         return;
@@ -1064,6 +1078,12 @@ async function ensureLastKnownLocationsLoaded(): Promise<void> {
             extractResults: (data) => extractResultsList<TrackLocation>(data),
         });
 
+        if (locations.length === 0) {
+            setLiveActivityLogMessage('Last Known: no locations returned from the server.');
+            lastKnownHighlightKeys = null;
+            return;
+        }
+
         const plan = planLastKnownUiUpdate({
             locations,
             skipHistoryFetch,
@@ -1080,6 +1100,16 @@ async function ensureLastKnownLocationsLoaded(): Promise<void> {
         applyLocationSelection();
     } catch (error) {
         console.error('Last Known Only: unexpected error while fetching device locations', error);
+        if (error instanceof LastKnownFetchError) {
+            const message =
+                error.status > 0
+                    ? `Last Known: fetch failed (${error.status}).`
+                    : 'Last Known: fetch failed (network error).';
+            setLiveActivityLogMessage(message);
+        } else {
+            setLiveActivityLogMessage('Last Known: unexpected error while loading locations.');
+        }
+        lastKnownHighlightKeys = null;
     } finally {
         if (button) {
             button.disabled = false;
@@ -1215,6 +1245,10 @@ function restoreUIState(): void {
 
     showLastKnownOnly = Boolean(state.showLastKnownOnly);
     updateLastKnownOnlyButton();
+
+    if (showLastKnownOnly && isLiveMode) {
+        void ensureLastKnownLocationsLoaded();
+    }
 
     if (state.mobileLayoutMode === 'map-only' || state.mobileLayoutMode === 'table-only' || state.mobileLayoutMode === 'split') {
         mobileLayoutMode = state.mobileLayoutMode;
