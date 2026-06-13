@@ -27,10 +27,8 @@ import {
     devicePollSummaryToastType,
     fetchAndPollOnlineMqttDevices,
     devicePassesLiveActivityFilter,
-    fetchLastKnownLocations,
+    buildLastKnownHighlightKeys,
     lastKnownLocationKeysFromLogEntries,
-    LastKnownFetchError,
-    planLastKnownUiUpdate,
     resolveLastKnownHighlightKeys,
     resolveLastKnownOnlyToggleEffect,
     resolveLiveDeviceFilterChange,
@@ -41,6 +39,7 @@ import {
     toggleLastKnownOnlyFlag,
     type LastKnownLogEntry,
 } from './liveActivityToolbar';
+import { runLastKnownLoad } from './lastKnownLoad';
 import { getPreferredTheme, setTheme, toggleTheme } from './theme';
 import { dateAndMinutesToTimestamps, extractResultsList, formatLatLonCoordinate, formatLatLonPair, formatMinutesAsTime, getTodayDateString, selectStablePaletteColor } from './utils';
 
@@ -1070,55 +1069,53 @@ async function ensureLastKnownLocationsLoaded(): Promise<void> {
         button.disabled = true;
     }
 
+    const renderedDeviceNames = new Set<string>();
+    document.querySelectorAll<HTMLElement>('.log-entry[data-device-name]').forEach((entry) => {
+        const name = entry.dataset.deviceName;
+        if (name) {
+            renderedDeviceNames.add(name);
+        }
+    });
+
     try {
-        const renderedDeviceNames = new Set<string>();
-        document.querySelectorAll<HTMLElement>('.log-entry[data-device-name]').forEach((entry) => {
-            const name = entry.dataset.deviceName;
-            if (name) {
-                renderedDeviceNames.add(name);
-            }
-        });
+        const result = await runLastKnownLoad(
+            {
+                fetchFn: fetch,
+                isStaff: Boolean(config.isStaff),
+                visibleDeviceNames: Array.from(devices),
+                skipHistoryFetch,
+                renderedDeviceNames,
+                extractResults: (data) => extractResultsList<TrackLocation>(data),
+                waitForRefresh: async () => {
+                    if (liveActivityRefreshInFlight) {
+                        await liveActivityRefreshInFlight;
+                    }
+                },
+            },
+            {
+                onReplace: (locations) => {
+                    lastKnownHighlightKeys = buildLastKnownHighlightKeys(locations);
+                    replaceLiveActivityFromLocations(locations, '(last known)');
+                    applyLocationSelection();
+                },
+                onEmpty: () => {
+                    setLiveActivityLogMessage('Last Known: no locations returned from the server.');
+                    lastKnownHighlightKeys = null;
+                },
+                onError: (message) => {
+                    console.error('Last Known Only: fetch failed:', message);
+                    setLiveActivityLogMessage(message);
+                    lastKnownHighlightKeys = null;
+                },
+            },
+        );
 
-        const locations = await fetchLastKnownLocations<TrackLocation>({
-            fetchFn: fetch,
-            isStaff: Boolean(config.isStaff),
-            visibleDeviceNames: Array.from(devices),
-            extractResults: (data) => extractResultsList<TrackLocation>(data),
-        });
-
-        if (locations.length === 0) {
-            setLiveActivityLogMessage('Last Known: no locations returned from the server.');
-            lastKnownHighlightKeys = null;
+        if (result === 'stale') {
             return;
         }
-
-        const plan = planLastKnownUiUpdate({
-            locations,
-            skipHistoryFetch,
-            renderedDeviceCount: renderedDeviceNames.size,
-            renderedDeviceNames,
-        });
-        lastKnownHighlightKeys = plan.highlightKeys;
-        if (plan.mergeStrategy === 'replace') {
-            replaceLiveActivityFromLocations(plan.locations, '(last known)');
-        } else if (plan.mergeStrategy === 'append') {
-            appendLiveActivityLocations(plan.locations);
-        }
-
-        applyLocationSelection();
     } catch (error) {
         console.error('Last Known Only: unexpected error while fetching device locations', error);
-        if (error instanceof LastKnownFetchError) {
-            const message =
-                error.kind === 'json'
-                    ? 'Last Known: server returned an invalid response.'
-                    : error.kind === 'http'
-                      ? `Last Known: fetch failed (${error.status}).`
-                      : 'Last Known: fetch failed (network error).';
-            setLiveActivityLogMessage(message);
-        } else {
-            setLiveActivityLogMessage('Last Known: unexpected error while loading locations.');
-        }
+        setLiveActivityLogMessage('Last Known: unexpected error while loading locations.');
         lastKnownHighlightKeys = null;
     } finally {
         if (button) {

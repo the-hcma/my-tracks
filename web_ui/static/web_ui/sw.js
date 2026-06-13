@@ -1,7 +1,13 @@
 // Minimal service worker: precache shell assets and stale-while-revalidate for
 // the JS bundle so installs get a usable offline banner (not live API data).
+//
+// Routing rules are mirrored in web_ui/static/web_ui/ts/swRouting.ts (vitest).
 
+<<<<<<< HEAD
 const VERSION = "my-tracks-pwa-v3";
+=======
+const VERSION = "my-tracks-pwa-v4";
+>>>>>>> a9a3d56 (fix(ui): serialize Last Known loads and inline SW API bypass)
 const PRECACHE = [
   "/",
   "/static/web_ui/manifest.webmanifest",
