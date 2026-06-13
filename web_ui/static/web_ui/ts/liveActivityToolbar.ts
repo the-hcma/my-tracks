@@ -3,7 +3,13 @@
  */
 
 import type { LiveActivityRefreshRequest } from './liveActivity';
-import { extractResultsList } from './utils';
+import { extractResultsList, sameOriginApiPath } from './utils';
+
+export const LAST_KNOWN_FETCH_INIT: RequestInit = {
+    credentials: 'same-origin',
+    cache: 'no-store',
+    headers: { Accept: 'application/json' },
+};
 
 export const LIVE_ACTIVITY_BUTTON_IDS = {
     load30m: 'load-history-button',
@@ -215,15 +221,46 @@ export function buildLastKnownHighlightKeys<T extends LocationWithDeviceName & {
 
 export type LastKnownMergeStrategy = 'replace' | 'append';
 
-/** Whether Last Known should replace the log or append API rows into the existing log. */
-export function resolveLastKnownMergeStrategy(options: {
+/** Thrown when the last-known locations API returns a non-OK HTTP status or network failure. */
+export type LastKnownFetchFailureKind = 'http' | 'network' | 'json';
+
+export class LastKnownFetchError extends Error {
+    readonly kind: LastKnownFetchFailureKind;
+    readonly status: number;
+    readonly causeMessage?: string;
+
+    constructor(kind: LastKnownFetchFailureKind, status = 0, cause?: unknown) {
+        super(
+            kind === 'http' && status > 0
+                ? `last-known fetch failed: ${status}`
+                : kind === 'json'
+                  ? 'last-known fetch failed: invalid JSON'
+                  : 'last-known fetch failed: network error',
+        );
+        this.name = 'LastKnownFetchError';
+        this.kind = kind;
+        this.status = status;
+        if (cause instanceof Error && cause.message) {
+            this.causeMessage = cause.message;
+        }
+    }
+}
+
+async function readJsonResponse(response: Response): Promise<unknown> {
+    const text = await response.text();
+    try {
+        return JSON.parse(text) as unknown;
+    } catch {
+        throw new LastKnownFetchError('json');
+    }
+}
+
+/** Last-known API rows always replace the log — partial append left stale rows after Latest. */
+export function resolveLastKnownMergeStrategy(_options: {
     skipHistoryFetch: boolean;
     renderedDeviceCount: number;
 }): LastKnownMergeStrategy {
-    if (options.skipHistoryFetch || options.renderedDeviceCount === 0) {
-        return 'replace';
-    }
-    return 'append';
+    return 'replace';
 }
 
 export interface LastKnownUiPlan<T extends LocationWithDeviceName & { id?: number | null }> {
@@ -262,7 +299,11 @@ export function devicePassesLiveActivityFilter(options: {
     deviceName: string;
     selectedDevice?: string;
     skipHistoryFetch: boolean;
+    showLastKnownOnly?: boolean;
 }): boolean {
+    if (options.showLastKnownOnly) {
+        return true;
+    }
     if (
         !shouldFilterLiveActivityByDevice({
             selectedDevice: options.selectedDevice,
@@ -281,18 +322,19 @@ export async function fetchAllDeviceNamesFromApi(options: {
     const names: string[] = [];
     let url: string | null = options.devicesApiUrl ?? '/api/devices/';
     while (url) {
-        const devicesResp = await options.fetchFn(url);
+        const devicesResp = await options.fetchFn(url, LAST_KNOWN_FETCH_INIT);
         if (!devicesResp.ok) {
             throw new Error(`device list fetch failed: ${devicesResp.status}`);
         }
-        const data: { next?: string | null } = await devicesResp.json();
+        const data = (await readJsonResponse(devicesResp)) as { next?: string | null };
         const devices = extractResultsList<{ device_name?: string }>(data);
         for (const device of devices) {
             if (device.device_name) {
                 names.push(device.device_name);
             }
         }
-        url = typeof data.next === 'string' && data.next.length > 0 ? data.next : null;
+        url =
+            typeof data.next === 'string' && data.next.length > 0 ? sameOriginApiPath(data.next) : null;
     }
     return names;
 }
@@ -316,27 +358,69 @@ export async function fetchLastKnownLocations<T extends LocationWithDeviceName &
                 devicesApiUrl: options.devicesApiUrl,
             });
         } catch (error) {
-            console.warn('Last Known: device list fetch error', error);
-            return [];
+            console.warn('Last Known: device list fetch failed; trying unfiltered last-known', error);
+            queryDeviceNames = null;
         }
     }
 
     const url = buildLastKnownLocationsUrl({ queryDeviceNames });
     try {
-        const response = await options.fetchFn(url);
+        const response = await options.fetchFn(url, LAST_KNOWN_FETCH_INIT);
         if (!response.ok) {
             console.warn('Last Known: fetch failed', response.status, url);
-            return [];
+            throw new LastKnownFetchError('http', response.status);
         }
-        const data = await response.json();
+        const data = await readJsonResponse(response);
         return options.extractResults(data);
     } catch (error) {
+        if (error instanceof LastKnownFetchError) {
+            throw error;
+        }
         console.warn('Last Known: fetch error', error);
-        return [];
+        throw new LastKnownFetchError('network', 0, error);
     }
 }
 
 export type LastKnownOnlyToggleEffect = { loadLocations: true } | { refitMap: true };
+
+/**
+ * Whether toggling Last Known Only should call the last-known API.
+ * After Latest/hour loads, dim the existing log in place; after Reset (empty log)
+ * or post-reset websocket rows, fetch authoritative last-known for all devices.
+ */
+export function shouldFetchLastKnownLocations(options: {
+    renderedDeviceCount: number;
+    skipHistoryFetch: boolean;
+}): boolean {
+    if (options.renderedDeviceCount === 0) {
+        return true;
+    }
+    return options.skipHistoryFetch;
+}
+
+/** What toggling Last Known Only should do after UI state is updated. */
+export type LastKnownOnlyLoadAction = 'fetch' | 'highlight-in-place' | 'refit-map';
+
+export function resolveLastKnownOnlyLoadAction(options: {
+    isLiveMode: boolean;
+    enabledAfterToggle: boolean;
+    renderedDeviceCount: number;
+    skipHistoryFetch: boolean;
+}): LastKnownOnlyLoadAction {
+    const effect = resolveLastKnownOnlyToggleEffect(options.isLiveMode, options.enabledAfterToggle);
+    if ('refitMap' in effect) {
+        return 'refit-map';
+    }
+    if (
+        shouldFetchLastKnownLocations({
+            renderedDeviceCount: options.renderedDeviceCount,
+            skipHistoryFetch: options.skipHistoryFetch,
+        })
+    ) {
+        return 'fetch';
+    }
+    return 'highlight-in-place';
+}
 
 export function resolveLastKnownOnlyToggleEffect(
     isLiveMode: boolean,

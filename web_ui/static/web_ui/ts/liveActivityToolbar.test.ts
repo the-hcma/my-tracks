@@ -16,6 +16,7 @@ import {
     fetchAndPollOnlineMqttDevices,
     fetchLastKnownLocations,
     filterLastKnownLocationsToMissingDevices,
+    LAST_KNOWN_FETCH_INIT,
     lastKnownLocationKeysFromLogEntries,
     pollOnlineMqttDevices,
     resolveLastKnownHighlightKeys,
@@ -30,6 +31,18 @@ import {
     summarizeDevicePollResults,
     toggleLastKnownOnlyFlag,
 } from './liveActivityToolbar';
+
+function jsonFetchResponse(body: unknown, ok = true, status = 200): {
+    ok: boolean;
+    status: number;
+    text: () => Promise<string>;
+} {
+    return {
+        ok,
+        status,
+        text: async () => JSON.stringify(body),
+    };
+}
 
 describe('resolveLiveActivityToolbarClick', () => {
     it('maps Last 30min to a 30m refresh', () => {
@@ -214,15 +227,14 @@ describe('post-reset Last Known Only workflow', () => {
     });
 
     it('staff fetches unfiltered last-known after reset', async () => {
-        const fetchFn = vi.fn().mockResolvedValue({
-            ok: true,
-            json: async () => ({
+        const fetchFn = vi.fn().mockResolvedValue(
+            jsonFetchResponse({
                 results: [
                     { id: 12, device_name: 'bob/phone', timestamp: 200 },
                     { id: 11, device_name: 'kristen/pixel7', timestamp: 100 },
                 ],
             }),
-        });
+        );
 
         const locations = await fetchLastKnownLocations({
             fetchFn: fetchFn as unknown as typeof fetch,
@@ -233,7 +245,7 @@ describe('post-reset Last Known Only workflow', () => {
         });
 
         expect(fetchFn).toHaveBeenCalledOnce();
-        expect(fetchFn).toHaveBeenCalledWith('/api/locations/last-known/');
+        expect(fetchFn).toHaveBeenCalledWith('/api/locations/last-known/', LAST_KNOWN_FETCH_INIT);
         expect(locations).toEqual([
             { id: 12, device_name: 'bob/phone', timestamp: 200 },
             { id: 11, device_name: 'kristen/pixel7', timestamp: 100 },
@@ -241,12 +253,11 @@ describe('post-reset Last Known Only workflow', () => {
     });
 
     it('non-staff passes visible device query params after reset', async () => {
-        const fetchFn = vi.fn().mockResolvedValue({
-            ok: true,
-            json: async () => ({
+        const fetchFn = vi.fn().mockResolvedValue(
+            jsonFetchResponse({
                 results: [{ id: 11, device_name: 'kristen/pixel7', timestamp: 100 }],
             }),
-        });
+        );
 
         const locations = await fetchLastKnownLocations({
             fetchFn: fetchFn as unknown as typeof fetch,
@@ -259,6 +270,7 @@ describe('post-reset Last Known Only workflow', () => {
         expect(fetchFn).toHaveBeenCalledOnce();
         expect(fetchFn).toHaveBeenCalledWith(
             '/api/locations/last-known/?device=kristen%2Fpixel7&device=bob%2Fphone',
+            LAST_KNOWN_FETCH_INIT,
         );
         expect(locations).toEqual([{ id: 11, device_name: 'kristen/pixel7', timestamp: 100 }]);
     });
@@ -326,44 +338,38 @@ describe('Last Known Only helpers', () => {
     it('fetchAllDeviceNamesFromApi follows paginated device list responses', async () => {
         const fetchFn = vi
             .fn()
-            .mockResolvedValueOnce({
-                ok: true,
-                json: async () => ({
+            .mockResolvedValueOnce(
+                jsonFetchResponse({
                     next: '/api/devices/?offset=100',
                     results: [{ device_name: 'alice/phone' }],
                 }),
-            })
-            .mockResolvedValueOnce({
-                ok: true,
-                json: async () => ({
+            )
+            .mockResolvedValueOnce(
+                jsonFetchResponse({
                     next: null,
                     results: [{ device_name: 'bob/phone' }],
                 }),
-            });
+            );
 
         const names = await fetchAllDeviceNamesFromApi({
             fetchFn: fetchFn as unknown as typeof fetch,
         });
 
         expect(fetchFn).toHaveBeenCalledTimes(2);
-        expect(fetchFn).toHaveBeenNthCalledWith(1, '/api/devices/');
-        expect(fetchFn).toHaveBeenNthCalledWith(2, '/api/devices/?offset=100');
+        expect(fetchFn).toHaveBeenNthCalledWith(1, '/api/devices/', LAST_KNOWN_FETCH_INIT);
+        expect(fetchFn).toHaveBeenNthCalledWith(2, '/api/devices/?offset=100', LAST_KNOWN_FETCH_INIT);
         expect(names).toEqual(['alice/phone', 'bob/phone']);
     });
 
     it('non-staff fetches devices first when visible names are empty', async () => {
         const fetchFn = vi
             .fn()
-            .mockResolvedValueOnce({
-                ok: true,
-                json: async () => ({
+            .mockResolvedValueOnce(
+                jsonFetchResponse({
                     results: [{ device_name: 'kristen/pixel7' }, { device_name: 'bob/phone' }],
                 }),
-            })
-            .mockResolvedValueOnce({
-                ok: true,
-                json: async () => ({ results: locations }),
-            });
+            )
+            .mockResolvedValueOnce(jsonFetchResponse({ results: locations }));
 
         const result = await fetchLastKnownLocations({
             fetchFn: fetchFn as unknown as typeof fetch,
@@ -373,19 +379,49 @@ describe('Last Known Only helpers', () => {
         });
 
         expect(fetchFn).toHaveBeenCalledTimes(2);
-        expect(fetchFn).toHaveBeenNthCalledWith(1, '/api/devices/');
+        expect(fetchFn).toHaveBeenNthCalledWith(1, '/api/devices/', LAST_KNOWN_FETCH_INIT);
         expect(fetchFn).toHaveBeenNthCalledWith(
             2,
             '/api/locations/last-known/?device=kristen%2Fpixel7&device=bob%2Fphone',
+            LAST_KNOWN_FETCH_INIT,
         );
         expect(result).toEqual(locations);
     });
 
-    it('staff fetches unfiltered last-known even when some devices are already in the log', async () => {
-        const fetchFn = vi.fn().mockResolvedValue({
-            ok: true,
-            json: async () => ({ results: locations }),
+    it('non-staff falls back to unfiltered last-known when device list fetch fails', async () => {
+        const fetchFn = vi
+            .fn()
+            .mockResolvedValueOnce({ ok: false, status: 500 })
+            .mockResolvedValueOnce(jsonFetchResponse({ results: locations }));
+
+        const result = await fetchLastKnownLocations({
+            fetchFn: fetchFn as unknown as typeof fetch,
+            isStaff: false,
+            visibleDeviceNames: [],
+            extractResults: (data) => (data as { results: typeof locations }).results,
         });
+
+        expect(fetchFn).toHaveBeenCalledTimes(2);
+        expect(fetchFn).toHaveBeenNthCalledWith(1, '/api/devices/', LAST_KNOWN_FETCH_INIT);
+        expect(fetchFn).toHaveBeenNthCalledWith(2, '/api/locations/last-known/', LAST_KNOWN_FETCH_INIT);
+        expect(result).toEqual(locations);
+    });
+
+    it('throws LastKnownFetchError when last-known API returns non-OK status', async () => {
+        const fetchFn = vi.fn().mockResolvedValue({ ok: false, status: 503 });
+
+        await expect(
+            fetchLastKnownLocations({
+                fetchFn: fetchFn as unknown as typeof fetch,
+                isStaff: true,
+                visibleDeviceNames: [],
+                extractResults: (data) => (data as { results: typeof locations }).results,
+            }),
+        ).rejects.toMatchObject({ kind: 'http', status: 503, name: 'LastKnownFetchError' });
+    });
+
+    it('staff fetches unfiltered last-known even when some devices are already in the log', async () => {
+        const fetchFn = vi.fn().mockResolvedValue(jsonFetchResponse({ results: locations }));
 
         const result = await fetchLastKnownLocations({
             fetchFn: fetchFn as unknown as typeof fetch,
@@ -394,7 +430,7 @@ describe('Last Known Only helpers', () => {
             extractResults: (data) => (data as { results: typeof locations }).results,
         });
 
-        expect(fetchFn).toHaveBeenCalledWith('/api/locations/last-known/');
+        expect(fetchFn).toHaveBeenCalledWith('/api/locations/last-known/', LAST_KNOWN_FETCH_INIT);
         expect(result).toEqual(locations);
     });
 

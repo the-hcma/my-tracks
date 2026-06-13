@@ -27,11 +27,10 @@ import {
     devicePollSummaryToastType,
     fetchAndPollOnlineMqttDevices,
     devicePassesLiveActivityFilter,
-    fetchLastKnownLocations,
+    buildLastKnownHighlightKeys,
     lastKnownLocationKeysFromLogEntries,
-    planLastKnownUiUpdate,
     resolveLastKnownHighlightKeys,
-    resolveLastKnownOnlyToggleEffect,
+    resolveLastKnownOnlyLoadAction,
     resolveLiveDeviceFilterChange,
     resolveLiveLocationIngestPath,
     resolveSkipHistoryFetchForRefresh,
@@ -40,8 +39,10 @@ import {
     toggleLastKnownOnlyFlag,
     type LastKnownLogEntry,
 } from './liveActivityToolbar';
+import { runLastKnownLoad } from './lastKnownLoad';
+import { registerAndUpdateServiceWorker } from './serviceWorkerRecovery';
 import { getPreferredTheme, setTheme, toggleTheme } from './theme';
-import { dateAndMinutesToTimestamps, extractResultsList, formatLatLonCoordinate, formatLatLonPair, formatMinutesAsTime, getTodayDateString, selectStablePaletteColor } from './utils';
+import { boundFetch, dateAndMinutesToTimestamps, extractResultsList, formatLatLonCoordinate, formatLatLonPair, formatMinutesAsTime, getTodayDateString, selectStablePaletteColor } from './utils';
 
 // Configuration passed from Django template
 interface MyTracksConfig {
@@ -1007,6 +1008,19 @@ function registerTrailWaypointMarkersForSelection(): void {
     });
 }
 
+function countRenderedLogDeviceEntries(): number {
+    return document.querySelectorAll<HTMLElement>('.log-entry[data-device-name]').length;
+}
+
+function lastKnownOnlyLoadAction(enabledAfterToggle: boolean): ReturnType<typeof resolveLastKnownOnlyLoadAction> {
+    return resolveLastKnownOnlyLoadAction({
+        isLiveMode,
+        enabledAfterToggle,
+        renderedDeviceCount: countRenderedLogDeviceEntries(),
+        skipHistoryFetch,
+    });
+}
+
 function toggleLastKnownOnly(): void {
     showLastKnownOnly = toggleLastKnownOnlyFlag(showLastKnownOnly);
     if (!showLastKnownOnly) {
@@ -1020,8 +1034,8 @@ function toggleLastKnownOnly(): void {
     syncTrailPolylineVisibilityForLastKnownMode();
     saveUIState();
 
-    const effect = resolveLastKnownOnlyToggleEffect(isLiveMode, showLastKnownOnly);
-    if ('loadLocations' in effect) {
+    const action = lastKnownOnlyLoadAction(showLastKnownOnly);
+    if (action === 'fetch') {
         void ensureLastKnownLocationsLoaded();
         return;
     }
@@ -1036,8 +1050,30 @@ function toggleLastKnownOnly(): void {
  *
  * - Runs only in live mode (historic mode operates on a fixed trail).
  * - Staff fetch unfiltered last-known; non-staff pass visible device query params.
- * - After reset, replaces the log; after Latest, appends only devices missing from the log.
+ * - After Reset (empty log) or post-reset rows, fetches authoritative last-known from the API.
+ * - After Latest/hour loads, dims the existing log in place without replacing it.
  */
+function setLiveActivityLogMessage(message: string): void {
+    const container = document.getElementById('log-container');
+    if (container) {
+        const loading = document.createElement('p');
+        loading.id = 'loading';
+        loading.textContent = message;
+        container.replaceChildren(loading);
+    }
+    // The map state can outlive temporary log-container re-renders, so cleanup
+    // always runs to avoid stale markers/trails after Last Known load failures.
+    eventCount = 0;
+    removeAllDeviceMarkers();
+    removeAllTrails();
+    selectedLocationKey = null;
+    incrementalLocations = {};
+    const logCount = document.getElementById('log-count');
+    if (logCount) {
+        logCount.textContent = '0 events';
+    }
+}
+
 async function ensureLastKnownLocationsLoaded(): Promise<void> {
     if (!isLiveMode) {
         return;
@@ -1048,38 +1084,60 @@ async function ensureLastKnownLocationsLoaded(): Promise<void> {
         button.disabled = true;
     }
 
-    try {
-        const renderedDeviceNames = new Set<string>();
-        document.querySelectorAll<HTMLElement>('.log-entry[data-device-name]').forEach((entry) => {
-            const name = entry.dataset.deviceName;
-            if (name) {
-                renderedDeviceNames.add(name);
-            }
-        });
-
-        const locations = await fetchLastKnownLocations<TrackLocation>({
-            fetchFn: fetch,
-            isStaff: Boolean(config.isStaff),
-            visibleDeviceNames: Array.from(devices),
-            extractResults: (data) => extractResultsList<TrackLocation>(data),
-        });
-
-        const plan = planLastKnownUiUpdate({
-            locations,
-            skipHistoryFetch,
-            renderedDeviceCount: renderedDeviceNames.size,
-            renderedDeviceNames,
-        });
-        lastKnownHighlightKeys = plan.highlightKeys;
-        if (plan.mergeStrategy === 'replace') {
-            replaceLiveActivityFromLocations(plan.locations, '(last known)');
-        } else if (plan.mergeStrategy === 'append') {
-            appendLiveActivityLocations(plan.locations);
+    const renderedDeviceNames = new Set<string>();
+    document.querySelectorAll<HTMLElement>('.log-entry[data-device-name]').forEach((entry) => {
+        const name = entry.dataset.deviceName;
+        if (name) {
+            renderedDeviceNames.add(name);
         }
+    });
 
-        applyLocationSelection();
+    try {
+        const result = await runLastKnownLoad(
+            {
+                fetchFn: boundFetch,
+                isStaff: Boolean(config.isStaff),
+                visibleDeviceNames: Array.from(devices),
+                skipHistoryFetch,
+                renderedDeviceNames,
+                extractResults: (data) => extractResultsList<TrackLocation>(data),
+                waitForRefresh: async () => {
+                    if (!liveActivityRefreshInFlight) {
+                        return;
+                    }
+                    await Promise.race([
+                        liveActivityRefreshInFlight,
+                        new Promise<void>((resolve) => {
+                            setTimeout(resolve, 15_000);
+                        }),
+                    ]);
+                },
+            },
+            {
+                onReplace: (locations) => {
+                    lastKnownHighlightKeys = buildLastKnownHighlightKeys(locations);
+                    replaceLiveActivityFromLocations(locations, '(last known)');
+                    applyLocationSelection();
+                },
+                onEmpty: () => {
+                    setLiveActivityLogMessage('Last Known: no locations returned from the server.');
+                    lastKnownHighlightKeys = null;
+                },
+                onError: (message) => {
+                    console.error('Last Known Only: fetch failed:', message);
+                    setLiveActivityLogMessage(message);
+                    lastKnownHighlightKeys = null;
+                },
+            },
+        );
+
+        if (result === 'stale') {
+            return;
+        }
     } catch (error) {
         console.error('Last Known Only: unexpected error while fetching device locations', error);
+        setLiveActivityLogMessage('Last Known: unexpected error while loading locations.');
+        lastKnownHighlightKeys = null;
     } finally {
         if (button) {
             button.disabled = false;
@@ -1215,6 +1273,10 @@ function restoreUIState(): void {
 
     showLastKnownOnly = Boolean(state.showLastKnownOnly);
     updateLastKnownOnlyButton();
+
+    if (lastKnownOnlyLoadAction(showLastKnownOnly) === 'fetch') {
+        void ensureLastKnownLocationsLoaded();
+    }
 
     if (state.mobileLayoutMode === 'map-only' || state.mobileLayoutMode === 'table-only' || state.mobileLayoutMode === 'split') {
         mobileLayoutMode = state.mobileLayoutMode;
@@ -1431,6 +1493,7 @@ function updateDeviceMarker(location: TrackLocation): void {
             deviceName,
             selectedDevice: selectedDevice || undefined,
             skipHistoryFetch,
+            showLastKnownOnly,
         })
     ) {
         // Hide marker if it exists
@@ -1656,6 +1719,7 @@ function addLocationToTrail(location: TrackLocation): void {
             deviceName,
             selectedDevice: selectedDevice || undefined,
             skipHistoryFetch,
+            showLastKnownOnly,
         })
     ) {
         return;
@@ -1785,6 +1849,7 @@ function addLiveLocationToTrail(location: TrackLocation): void {
             deviceName,
             selectedDevice: selectedDevice || undefined,
             skipHistoryFetch,
+            showLastKnownOnly,
         })
     ) {
         return;
@@ -2906,7 +2971,7 @@ async function requestDeviceLocations(): Promise<void> {
 
     try {
         const summary = await fetchAndPollOnlineMqttDevices({
-            fetchFn: fetch,
+            fetchFn: boundFetch,
             getCsrfToken,
         });
         if (summary.kind === 'all-success') {
@@ -3203,6 +3268,7 @@ function connectWebSocket(): void {
                             deviceName,
                             selectedDevice: selectedDevice || undefined,
                             skipHistoryFetch,
+                            showLastKnownOnly,
                         }),
                     });
                     if (ingestPath === 'ignored') {
@@ -3814,7 +3880,7 @@ function registerServiceWorker(): void {
     window.addEventListener(
         'load',
         () => {
-            void navigator.serviceWorker.register('/sw.js', { scope: '/' });
+            void registerAndUpdateServiceWorker();
         },
         { once: true },
     );
