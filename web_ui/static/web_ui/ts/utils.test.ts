@@ -3,6 +3,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
+    boundFetch,
     extractResultsList,
     formatLatLonCoordinate,
     formatLatLonPair,
@@ -19,6 +20,21 @@ import {
     dateAndMinutesToTimestamps,
     LocationData,
 } from './utils';
+
+describe('boundFetch', () => {
+    it('calls global fetch without Illegal invocation', async () => {
+        const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+            ok: true,
+            status: 200,
+            text: async () => '[]',
+        } as Response);
+
+        await boundFetch('/api/locations/last-known/', { credentials: 'same-origin' });
+
+        expect(spy).toHaveBeenCalledWith('/api/locations/last-known/', { credentials: 'same-origin' });
+        spy.mockRestore();
+    });
+});
 
 describe('formatLatLonCoordinate', () => {
     it('uses the shared six-decimal latitude/longitude precision by default', () => {

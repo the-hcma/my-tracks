@@ -42,7 +42,7 @@ import {
 import { runLastKnownLoad } from './lastKnownLoad';
 import { registerAndUpdateServiceWorker } from './serviceWorkerRecovery';
 import { getPreferredTheme, setTheme, toggleTheme } from './theme';
-import { dateAndMinutesToTimestamps, extractResultsList, formatLatLonCoordinate, formatLatLonPair, formatMinutesAsTime, getTodayDateString, selectStablePaletteColor } from './utils';
+import { boundFetch, dateAndMinutesToTimestamps, extractResultsList, formatLatLonCoordinate, formatLatLonPair, formatMinutesAsTime, getTodayDateString, selectStablePaletteColor } from './utils';
 
 // Configuration passed from Django template
 interface MyTracksConfig {
@@ -1081,7 +1081,7 @@ async function ensureLastKnownLocationsLoaded(): Promise<void> {
     try {
         const result = await runLastKnownLoad(
             {
-                fetchFn: fetch,
+                fetchFn: boundFetch,
                 isStaff: Boolean(config.isStaff),
                 visibleDeviceNames: Array.from(devices),
                 skipHistoryFetch,

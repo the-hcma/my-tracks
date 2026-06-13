@@ -16,6 +16,9 @@ export interface LocationData {
 
 export const LAT_LON_DECIMAL_PLACES = 6;
 
+/** Window.fetch throws "Illegal invocation" when passed unbound as a callback. */
+export const boundFetch: typeof fetch = (...args: Parameters<typeof fetch>) => globalThis.fetch(...args);
+
 export function formatLatLonCoordinate(
     coordinate: string | number,
     precision = LAT_LON_DECIMAL_PLACES,
