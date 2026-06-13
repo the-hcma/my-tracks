@@ -12,7 +12,11 @@ import {
     resolveLastKnownMergeStrategy,
 } from './liveActivityToolbar';
 
-function jsonFetchResponse(body: unknown, ok = true, status = 200) {
+function jsonFetchResponse(body: unknown, ok = true, status = 200): {
+    ok: boolean;
+    status: number;
+    text: () => Promise<string>;
+} {
     return {
         ok,
         status,
