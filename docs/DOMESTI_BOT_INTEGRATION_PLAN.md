@@ -2,7 +2,7 @@
 
 This document is the **my-tracks** side of integrating with [domesti-bot](https://github.com/the-hcma/domesti-bot). domesti-bot owns home automation rules, geofence evaluation, sunset checks, and device actions. my-tracks remains the **location ingest and map** service and relays location updates to domesti-bot when paired.
 
-**Status:** **P1–P4 implemented** (merged #1087–#1091, #1093). **P5** (sunset `GlobalAutomationRule`) waits until domesti-bot is validated in production. **domesti-bot companion** pairing UI is out of scope here — see that repo.
+**Status:** **P1–P5 implemented** (merged #1087–#1091, #1093). **P5** removed `GlobalAutomationRule` after domesti-bot cutover. **domesti-bot companion** pairing UI is out of scope here — see that repo.
 
 **Nomenclature:** integration docs and wire payloads use **user** + **location** (`user_id`, `user_location_update_url`, …). domesti-bot’s `.cursor/rules/presence-user-location-nomenclature.mdc` is the canonical vocabulary reference.
 
@@ -18,7 +18,7 @@ This document is the **my-tracks** side of integrating with [domesti-bot](https:
 | Live location updates for rules | my-tracks → domesti-bot | **Automatic push** on each saved location (`POST` to domesti-bot user location update URL) |
 | Rule evaluation & device actions | domesti-bot | `RuleEvaluator` (not my-tracks) |
 
-We do **not** extend `GlobalAutomationRule` webhooks. Event-shaped payloads (“both inside”) are insufficient; domesti-bot needs per-update coordinates.
+my-tracks does **not** send event-shaped webhook payloads (“both inside”); domesti-bot needs per-update coordinates.
 
 ---
 
@@ -290,7 +290,6 @@ Do **not** add env vars as the primary configuration path. A `DOMESTI_BOT_PARTIC
 2. Operator runs **user sync** and **geofence sync** manually in domesti-bot.
 3. Operator creates rules in domesti-bot (e.g. both inside + after sunset → lights + garage).
 4. Phone → MQTT → my-tracks saves location → (if `location_updates_enabled`) POST live URL → domesti-bot evaluator runs.
-5. Global automations in my-tracks may still run in parallel until **P5** removes them after domesti-bot cutover is validated.
 
 ---
 
@@ -303,7 +302,7 @@ Do **not** add env vars as the primary configuration path. A `DOMESTI_BOT_PARTIC
 | **P2** | `POST /api/admin/domesti-bot/pair/`; encrypt/store API key; pairing-gated UI | ✅ #1087–#1089 |
 | **P3** | `app/domesti_relay.py` + MQTT/HTTP hooks; `location_updates_enabled`; webhook log | ✅ #1091 |
 | **P4** | `POST /api/admin/domesti-bot/test-location-update/`; tests; doc cross-link | ✅ #1088, #1090 |
-| **P5** (later) | Remove `GlobalAutomationRule` evaluator after domesti-bot cutover | ⏳ pending |
+| **P5** | Remove `GlobalAutomationRule` evaluator after domesti-bot cutover | ✅ done |
 
 **domesti-bot companion** ([repo](https://github.com/the-hcma/domesti-bot)): pairing button + `POST` to my-tracks pair endpoint; keep manual user/geofence sync as today.
 
@@ -338,4 +337,3 @@ Do **not** add env vars as the primary configuration path. A `DOMESTI_BOT_PARTIC
 
 - domesti-bot: [github.com/the-hcma/domesti-bot](https://github.com/the-hcma/domesti-bot) — see `docs/RULE_ENGINE_PLAN.md` in that repo (evaluator, webhooks, manual sync)
 - my-tracks exports: `app/admin_sync_export.py` (`/api/admin/users-with-devices/`, `/api/admin/waypoints/`)
-- my-tracks global automations (to sunset): `docs/GLOBAL_AUTOMATIONS_PLAN.md`

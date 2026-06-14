@@ -25,14 +25,11 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes
 from django.conf import settings
 from django.contrib.auth.models import User
-from django.db.models import Q
 from django.utils import timezone as dj_tz
 
 from app.models import (
     Device,
-    GlobalAutomationRule,
     Location,
-    LocationQualitySettings,
     OwnTracksMessage,
     Transition,
     Waypoint,
@@ -273,105 +270,6 @@ def _fire_transition_actions(transition: Transition) -> None:
                 action.pk,
                 action.email_address,
             )
-
-
-def _get_user_geofence_state(user: User, waypoint: Waypoint) -> str:
-    """
-    Return the server-computed geofence state for a user.
-
-    Uses the most recent Location row for any device owned by the user and
-    computes haversine distance to the waypoint center.
-
-    Returns:
-        'inside'  — latest location is within the waypoint radius
-        'outside' — latest location is beyond the waypoint radius
-        'unknown' — no location on record for this user
-    """
-    from app.notifications import _haversine_m  # avoid circular at import time
-
-    qs = Location.objects.filter(device__owner=user)
-    quality = LocationQualitySettings.objects.filter(pk=1).first()
-    if quality is not None and quality.filter_accuracy_enabled:
-        minimum_accuracy_m = quality.minimum_accuracy_meters
-        qs = qs.filter(Q(accuracy__isnull=True) | Q(accuracy__lte=minimum_accuracy_m))
-    latest = qs.order_by("-timestamp").select_related("device").first()
-    if latest is None:
-        return "unknown"
-
-    dist = _haversine_m(
-        float(str(latest.latitude)),
-        float(str(latest.longitude)),
-        float(str(waypoint.latitude)),
-        float(str(waypoint.longitude)),
-    )
-    return "inside" if dist <= waypoint.radius else "outside"
-
-
-def _evaluate_global_automations_for_user(user: User) -> None:
-    """
-    Re-evaluate all active GlobalAutomationRule rows that watch the given user.
-
-    Called after every new Location is saved for the user. Fires email/webhook
-    actions once when the condition transitions from not-met → met; resets the
-    fire-once guard when condition is no longer met.
-    Failures per action are logged and suppressed.
-    """
-    from app.notifications import fire_global_automation_webhook, send_global_automation_email
-
-    rules = (
-        GlobalAutomationRule.objects.filter(is_active=True, users=user)
-        .prefetch_related("users")
-        .select_related("waypoint")
-    )
-
-    rule_list = list(rules)
-    logger.debug(
-        "Location update for '%s' — evaluating %d global automation rule(s)",
-        user.username,
-        len(rule_list),
-    )
-
-    for rule in rule_list:
-        watched_users = list(rule.users.all())
-        states: dict[str, str] = {u.username: _get_user_geofence_state(u, rule.waypoint) for u in watched_users}
-        state_values = list(states.values())
-
-        if rule.condition == GlobalAutomationRule.CONDITION_ALL_INSIDE:
-            condition_met = all(s == "inside" for s in state_values)
-        else:  # CONDITION_ALL_OUTSIDE
-            condition_met = all(s in ("outside", "unknown") for s in state_values)
-
-        logger.debug(
-            "Rule '%s' (id=%s): condition=%s states=%s → met=%s",
-            rule.name,
-            rule.pk,
-            rule.condition,
-            states,
-            condition_met,
-        )
-
-        if condition_met and not rule.last_condition_met:
-            # Condition newly met — fire
-            logger.info(
-                "Global automation '%s' fired (condition=%s, triggered_by=%s)",
-                rule.name,
-                rule.condition,
-                user.username,
-            )
-            if rule.action_type == GlobalAutomationRule.ACTION_EMAIL and rule.email_address:
-                try:
-                    send_global_automation_email(rule, user, states)
-                except Exception:
-                    logger.exception("Failed to send global automation email (rule_id=%s)", rule.pk)
-            if rule.action_type == GlobalAutomationRule.ACTION_WEBHOOK and rule.webhook_url:
-                try:
-                    fire_global_automation_webhook(rule, user, states)
-                except Exception:
-                    logger.exception("Failed to fire global automation webhook (rule_id=%s)", rule.pk)
-            GlobalAutomationRule.objects.filter(pk=rule.pk).update(last_condition_met=True)
-        elif not condition_met and rule.last_condition_met:
-            # Condition reset — allow future firing
-            GlobalAutomationRule.objects.filter(pk=rule.pk).update(last_condition_met=False)
 
 
 def save_transition_to_db(transition_data: dict[str, Any]) -> dict[str, Any] | None:
@@ -674,7 +572,6 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
         if owner is not None:
             from app.domesti_relay import relay_location_to_domesti_bot
 
-            await sync_to_async(_evaluate_global_automations_for_user, thread_sensitive=False)(owner)
             await sync_to_async(relay_location_to_domesti_bot, thread_sensitive=False)(location)
 
         logger.info(
