@@ -31,7 +31,6 @@ from app.models import (
     ClientCertificate,
     Device,
     DomestiBotConfig,
-    GlobalAutomationRule,
     Location,
     LocationQualitySettings,
     ServerCertificate,
@@ -42,7 +41,6 @@ from app.models import (
     Waypoint,
 )
 from app.mqtt.commands import CommandPublisher
-from app.mqtt.plugin import _get_user_geofence_state
 from app.notifications import (
     _append_footer,
     _build_email,
@@ -985,95 +983,6 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
             request.session.pop("smtp_last_test_recipient", None)
             context["active_tab"] = "email"
 
-        if form_type == "add_global_rule":
-            rule_name = str(request.POST.get("rule_name", "")).strip()
-            waypoint_id_raw = str(request.POST.get("rule_waypoint_id", "")).strip()
-            condition = str(request.POST.get("rule_condition", "")).strip()
-            user_ids = request.POST.getlist("rule_user_ids")
-            action_type = str(request.POST.get("rule_action_type", "email")).strip()
-            email_address = str(request.POST.get("rule_email_address", "")).strip()
-            webhook_url = str(request.POST.get("rule_webhook_url", "")).strip()
-
-            if not rule_name:
-                context["global_rule_error"] = "Rule name is required."
-            elif not waypoint_id_raw:
-                context["global_rule_error"] = "Geofence is required."
-            elif condition not in (
-                GlobalAutomationRule.CONDITION_ALL_INSIDE,
-                GlobalAutomationRule.CONDITION_ALL_OUTSIDE,
-            ):
-                context["global_rule_error"] = "Invalid condition."
-            elif action_type == GlobalAutomationRule.ACTION_EMAIL and not email_address:
-                context["global_rule_error"] = "Email address is required for email action."
-            elif action_type == GlobalAutomationRule.ACTION_WEBHOOK and not webhook_url:
-                context["global_rule_error"] = "Webhook URL is required for webhook action."
-            else:
-                try:
-                    waypoint_obj = Waypoint.objects.get(pk=int(waypoint_id_raw))
-                    rule = GlobalAutomationRule.objects.create(
-                        name=rule_name,
-                        created_by=request.user,
-                        waypoint=waypoint_obj,
-                        condition=condition,
-                        action_type=action_type,
-                        email_address=email_address if action_type == GlobalAutomationRule.ACTION_EMAIL else "",
-                        webhook_url=webhook_url if action_type == GlobalAutomationRule.ACTION_WEBHOOK else "",
-                        is_active=True,
-                    )
-                    if user_ids:
-                        users_qs = User.objects.filter(pk__in=[int(uid) for uid in user_ids])
-                        rule.users.set(users_qs)
-                    logger.info(
-                        "[http] Admin '%s' created global automation rule '%s' (id=%s)",
-                        request.user.username,
-                        rule_name,
-                        rule.pk,
-                    )
-                    context["global_rule_success"] = f"Rule '{rule_name}' created."
-                    context["active_tab"] = "global_rules"
-                except Waypoint.DoesNotExist:
-                    context["global_rule_error"] = "Waypoint not found."
-                except ValueError:
-                    context["global_rule_error"] = "Invalid waypoint or user ID."
-                except Exception as e:
-                    context["global_rule_error"] = str(e)
-
-        if form_type == "delete_global_rule":
-            rule_id = request.POST.get("rule_id")
-            try:
-                rule = GlobalAutomationRule.objects.get(pk=rule_id)
-                rule_name = rule.name
-                rule.delete()
-                logger.info(
-                    "[http] Admin '%s' deleted global automation rule '%s' (id=%s)",
-                    request.user.username,
-                    rule_name,
-                    rule_id,
-                )
-                context["global_rule_success"] = f"Rule '{rule_name}' deleted."
-                context["active_tab"] = "global_rules"
-            except GlobalAutomationRule.DoesNotExist:
-                context["global_rule_error"] = "Rule not found."
-
-        if form_type == "toggle_global_rule":
-            rule_id = request.POST.get("rule_id")
-            try:
-                rule = GlobalAutomationRule.objects.get(pk=rule_id)
-                rule.is_active = not rule.is_active
-                rule.save(update_fields=["is_active", "updated_at"])
-                state_str = "enabled" if rule.is_active else "disabled"
-                logger.info(
-                    "[http] Admin '%s' %s global automation rule '%s' (id=%s)",
-                    request.user.username,
-                    state_str,
-                    rule.name,
-                    rule_id,
-                )
-                context["global_rule_success"] = f"Rule '{rule.name}' {state_str}."
-                context["active_tab"] = "global_rules"
-            except GlobalAutomationRule.DoesNotExist:
-                context["global_rule_error"] = "Rule not found."
-
     users = list(User.objects.all().order_by("username"))
     user_id_to_active_cert = {cc.user_id: cc for cc in ClientCertificate.objects.filter(is_active=True, revoked=False)}
     for u in users:
@@ -1113,7 +1022,6 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
         )
     )
     smtp_has_message = any(context.get(k) for k in ("smtp_success", "smtp_error"))
-    global_rules_has_message = any(context.get(k) for k in ("global_rule_success", "global_rule_error"))
     location_quality_has_message = any(context.get(k) for k in ("location_quality_success", "location_quality_error"))
     if location_quality_has_message or context.get("active_tab") == "location_settings":
         context["active_tab"] = "location_settings"
@@ -1121,8 +1029,6 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
         context["active_tab"] = "email"
     elif pki_has_message or context.get("active_tab") == "pki":
         context["active_tab"] = "pki"
-    elif global_rules_has_message or context.get("active_tab") == "global_rules":
-        context["active_tab"] = "global_rules"
     else:
         context["active_tab"] = context.get("active_tab") or "users"
 
@@ -1156,57 +1062,6 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
     context["hostname"] = admin_info.hostname
     context["public_domain"] = settings.PUBLIC_DOMAIN
     context["smtp_configured"] = SmtpConfig.get() is not None
-
-    # Global Automation Rules — admin-only context
-    context["all_waypoints"] = list(Waypoint.objects.select_related("user").order_by("user__username", "label"))
-
-    global_rules = list(
-        GlobalAutomationRule.objects.prefetch_related("users").select_related("waypoint", "created_by").order_by("name")
-    )
-    # Annotate each rule with its current live evaluation and tooltip text
-    for rule in global_rules:
-        watched = list(rule.users.all())
-        if not watched:
-            rule.current_met = False  # type: ignore[attr-defined]
-            rule.current_tooltip = "No users are being watched"  # type: ignore[attr-defined]
-            continue
-        states = {u.username: _get_user_geofence_state(u, rule.waypoint) for u in watched}
-        state_values = list(states.values())
-        if rule.condition == GlobalAutomationRule.CONDITION_ALL_INSIDE:
-            met = all(s == "inside" for s in state_values)
-            if met:
-                tooltip = f"All users are inside {rule.waypoint.label}"
-            else:
-                not_inside = [f"{u} is {s}" for u, s in states.items() if s != "inside"]
-                tooltip = "; ".join(not_inside) if not_inside else "Unknown"
-        else:
-            met = all(s in ("outside", "unknown") for s in state_values)
-            if met:
-                tooltip = f"All users are outside {rule.waypoint.label}"
-            else:
-                not_outside = [f"{u} is inside" for u, s in states.items() if s == "inside"]
-                tooltip = "; ".join(not_outside) if not_outside else "Unknown"
-        rule.current_met = met  # type: ignore[attr-defined]
-        rule.current_tooltip = tooltip  # type: ignore[attr-defined]
-    context["global_rules"] = global_rules
-
-    # Recent transitions — only for waypoints watched by global rules, last 10
-    watched_wp_ids = {rule.waypoint_id for rule in global_rules}
-    tz_local = settings.SYSTEM_TIMEZONE
-    raw_transitions = (
-        list(
-            Transition.objects.filter(waypoint__in=watched_wp_ids)
-            .select_related("device__owner", "waypoint")
-            .order_by("-timestamp")[:10]
-        )
-        if watched_wp_ids
-        else []
-    )
-    for tr in raw_transitions:
-        tr.local_time = tr.timestamp.astimezone(tz_local).strftime("%Y-%m-%d %H:%M %Z")  # type: ignore[attr-defined]
-    context["all_transitions"] = raw_transitions
-
-    context["all_users"] = list(User.objects.order_by("username"))
 
     context["location_quality"] = LocationQualitySettings.get_solo()
 
