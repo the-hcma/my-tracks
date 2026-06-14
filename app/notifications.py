@@ -21,8 +21,6 @@ from django.core.mail.backends.smtp import EmailBackend
 from app.pki import decrypt_private_key
 
 if TYPE_CHECKING:
-    from django.contrib.auth.models import User
-
     from app.models import FriendRequest, SmtpConfig, Transition, TransitionAction
 
 logger = logging.getLogger(__name__)
