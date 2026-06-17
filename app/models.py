@@ -588,6 +588,11 @@ class DomestiBotConfig(models.Model):
         blank=True,
         help_text="Ring buffer of the five most recent webhook delivery attempts",
     )
+    last_relayed_location_by_user = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Per-user fingerprint of the last live location successfully relayed to domesti-bot",
+    )
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

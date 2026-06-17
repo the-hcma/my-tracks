@@ -11,8 +11,11 @@ from typing import TYPE_CHECKING, Any, cast
 from django.utils import timezone
 
 from app.domesti_bot import (
+    already_relayed_location,
     build_location_webhook_payload,
     location_post_url_for_source,
+    location_relay_fingerprint,
+    record_relayed_location,
     record_webhook_delivery_failure,
     send_location_webhook,
 )
@@ -46,17 +49,39 @@ def relay_location_to_domesti_bot(location: Location) -> None:
             return
 
         accuracy_raw = location.accuracy
+        timestamp_iso = _format_timestamp(cast(datetime, location.timestamp))
+        latitude = cast(Decimal, location.latitude)
+        longitude = cast(Decimal, location.longitude)
+        lat = float(latitude)
+        lon = float(longitude)
+        user_id = owner.username
+        fingerprint = location_relay_fingerprint(
+            user_id=user_id,
+            timestamp_iso=timestamp_iso,
+            latitude=latitude,
+            longitude=longitude,
+        )
+        if already_relayed_location(config, user_id=user_id, fingerprint=fingerprint):
+            logger.debug(
+                "[domesti-bot] skipping duplicate live relay user=%s timestamp=%s",
+                user_id,
+                timestamp_iso,
+            )
+            return
+
         payload = build_location_webhook_payload(
-            lat=float(cast(Decimal, location.latitude)),
-            lon=float(cast(Decimal, location.longitude)),
-            user_id=owner.username,
+            lat=lat,
+            lon=lon,
+            user_id=user_id,
             accuracy_m=int(cast(int, accuracy_raw)) if accuracy_raw is not None else None,
             device_id=device.device_id,
-            mqtt_user=device.mqtt_user or owner.username,
-            timestamp_iso=_format_timestamp(cast(datetime, location.timestamp)),
+            mqtt_user=device.mqtt_user or user_id,
+            timestamp_iso=timestamp_iso,
         )
         post_url = location_post_url_for_source(config, source="live")
-        send_location_webhook(config, payload=payload, source="live")
+        delivery = send_location_webhook(config, payload=payload, source="live")
+        if delivery["success"]:
+            record_relayed_location(config, user_id=user_id, fingerprint=fingerprint)
     except Exception as exc:
         if config is not None and payload is not None:
             try:
