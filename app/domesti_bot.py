@@ -9,6 +9,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime
 from datetime import timezone as dt_timezone
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlparse, urlunparse
 
@@ -131,6 +132,31 @@ def location_post_url_for_source(config: DomestiBotConfig, *, source: str) -> st
         msg = "user_location_update_url is not configured"
         raise ValueError(msg)
     return live_url
+
+
+def location_relay_fingerprint(
+    *,
+    user_id: str,
+    timestamp_iso: str,
+    latitude: Decimal,
+    longitude: Decimal,
+) -> str:
+    """Stable key for a live location fix (dedupes MQTT republishes of the same packet)."""
+    return f"{user_id}|{timestamp_iso}|{latitude}|{longitude}"
+
+
+def already_relayed_location(config: DomestiBotConfig, *, user_id: str, fingerprint: str) -> bool:
+    """Return True when this exact fix was already delivered to domesti-bot for the user."""
+    last_by_user = cast(dict[str, str], config.last_relayed_location_by_user or {})
+    return last_by_user.get(user_id) == fingerprint
+
+
+def record_relayed_location(config: DomestiBotConfig, *, user_id: str, fingerprint: str) -> None:
+    """Remember a successfully relayed live location fix for duplicate suppression."""
+    last_by_user = dict(cast(dict[str, str], config.last_relayed_location_by_user or {}))
+    last_by_user[user_id] = fingerprint
+    config.last_relayed_location_by_user = last_by_user
+    config.save(update_fields=["last_relayed_location_by_user", "updated_at"])
 
 
 def build_location_webhook_payload(

@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from django.contrib.auth.models import User
 from django.utils import timezone
-from hamcrest import assert_that, contains_string, equal_to, is_
+from hamcrest import assert_that, contains_string, equal_to, is_, none, not_
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -84,7 +84,8 @@ def test_relay_posts_live_payload(location: Location) -> None:
     with patch("app.domesti_bot.urllib.request.urlopen", return_value=mock_response):
         relay_location_to_domesti_bot(location)
 
-    recent_log = cast(list[dict[str, Any]], DomestiBotConfig.get_solo().recent_webhook_log)
+    config = DomestiBotConfig.get_solo()
+    recent_log = cast(list[dict[str, Any]], config.recent_webhook_log)
     assert_that(recent_log[0]["source"], equal_to("live"))
     assert_that(recent_log[0]["user_id"], equal_to("kristen"))
     assert_that(recent_log[0]["payload"]["user_id"], equal_to("kristen"))
@@ -92,6 +93,104 @@ def test_relay_posts_live_payload(location: Location) -> None:
         recent_log[0]["post_url"],
         equal_to("http://192.168.1.10:8003/v1/webhooks/presence"),
     )
+    last_relayed = cast(dict[str, str], config.last_relayed_location_by_user)
+    assert_that(last_relayed.get("kristen"), is_(not_(none())))
+
+
+def test_relay_skips_duplicate_location_fix(location: Location) -> None:
+    _pair_config()
+    mock_response = MagicMock()
+    mock_response.__enter__.return_value = mock_response
+    mock_response.__exit__.return_value = False
+    mock_response.status = 200
+    mock_response.read.return_value = b'{"ok":true}'
+
+    duplicate = Location.objects.create(
+        device=location.device,
+        latitude=location.latitude,
+        longitude=location.longitude,
+        timestamp=location.timestamp,
+        accuracy=location.accuracy,
+        received_via="mqtt",
+    )
+
+    with patch("app.domesti_bot.urllib.request.urlopen", return_value=mock_response) as mock_urlopen:
+        relay_location_to_domesti_bot(location)
+        relay_location_to_domesti_bot(duplicate)
+
+    assert_that(mock_urlopen.call_count, equal_to(1))
+
+
+def test_relay_retries_after_failed_delivery(location: Location) -> None:
+    _pair_config()
+    mock_response = MagicMock()
+    mock_response.__enter__.return_value = mock_response
+    mock_response.__exit__.return_value = False
+    mock_response.status = 200
+    mock_response.read.return_value = b'{"ok":true}'
+
+    with patch(
+        "app.domesti_bot.urllib.request.urlopen",
+        side_effect=[
+            __import__("urllib").error.URLError("connection refused"),
+            mock_response,
+        ],
+    ) as mock_urlopen:
+        relay_location_to_domesti_bot(location)
+        relay_location_to_domesti_bot(location)
+
+    assert_that(mock_urlopen.call_count, equal_to(2))
+    config = DomestiBotConfig.get_solo()
+    last_relayed = cast(dict[str, str], config.last_relayed_location_by_user)
+    assert_that(last_relayed.get("kristen"), is_(not_(none())))
+
+
+def test_relay_delivers_newer_location_after_prior_fix(location: Location, device: Device) -> None:
+    _pair_config()
+    mock_response = MagicMock()
+    mock_response.__enter__.return_value = mock_response
+    mock_response.__exit__.return_value = False
+    mock_response.status = 200
+    mock_response.read.return_value = b'{"ok":true}'
+
+    newer = Location.objects.create(
+        device=device,
+        latitude=Decimal("41.195000"),
+        longitude=Decimal("-73.889000"),
+        timestamp=timezone.now(),
+        accuracy=10,
+        received_via="mqtt",
+    )
+
+    with patch("app.domesti_bot.urllib.request.urlopen", return_value=mock_response) as mock_urlopen:
+        relay_location_to_domesti_bot(location)
+        relay_location_to_domesti_bot(newer)
+
+    assert_that(mock_urlopen.call_count, equal_to(2))
+
+
+def test_relay_delivers_sub_meter_coordinate_differences(location: Location, device: Device) -> None:
+    _pair_config()
+    mock_response = MagicMock()
+    mock_response.__enter__.return_value = mock_response
+    mock_response.__exit__.return_value = False
+    mock_response.status = 200
+    mock_response.read.return_value = b'{"ok":true}'
+
+    nearby = Location.objects.create(
+        device=device,
+        latitude=Decimal("41.1940851"),
+        longitude=Decimal("-73.8883651"),
+        timestamp=location.timestamp,
+        accuracy=12,
+        received_via="mqtt",
+    )
+
+    with patch("app.domesti_bot.urllib.request.urlopen", return_value=mock_response) as mock_urlopen:
+        relay_location_to_domesti_bot(location)
+        relay_location_to_domesti_bot(nearby)
+
+    assert_that(mock_urlopen.call_count, equal_to(2))
 
 
 def test_relay_logs_network_delivery_failure(location: Location) -> None:
