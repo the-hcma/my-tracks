@@ -4,14 +4,20 @@ This guide covers how to install, manage, and troubleshoot My Tracks as a
 persistent background service using systemd's user session support.
 
 The service runs under your user account (no root required), starts on boot
-via lingering, and is managed using the `setup-service` script from
+via lingering on the designated **ConditionHost**, and is managed using
+`setup-service` from
 [repository-helpers](https://github.com/the-hcma/repository-helpers).
+
+Unit templates live in **repository-helpers**
+`share/systemd-unit-templates/`.
 
 ## Prerequisites
 
 - systemd user session available (`systemctl --user status` returns output)
 - `~/work/ai/repository-helpers` cloned locally
 - My Tracks dependencies installed (`bash scripts/setup`)
+- `~/.config/user-services-host` set to your service host (or pass
+  `--condition-host` on first `setup-service` run)
 
 ## Install the Service
 
@@ -23,15 +29,14 @@ Run `setup-service` from the my-tracks repo directory:
 
 This will:
 
-1. Read `etc/systemd/my-tracks.service` from the repo, substitute
-   `@@REPO_DIR@@` with the actual repo path, and write the result to
+1. Read `share/systemd-unit-templates/my-tracks.service` from repository-helpers,
+   substitute `@@REPO_DIR@@`, inject `ConditionHost=`, and write the result to
    `~/.config/systemd/user/my-tracks.service`.
 2. Create the log directory at `~/scratch/my-tracks/`.
-3. Enable systemd lingering so the service starts on boot without a login
-   session.
+3. Enable systemd lingering on the ConditionHost machine.
 4. Run `scripts/on-deploy` — applies pending migrations, builds frontend
    assets (including PWA icons via `pnpm run build`), and collects static files.
-5. Enable and start (or restart) the service.
+5. Enable and start (or restart) the service on the ConditionHost only.
 
 The service listens on **`http://localhost:8080`** by default. That is enough for
 [PWA](PWA.md) install from the same machine (loopback). Installing from another
@@ -91,7 +96,8 @@ handles this automatically:
 
 ## Service Configuration
 
-The service template lives at [etc/systemd/my-tracks.service](../etc/systemd/my-tracks.service).
+The canonical template is
+[repository-helpers/share/systemd-unit-templates/my-tracks.service](https://github.com/the-hcma/repository-helpers/blob/main/share/systemd-unit-templates/my-tracks.service).
 
 Key settings:
 
@@ -103,8 +109,8 @@ Key settings:
 | `RestartSec`       | `5s`                                                               |
 | `WantedBy`         | `default.target` (user session)                                    |
 
-To change startup flags (e.g. a different port), edit
-`etc/systemd/my-tracks.service` and re-run `setup-service`.
+To change startup flags (e.g. a different port), edit the template in
+repository-helpers and re-run `setup-service`.
 
 ## Uninstall
 
