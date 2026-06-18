@@ -24,6 +24,46 @@ trap _on_deploy_fail ERR
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_dir="$(cd "$script_dir/.." && pwd)"
 
+# my_tracks_systemd_template_path
+# Resolves the my-tracks.service template (local override or repository-helpers share).
+my_tracks_systemd_template_path() {
+    local candidate
+
+    candidate="${repo_dir}/etc/systemd/my-tracks.service"
+    if [[ -f "$candidate" ]]; then
+        printf '%s\n' "$candidate"
+        return 0
+    fi
+
+    candidate="${repo_dir}/../repository-helpers/share/systemd-unit-templates/my-tracks.service"
+    if [[ -f "$candidate" ]]; then
+        printf '%s\n' "$candidate"
+        return 0
+    fi
+
+    if [[ -n "${HOME:-}" ]]; then
+        candidate="${HOME}/work/ai/repository-helpers/share/systemd-unit-templates/my-tracks.service"
+        if [[ -f "$candidate" ]]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
+# my_tracks_http_port_from_template
+# Reads --http-port from the resolved systemd template, else 8080.
+my_tracks_http_port_from_template() {
+    local template
+
+    if template="$(my_tracks_systemd_template_path)"; then
+        grep -oP '(?<=--http-port )\d+' "$template" 2>/dev/null || echo 8080
+        return 0
+    fi
+    echo 8080
+}
+
 cd "$repo_dir"
 
 _on_deploy_deps_bootstrap=""
@@ -258,7 +298,7 @@ sys.exit(0 if User.objects.filter(is_staff=True).exists() else 1)
 PYEOF
 if [[ "$no_admin" == true ]]; then
     fqdn="$(hostname --fqdn 2>/dev/null || hostname)"
-    port="$(grep -oP '(?<=--http-port )\d+' "$repo_dir/etc/systemd/my-tracks.service" 2>/dev/null || echo 8080)"
+    port="$(my_tracks_http_port_from_template)"
     echo ""
     echo "┌─────────────────────────────────────────────────────────────────┐"
     echo "│  First-run setup: no admin user found.                          │"
