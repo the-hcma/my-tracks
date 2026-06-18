@@ -25,7 +25,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_dir="$(cd "$script_dir/.." && pwd)"
 
 # my_tracks_systemd_template_path
-# Resolves the my-tracks.service template (local override or repository-helpers share).
+# Resolves etc/systemd/my-tracks.service in this repository.
 my_tracks_systemd_template_path() {
     local candidate
 
@@ -34,21 +34,6 @@ my_tracks_systemd_template_path() {
         printf '%s\n' "$candidate"
         return 0
     fi
-
-    candidate="${repo_dir}/../repository-helpers/share/systemd-unit-templates/my-tracks.service"
-    if [[ -f "$candidate" ]]; then
-        printf '%s\n' "$candidate"
-        return 0
-    fi
-
-    if [[ -n "${HOME:-}" ]]; then
-        candidate="${HOME}/work/ai/repository-helpers/share/systemd-unit-templates/my-tracks.service"
-        if [[ -f "$candidate" ]]; then
-            printf '%s\n' "$candidate"
-            return 0
-        fi
-    fi
-
     return 1
 }
 
