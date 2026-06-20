@@ -149,6 +149,19 @@ def test_build_location_webhook_payload_uses_user_id(admin_user: User) -> None:
     assert_that(payload["user_id"], equal_to(username))
 
 
+def test_build_location_webhook_payload_includes_connection_type(
+    admin_user: User,
+) -> None:
+    username = str(admin_user.username)
+    payload = build_location_webhook_payload(
+        lat=TEST_LOCATION_DEFAULT_LAT,
+        lon=TEST_LOCATION_DEFAULT_LON,
+        user_id=username,
+        connection_type="w",
+    )
+    assert_that(payload["connection_type"], equal_to("w"))
+
+
 def test_test_location_update_uses_test_url(admin_client: APIClient, admin_user: User) -> None:
     admin_client.post("/api/admin/domesti-bot/pair/", _pair_payload(), format="json")
     mock_response = MagicMock()
