@@ -23,7 +23,7 @@ dependencies = [
     "pyasn1==0.6.3",
     "pygments==2.20.0",
     "pyopenssl==26.2.0",
-    "ujson==5.12.1",
+    "ujson>=5.13.0",
     "charset-normalizer==3.4.7",
     "filelock>=3.29.1",
     "librt==0.11.0",
@@ -35,7 +35,7 @@ dependencies = [
     "pytest-cov>=7.1.0",
     "pytest-asyncio>=1.4.0",
     "shellcheck-py>=0.11.0.1",
-    "pip-audit>=2.10.0",
+    "pip-audit>=2.10.1",
     "idna>=3.18",
     "certifi>=2026.5.20",
     "pathspec==1.1.1",
@@ -49,6 +49,7 @@ dependencies = [
     "ast-serialize>=0.5.0",
     "service-identity==26.1.0",
     "cyclonedx-python-lib==11.8.0",
+    "msgpack==1.2.1",
 ]
 
 [build-system]
@@ -110,7 +111,7 @@ dev = [
     "ruff>=0.15.16",
     "pyright>=1.1.410",
     "shellcheck-py>=0.9.0",
-    "pip-audit>=2.7.0",
+    "pip-audit>=2.10.1",
 ]
 
 # amqtt==0.10.x requires pyyaml<6.0 and amqtt==0.11.x requires pyyaml==6.0.2.
