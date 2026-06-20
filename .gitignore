@@ -33,7 +33,9 @@ config/.runtime-config.json
 
 # IDE
 .idea/
-.cursor/
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**
 *.swp
 *.swo
 *~
