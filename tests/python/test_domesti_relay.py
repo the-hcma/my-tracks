@@ -97,6 +97,26 @@ def test_relay_posts_live_payload(location: Location) -> None:
     assert_that(last_relayed.get("kristen"), is_(not_(none())))
 
 
+def test_relay_includes_connection_type_in_payload(
+    location: Location,
+) -> None:
+    _pair_config()
+    location.connection_type = "w"
+    location.save(update_fields=["connection_type"])
+    mock_response = MagicMock()
+    mock_response.__enter__.return_value = mock_response
+    mock_response.__exit__.return_value = False
+    mock_response.status = 200
+    mock_response.read.return_value = b'{"ok":true}'
+
+    with patch("app.domesti_bot.urllib.request.urlopen", return_value=mock_response):
+        relay_location_to_domesti_bot(location)
+
+    config = DomestiBotConfig.get_solo()
+    recent_log = cast(list[dict[str, Any]], config.recent_webhook_log)
+    assert_that(recent_log[0]["payload"]["connection_type"], equal_to("w"))
+
+
 def test_relay_skips_duplicate_location_fix(location: Location) -> None:
     _pair_config()
     mock_response = MagicMock()

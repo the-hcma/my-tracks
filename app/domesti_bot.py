@@ -165,6 +165,7 @@ def build_location_webhook_payload(
     lon: float,
     user_id: str,
     accuracy_m: int | None = None,
+    connection_type: str | None = None,
     device_id: str = "test-device",
     mqtt_user: str | None = None,
     timestamp_iso: str | None = None,
@@ -181,6 +182,8 @@ def build_location_webhook_payload(
     }
     if accuracy_m is not None:
         payload["accuracy_m"] = accuracy_m
+    if connection_type is not None and connection_type != "":
+        payload["connection_type"] = connection_type
     return payload
 
 
