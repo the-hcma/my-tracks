@@ -74,6 +74,7 @@ def relay_location_to_domesti_bot(location: Location) -> None:
             lon=lon,
             user_id=user_id,
             accuracy_m=int(cast(int, accuracy_raw)) if accuracy_raw is not None else None,
+            connection_type=str(location.connection_type) if location.connection_type else None,
             device_id=device.device_id,
             mqtt_user=device.mqtt_user or user_id,
             timestamp_iso=timestamp_iso,
