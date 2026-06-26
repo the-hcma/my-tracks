@@ -4,6 +4,7 @@ Test suite for app serializers.
 Covers DeviceSerializer, LocationSerializer, UserSerializer,
 UserProfileSerializer, ChangePasswordSerializer, and certificate serializers.
 """
+
 # pyright: reportCallIssue=none
 # pyright: reportIndexIssue=none
 # pyright: reportOptionalSubscript=none
@@ -15,17 +16,20 @@ from typing import Any
 import pytest
 from django.contrib.auth.models import User
 from django.utils import timezone
-from hamcrest import (assert_that, contains_string, equal_to,
-                      has_key, instance_of, is_, none)
+from hamcrest import assert_that, contains_string, equal_to, has_key, instance_of, is_, none
 from rest_framework.test import APIRequestFactory
 
-from app.models import (CertificateAuthority, ClientCertificate, Device,
-                        Location, ServerCertificate)
-from app.serializers import (CertificateAuthoritySerializer,
-                             ChangePasswordSerializer,
-                             ClientCertificateSerializer, DeviceSerializer,
-                             LocationSerializer, ServerCertificateSerializer,
-                             UserProfileSerializer, UserSerializer)
+from app.models import CertificateAuthority, ClientCertificate, Device, Location, ServerCertificate
+from app.serializers import (
+    CertificateAuthoritySerializer,
+    ChangePasswordSerializer,
+    ClientCertificateSerializer,
+    DeviceSerializer,
+    LocationSerializer,
+    ServerCertificateSerializer,
+    UserProfileSerializer,
+    UserSerializer,
+)
 
 factory = APIRequestFactory()
 
@@ -180,8 +184,19 @@ class TestDeviceSerializer:
     def test_serialized_fields_present(self, device: Device) -> None:
         """All expected fields are present in serialized output."""
         data = DeviceSerializer(device).data
-        for field in ("id", "device_id", "device_name", "name", "owner_username", "created_at", "last_seen",
-                      "is_online", "location_count", "mqtt_user", "mqtt_topic_id"):
+        for field in (
+            "id",
+            "device_id",
+            "device_name",
+            "name",
+            "owner_username",
+            "created_at",
+            "last_seen",
+            "is_online",
+            "location_count",
+            "mqtt_user",
+            "mqtt_topic_id",
+        ):
             assert_that(data, has_key(field))
 
 
@@ -435,9 +450,7 @@ class TestLocationSerializerWrite:
 
     def test_optional_fields_stored(self, owntracks_payload: dict[str, Any]) -> None:
         """Optional OwnTracks fields (acc, alt, vel, conn) are persisted."""
-        serializer = LocationSerializer(
-            data=owntracks_payload, context={"client_ip": "10.0.0.1"}
-        )
+        serializer = LocationSerializer(data=owntracks_payload, context={"client_ip": "10.0.0.1"})
         serializer.is_valid(raise_exception=True)
         loc = serializer.save()
         assert_that(loc.accuracy, equal_to(8))
@@ -446,6 +459,34 @@ class TestLocationSerializerWrite:
         assert_that(loc.battery_level, equal_to(65))
         assert_that(loc.connection_type, equal_to("w"))
         assert_that(loc.tracker_id, equal_to("AB"))
+
+    def test_extended_optional_fields_stored(self, owntracks_payload: dict[str, Any]) -> None:
+        """Previously dropped OwnTracks fields are persisted on HTTP ingest."""
+        owntracks_payload.update(
+            {
+                "_id": "351c90a5",
+                "created_at": 1782478007,
+                "t": "r",
+                "bs": 1,
+                "source": "network",
+                "vac": 100,
+                "cog": 0,
+                "m": 1,
+                "BSSID": "90:ca:fa:76:2a:d4",
+                "SSID": "familia",
+                "inregions": ["250m around Home"],
+            }
+        )
+        serializer = LocationSerializer(data=owntracks_payload, context={"client_ip": "10.0.0.1"})
+        serializer.is_valid(raise_exception=True)
+        loc = serializer.save()
+        assert_that(loc.owntracks_message_id, equal_to("351c90a5"))
+        assert_that(loc.trigger, equal_to("r"))
+        assert_that(loc.battery_status, equal_to(1))
+        assert_that(loc.fix_source, equal_to("network"))
+        assert_that(loc.vertical_accuracy, equal_to(100))
+        assert_that(loc.wifi_ssid, equal_to("familia"))
+        assert_that(loc.in_regions, equal_to(["250m around Home"]))
 
     def test_boundary_latitude_90(self, owntracks_payload: dict[str, Any]) -> None:
         """Latitude exactly 90 is valid."""
@@ -592,9 +633,7 @@ class TestCertificateAuthoritySerializer:
 
     def test_all_fields_read_only(self, ca: CertificateAuthority) -> None:
         """Attempting to write fields via serializer does not change values."""
-        serializer = CertificateAuthoritySerializer(
-            ca, data={"common_name": "Hacked CA"}, partial=True
-        )
+        serializer = CertificateAuthoritySerializer(ca, data={"common_name": "Hacked CA"}, partial=True)
         if serializer.is_valid():
             instance = serializer.save()
             assert_that(instance.common_name, equal_to("Test Root CA"))

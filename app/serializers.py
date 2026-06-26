@@ -30,6 +30,7 @@ from .models import (
     ServerCertificate,
     UserProfile,
 )
+from .mqtt.handlers import extract_location_optional_fields
 from .utils import extract_device_id
 
 logger = logging.getLogger(__name__)
@@ -156,6 +157,17 @@ class LocationSerializer(serializers.ModelSerializer):
             "ip_address",
             "received_at",
             "received_via",
+            "owntracks_message_id",
+            "owntracks_created_at",
+            "trigger",
+            "battery_status",
+            "fix_source",
+            "vertical_accuracy",
+            "course",
+            "monitoring_mode",
+            "wifi_bssid",
+            "wifi_ssid",
+            "in_regions",
         ]
         read_only_fields = [
             "id",
@@ -231,6 +243,8 @@ class LocationSerializer(serializers.ModelSerializer):
             "connection_type": attrs.get("conn", ""),
             "tracker_id": attrs.get("tid", ""),
         }
+        raw_message = self.initial_data if isinstance(self.initial_data, dict) else attrs
+        transformed.update(extract_location_optional_fields(cast(dict[str, Any], raw_message)))
 
         logger.debug("Transformed data: %s", transformed)
 

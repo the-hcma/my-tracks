@@ -148,6 +148,68 @@ class Location(models.Model):
     # Tracking metadata
     received_at = models.DateTimeField(auto_now_add=True, help_text="When the server received this location data")
 
+    # Additional OwnTracks location fields (optional on wire)
+    owntracks_message_id = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="OwnTracks message id (from '_id' field)",
+    )
+    owntracks_created_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When OwnTracks built the message (from 'created_at' Unix field)",
+    )
+    trigger = models.CharField(
+        max_length=10,
+        blank=True,
+        default="",
+        help_text="Report trigger (from 't' field): p=ping, r=reportLocation response, u=manual, etc.",
+    )
+    battery_status = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Battery charging state (from 'bs' field)",
+    )
+    fix_source = models.CharField(
+        max_length=20,
+        blank=True,
+        default="",
+        help_text="Position source (from 'source' field): gps, network, fused, etc.",
+    )
+    vertical_accuracy = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Vertical accuracy in meters (from 'vac' field)",
+    )
+    course = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Course over ground in degrees (from 'cog' field)",
+    )
+    monitoring_mode = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="OwnTracks monitoring mode (from 'm' field)",
+    )
+    wifi_bssid = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        help_text="WiFi BSSID when conn=w (from 'BSSID' field)",
+    )
+    wifi_ssid = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="WiFi SSID when conn=w (from 'SSID' field)",
+    )
+    in_regions = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Geofence region names the device was inside (from 'inregions' field)",
+    )
+
     class Meta:
         ordering = ["-timestamp"]
         verbose_name = "Location"
