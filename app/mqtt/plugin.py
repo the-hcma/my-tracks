@@ -35,7 +35,7 @@ from app.models import (
     Waypoint,
 )
 from app.mqtt.commands import Command, CommandPublisher
-from app.mqtt.handlers import OwnTracksMessageHandler
+from app.mqtt.handlers import LOCATION_OPTIONAL_MODEL_FIELDS, OwnTracksMessageHandler
 from app.serializers import LocationSerializer
 from app.ws_broadcast import STAFF_WS_GROUP
 
@@ -150,6 +150,7 @@ def save_location_to_db(location_data: dict[str, Any]) -> dict[str, Any] | None:
             device.refresh_from_db()
 
         # Create location from parsed data
+        optional_fields = {key: location_data[key] for key in LOCATION_OPTIONAL_MODEL_FIELDS if key in location_data}
         location = Location.objects.create(
             device=device,
             latitude=location_data["latitude"],
@@ -163,6 +164,7 @@ def save_location_to_db(location_data: dict[str, Any]) -> dict[str, Any] | None:
             connection_type=location_data.get("connection", ""),
             ip_address=location_data.get("client_ip"),
             received_via="mqtt",
+            **optional_fields,
         )
 
         # Serialize for WebSocket broadcast

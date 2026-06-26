@@ -11,13 +11,17 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
-from hamcrest import (any_of, assert_that, equal_to, has_entries, has_key,
-                      instance_of, is_, is_not, none)
+from hamcrest import any_of, anything, assert_that, equal_to, has_entries, has_key, instance_of, is_, is_not, none, not_
 
-from app.mqtt.handlers import (OwnTracksMessageHandler, extract_location_data,
-                               extract_lwt_data, extract_transition_data,
-                               extract_waypoint_data, parse_owntracks_message,
-                               parse_owntracks_topic)
+from app.mqtt.handlers import (
+    OwnTracksMessageHandler,
+    extract_location_data,
+    extract_lwt_data,
+    extract_transition_data,
+    extract_waypoint_data,
+    parse_owntracks_message,
+    parse_owntracks_topic,
+)
 
 
 class TestParseOwnTracksMessage:
@@ -110,16 +114,19 @@ class TestExtractLocationData:
 
         result = extract_location_data(message, topic_info)
 
-        assert_that(result, has_entries(
-            device="phone",
-            latitude=51.5074,
-            longitude=-0.1278,
-            tracker_id="JD",
-            accuracy=10,
-            altitude=100,
-            velocity=5,
-            battery=85,
-        ))
+        assert_that(
+            result,
+            has_entries(
+                device="phone",
+                latitude=51.5074,
+                longitude=-0.1278,
+                tracker_id="JD",
+                accuracy=10,
+                altitude=100,
+                velocity=5,
+                battery=85,
+            ),
+        )
 
     def test_minimal_location(self) -> None:
         """Should extract data with only required fields."""
@@ -133,13 +140,85 @@ class TestExtractLocationData:
 
         result = extract_location_data(message, topic_info)
 
-        assert_that(result, has_entries(
-            device="phone",
-            latitude=51.5,
-            longitude=-0.1,
-        ))
+        assert_that(
+            result,
+            has_entries(
+                device="phone",
+                latitude=51.5,
+                longitude=-0.1,
+            ),
+        )
         # tracker_id should default to device name
         assert_that(result["tracker_id"], equal_to("phone"))
+
+    def test_extended_optional_fields(self) -> None:
+        """Should extract previously dropped OwnTracks location fields."""
+        message = {
+            "_type": "location",
+            "lat": 41.1940415,
+            "lon": -73.888273,
+            "tst": 1782478007,
+            "_id": "351c90a5",
+            "created_at": 1782478007,
+            "t": "r",
+            "bs": 1,
+            "source": "network",
+            "vac": 100,
+            "cog": 0,
+            "m": 1,
+            "BSSID": "90:ca:fa:76:2a:d4",
+            "SSID": "familia",
+            "inregions": ["250m around Home"],
+            "acc": 100,
+            "conn": "w",
+        }
+        topic_info = {"user": "hcma", "device": "pixel7pro"}
+
+        result = extract_location_data(message, topic_info)
+
+        assert_that(result, is_not(none()))
+        assert_that(
+            result,
+            has_entries(
+                owntracks_message_id="351c90a5",
+                trigger="r",
+                battery_status=1,
+                fix_source="network",
+                vertical_accuracy=100,
+                course=0,
+                monitoring_mode=1,
+                wifi_bssid="90:ca:fa:76:2a:d4",
+                wifi_ssid="familia",
+                in_regions=["250m around Home"],
+                accuracy=100,
+                connection="w",
+            ),
+        )
+        assert_that(result["owntracks_created_at"], equal_to(datetime(2026, 6, 26, 12, 46, 47, tzinfo=UTC)))
+
+    def test_ignores_malformed_optional_int_fields(self) -> None:
+        """Malformed optional ints should not abort location extraction."""
+        message = {
+            "_type": "location",
+            "lat": 41.1940415,
+            "lon": -73.888273,
+            "tst": 1782478007,
+            "bs": "not-a-number",
+            "vac": None,
+            "cog": {},
+            "m": "x",
+            "source": "network",
+        }
+        topic_info = {"user": "hcma", "device": "pixel7pro"}
+
+        result = extract_location_data(message, topic_info)
+
+        assert_that(result, is_not(none()))
+        assert_that(result, has_entries(fix_source="network"))
+        assert_that(result, not_(has_entries(battery_status=anything())))
+        assert_that(result, not_(has_entries(vertical_accuracy=anything())))
+        assert_that(result, not_(has_entries(course=anything())))
+        assert_that(result, not_(has_entries(monitoring_mode=anything())))
 
     def test_missing_lat(self) -> None:
         """Should return None if lat is missing."""
@@ -204,10 +283,13 @@ class TestExtractLocationData:
 
         result = extract_location_data(message, topic_info)
 
-        assert_that(result, has_entries(
-            latitude=0.0,
-            longitude=0.0,
-        ))
+        assert_that(
+            result,
+            has_entries(
+                latitude=0.0,
+                longitude=0.0,
+            ),
+        )
 
     def test_negative_timestamp(self) -> None:
         """Should return None for negative timestamp (before 1970)."""
@@ -238,10 +320,13 @@ class TestExtractLwtData:
 
         result = extract_lwt_data(message, topic_info)
 
-        assert_that(result, has_entries(
-            device="phone",
-            event="offline",
-        ))
+        assert_that(
+            result,
+            has_entries(
+                device="phone",
+                event="offline",
+            ),
+        )
         assert_that(result, has_key("connected_at"))
         assert_that(result, has_key("disconnected_at"))
 
@@ -252,10 +337,13 @@ class TestExtractLwtData:
 
         result = extract_lwt_data(message, topic_info)
 
-        assert_that(result, has_entries(
-            device="phone",
-            event="offline",
-        ))
+        assert_that(
+            result,
+            has_entries(
+                device="phone",
+                event="offline",
+            ),
+        )
         assert_that(result["connected_at"], is_(none()))
 
     def test_wrong_type(self) -> None:
@@ -286,16 +374,19 @@ class TestExtractTransitionData:
 
         result = extract_transition_data(message, topic_info)
 
-        assert_that(result, has_entries(
-            device="phone",
-            event="enter",
-            description="Home",
-            latitude=51.5,
-            longitude=-0.1,
-            accuracy=10,
-            trigger="c",
-            region_id="abc123",
-        ))
+        assert_that(
+            result,
+            has_entries(
+                device="phone",
+                event="enter",
+                description="Home",
+                latitude=51.5,
+                longitude=-0.1,
+                accuracy=10,
+                trigger="c",
+                region_id="abc123",
+            ),
+        )
 
     def test_minimal_transition(self) -> None:
         """Should extract data with only required fields."""
@@ -308,10 +399,13 @@ class TestExtractTransitionData:
 
         result = extract_transition_data(message, topic_info)
 
-        assert_that(result, has_entries(
-            device="phone",
-            event="leave",
-        ))
+        assert_that(
+            result,
+            has_entries(
+                device="phone",
+                event="leave",
+            ),
+        )
 
     def test_missing_event(self) -> None:
         """Should return None if event is missing."""
@@ -349,20 +443,25 @@ class TestOwnTracksMessageHandler:
 
         handler.on_location(callback)
 
-        payload = json.dumps({
-            "_type": "location",
-            "lat": 51.5,
-            "lon": -0.1,
-            "tst": 1704067200,
-        }).encode()
+        payload = json.dumps(
+            {
+                "_type": "location",
+                "lat": 51.5,
+                "lon": -0.1,
+                "tst": 1704067200,
+            }
+        ).encode()
 
         await handler.handle_message("owntracks/john/phone", payload)
 
         assert_that(len(received_data), equal_to(1))
-        assert_that(received_data[0], has_entries(
-            device="phone",
-            latitude=51.5,
-        ))
+        assert_that(
+            received_data[0],
+            has_entries(
+                device="phone",
+                latitude=51.5,
+            ),
+        )
 
     @pytest.mark.asyncio
     async def test_handle_lwt_message(self) -> None:
@@ -380,10 +479,13 @@ class TestOwnTracksMessageHandler:
         await handler.handle_message("owntracks/john/phone", payload)
 
         assert_that(len(received_data), equal_to(1))
-        assert_that(received_data[0], has_entries(
-            device="phone",
-            event="offline",
-        ))
+        assert_that(
+            received_data[0],
+            has_entries(
+                device="phone",
+                event="offline",
+            ),
+        )
 
     @pytest.mark.asyncio
     async def test_handle_transition_message(self) -> None:
@@ -396,20 +498,25 @@ class TestOwnTracksMessageHandler:
 
         handler.on_transition(callback)
 
-        payload = json.dumps({
-            "_type": "transition",
-            "event": "enter",
-            "desc": "Home",
-            "tst": 1704067200,
-        }).encode()
+        payload = json.dumps(
+            {
+                "_type": "transition",
+                "event": "enter",
+                "desc": "Home",
+                "tst": 1704067200,
+            }
+        ).encode()
 
         await handler.handle_message("owntracks/john/phone/event", payload)
 
         assert_that(len(received_data), equal_to(1))
-        assert_that(received_data[0], has_entries(
-            device="phone",
-            event="enter",
-        ))
+        assert_that(
+            received_data[0],
+            has_entries(
+                device="phone",
+                event="enter",
+            ),
+        )
 
     @pytest.mark.asyncio
     async def test_handle_async_callback(self) -> None:
@@ -422,12 +529,14 @@ class TestOwnTracksMessageHandler:
 
         handler.on_location(callback)
 
-        payload = json.dumps({
-            "_type": "location",
-            "lat": 51.5,
-            "lon": -0.1,
-            "tst": 1704067200,
-        }).encode()
+        payload = json.dumps(
+            {
+                "_type": "location",
+                "lat": 51.5,
+                "lon": -0.1,
+                "tst": 1704067200,
+            }
+        ).encode()
 
         await handler.handle_message("owntracks/john/phone", payload)
 
@@ -444,12 +553,14 @@ class TestOwnTracksMessageHandler:
 
         handler.on_location(callback)
 
-        payload = json.dumps({
-            "_type": "location",
-            "lat": 51.5,
-            "lon": -0.1,
-            "tst": 1704067200,
-        }).encode()
+        payload = json.dumps(
+            {
+                "_type": "location",
+                "lat": 51.5,
+                "lon": -0.1,
+                "tst": 1704067200,
+            }
+        ).encode()
 
         await handler.handle_message("home/sensors/gps", payload)
 
@@ -485,12 +596,14 @@ class TestOwnTracksMessageHandler:
         handler.on_location(bad_callback)
         handler.on_location(good_callback)
 
-        payload = json.dumps({
-            "_type": "location",
-            "lat": 51.5,
-            "lon": -0.1,
-            "tst": 1704067200,
-        }).encode()
+        payload = json.dumps(
+            {
+                "_type": "location",
+                "lat": 51.5,
+                "lon": -0.1,
+                "tst": 1704067200,
+            }
+        ).encode()
 
         # Should not raise
         await handler.handle_message("owntracks/john/phone", payload)
@@ -509,16 +622,16 @@ class TestOwnTracksMessageHandler:
 
         handler.on_location(callback)
 
-        payload = json.dumps({
-            "_type": "location",
-            "lat": 51.5,
-            "lon": -0.1,
-            "tst": 1704067200,
-        }).encode()
+        payload = json.dumps(
+            {
+                "_type": "location",
+                "lat": 51.5,
+                "lon": -0.1,
+                "tst": 1704067200,
+            }
+        ).encode()
 
-        await handler.handle_message(
-            "owntracks/john/phone", payload, client_ip="192.168.1.50"
-        )
+        await handler.handle_message("owntracks/john/phone", payload, client_ip="192.168.1.50")
 
         assert_that(len(received_data), equal_to(1))
         assert_that(received_data[0], has_entries(client_ip="192.168.1.50"))
@@ -534,16 +647,16 @@ class TestOwnTracksMessageHandler:
 
         handler.on_location(callback)
 
-        payload = json.dumps({
-            "_type": "location",
-            "lat": 51.5,
-            "lon": -0.1,
-            "tst": 1704067200,
-        }).encode()
+        payload = json.dumps(
+            {
+                "_type": "location",
+                "lat": 51.5,
+                "lon": -0.1,
+                "tst": 1704067200,
+            }
+        ).encode()
 
-        await handler.handle_message(
-            "owntracks/john/phone", payload, client_ip=None
-        )
+        await handler.handle_message("owntracks/john/phone", payload, client_ip=None)
 
         assert_that(len(received_data), equal_to(1))
         assert_that("client_ip" not in received_data[0], is_(True))
@@ -559,16 +672,16 @@ class TestOwnTracksMessageHandler:
 
         handler.on_location(callback)
 
-        payload = json.dumps({
-            "_type": "location",
-            "lat": 51.5,
-            "lon": -0.1,
-            "tst": 1704067200,
-        }).encode()
+        payload = json.dumps(
+            {
+                "_type": "location",
+                "lat": 51.5,
+                "lon": -0.1,
+                "tst": 1704067200,
+            }
+        ).encode()
 
-        await handler.handle_message(
-            "owntracks/alice/phone", payload
-        )
+        await handler.handle_message("owntracks/alice/phone", payload)
 
         assert_that(len(received_data), equal_to(1))
         assert_that(received_data[0], has_entries(mqtt_user="alice"))
@@ -584,17 +697,17 @@ class TestOwnTracksMessageHandler:
 
         handler.on_location(callback)
 
-        payload = json.dumps({
-            "_type": "location",
-            "lat": 51.5,
-            "lon": -0.1,
-            "tst": 1704067200,
-        }).encode()
+        payload = json.dumps(
+            {
+                "_type": "location",
+                "lat": 51.5,
+                "lon": -0.1,
+                "tst": 1704067200,
+            }
+        ).encode()
 
         # This topic will be ignored because it doesn't match owntracks/{user}/{device}
-        await handler.handle_message(
-            "other/topic", payload
-        )
+        await handler.handle_message("other/topic", payload)
 
         assert_that(len(received_data), equal_to(0))
 
@@ -678,12 +791,14 @@ class TestHandlerWaypointCallback:
 
         handler.on_waypoint(received.append)
 
-        payload = json.dumps({
-            "_type": "waypoints",
-            "waypoints": [
-                {"desc": "Home", "lat": 51.5, "lon": -0.1, "rad": 100, "rid": "uuid-1"},
-            ],
-        }).encode()
+        payload = json.dumps(
+            {
+                "_type": "waypoints",
+                "waypoints": [
+                    {"desc": "Home", "lat": 51.5, "lon": -0.1, "rad": 100, "rid": "uuid-1"},
+                ],
+            }
+        ).encode()
 
         await handler.handle_message("owntracks/alice/phone", payload)
 
@@ -699,9 +814,14 @@ class TestHandlerWaypointCallback:
 
         handler.on_waypoint(received.append)
 
-        payload = json.dumps({
-            "_type": "location", "lat": 51.5, "lon": -0.1, "tst": 1704067200,
-        }).encode()
+        payload = json.dumps(
+            {
+                "_type": "location",
+                "lat": 51.5,
+                "lon": -0.1,
+                "tst": 1704067200,
+            }
+        ).encode()
 
         await handler.handle_message("owntracks/alice/phone", payload)
 
@@ -715,10 +835,12 @@ class TestHandlerWaypointCallback:
 
         handler.on_lwt(received.append)
 
-        payload = json.dumps({
-            "_type": "lwt",
-            "tst": 1704067200,
-        }).encode()
+        payload = json.dumps(
+            {
+                "_type": "lwt",
+                "tst": 1704067200,
+            }
+        ).encode()
 
         await handler.handle_message("owntracks/alice/phone", payload)
 
@@ -733,13 +855,15 @@ class TestHandlerWaypointCallback:
 
         handler.on_transition(received.append)
 
-        payload = json.dumps({
-            "_type": "transition",
-            "event": "enter",
-            "desc": "Home",
-            "rid": "rid-1",
-            "tst": 1704067200,
-        }).encode()
+        payload = json.dumps(
+            {
+                "_type": "transition",
+                "event": "enter",
+                "desc": "Home",
+                "rid": "rid-1",
+                "tst": 1704067200,
+            }
+        ).encode()
 
         await handler.handle_message("owntracks/alice/phone", payload)
 
@@ -754,12 +878,14 @@ class TestHandlerWaypointCallback:
 
         handler.on_waypoint(received.append)
 
-        payload = json.dumps({
-            "_type": "waypoints",
-            "waypoints": [
-                {"desc": "Home", "lat": 51.5, "lon": -0.1, "rad": 100, "rid": "uuid-1"},
-            ],
-        }).encode()
+        payload = json.dumps(
+            {
+                "_type": "waypoints",
+                "waypoints": [
+                    {"desc": "Home", "lat": 51.5, "lon": -0.1, "rad": 100, "rid": "uuid-1"},
+                ],
+            }
+        ).encode()
 
         await handler.handle_message("owntracks/alice/phone", payload)
 
@@ -778,19 +904,24 @@ class TestHandlerCmdCallback:
 
         handler.on_cmd(received.append)
 
-        payload = json.dumps({
-            "_type": "cmd",
-            "action": "reportLocation",
-        }).encode()
+        payload = json.dumps(
+            {
+                "_type": "cmd",
+                "action": "reportLocation",
+            }
+        ).encode()
 
         await handler.handle_message("owntracks/hcma/pixel7pro/cmd", payload)
 
         assert_that(len(received), equal_to(1))
-        assert_that(received[0], has_entries(
-            action="reportLocation",
-            user="hcma",
-            device="pixel7pro",
-        ))
+        assert_that(
+            received[0],
+            has_entries(
+                action="reportLocation",
+                user="hcma",
+                device="pixel7pro",
+            ),
+        )
 
     @pytest.mark.asyncio
     async def test_cmd_callback_receives_raw_topic(self) -> None:
@@ -815,10 +946,12 @@ class TestHandlerCmdCallback:
 
         handler.on_cmd(received.append)
 
-        payload = json.dumps({
-            "_type": "cmd",
-            "action": "reportLocation",
-        }).encode()
+        payload = json.dumps(
+            {
+                "_type": "cmd",
+                "action": "reportLocation",
+            }
+        ).encode()
 
         await handler.handle_message("owntracks/alice/phone/cmd", payload)
 
@@ -835,9 +968,7 @@ class TestHandlerCmdCallback:
 
         payload = json.dumps({"_type": "cmd", "action": "reportLocation"}).encode()
 
-        await handler.handle_message(
-            "owntracks/alice/phone/cmd", payload, transport="mqtt-tls"
-        )
+        await handler.handle_message("owntracks/alice/phone/cmd", payload, transport="mqtt-tls")
 
         assert_that(received[0], has_entries(transport="mqtt-tls"))
 
@@ -863,9 +994,14 @@ class TestHandlerCmdCallback:
 
         handler.on_cmd(received.append)
 
-        payload = json.dumps({
-            "_type": "location", "lat": 51.5, "lon": -0.1, "tst": 1704067200,
-        }).encode()
+        payload = json.dumps(
+            {
+                "_type": "location",
+                "lat": 51.5,
+                "lon": -0.1,
+                "tst": 1704067200,
+            }
+        ).encode()
 
         await handler.handle_message("owntracks/alice/phone", payload)
 
@@ -881,8 +1017,5 @@ class TestHandlerCmdCallback:
             await handler.handle_message("owntracks/alice/phone", payload)
 
         debug_calls = [str(call) for call in mock_logger.debug.call_args_list]
-        matching = [
-            c for c in debug_calls
-            if "Unhandled OwnTracks message type" in c and "foo" in c
-        ]
+        matching = [c for c in debug_calls if "Unhandled OwnTracks message type" in c and "foo" in c]
         assert_that(matching, is_not(equal_to([])))

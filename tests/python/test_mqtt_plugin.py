@@ -67,11 +67,16 @@ class TestSaveLocationToDb(TestCase):
 
         assert_that(result, is_not(none()))
         assert_that(result, is_not(none()))
-        assert_that(result, has_entries({
-            "device_name": "phone",
-            "latitude": "51.5074000000",
-            "longitude": "-0.1278000000",
-        }))
+        assert_that(
+            result,
+            has_entries(
+                {
+                    "device_name": "phone",
+                    "latitude": "51.5074000000",
+                    "longitude": "-0.1278000000",
+                }
+            ),
+        )
 
         # Verify saved to database
         location = Location.objects.get(id=result["id"])
@@ -80,6 +85,38 @@ class TestSaveLocationToDb(TestCase):
         assert_that(float(location.longitude), equal_to(-0.1278))
         assert_that(location.tracker_id, equal_to("PH"))
         assert_that(location.battery_level, equal_to(85))
+
+    def test_save_extended_optional_fields(self) -> None:
+        """Should persist OwnTracks optional location metadata."""
+        location_data = {
+            "device": "pixel7pro",
+            "latitude": 41.1940415,
+            "longitude": -73.888273,
+            "timestamp": datetime(2026, 6, 26, 12, 46, 47, tzinfo=UTC),
+            "tracker_id": "ha",
+            "accuracy": 100,
+            "connection": "w",
+            "owntracks_message_id": "351c90a5",
+            "owntracks_created_at": datetime(2026, 6, 26, 12, 46, 47, tzinfo=UTC),
+            "trigger": "r",
+            "fix_source": "network",
+            "vertical_accuracy": 100,
+            "wifi_ssid": "familia",
+        }
+
+        result = save_location_to_db(location_data)
+
+        assert_that(result, is_not(none()))
+        location = Location.objects.get(id=result["id"])
+        assert_that(location.owntracks_message_id, equal_to("351c90a5"))
+        assert_that(
+            location.owntracks_created_at,
+            equal_to(datetime(2026, 6, 26, 12, 46, 47, tzinfo=UTC)),
+        )
+        assert_that(location.trigger, equal_to("r"))
+        assert_that(location.fix_source, equal_to("network"))
+        assert_that(location.vertical_accuracy, equal_to(100))
+        assert_that(location.wifi_ssid, equal_to("familia"))
 
     def test_save_location_minimal(self) -> None:
         """Should save location with only required fields."""
@@ -259,11 +296,16 @@ class TestSaveLwtToDb(TestCase):
 
         assert_that(result, is_not(none()))
         assert_that(result, is_not(none()))
-        assert_that(result, has_entries({
-            "device_id": "user/phone",
-            "is_online": False,
-            "event": "device_offline",
-        }))
+        assert_that(
+            result,
+            has_entries(
+                {
+                    "device_id": "user/phone",
+                    "is_online": False,
+                    "event": "device_offline",
+                }
+            ),
+        )
 
         # Verify device is offline
         device.refresh_from_db()
@@ -352,15 +394,18 @@ class TestSaveLwtToDb(TestCase):
     def test_save_lwt_device_display_includes_owner(self) -> None:
         """device_display should be 'owner/device_id' when device has an owner."""
         from django.contrib.auth.models import User
+
         owner = User.objects.create_user(username="bob", password="pass")
         Device.objects.create(device_id="watch", name="Watch", is_online=True, owner=owner)
 
-        result = save_lwt_to_db({
-            "device": "watch",
-            "event": "offline",
-            "connected_at": None,
-            "disconnected_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
-        })
+        result = save_lwt_to_db(
+            {
+                "device": "watch",
+                "event": "offline",
+                "connected_at": None,
+                "disconnected_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+            }
+        )
 
         assert_that(result, is_not(none()))
         assert result is not None
@@ -370,12 +415,14 @@ class TestSaveLwtToDb(TestCase):
         """device_display should be bare device_id when device has no owner."""
         Device.objects.create(device_id="orphan", name="Orphan", is_online=True)
 
-        result = save_lwt_to_db({
-            "device": "orphan",
-            "event": "offline",
-            "connected_at": None,
-            "disconnected_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
-        })
+        result = save_lwt_to_db(
+            {
+                "device": "orphan",
+                "event": "offline",
+                "connected_at": None,
+                "disconnected_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+            }
+        )
 
         assert_that(result, is_not(none()))
         assert result is not None
@@ -505,6 +552,7 @@ class TestOwnTracksPluginMessageHandling:
         """Should handle LWT messages and mark device offline."""
         # Create an online device first
         from asgiref.sync import sync_to_async
+
         device = await sync_to_async(Device.objects.create)(
             device_id="device",
             name="Test Device",
@@ -513,10 +561,12 @@ class TestOwnTracksPluginMessageHandling:
 
         message = MagicMock()
         message.topic = "owntracks/user/device"
-        message.data = json.dumps({
-            "_type": "lwt",
-            "tst": 1704067200,
-        }).encode()
+        message.data = json.dumps(
+            {
+                "_type": "lwt",
+                "tst": 1704067200,
+            }
+        ).encode()
 
         with patch.object(plugin, "_broadcast_device_status", new_callable=AsyncMock) as broadcast_mock:
             await plugin.on_broker_message_received(
@@ -531,18 +581,17 @@ class TestOwnTracksPluginMessageHandling:
         # Should have broadcast device status
         broadcast_mock.assert_called_once()
         call_args = broadcast_mock.call_args[0][0]
-        assert_that(call_args, has_entries(
-            device_id="device",
-            is_online=False,
-            event="device_offline",
-        ))
+        assert_that(
+            call_args,
+            has_entries(
+                device_id="device",
+                is_online=False,
+                event="device_offline",
+            ),
+        )
 
         # OwnTracksMessage should be created
-        msg_count = await sync_to_async(
-            OwnTracksMessage.objects.filter(
-                device=device, message_type="lwt"
-            ).count
-        )()
+        msg_count = await sync_to_async(OwnTracksMessage.objects.filter(device=device, message_type="lwt").count)()
         assert_that(msg_count, equal_to(1))
 
     @pytest.mark.asyncio
@@ -553,14 +602,16 @@ class TestOwnTracksPluginMessageHandling:
         """Should handle transition messages."""
         message = MagicMock()
         message.topic = "owntracks/user/device"
-        message.data = json.dumps({
-            "_type": "transition",
-            "event": "enter",
-            "desc": "Home",
-            "tst": 1704067200,
-            "lat": 51.5,
-            "lon": -0.1,
-        }).encode()
+        message.data = json.dumps(
+            {
+                "_type": "transition",
+                "event": "enter",
+                "desc": "Home",
+                "tst": 1704067200,
+                "lat": 51.5,
+                "lon": -0.1,
+            }
+        ).encode()
 
         # Should not raise - transition handling is logged but doesn't save to DB yet
         await plugin.on_broker_message_received(
@@ -577,12 +628,16 @@ class TestOwnTracksPluginMessageHandling:
         message = MagicMock()
         message.topic = "owntracks/user/device"
         # Use bytearray instead of bytes
-        message.data = bytearray(json.dumps({
-            "_type": "location",
-            "lat": 40.0,
-            "lon": -74.0,
-            "tst": 1704067200,
-        }).encode())
+        message.data = bytearray(
+            json.dumps(
+                {
+                    "_type": "location",
+                    "lat": 40.0,
+                    "lon": -74.0,
+                    "tst": 1704067200,
+                }
+            ).encode()
+        )
 
         with patch.object(plugin, "_broadcast_location", new_callable=AsyncMock):
             await plugin.on_broker_message_received(
@@ -801,9 +856,7 @@ class TestMqttProtocolVersionCheck:
         """Create an OwnTracksPlugin instance for testing."""
         return OwnTracksPlugin(mock_broker_context)
 
-    def _make_connect_packet(
-        self, proto_name: str = "MQTT", proto_level: int = 4
-    ) -> MagicMock:
+    def _make_connect_packet(self, proto_name: str = "MQTT", proto_level: int = 4) -> MagicMock:
         """Create a mock ConnectPacket with given protocol fields."""
         from amqtt.mqtt.connect import ConnectPacket
 
@@ -828,9 +881,7 @@ class TestMqttProtocolVersionCheck:
         assert_that(msg, contains_string("protocol level 4"))
 
     @pytest.mark.asyncio
-    async def test_v31_level3_with_mqtt_name_logs_warning(
-        self, plugin: OwnTracksPlugin
-    ) -> None:
+    async def test_v31_level3_with_mqtt_name_logs_warning(self, plugin: OwnTracksPlugin) -> None:
         """Proto level < 4 should trigger warning even with 'MQTT' name."""
         packet = self._make_connect_packet(proto_name="MQTT", proto_level=3)
 
@@ -860,9 +911,7 @@ class TestMqttProtocolVersionCheck:
         mock_logger.warning.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_connect_packet_no_variable_header(
-        self, plugin: OwnTracksPlugin
-    ) -> None:
+    async def test_connect_packet_no_variable_header(self, plugin: OwnTracksPlugin) -> None:
         """ConnectPacket with no variable header should not crash."""
         from amqtt.mqtt.connect import ConnectPacket
 
@@ -1133,9 +1182,7 @@ class TestSaveLwtToDbEdgeCases(TestCase):
             "connected_at": datetime(2024, 1, 1, 10, 0, 0, tzinfo=UTC),
             "disconnected_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
         }
-        with patch.object(
-            OwnTracksMessage.objects, "create", side_effect=RuntimeError("DB write failed")
-        ):
+        with patch.object(OwnTracksMessage.objects, "create", side_effect=RuntimeError("DB write failed")):
             result = save_lwt_to_db(lwt_data)
         assert_that(result, is_(none()))
 
@@ -1473,20 +1520,27 @@ class TestSaveTransitionToDb:
         """Should create Transition with FK when rid matches a Waypoint."""
         user, device = user_and_device
         wp = Waypoint.objects.create(
-            user=user, label="Home", latitude=51.5, longitude=-0.1, radius=100, rid="rid-123",
+            user=user,
+            label="Home",
+            latitude=51.5,
+            longitude=-0.1,
+            radius=100,
+            rid="rid-123",
         )
         ts = datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC)
 
-        result = save_transition_to_db({
-            "device": "phone-tr",
-            "event": "enter",
-            "region_id": "rid-123",
-            "description": "Home",
-            "timestamp": ts,
-            "latitude": 51.5,
-            "longitude": -0.1,
-            "accuracy": 10,
-        })
+        result = save_transition_to_db(
+            {
+                "device": "phone-tr",
+                "event": "enter",
+                "region_id": "rid-123",
+                "description": "Home",
+                "timestamp": ts,
+                "latitude": 51.5,
+                "longitude": -0.1,
+                "accuracy": 10,
+            }
+        )
 
         assert_that(result, not_none())
         assert result is not None
@@ -1500,13 +1554,15 @@ class TestSaveTransitionToDb:
         """Should create Transition with null waypoint FK when rid has no match."""
         ts = datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC)
 
-        result = save_transition_to_db({
-            "device": "phone-tr",
-            "event": "leave",
-            "region_id": "unknown-rid",
-            "description": "Unknown place",
-            "timestamp": ts,
-        })
+        result = save_transition_to_db(
+            {
+                "device": "phone-tr",
+                "event": "leave",
+                "region_id": "unknown-rid",
+                "description": "Unknown place",
+                "timestamp": ts,
+            }
+        )
 
         assert_that(result, not_none())
         assert result is not None
@@ -1516,13 +1572,15 @@ class TestSaveTransitionToDb:
 
     def test_returns_none_for_unknown_device(self) -> None:
         """Should return None when device does not exist."""
-        result = save_transition_to_db({
-            "device": "no-such-device",
-            "event": "enter",
-            "region_id": "rid-123",
-            "description": "Home",
-            "timestamp": datetime.now(tz=UTC),
-        })
+        result = save_transition_to_db(
+            {
+                "device": "no-such-device",
+                "event": "enter",
+                "region_id": "rid-123",
+                "description": "Home",
+                "timestamp": datetime.now(tz=UTC),
+            }
+        )
         assert_that(result, is_(none()))
         assert_that(Device.objects.filter(device_id="no-such-device").exists(), is_(False))
 
@@ -1531,13 +1589,15 @@ class TestSaveTransitionToDb:
         user, device = user_and_device
         ts = datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC)
 
-        result = save_transition_to_db({
-            "device": "phone-tr",
-            "event": "enter",
-            "region_id": "rid-abc",
-            "description": "Work",
-            "timestamp": ts,
-        })
+        result = save_transition_to_db(
+            {
+                "device": "phone-tr",
+                "event": "enter",
+                "region_id": "rid-abc",
+                "description": "Work",
+                "timestamp": ts,
+            }
+        )
 
         assert_that(result, is_not(none()))
         assert result is not None
@@ -1548,13 +1608,15 @@ class TestSaveTransitionToDb:
         Device.objects.create(device_id="lonely", name="Lonely")
         ts = datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC)
 
-        result = save_transition_to_db({
-            "device": "lonely",
-            "event": "leave",
-            "region_id": "rid-xyz",
-            "description": "Nowhere",
-            "timestamp": ts,
-        })
+        result = save_transition_to_db(
+            {
+                "device": "lonely",
+                "event": "leave",
+                "region_id": "rid-xyz",
+                "description": "Nowhere",
+                "timestamp": ts,
+            }
+        )
 
         assert_that(result, is_not(none()))
         assert result is not None
@@ -1574,13 +1636,15 @@ class TestSaveWaypointsToDb:
     def test_creates_new_waypoints(self, user_and_device: tuple[Any, Device]) -> None:
         """Should create Waypoint records for new content."""
         user, device = user_and_device
-        result = save_waypoints_to_db({
-            "device": "phone-wp",
-            "waypoints": [
-                {"desc": "Home", "lat": 51.5, "lon": -0.1, "rad": 100},
-                {"desc": "Work", "lat": 51.52, "lon": -0.08, "rad": 50},
-            ],
-        })
+        result = save_waypoints_to_db(
+            {
+                "device": "phone-wp",
+                "waypoints": [
+                    {"desc": "Home", "lat": 51.5, "lon": -0.1, "rad": 100},
+                    {"desc": "Work", "lat": 51.52, "lon": -0.08, "rad": 50},
+                ],
+            }
+        )
 
         assert_that(result, equal_to(2))
         assert_that(Waypoint.objects.count(), equal_to(2))
@@ -1591,39 +1655,47 @@ class TestSaveWaypointsToDb:
     def test_skips_duplicate_waypoint(self, user_and_device: tuple[Any, Device]) -> None:
         """Should skip and not count a waypoint with identical content (same content hash)."""
         user, device = user_and_device
-        result1 = save_waypoints_to_db({
-            "device": "phone-wp",
-            "waypoints": [{"desc": "Home", "lat": 51.5, "lon": -0.1, "rad": 100}],
-        })
+        result1 = save_waypoints_to_db(
+            {
+                "device": "phone-wp",
+                "waypoints": [{"desc": "Home", "lat": 51.5, "lon": -0.1, "rad": 100}],
+            }
+        )
         assert_that(result1, equal_to(1))
         assert_that(Waypoint.objects.count(), equal_to(1))
 
-        result2 = save_waypoints_to_db({
-            "device": "phone-wp",
-            "waypoints": [{"desc": "Home", "lat": 51.5, "lon": -0.1, "rad": 100}],
-        })
+        result2 = save_waypoints_to_db(
+            {
+                "device": "phone-wp",
+                "waypoints": [{"desc": "Home", "lat": 51.5, "lon": -0.1, "rad": 100}],
+            }
+        )
         assert_that(result2, equal_to(0))
         assert_that(Waypoint.objects.count(), equal_to(1))
 
     def test_creates_android_waypoints_without_rid(self, user_and_device: tuple[Any, Device]) -> None:
         """Should create waypoints from Android devices that send no rid field."""
         user, device = user_and_device
-        result = save_waypoints_to_db({
-            "device": "phone-wp",
-            "waypoints": [
-                {"desc": "Android geofence", "lat": 51.5, "lon": -0.1, "rad": 150},
-            ],
-        })
+        result = save_waypoints_to_db(
+            {
+                "device": "phone-wp",
+                "waypoints": [
+                    {"desc": "Android geofence", "lat": 51.5, "lon": -0.1, "rad": 150},
+                ],
+            }
+        )
         assert_that(result, equal_to(1))
         wp = Waypoint.objects.get(label="Android geofence")
         assert_that(wp.radius, equal_to(150))
 
     def test_returns_zero_for_unknown_device(self) -> None:
         """Should return 0 when device does not exist."""
-        result = save_waypoints_to_db({
-            "device": "no-such-device",
-            "waypoints": [{"desc": "Home", "lat": 51.5, "lon": -0.1, "rad": 100}],
-        })
+        result = save_waypoints_to_db(
+            {
+                "device": "no-such-device",
+                "waypoints": [{"desc": "Home", "lat": 51.5, "lon": -0.1, "rad": 100}],
+            }
+        )
         assert_that(result, equal_to(0))
         assert_that(Waypoint.objects.count(), equal_to(0))
 
@@ -1633,21 +1705,25 @@ class TestSaveWaypointsToDb:
         device.owner = None
         device.save()
 
-        result = save_waypoints_to_db({
-            "device": "phone-wp",
-            "waypoints": [{"desc": "Home", "lat": 51.5, "lon": -0.1, "rad": 100}],
-        })
+        result = save_waypoints_to_db(
+            {
+                "device": "phone-wp",
+                "waypoints": [{"desc": "Home", "lat": 51.5, "lon": -0.1, "rad": 100}],
+            }
+        )
         assert_that(result, equal_to(0))
 
     def test_skips_waypoints_missing_lat_or_lon(self, user_and_device: tuple[Any, Device]) -> None:
         """Should skip waypoints with missing lat or lon."""
-        result = save_waypoints_to_db({
-            "device": "phone-wp",
-            "waypoints": [
-                {"desc": "No lat", "lon": -0.1, "rad": 100},
-                {"desc": "Good", "lat": 51.5, "lon": -0.1, "rad": 100},
-            ],
-        })
+        result = save_waypoints_to_db(
+            {
+                "device": "phone-wp",
+                "waypoints": [
+                    {"desc": "No lat", "lon": -0.1, "rad": 100},
+                    {"desc": "Good", "lat": 51.5, "lon": -0.1, "rad": 100},
+                ],
+            }
+        )
         assert_that(result, equal_to(1))
         assert_that(Waypoint.objects.filter(label="No lat").exists(), is_(False))
 
@@ -1667,8 +1743,11 @@ class TestBroadcastTransition:
         mock_layer.group_send = AsyncMock()
 
         transition_data = {
-            "id": 1, "device_id": "phone", "event": "enter",
-            "region_id": "rid-1", "description": "Home",
+            "id": 1,
+            "device_id": "phone",
+            "event": "enter",
+            "region_id": "rid-1",
+            "description": "Home",
             "timestamp": "2024-01-15T12:00:00+00:00",
             "waypoint_label": "Home",
         }
@@ -1691,25 +1770,29 @@ class TestBroadcastTransition:
 
     @pytest.mark.asyncio
     async def test_handle_transition_message_saves_to_db(
-        self, plugin: OwnTracksPlugin,
+        self,
+        plugin: OwnTracksPlugin,
     ) -> None:
         """Should save Transition when device publishes transition message."""
         from django.contrib.auth.models import User
+
         user = User.objects.create_user(username="alice2", password="pass")
         Device.objects.create(device_id="alice2phone", name="alice2phone", owner=user)
 
         message = MagicMock()
         message.topic = "owntracks/alice2/alice2phone"
-        message.data = json.dumps({
-            "_type": "transition",
-            "event": "enter",
-            "desc": "Home",
-            "tst": 1704067200,
-            "rid": "rid-home",
-            "lat": 51.5,
-            "lon": -0.1,
-            "acc": 10,
-        }).encode()
+        message.data = json.dumps(
+            {
+                "_type": "transition",
+                "event": "enter",
+                "desc": "Home",
+                "tst": 1704067200,
+                "rid": "rid-home",
+                "lat": 51.5,
+                "lon": -0.1,
+                "acc": 10,
+            }
+        ).encode()
 
         with patch.object(plugin, "_broadcast_transition", new_callable=AsyncMock):
             await plugin.on_broker_message_received(client_id="client", message=message)
@@ -1722,22 +1805,26 @@ class TestBroadcastTransition:
 
     @pytest.mark.asyncio
     async def test_handle_waypoints_message_upserts_waypoints(
-        self, plugin: OwnTracksPlugin,
+        self,
+        plugin: OwnTracksPlugin,
     ) -> None:
         """Should upsert Waypoints when device publishes waypoints message."""
         from django.contrib.auth.models import User
+
         user = User.objects.create_user(username="alice3", password="pass")
         Device.objects.create(device_id="tablet", name="tablet", owner=user)
 
         message = MagicMock()
         message.topic = "owntracks/alice3/tablet"
-        message.data = json.dumps({
-            "_type": "waypoints",
-            "waypoints": [
-                {"_type": "waypoint", "desc": "Home", "lat": 51.5, "lon": -0.1, "rad": 100, "rid": "rid-a"},
-                {"_type": "waypoint", "desc": "Work", "lat": 51.52, "lon": -0.08, "rad": 50, "rid": "rid-b"},
-            ],
-        }).encode()
+        message.data = json.dumps(
+            {
+                "_type": "waypoints",
+                "waypoints": [
+                    {"_type": "waypoint", "desc": "Home", "lat": 51.5, "lon": -0.1, "rad": 100, "rid": "rid-a"},
+                    {"_type": "waypoint", "desc": "Work", "lat": 51.52, "lon": -0.08, "rad": 50, "rid": "rid-b"},
+                ],
+            }
+        ).encode()
 
         await plugin.on_broker_message_received(client_id="client", message=message)
 
@@ -1800,8 +1887,10 @@ class TestHandleCmdFromDevice:
             "mqtt_user": "hcma",
         }
 
-        with patch("app.mqtt.plugin.logger") as mock_logger, \
-             patch("app.mqtt.plugin.get_other_devices", return_value=[]):
+        with (
+            patch("app.mqtt.plugin.logger") as mock_logger,
+            patch("app.mqtt.plugin.get_other_devices", return_value=[]),
+        ):
             await plugin._handle_cmd_from_device(cmd_data)
 
         mock_logger.debug.assert_called()
@@ -1809,27 +1898,27 @@ class TestHandleCmdFromDevice:
         assert_that(debug_msg, contains_string("Observed cmd action"))
 
     @pytest.mark.asyncio
-    async def test_cmd_registered_as_plugin_callback(
-        self, mock_broker_context: MagicMock
-    ) -> None:
+    async def test_cmd_registered_as_plugin_callback(self, mock_broker_context: MagicMock) -> None:
         """Plugin should register a cmd callback on init."""
         plugin = OwnTracksPlugin(mock_broker_context)
         assert_that(plugin._handler._cmd_callbacks, has_length(1))
 
     @pytest.mark.asyncio
-    async def test_full_flow_cmd_message_invokes_callback(
-        self, plugin: OwnTracksPlugin
-    ) -> None:
+    async def test_full_flow_cmd_message_invokes_callback(self, plugin: OwnTracksPlugin) -> None:
         """End-to-end: a cmd MQTT message on any /cmd topic invokes the callback."""
         message = MagicMock()
         message.topic = "owntracks/hcma/pixel7pro/cmd"
-        message.data = json.dumps({
-            "_type": "cmd",
-            "action": "reportLocation",
-        }).encode()
+        message.data = json.dumps(
+            {
+                "_type": "cmd",
+                "action": "reportLocation",
+            }
+        ).encode()
 
-        with patch("app.mqtt.plugin.logger") as mock_logger, \
-             patch("app.mqtt.plugin.get_other_devices", return_value=[]):
+        with (
+            patch("app.mqtt.plugin.logger") as mock_logger,
+            patch("app.mqtt.plugin.get_other_devices", return_value=[]),
+        ):
             await plugin.on_broker_message_received(
                 client_id="test-client",
                 message=message,
@@ -1842,9 +1931,7 @@ class TestHandleCmdFromDevice:
         )
 
     @pytest.mark.asyncio
-    async def test_report_location_relayed_to_other_devices(
-        self, plugin: OwnTracksPlugin
-    ) -> None:
+    async def test_report_location_relayed_to_other_devices(self, plugin: OwnTracksPlugin) -> None:
         """reportLocation on requester's own topic relays to all other devices."""
         cmd_data = {
             "action": "reportLocation",
@@ -1857,8 +1944,10 @@ class TestHandleCmdFromDevice:
         }
         other_devices = [("kristen", "pixel7"), ("kristen", "tablet")]
 
-        with patch("app.mqtt.plugin.get_other_devices", return_value=other_devices), \
-             patch("app.mqtt.plugin.CommandPublisher") as mock_publisher_cls:
+        with (
+            patch("app.mqtt.plugin.get_other_devices", return_value=other_devices),
+            patch("app.mqtt.plugin.CommandPublisher") as mock_publisher_cls,
+        ):
             mock_publisher = AsyncMock()
             mock_publisher.send_command = AsyncMock(return_value=True)
             mock_publisher_cls.return_value = mock_publisher
@@ -1870,9 +1959,7 @@ class TestHandleCmdFromDevice:
         assert_that(called_ids, equal_to({"kristen/pixel7", "kristen/tablet"}))
 
     @pytest.mark.asyncio
-    async def test_report_location_not_relayed_when_no_other_devices(
-        self, plugin: OwnTracksPlugin
-    ) -> None:
+    async def test_report_location_not_relayed_when_no_other_devices(self, plugin: OwnTracksPlugin) -> None:
         """reportLocation relay is skipped when there are no other devices."""
         cmd_data = {
             "action": "reportLocation",
@@ -1884,16 +1971,16 @@ class TestHandleCmdFromDevice:
             "mqtt_user": "hcma",
         }
 
-        with patch("app.mqtt.plugin.get_other_devices", return_value=[]), \
-             patch("app.mqtt.plugin.CommandPublisher") as mock_publisher_cls:
+        with (
+            patch("app.mqtt.plugin.get_other_devices", return_value=[]),
+            patch("app.mqtt.plugin.CommandPublisher") as mock_publisher_cls,
+        ):
             await plugin._handle_cmd_from_device(cmd_data)
 
         mock_publisher_cls.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_non_report_location_cmd_not_relayed(
-        self, plugin: OwnTracksPlugin
-    ) -> None:
+    async def test_non_report_location_cmd_not_relayed(self, plugin: OwnTracksPlugin) -> None:
         """Only reportLocation triggers relay; other actions are not forwarded."""
         cmd_data = {
             "action": "dump",
@@ -1905,17 +1992,17 @@ class TestHandleCmdFromDevice:
             "mqtt_user": "hcma",
         }
 
-        with patch("app.mqtt.plugin.get_other_devices") as mock_get, \
-             patch("app.mqtt.plugin.CommandPublisher") as mock_publisher_cls:
+        with (
+            patch("app.mqtt.plugin.get_other_devices") as mock_get,
+            patch("app.mqtt.plugin.CommandPublisher") as mock_publisher_cls,
+        ):
             await plugin._handle_cmd_from_device(cmd_data)
 
         mock_get.assert_not_called()
         mock_publisher_cls.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_report_location_on_friend_topic_not_relayed(
-        self, plugin: OwnTracksPlugin
-    ) -> None:
+    async def test_report_location_on_friend_topic_not_relayed(self, plugin: OwnTracksPlugin) -> None:
         """reportLocation on a friend's /cmd topic (new app behaviour) is not relayed."""
         # topic_user (kristen) != mqtt_user (hcma) — new master branch behaviour
         cmd_data = {
@@ -1928,8 +2015,10 @@ class TestHandleCmdFromDevice:
             "mqtt_user": "hcma",
         }
 
-        with patch("app.mqtt.plugin.get_other_devices") as mock_get, \
-             patch("app.mqtt.plugin.CommandPublisher") as mock_publisher_cls:
+        with (
+            patch("app.mqtt.plugin.get_other_devices") as mock_get,
+            patch("app.mqtt.plugin.CommandPublisher") as mock_publisher_cls,
+        ):
             await plugin._handle_cmd_from_device(cmd_data)
 
         mock_get.assert_not_called()
@@ -1942,6 +2031,7 @@ class TestGetOtherDevices(TestCase):
     def test_excludes_requesting_user_devices(self) -> None:
         """Should not return devices owned by the requesting user."""
         from django.contrib.auth.models import User
+
         user_a = User.objects.create_user(username="hcma_god", password="x")
         user_b = User.objects.create_user(username="kristen_god", password="x")
         Device.objects.create(device_id="pixel7pro_god", mqtt_user="hcma_god", owner=user_a)
@@ -1964,6 +2054,7 @@ class TestGetOtherDevices(TestCase):
     def test_excludes_requester_and_includes_others(self) -> None:
         """Returns only other users' devices, not the requesting user's."""
         from django.contrib.auth.models import User
+
         user_a = User.objects.create_user(username="solo_god", password="x")
         Device.objects.create(device_id="solo_device_god", mqtt_user="solo_god", owner=user_a)
 

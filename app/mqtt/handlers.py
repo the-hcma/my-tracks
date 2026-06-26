@@ -68,6 +68,95 @@ def parse_owntracks_topic(topic: str) -> dict[str, str] | None:
     return result
 
 
+def parse_owntracks_unix_timestamp(value: Any) -> datetime | None:
+    """Convert an OwnTracks Unix timestamp field to a timezone-aware datetime."""
+    if value is None:
+        return None
+    try:
+        return datetime.fromtimestamp(int(value), tz=UTC)
+    except ValueError, TypeError, OSError:
+        return None
+
+
+def _optional_int(value: Any) -> int | None:
+    """Return an int when value is coercible, otherwise None."""
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except ValueError, TypeError:
+        return None
+
+
+def extract_location_optional_fields(message: dict[str, Any]) -> dict[str, Any]:
+    """
+    Extract optional OwnTracks location fields for database persistence.
+
+    Maps wire-format keys (_id, created_at, t, BSSID, etc.) to Location model fields.
+    """
+    fields: dict[str, Any] = {}
+
+    if "_id" in message:
+        fields["owntracks_message_id"] = str(message["_id"])[:64]
+
+    created_at = parse_owntracks_unix_timestamp(message.get("created_at"))
+    if created_at is not None:
+        fields["owntracks_created_at"] = created_at
+
+    if "t" in message:
+        fields["trigger"] = str(message["t"])[:10]
+
+    if "bs" in message:
+        battery_status = _optional_int(message["bs"])
+        if battery_status is not None:
+            fields["battery_status"] = battery_status
+
+    if "source" in message:
+        fields["fix_source"] = str(message["source"])[:20]
+
+    if "vac" in message:
+        vertical_accuracy = _optional_int(message["vac"])
+        if vertical_accuracy is not None:
+            fields["vertical_accuracy"] = vertical_accuracy
+
+    if "cog" in message:
+        course = _optional_int(message["cog"])
+        if course is not None:
+            fields["course"] = course
+
+    if "m" in message:
+        monitoring_mode = _optional_int(message["m"])
+        if monitoring_mode is not None:
+            fields["monitoring_mode"] = monitoring_mode
+
+    if "BSSID" in message:
+        fields["wifi_bssid"] = str(message["BSSID"])[:32]
+
+    if "SSID" in message:
+        fields["wifi_ssid"] = str(message["SSID"])[:64]
+
+    inregions = message.get("inregions")
+    if isinstance(inregions, list):
+        fields["in_regions"] = inregions
+
+    return fields
+
+
+LOCATION_OPTIONAL_MODEL_FIELDS: tuple[str, ...] = (
+    "owntracks_message_id",
+    "owntracks_created_at",
+    "trigger",
+    "battery_status",
+    "fix_source",
+    "vertical_accuracy",
+    "course",
+    "monitoring_mode",
+    "wifi_bssid",
+    "wifi_ssid",
+    "in_regions",
+)
+
+
 def extract_location_data(
     message: dict[str, Any],
     topic_info: dict[str, str],
@@ -132,14 +221,10 @@ def extract_location_data(
     if "batt" in message:
         location_data["battery"] = message["batt"]
 
-    if "bs" in message:
-        location_data["battery_status"] = message["bs"]
-
     if "conn" in message:
         location_data["connection"] = message["conn"]
 
-    if "t" in message:
-        location_data["trigger"] = message["t"]
+    location_data.update(extract_location_optional_fields(message))
 
     return location_data
 
