@@ -18,7 +18,7 @@ from django.utils import timezone
 from app.pki import decrypt_private_key, encrypt_private_key
 
 if TYPE_CHECKING:
-    from app.models import DomestiBotConfig
+    from app.models import DomestiBotConfig, Location
 
 logger = logging.getLogger(__name__)
 
@@ -159,6 +159,53 @@ def record_relayed_location(config: DomestiBotConfig, *, user_id: str, fingerpri
     config.save(update_fields=["last_relayed_location_by_user", "updated_at"])
 
 
+def format_location_timestamp_iso(ts: datetime) -> str:
+    """Format a datetime as UTC ISO-8601 with Z suffix for webhook payloads."""
+    if timezone.is_naive(ts):
+        ts = timezone.make_aware(ts, dt_timezone.utc)
+    return ts.astimezone(dt_timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def location_metadata_for_webhook(location: Location) -> dict[str, Any]:
+    """OwnTracks and ingest metadata to include in domesti-bot location webhooks."""
+    metadata: dict[str, Any] = {}
+
+    if location.owntracks_message_id:
+        metadata["owntracks_message_id"] = location.owntracks_message_id
+    if location.owntracks_created_at is not None:
+        metadata["owntracks_created_at"] = format_location_timestamp_iso(cast(datetime, location.owntracks_created_at))
+    if location.trigger:
+        metadata["trigger"] = location.trigger
+    if location.battery_status is not None:
+        metadata["battery_status"] = location.battery_status
+    if location.fix_source:
+        metadata["fix_source"] = location.fix_source
+    if location.vertical_accuracy is not None:
+        metadata["vertical_accuracy_m"] = location.vertical_accuracy
+    if location.course is not None:
+        metadata["course"] = location.course
+    if location.monitoring_mode is not None:
+        metadata["monitoring_mode"] = location.monitoring_mode
+    if location.wifi_bssid:
+        metadata["wifi_bssid"] = location.wifi_bssid
+    if location.wifi_ssid:
+        metadata["wifi_ssid"] = location.wifi_ssid
+    if location.in_regions:
+        metadata["in_regions"] = location.in_regions
+    if location.altitude is not None:
+        metadata["altitude_m"] = location.altitude
+    if location.velocity is not None:
+        metadata["velocity_kmh"] = location.velocity
+    if location.battery_level is not None:
+        metadata["battery_level"] = location.battery_level
+    if location.tracker_id:
+        metadata["tracker_id"] = location.tracker_id
+    if location.received_at is not None:
+        metadata["received_at"] = format_location_timestamp_iso(cast(datetime, location.received_at))
+
+    return metadata
+
+
 def build_location_webhook_payload(
     *,
     lat: float,
@@ -169,13 +216,14 @@ def build_location_webhook_payload(
     device_id: str = "test-device",
     mqtt_user: str | None = None,
     timestamp_iso: str | None = None,
+    location_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a domesti-bot location ingest payload."""
     payload: dict[str, Any] = {
         "user_id": user_id,
         "lat": lat,
         "lon": lon,
-        "timestamp": timestamp_iso or datetime.now(dt_timezone.utc).isoformat().replace("+00:00", "Z"),
+        "timestamp": timestamp_iso or format_location_timestamp_iso(datetime.now(dt_timezone.utc)),
         "source": "my-tracks",
         "device_id": device_id,
         "mqtt_user": mqtt_user or user_id,
@@ -184,6 +232,8 @@ def build_location_webhook_payload(
         payload["accuracy_m"] = accuracy_m
     if connection_type is not None and connection_type != "":
         payload["connection_type"] = connection_type
+    if location_metadata:
+        payload.update(location_metadata)
     return payload
 
 

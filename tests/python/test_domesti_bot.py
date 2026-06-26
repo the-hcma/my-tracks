@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
@@ -18,10 +19,11 @@ from app.domesti_bot import (
     TEST_LOCATION_DEFAULT_LON,
     append_webhook_log_entry,
     build_location_webhook_payload,
+    location_metadata_for_webhook,
     location_post_url_for_source,
     send_location_webhook,
 )
-from app.models import DomestiBotConfig
+from app.models import Device, DomestiBotConfig, Location
 
 
 @pytest.fixture
@@ -160,6 +162,70 @@ def test_build_location_webhook_payload_includes_connection_type(
         connection_type="w",
     )
     assert_that(payload["connection_type"], equal_to("w"))
+
+
+def test_build_location_webhook_payload_merges_location_metadata(
+    admin_user: User,
+) -> None:
+    username = str(admin_user.username)
+    payload = build_location_webhook_payload(
+        lat=TEST_LOCATION_DEFAULT_LAT,
+        lon=TEST_LOCATION_DEFAULT_LON,
+        user_id=username,
+        location_metadata={
+            "fix_source": "network",
+            "trigger": "p",
+            "wifi_ssid": "home",
+        },
+    )
+    assert_that(payload["source"], equal_to("my-tracks"))
+    assert_that(payload["fix_source"], equal_to("network"))
+    assert_that(payload["trigger"], equal_to("p"))
+    assert_that(payload["wifi_ssid"], equal_to("home"))
+
+
+def test_location_metadata_for_webhook_includes_optional_fields(
+    admin_user: User,
+    db: Any,
+) -> None:
+    device = Device.objects.create(
+        owner=admin_user,
+        device_id="pixel7pro",
+        mqtt_user=admin_user.username,
+    )
+    created_at = timezone.now()
+    location = Location.objects.create(
+        device=device,
+        latitude=Decimal("41.194085"),
+        longitude=Decimal("-73.888365"),
+        timestamp=created_at,
+        accuracy=100,
+        connection_type="w",
+        received_via="mqtt",
+        owntracks_message_id="abc123",
+        owntracks_created_at=created_at,
+        trigger="p",
+        battery_status=2,
+        fix_source="network",
+        vertical_accuracy=5,
+        course=180,
+        monitoring_mode=2,
+        wifi_bssid="aa:bb:cc:dd:ee:ff",
+        wifi_ssid="home",
+        in_regions=["home"],
+        altitude=42,
+        velocity=3,
+        battery_level=85,
+        tracker_id="01",
+    )
+    metadata = location_metadata_for_webhook(location)
+    assert_that(metadata["owntracks_message_id"], equal_to("abc123"))
+    assert_that(metadata["trigger"], equal_to("p"))
+    assert_that(metadata["fix_source"], equal_to("network"))
+    assert_that(metadata["wifi_ssid"], equal_to("home"))
+    assert_that(metadata["in_regions"], equal_to(["home"]))
+    assert_that(metadata["vertical_accuracy_m"], equal_to(5))
+    assert_that(metadata["battery_status"], equal_to(2))
 
 
 def test_test_location_update_uses_test_url(admin_client: APIClient, admin_user: User) -> None:

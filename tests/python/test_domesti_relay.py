@@ -117,6 +117,54 @@ def test_relay_includes_connection_type_in_payload(
     assert_that(recent_log[0]["payload"]["connection_type"], equal_to("w"))
 
 
+def test_relay_includes_optional_location_metadata_in_payload(
+    location: Location,
+) -> None:
+    _pair_config()
+    created_at = timezone.now()
+    location.connection_type = "w"
+    location.owntracks_message_id = "msg-42"
+    location.owntracks_created_at = created_at
+    location.trigger = "p"
+    location.fix_source = "network"
+    location.wifi_ssid = "home"
+    location.wifi_bssid = "aa:bb:cc:dd:ee:ff"
+    location.in_regions = ["home"]
+    location.vertical_accuracy = 8
+    location.save(
+        update_fields=[
+            "connection_type",
+            "owntracks_message_id",
+            "owntracks_created_at",
+            "trigger",
+            "fix_source",
+            "wifi_ssid",
+            "wifi_bssid",
+            "in_regions",
+            "vertical_accuracy",
+        ]
+    )
+    mock_response = MagicMock()
+    mock_response.__enter__.return_value = mock_response
+    mock_response.__exit__.return_value = False
+    mock_response.status = 200
+    mock_response.read.return_value = b'{"ok":true}'
+
+    with patch("app.domesti_bot.urllib.request.urlopen", return_value=mock_response):
+        relay_location_to_domesti_bot(location)
+
+    config = DomestiBotConfig.get_solo()
+    recent_log = cast(list[dict[str, Any]], config.recent_webhook_log)
+    payload = cast(dict[str, Any], recent_log[0]["payload"])
+    assert_that(payload["source"], equal_to("my-tracks"))
+    assert_that(payload["fix_source"], equal_to("network"))
+    assert_that(payload["trigger"], equal_to("p"))
+    assert_that(payload["wifi_ssid"], equal_to("home"))
+    assert_that(payload["in_regions"], equal_to(["home"]))
+    assert_that(payload["vertical_accuracy_m"], equal_to(8))
+    assert_that(payload["owntracks_message_id"], equal_to("msg-42"))
+
+
 def test_relay_skips_duplicate_location_fix(location: Location) -> None:
     _pair_config()
     mock_response = MagicMock()

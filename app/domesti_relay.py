@@ -4,15 +4,14 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from datetime import timezone as dt_timezone
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, cast
-
-from django.utils import timezone
 
 from app.domesti_bot import (
     already_relayed_location,
     build_location_webhook_payload,
+    format_location_timestamp_iso,
+    location_metadata_for_webhook,
     location_post_url_for_source,
     location_relay_fingerprint,
     record_relayed_location,
@@ -25,12 +24,6 @@ if TYPE_CHECKING:
     from app.models import Location
 
 logger = logging.getLogger(__name__)
-
-
-def _format_timestamp(ts: datetime) -> str:
-    if timezone.is_naive(ts):
-        ts = timezone.make_aware(ts, timezone.utc)
-    return ts.astimezone(dt_timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def relay_location_to_domesti_bot(location: Location) -> None:
@@ -49,7 +42,7 @@ def relay_location_to_domesti_bot(location: Location) -> None:
             return
 
         accuracy_raw = location.accuracy
-        timestamp_iso = _format_timestamp(cast(datetime, location.timestamp))
+        timestamp_iso = format_location_timestamp_iso(cast(datetime, location.timestamp))
         latitude = cast(Decimal, location.latitude)
         longitude = cast(Decimal, location.longitude)
         lat = float(latitude)
@@ -78,6 +71,7 @@ def relay_location_to_domesti_bot(location: Location) -> None:
             device_id=device.device_id,
             mqtt_user=device.mqtt_user or user_id,
             timestamp_iso=timestamp_iso,
+            location_metadata=location_metadata_for_webhook(location),
         )
         post_url = location_post_url_for_source(config, source="live")
         delivery = send_location_webhook(config, payload=payload, source="live")
