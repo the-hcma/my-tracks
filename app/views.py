@@ -27,6 +27,7 @@ from rest_framework.response import Response
 
 from .apps import get_mqtt_broker, is_mqtt_degraded
 from .auth import CommandApiKeyAuthentication, CsrfExemptSessionAuthentication
+from .location_display import location_network_vac_log_fragment_from_mapping
 from .models import (
     CertificateAuthority,
     ClientCertificate,
@@ -261,6 +262,13 @@ class LocationViewSet(viewsets.ModelViewSet):
         self.perform_create(serializer)
 
         location_data = serializer.data
+
+        logger.info(
+            "[http] Location saved: id=%s, device=%s%s",
+            location_data.get("id"),
+            location_data.get("device_name"),
+            location_network_vac_log_fragment_from_mapping(location_data),
+        )
 
         # Broadcast new location via WebSocket to owner, shared friends, and staff.
         try:

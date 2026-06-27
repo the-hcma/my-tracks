@@ -43,6 +43,7 @@ import { runLastKnownLoad } from './lastKnownLoad';
 import { registerAndUpdateServiceWorker } from './serviceWorkerRecovery';
 import { getPreferredTheme, setTheme, toggleTheme } from './theme';
 import { boundFetch, dateAndMinutesToTimestamps, extractResultsList, formatLatLonCoordinate, formatLatLonPair, formatMinutesAsTime, getTodayDateString, selectStablePaletteColor } from './utils';
+import { formatActivityLogMeta } from './locationMeta';
 
 // Configuration passed from Django template
 interface MyTracksConfig {
@@ -167,6 +168,9 @@ interface TrackLocation {
     velocity?: number;
     battery_level?: number;
     connection_type?: string;
+    vertical_accuracy?: number;
+    fix_source?: string;
+    wifi_ssid?: string;
     ip_address?: string;
     received_via?: string;
     timestamp_unix?: number;
@@ -2501,11 +2505,7 @@ function displayHistoricWaypoints(locations: TrackLocation[], showDeviceNames = 
             const ip = loc.received_via === 'mqtt' ? 'MQTT' : (loc.ip_address || 'N/A');
             const lat = formatLatLonCoordinate(loc.latitude);
             const lon = formatLatLonCoordinate(loc.longitude);
-            const acc = loc.accuracy || 'N/A';
-            const alt = loc.altitude || 0;
-            const vel = loc.velocity || 0;
-            const batt = loc.battery_level || 'N/A';
-            const conn = loc.connection_type === 'w' ? 'WiFi' : loc.connection_type === 'm' ? 'Mobile' : 'N/A';
+            const meta = formatActivityLogMeta(loc);
             const collapsedCount = loc._collapsedCount || 1;
 
             const countBadge =
@@ -2515,7 +2515,7 @@ function displayHistoricWaypoints(locations: TrackLocation[], showDeviceNames = 
 
             const deviceBadge = `<span style="background:${deviceColor};color:white;padding:1px 6px;border-radius:10px;font-size:11px;margin-left:8px;">${deviceName}</span>`;
 
-            entry.innerHTML = `<span class="log-time">${time}</span> | <span class="log-ip">${ip}</span> | <span class="log-coords">${lat}, ${lon}</span> | <span class="log-meta">acc:${acc}m alt:${alt}m vel:${vel}km/h batt:${batt}% ${conn}</span>${countBadge}${deviceBadge}`;
+            entry.innerHTML = `<span class="log-time">${time}</span> | <span class="log-ip">${ip}</span> | <span class="log-coords">${lat}, ${lon}</span> | <span class="log-meta">${meta}</span>${countBadge}${deviceBadge}`;
 
             attachLocationSelectionToEntry(entry, loc);
             decorateActivityLogEntryForAccuracy(entry, loc);
@@ -2549,11 +2549,7 @@ function displayHistoricWaypoints(locations: TrackLocation[], showDeviceNames = 
             const ip = loc.received_via === 'mqtt' ? 'MQTT' : (loc.ip_address || 'N/A');
             const lat = formatLatLonCoordinate(loc.latitude);
             const lon = formatLatLonCoordinate(loc.longitude);
-            const acc = loc.accuracy || 'N/A';
-            const alt = loc.altitude || 0;
-            const vel = loc.velocity || 0;
-            const batt = loc.battery_level || 'N/A';
-            const conn = loc.connection_type === 'w' ? 'WiFi' : loc.connection_type === 'm' ? 'Mobile' : 'N/A';
+            const meta = formatActivityLogMeta(loc);
             const collapsedCount = loc._collapsedCount || 1;
 
             const countBadge =
@@ -2564,7 +2560,7 @@ function displayHistoricWaypoints(locations: TrackLocation[], showDeviceNames = 
             const deviceColor = getDeviceColor(device);
             const deviceBadge = `<span style="background:${deviceColor};color:white;padding:1px 6px;border-radius:10px;font-size:11px;margin-left:8px;">${device}</span>`;
 
-            entry.innerHTML = `<span class="log-time">${time}</span> | <span class="log-ip">${ip}</span> | <span class="log-coords">${lat}, ${lon}</span> | <span class="log-meta">acc:${acc}m alt:${alt}m vel:${vel}km/h batt:${batt}% ${conn}</span>${countBadge}${deviceBadge}`;
+            entry.innerHTML = `<span class="log-time">${time}</span> | <span class="log-ip">${ip}</span> | <span class="log-coords">${lat}, ${lon}</span> | <span class="log-meta">${meta}</span>${countBadge}${deviceBadge}`;
 
             attachLocationSelectionToEntry(entry, loc);
             decorateActivityLogEntryForAccuracy(entry, loc);
@@ -2610,17 +2606,13 @@ function buildLogEntryElement(location: TrackLocation): HTMLElement {
     const device = location.device_name || 'Unknown';
     const lat = formatLatLonCoordinate(location.latitude);
     const lon = formatLatLonCoordinate(location.longitude);
-    const acc = location.accuracy || 'N/A';
-    const alt = location.altitude || 0;
-    const vel = location.velocity || 0;
-    const batt = location.battery_level || 'N/A';
-    const conn = location.connection_type === 'w' ? 'WiFi' : location.connection_type === 'm' ? 'Mobile' : 'N/A';
+    const meta = formatActivityLogMeta(location);
     const ipDisplay = location.received_via === 'mqtt' ? 'MQTT' : (location.ip_address || 'N/A');
 
     const deviceColor = getDeviceColor(device);
     const deviceBadge = `<span style="background:${deviceColor};color:white;padding:1px 6px;border-radius:10px;font-size:11px;margin-left:8px;">${device}</span>`;
 
-    entry.innerHTML = `<span class="log-time">${time}</span> | <span class="log-ip">${ipDisplay}</span> | <span class="log-coords">${lat}, ${lon}</span> | <span class="log-meta">acc:${acc}m alt:${alt}m vel:${vel}km/h batt:${batt}% ${conn}</span>${deviceBadge}`;
+    entry.innerHTML = `<span class="log-time">${time}</span> | <span class="log-ip">${ipDisplay}</span> | <span class="log-coords">${lat}, ${lon}</span> | <span class="log-meta">${meta}</span>${deviceBadge}`;
 
     attachLocationSelectionToEntry(entry, location);
     decorateActivityLogEntryForAccuracy(entry, location);
