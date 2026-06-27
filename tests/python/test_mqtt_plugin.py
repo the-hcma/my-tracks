@@ -1018,6 +1018,43 @@ class TestHandleLocationEarlyReturn:
 
         broadcast_mock.assert_called_once_with(serialized, transport="mqtt")
 
+    @pytest.mark.asyncio
+    async def test_logs_network_metadata_when_location_saved(
+        self,
+        plugin: OwnTracksPlugin,
+    ) -> None:
+        """Location saved log should include vac and network key=value fragments."""
+        serialized = {
+            "id": 42,
+            "device_name": "mydev",
+            "vertical_accuracy": 100,
+            "fix_source": "network",
+            "connection_type": "w",
+            "wifi_ssid": "familia",
+        }
+        broadcast_mock = AsyncMock()
+        mock_location = MagicMock()
+        mock_location.device.owner = None
+        mock_qs = MagicMock()
+        mock_qs.get.return_value = mock_location
+        with (
+            patch("app.mqtt.plugin.save_location_to_db", return_value=serialized),
+            patch("app.mqtt.plugin.Location.objects.select_related", return_value=mock_qs),
+            patch.object(plugin, "_broadcast_location", broadcast_mock),
+            patch("app.mqtt.plugin.logger") as mock_logger,
+        ):
+            await plugin._handle_location({"device": "mydev", "latitude": 51.5, "longitude": -0.1})
+
+        info_calls = [
+            call
+            for call in mock_logger.info.call_args_list
+            if call[0][0] == "[%s] Location saved: id=%s, device=%s%s%s"
+        ]
+        assert_that(info_calls, has_length(1))
+        assert_that(info_calls[0][0][4], contains_string("vac=100m"))
+        assert_that(info_calls[0][0][4], contains_string("conn=WiFi (familia)"))
+        assert_that(info_calls[0][0][4], contains_string("src=network"))
+
 
 class TestHandleLwtEarlyReturn:
     """Tests for _handle_lwt when save_lwt_to_db returns None."""

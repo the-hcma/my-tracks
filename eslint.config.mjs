@@ -13,7 +13,7 @@ export default tseslint.config(
       parserOptions: {
         projectService: {
           allowDefaultProject: ["web_ui/static/web_ui/ts/*.test.ts"],
-          maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 12,
+          maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 14,
         },
         tsconfigRootDir: import.meta.dirname,
       },
