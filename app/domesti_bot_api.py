@@ -22,6 +22,14 @@ from app.domesti_bot import (
     send_location_webhook,
     serialize_domesti_bot_config,
 )
+from app.domesti_bot_auth import DomestiRelayApiKeyPermission
+from app.domesti_location_request import (
+    LocationRequestError,
+    request_all_devices_location,
+    request_single_device_location,
+    serialize_location_request_batch_result,
+    serialize_location_request_result,
+)
 from app.models import Device, DomestiBotConfig
 
 
@@ -179,3 +187,72 @@ class DomestiBotRevealApiKeyView(APIView):
         if not api_key:
             return Response({"detail": "API key not configured"}, status=status.HTTP_404_NOT_FOUND)
         return Response({"api_key": api_key})
+
+
+def _location_request_context(request: Request) -> tuple[str, str | None, str | None]:
+    data = _request_data_as_str_dict(request)
+    reason = str(data.get("reason", "")).strip()
+    rule_id_raw = data.get("rule_id")
+    geofence_id_raw = data.get("geofence_id")
+    rule_id = str(rule_id_raw).strip() if rule_id_raw not in (None, "") else None
+    geofence_id = str(geofence_id_raw).strip() if geofence_id_raw not in (None, "") else None
+    return reason, rule_id, geofence_id
+
+
+def _location_request_error_response(exc: LocationRequestError) -> Response:
+    body: dict[str, Any] = {"detail": exc.detail}
+    body.update(exc.extra)
+    return Response(body, status=exc.status_code)
+
+
+class DomestiBotRequestAllLocationsView(APIView):
+    """``POST /api/domesti-bot/users/{user_id}/request-location/`` — queue reportLocation on all devices."""
+
+    authentication_classes: list[type] = []
+    permission_classes = [DomestiRelayApiKeyPermission]
+
+    def post(self, request: Request, user_id: str) -> Response:
+        reason, rule_id, geofence_id = _location_request_context(request)
+        config = DomestiBotConfig.get_solo()
+        try:
+            result = request_all_devices_location(
+                config,
+                user_id=user_id,
+                reason=reason,
+                rule_id=rule_id,
+                geofence_id=geofence_id,
+            )
+        except LocationRequestError as exc:
+            return _location_request_error_response(exc)
+
+        return Response(
+            serialize_location_request_batch_result(result, config=config),
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class DomestiBotRequestDeviceLocationView(APIView):
+    """``POST /api/domesti-bot/users/{user_id}/devices/{device_id}/request-location/`` — one device."""
+
+    authentication_classes: list[type] = []
+    permission_classes = [DomestiRelayApiKeyPermission]
+
+    def post(self, request: Request, user_id: str, device_id: str) -> Response:
+        reason, rule_id, geofence_id = _location_request_context(request)
+        config = DomestiBotConfig.get_solo()
+        try:
+            result = request_single_device_location(
+                config,
+                user_id=user_id,
+                device_id=device_id,
+                reason=reason,
+                rule_id=rule_id,
+                geofence_id=geofence_id,
+            )
+        except LocationRequestError as exc:
+            return _location_request_error_response(exc)
+
+        return Response(
+            serialize_location_request_result(result, config=config),
+            status=status.HTTP_202_ACCEPTED,
+        )

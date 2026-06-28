@@ -645,6 +645,14 @@ class DomestiBotConfig(models.Model):
         default=False,  # type: ignore[reportArgumentType]
         help_text="When enabled, POST each saved location to domesti-bot",
     )
+    remote_request_location_enabled = models.BooleanField(
+        default=False,  # type: ignore[reportArgumentType]
+        help_text="When enabled, accept domesti-bot relay API key on request-location endpoint",
+    )
+    location_request_device_cooldown_seconds = models.PositiveIntegerField(
+        default=2,  # type: ignore[reportArgumentType]
+        help_text="Minimum seconds between reportLocation requests for the same device (device endpoint)",
+    )
     recent_webhook_log = models.JSONField(
         default=list,
         blank=True,
@@ -654,6 +662,16 @@ class DomestiBotConfig(models.Model):
         default=dict,
         blank=True,
         help_text="Per-user fingerprint of the last live location successfully relayed to domesti-bot",
+    )
+    last_location_request_at_by_user = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Per-user ISO timestamp of the last domesti-bot reportLocation request",
+    )
+    last_location_request_at_by_device = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Per-device ISO timestamp of the last domesti-bot reportLocation request (mqtt_user/device_id key)",
     )
     updated_at = models.DateTimeField(auto_now=True)
 
