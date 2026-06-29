@@ -1518,6 +1518,23 @@
                         <span>Send location updates to domesti-bot</span>
                     </label>
                 </div>
+                <div class="form-group" style="margin-bottom:1rem;">
+                    <label style="display:flex; align-items:center; gap:0.5rem;{% if not domesti_bot_is_paired %} opacity:0.55; cursor:not-allowed;{% else %} cursor:pointer;{% endif %}">
+                        <input type="checkbox" id="domesti-remote-request-location-enabled" {% if not domesti_bot_is_paired %}disabled {% endif %}
+                            {% if domesti_bot_config.remote_request_location_enabled %}checked{% endif %}>
+                        <span>Allow domesti-bot to request device location via API key</span>
+                    </label>
+                </div>
+                <div class="form-group" style="margin-bottom:1rem;">
+                    <label for="domesti-device-cooldown-seconds">Per-device request cooldown (seconds)</label>
+                    <input type="number" id="domesti-device-cooldown-seconds" min="1" step="1"
+                        {% if not domesti_bot_is_paired %}disabled {% endif %}
+                        value="{{ domesti_bot_config.location_request_device_cooldown_seconds }}"
+                        style="width:6rem; background:var(--input-bg); border:1px solid var(--border); color:var(--text); padding:0.5rem 0.75rem; border-radius:6px;">
+                    <div class="muted" style="font-size:0.85rem; margin-top:0.35rem;">
+                        Minimum interval between reportLocation requests for the same device (user-wide fan-out uses a separate {{ location_request_user_cooldown_seconds }} s cooldown).
+                    </div>
+                </div>
                 <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:center; margin-bottom:0.75rem;">
                     <button type="button" class="submit-btn" id="domesti-test-webhook-btn"
                         {% if not domesti_bot_is_paired %}disabled title="Pair from domesti-bot first"{% endif %}>
@@ -1580,6 +1597,75 @@
                           .catch(function() {
                               domestiSetResult(false, 'Request failed.');
                               toggle.checked = !toggle.checked;
+                          });
+                    });
+                }
+                var remoteRequestToggle = document.getElementById('domesti-remote-request-location-enabled');
+                if (remoteRequestToggle) {
+                    remoteRequestToggle.addEventListener('change', function() {
+                        var requestedChecked = remoteRequestToggle.checked;
+                        var previousChecked = !requestedChecked;
+                        remoteRequestToggle.disabled = true;
+                        fetch('/api/admin/domesti-bot/config/', {
+                            method: 'PATCH',
+                            credentials: 'same-origin',
+                            headers: domestiCsrfHeaders(),
+                            body: JSON.stringify({ remote_request_location_enabled: requestedChecked }),
+                        }).then(function(r) { return r.json().then(function(d) { return { ok: r.ok, d: d }; }); })
+                          .then(function(res) {
+                              if (res.ok) {
+                                  domestiSetResult(
+                                      true,
+                                      requestedChecked
+                                          ? 'Remote request-location via API key enabled.'
+                                          : 'Remote request-location via API key disabled.'
+                                  );
+                              } else {
+                                  domestiSetResult(false, (res.d.errors && res.d.errors[0]) || res.d.detail || 'Failed to save setting.');
+                                  remoteRequestToggle.checked = previousChecked;
+                              }
+                          })
+                          .catch(function() {
+                              domestiSetResult(false, 'Request failed.');
+                              remoteRequestToggle.checked = previousChecked;
+                          })
+                          .finally(function() {
+                              remoteRequestToggle.disabled = false;
+                          });
+                    });
+                }
+                var deviceCooldownInput = document.getElementById('domesti-device-cooldown-seconds');
+                if (deviceCooldownInput) {
+                    var deviceCooldownPrevious = deviceCooldownInput.value;
+                    deviceCooldownInput.addEventListener('change', function() {
+                        var requestedSeconds = parseInt(deviceCooldownInput.value, 10);
+                        if (!requestedSeconds || requestedSeconds < 1) {
+                            deviceCooldownInput.value = deviceCooldownPrevious;
+                            domestiSetResult(false, 'Device cooldown must be at least 1 second.');
+                            return;
+                        }
+                        deviceCooldownInput.disabled = true;
+                        fetch('/api/admin/domesti-bot/config/', {
+                            method: 'PATCH',
+                            credentials: 'same-origin',
+                            headers: domestiCsrfHeaders(),
+                            body: JSON.stringify({ location_request_device_cooldown_seconds: requestedSeconds }),
+                        }).then(function(r) { return r.json().then(function(d) { return { ok: r.ok, d: d }; }); })
+                          .then(function(res) {
+                              if (res.ok) {
+                                  deviceCooldownPrevious = String(requestedSeconds);
+                                  domestiSetResult(true, 'Device request cooldown saved (' + requestedSeconds + ' s).');
+                              } else {
+                                  deviceCooldownInput.value = deviceCooldownPrevious;
+                                  domestiSetResult(false, (res.d.errors && res.d.errors[0]) || res.d.detail || 'Failed to save setting.');
+                              }
+                          })
+                          .catch(function() {
+                              deviceCooldownInput.value = deviceCooldownPrevious;
+                              domestiSetResult(false, 'Request failed.');
+                          })
+                          .finally(function() {
+                              deviceCooldownInput.disabled = false;
                           });
                     });
                 }

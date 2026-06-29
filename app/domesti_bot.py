@@ -97,6 +97,19 @@ def apply_config_patch(config: DomestiBotConfig, data: dict[str, Any]) -> list[s
     errors: list[str] = []
     if "location_updates_enabled" in data:
         config.location_updates_enabled = bool(data["location_updates_enabled"])
+    if "remote_request_location_enabled" in data:
+        config.remote_request_location_enabled = bool(data["remote_request_location_enabled"])
+    if "location_request_device_cooldown_seconds" in data:
+        raw = data["location_request_device_cooldown_seconds"]
+        try:
+            seconds = int(raw)
+        except TypeError, ValueError:
+            errors.append("location_request_device_cooldown_seconds must be a positive integer")
+        else:
+            if seconds < 1:
+                errors.append("location_request_device_cooldown_seconds must be at least 1")
+            else:
+                config.location_request_device_cooldown_seconds = seconds
 
     if not errors:
         config.save()
@@ -105,7 +118,10 @@ def apply_config_patch(config: DomestiBotConfig, data: dict[str, Any]) -> list[s
 
 def serialize_domesti_bot_config(config: DomestiBotConfig) -> dict[str, Any]:
     """JSON-serializable config for Admin API and panel."""
+    from app.domesti_location_request import location_request_rate_limits
+
     recent_webhook_log = cast(list[dict[str, Any]], config.recent_webhook_log or [])
+    device_cooldown_seconds = cast(int, config.location_request_device_cooldown_seconds)
     return {
         "is_paired": config.is_paired,
         "domesti_base_url": config.domesti_base_url,
@@ -114,6 +130,9 @@ def serialize_domesti_bot_config(config: DomestiBotConfig) -> dict[str, Any]:
         "api_key_configured": config.api_key_configured,
         "paired_at": config.paired_at.isoformat() if config.paired_at else None,
         "location_updates_enabled": config.location_updates_enabled,
+        "remote_request_location_enabled": config.remote_request_location_enabled,
+        "location_request_device_cooldown_seconds": device_cooldown_seconds,
+        "location_request_rate_limits": location_request_rate_limits(config),
         "recent_webhook_log": recent_webhook_log[:WEBHOOK_LOG_MAX],
         "domesti_bot_repo_url": DOMESTI_BOT_REPO_URL,
     }

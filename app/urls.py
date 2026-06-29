@@ -8,6 +8,8 @@ from .admin_sync_export import AdminUsersWithDevicesExportView, AdminWaypointsEx
 from .domesti_bot_api import (
     DomestiBotConfigView,
     DomestiBotPairView,
+    DomestiBotRequestAllLocationsView,
+    DomestiBotRequestDeviceLocationView,
     DomestiBotRevealApiKeyView,
     DomestiBotTestLocationUpdateView,
 )
@@ -89,6 +91,16 @@ urlpatterns: list[URLPattern | URLResolver] = [
         r"^admin/domesti-bot/reveal-api-key/?$",
         DomestiBotRevealApiKeyView.as_view(),
         name="admin-domesti-bot-reveal-api-key",
+    ),
+    re_path(
+        r"^domesti-bot/users/(?P<user_id>[^/]+)/request-location/?$",
+        DomestiBotRequestAllLocationsView.as_view(),
+        name="domesti-bot-request-all-locations",
+    ),
+    re_path(
+        r"^domesti-bot/users/(?P<user_id>[^/]+)/devices/(?P<device_id>[^/]+)/request-location/?$",
+        DomestiBotRequestDeviceLocationView.as_view(),
+        name="domesti-bot-request-device-location",
     ),
     re_path(r"^friends/(?P<user_id>\d+)/shares/?$", device_share_list, name="device-share-list"),
     re_path(

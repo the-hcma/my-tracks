@@ -26,6 +26,7 @@ from django.utils import timezone as tz
 
 from app.apps import get_mqtt_broker
 from app.domesti_bot import DOMESTI_BOT_REPO_URL
+from app.domesti_location_request import LOCATION_REQUEST_USER_COOLDOWN_SECONDS
 from app.models import (
     CertificateAuthority,
     ClientCertificate,
@@ -1069,6 +1070,7 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
     context["domesti_bot_config"] = domesti_config
     context["domesti_bot_is_paired"] = domesti_config.is_paired
     context["domesti_bot_repo_url"] = DOMESTI_BOT_REPO_URL
+    context["location_request_user_cooldown_seconds"] = LOCATION_REQUEST_USER_COOLDOWN_SECONDS
 
     return render(request, "web_ui/admin_panel.html", context)
 
