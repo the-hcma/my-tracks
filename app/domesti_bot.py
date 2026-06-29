@@ -160,6 +160,22 @@ def serialize_domesti_bot_config(config: DomestiBotConfig) -> dict[str, Any]:
     }
 
 
+def serialize_domesti_bot_pair_response(config: DomestiBotConfig) -> dict[str, Any]:
+    """JSON body for a successful domesti-bot pair response (limits included for Settings UI)."""
+    body = serialize_domesti_bot_config(config)
+    return {
+        "paired_at": body["paired_at"],
+        "user_location_test_url": body["user_location_test_url"],
+        "user_location_update_url": body["user_location_update_url"],
+        "location_updates_enabled": body["location_updates_enabled"],
+        "remote_request_location_enabled": body["remote_request_location_enabled"],
+        "api_key_configured": body["api_key_configured"],
+        "location_request_device_cooldown_seconds": body["location_request_device_cooldown_seconds"],
+        "location_request_user_cooldown_seconds": body["location_request_user_cooldown_seconds"],
+        "location_request_rate_limits": body["location_request_rate_limits"],
+    }
+
+
 def location_post_url_for_source(config: DomestiBotConfig, *, source: str) -> str:
     """Return the ingest URL for live GPS relay or manual test posts."""
     if source == "test":

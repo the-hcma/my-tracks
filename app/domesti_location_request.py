@@ -33,11 +33,16 @@ LOCATION_REQUEST_USER_COOLDOWN_SECONDS_DEFAULT = 30
 # devices without hammering the same phone; echoed in admin config GET and 202 responses.
 LOCATION_REQUEST_DEVICE_COOLDOWN_SECONDS_DEFAULT = 2
 
+# Shorter per-user cooldown for geofence approach monitoring (batch user endpoint only).
+LOCATION_REQUEST_APPROACH_MONITORING_USER_COOLDOWN_SECONDS = 5
+
 VALID_LOCATION_REQUEST_REASONS = frozenset(
     {
         "accuracy_streak",
         "deferred_edge",
         "boundary_proximity",
+        "stale_watchdog",
+        "approach_monitoring",
     }
 )
 
@@ -80,12 +85,27 @@ class LocationRequestError(Exception):
         self.extra = extra or {}
 
 
-def location_request_rate_limits(config: DomestiBotConfig) -> dict[str, int]:
-    """Rate-limit metadata for domesti-bot (admin config GET and 202 responses)."""
+def location_request_rate_limits(config: DomestiBotConfig) -> dict[str, Any]:
+    """Rate-limit metadata for domesti-bot (admin config GET, pair, and 202 responses)."""
     return {
         "user_cooldown_seconds": user_cooldown_seconds(config),
         "device_cooldown_seconds": device_cooldown_seconds(config),
+        "user_cooldown_seconds_by_reason": user_cooldown_seconds_by_reason(config),
     }
+
+
+def user_cooldown_seconds_by_reason(config: DomestiBotConfig) -> dict[str, int]:
+    """Per-reason overrides for the batch user request-location endpoint."""
+    del config
+    return {
+        "approach_monitoring": LOCATION_REQUEST_APPROACH_MONITORING_USER_COOLDOWN_SECONDS,
+    }
+
+
+def user_cooldown_seconds_for_reason(config: DomestiBotConfig, reason: str) -> int:
+    """Minimum seconds since the last batch request before ``reason`` may run again."""
+    by_reason = user_cooldown_seconds_by_reason(config)
+    return by_reason.get(reason, user_cooldown_seconds(config))
 
 
 def user_cooldown_seconds(config: DomestiBotConfig) -> int:
@@ -122,8 +142,13 @@ def device_for_user(user: User, device_id: str) -> Device | None:
     return Device.objects.filter(owner=user, device_id=bare_device_id).first()
 
 
-def cooldown_until_for_user(config: DomestiBotConfig, user_id: str) -> datetime | None:
-    """Return active per-user cooldown end time, if any."""
+def cooldown_until_for_user(
+    config: DomestiBotConfig,
+    user_id: str,
+    *,
+    reason: str,
+) -> datetime | None:
+    """Return active per-user cooldown end time for ``reason``, if any."""
     last_by_user = cast(dict[str, str], config.last_location_request_at_by_user or {})
     last_raw = last_by_user.get(user_id)
     if not last_raw:
@@ -134,7 +159,8 @@ def cooldown_until_for_user(config: DomestiBotConfig, user_id: str) -> datetime 
         return None
     if timezone.is_naive(last_requested):
         last_requested = timezone.make_aware(last_requested, UTC)
-    cooldown_end = last_requested + timedelta(seconds=user_cooldown_seconds(config))
+    cooldown_seconds = user_cooldown_seconds_for_reason(config, reason)
+    cooldown_end = last_requested + timedelta(seconds=cooldown_seconds)
     now = timezone.now()
     if cooldown_end <= now:
         return None
@@ -247,14 +273,23 @@ def _active_user(user_id: str) -> User:
     return user
 
 
-def _reserve_user_cooldown(config: DomestiBotConfig, *, user_id: str) -> datetime:
+def _reserve_user_cooldown(
+    config: DomestiBotConfig,
+    *,
+    user_id: str,
+    reason: str,
+) -> datetime:
     with _locked_domesti_config(config) as locked_config:
-        active_cooldown = cooldown_until_for_user(locked_config, user_id)
+        active_cooldown = cooldown_until_for_user(locked_config, user_id, reason=reason)
         if active_cooldown is not None:
+            extra: dict[str, Any] = {
+                "cooldown_until": format_location_timestamp_iso(active_cooldown),
+            }
+            extra.update(location_request_rate_limits(locked_config))
             raise LocationRequestError(
                 "Location request cooldown active",
                 status_code=status.HTTP_409_CONFLICT,
-                extra={"cooldown_until": format_location_timestamp_iso(active_cooldown)},
+                extra=extra,
             )
         requested_at = timezone.now()
         record_location_request(locked_config, user_id=user_id, requested_at=requested_at)
@@ -337,7 +372,7 @@ def request_all_devices_location(
         )
 
     mqtt_device_ids = [mqtt_device_id_for_device(device) for device in devices]
-    requested_at = _reserve_user_cooldown(config, user_id=cleaned_user_id)
+    requested_at = _reserve_user_cooldown(config, user_id=cleaned_user_id, reason=reason)
 
     try:
         for mqtt_device_id in mqtt_device_ids:
@@ -360,7 +395,7 @@ def request_all_devices_location(
             )
         raise
 
-    cooldown_until = requested_at + timedelta(seconds=user_cooldown_seconds(config))
+    cooldown_until = requested_at + timedelta(seconds=user_cooldown_seconds_for_reason(config, reason))
     return LocationRequestBatchResult(
         user_id=cleaned_user_id,
         device_ids=mqtt_device_ids,
