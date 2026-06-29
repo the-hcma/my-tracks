@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
@@ -22,7 +23,10 @@ from rest_framework.test import APIClient
 
 from app.domesti_bot import pair_domesti_bot
 from app.domesti_bot_auth import DOMESTI_API_KEY_HEADER
-from app.domesti_location_request import LOCATION_REQUEST_USER_COOLDOWN_SECONDS_DEFAULT
+from app.domesti_location_request import (
+    LOCATION_REQUEST_APPROACH_MONITORING_USER_COOLDOWN_SECONDS,
+    LOCATION_REQUEST_USER_COOLDOWN_SECONDS_DEFAULT,
+)
 from app.models import Device, DomestiBotConfig
 
 ALL_DEVICES_URL = "/api/domesti-bot/users/{user_id}/request-location/"
@@ -259,6 +263,10 @@ def test_request_all_devices_success(
     assert_that(body, has_key("cooldown_until"))
     assert_that(body["user_cooldown_seconds"], equal_to(LOCATION_REQUEST_USER_COOLDOWN_SECONDS_DEFAULT))
     assert_that(body["device_cooldown_seconds"], equal_to(2))
+    assert_that(
+        body["user_cooldown_seconds_by_reason"],
+        has_entries({"approach_monitoring": LOCATION_REQUEST_APPROACH_MONITORING_USER_COOLDOWN_SECONDS}),
+    )
     assert_that(mock_request_location.call_count, equal_to(2))
 
     username = str(tracked_user.username)
@@ -393,6 +401,74 @@ def test_request_all_devices_enforces_user_cooldown(
     body = response.json()
     assert_that(body["detail"], equal_to("Location request cooldown active"))
     assert_that(body, has_key("cooldown_until"))
+    assert_that(body["user_cooldown_seconds"], equal_to(LOCATION_REQUEST_USER_COOLDOWN_SECONDS_DEFAULT))
+    assert_that(
+        body["user_cooldown_seconds_by_reason"],
+        has_entries({"approach_monitoring": LOCATION_REQUEST_APPROACH_MONITORING_USER_COOLDOWN_SECONDS}),
+    )
+
+
+@pytest.mark.parametrize("reason", ["stale_watchdog", "approach_monitoring"])
+def test_monitoring_reasons_accepted(
+    api_client: APIClient,
+    db: Any,
+    tracked_user: User,
+    reason: str,
+) -> None:
+    _pair_and_enable_remote_request()
+    Device.objects.create(
+        owner=tracked_user,
+        device_id="pixel7pro",
+        mqtt_user=tracked_user.username,
+    )
+
+    with patch("app.domesti_location_request.async_to_sync", return_value=MagicMock(return_value=True)):
+        response = api_client.post(
+            ALL_DEVICES_URL.format(user_id=tracked_user.username),
+            _request_body(reason=reason),
+            format="json",
+            headers=_auth_headers(),
+        )
+
+    assert_that(response.status_code, equal_to(status.HTTP_202_ACCEPTED))
+    assert_that(response.json()["reason"], equal_to(reason))
+
+
+def test_approach_monitoring_allows_shorter_user_cooldown(
+    api_client: APIClient,
+    db: Any,
+    tracked_user: User,
+) -> None:
+    _pair_and_enable_remote_request()
+    Device.objects.create(
+        owner=tracked_user,
+        device_id="pixel7pro",
+        mqtt_user=tracked_user.username,
+    )
+
+    requested_at = timezone.now() - timedelta(seconds=10)
+    config = DomestiBotConfig.get_solo()
+    config.last_location_request_at_by_user = {
+        tracked_user.username: requested_at.isoformat().replace("+00:00", "Z"),
+    }
+    config.save(update_fields=["last_location_request_at_by_user", "updated_at"])
+
+    with patch("app.domesti_location_request.async_to_sync", return_value=MagicMock(return_value=True)):
+        blocked = api_client.post(
+            ALL_DEVICES_URL.format(user_id=tracked_user.username),
+            _request_body(reason="stale_watchdog"),
+            format="json",
+            headers=_auth_headers(),
+        )
+        allowed = api_client.post(
+            ALL_DEVICES_URL.format(user_id=tracked_user.username),
+            _request_body(reason="approach_monitoring"),
+            format="json",
+            headers=_auth_headers(),
+        )
+
+    assert_that(blocked.status_code, equal_to(status.HTTP_409_CONFLICT))
+    assert_that(allowed.status_code, equal_to(status.HTTP_202_ACCEPTED))
 
 
 def test_user_cooldown_default_is_thirty_seconds() -> None:

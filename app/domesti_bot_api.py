@@ -21,6 +21,7 @@ from app.domesti_bot import (
     pairing_location_urls_from_data,
     send_location_webhook,
     serialize_domesti_bot_config,
+    serialize_domesti_bot_pair_response,
 )
 from app.domesti_bot_auth import DomestiRelayApiKeyPermission
 from app.domesti_location_request import (
@@ -99,16 +100,8 @@ class DomestiBotPairView(APIView):
             )
             return Response({"errors": [str(exc)]}, status=status.HTTP_400_BAD_REQUEST)
 
-        body = serialize_domesti_bot_config(config)
-        return Response(
-            {
-                "paired_at": body["paired_at"],
-                "user_location_test_url": body["user_location_test_url"],
-                "user_location_update_url": body["user_location_update_url"],
-                "location_updates_enabled": body["location_updates_enabled"],
-                "api_key_configured": body["api_key_configured"],
-            }
-        )
+        body = serialize_domesti_bot_pair_response(config)
+        return Response(body)
 
 
 class DomestiBotTestLocationUpdateView(APIView):

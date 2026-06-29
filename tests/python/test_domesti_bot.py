@@ -86,6 +86,18 @@ def test_pair_stores_encrypted_key_and_enables_updates(admin_client: APIClient) 
     assert_that(response.status_code, equal_to(status.HTTP_200_OK))
     body = response.json()
     assert_that(body["api_key_configured"], is_(True))
+    assert_that(body["location_request_device_cooldown_seconds"], equal_to(2))
+    assert_that(body["location_request_user_cooldown_seconds"], equal_to(30))
+    assert_that(
+        body["location_request_rate_limits"],
+        has_entries(
+            {
+                "user_cooldown_seconds": 30,
+                "device_cooldown_seconds": 2,
+                "user_cooldown_seconds_by_reason": has_entries({"approach_monitoring": 5}),
+            }
+        ),
+    )
     assert_that(
         body["user_location_test_url"],
         equal_to("http://192.168.1.10:8003/v1/webhooks/presence/test"),
@@ -384,6 +396,7 @@ def test_config_get_includes_remote_request_toggle(admin_client: APIClient) -> N
             {
                 "user_cooldown_seconds": LOCATION_REQUEST_USER_COOLDOWN_SECONDS_DEFAULT,
                 "device_cooldown_seconds": 2,
+                "user_cooldown_seconds_by_reason": has_entries({"approach_monitoring": 5}),
             }
         ),
     )
