@@ -10,7 +10,7 @@ import pytest
 from django.contrib.auth.models import User
 from django.test import Client
 from django.utils import timezone
-from hamcrest import assert_that, contains_string, equal_to, has_entries, has_length, is_, not_
+from hamcrest import assert_that, contains_string, equal_to, has_entries, has_item, has_length, is_, not_
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -23,7 +23,7 @@ from app.domesti_bot import (
     location_post_url_for_source,
     send_location_webhook,
 )
-from app.domesti_location_request import LOCATION_REQUEST_USER_COOLDOWN_SECONDS
+from app.domesti_location_request import LOCATION_REQUEST_USER_COOLDOWN_SECONDS_DEFAULT
 from app.models import Device, DomestiBotConfig, Location
 
 
@@ -339,6 +339,35 @@ def test_patch_config_updates_remote_request_toggle(admin_client: APIClient) -> 
     assert_that(bool(config.remote_request_location_enabled), is_(True))
 
 
+def test_patch_config_updates_user_cooldown(admin_client: APIClient) -> None:
+    admin_client.post("/api/admin/domesti-bot/pair/", _pair_payload(), format="json")
+    response = admin_client.patch(
+        "/api/admin/domesti-bot/config/",
+        {"location_request_user_cooldown_seconds": 45},
+        format="json",
+    )
+    assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+    assert_that(response.json()["location_request_user_cooldown_seconds"], equal_to(45))
+    assert_that(response.json()["location_request_rate_limits"]["user_cooldown_seconds"], equal_to(45))
+
+    config = DomestiBotConfig.get_solo()
+    assert_that(cast(int, config.location_request_user_cooldown_seconds), equal_to(45))
+
+
+def test_patch_config_rejects_boolean_user_cooldown(admin_client: APIClient) -> None:
+    admin_client.post("/api/admin/domesti-bot/pair/", _pair_payload(), format="json")
+    response = admin_client.patch(
+        "/api/admin/domesti-bot/config/",
+        {"location_request_user_cooldown_seconds": True},
+        format="json",
+    )
+    assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
+    assert_that(
+        response.json()["errors"],
+        has_item("location_request_user_cooldown_seconds must be a positive integer"),
+    )
+
+
 def test_config_get_includes_remote_request_toggle(admin_client: APIClient) -> None:
     pair_response = admin_client.post("/api/admin/domesti-bot/pair/", _pair_payload(), format="json")
     assert_that(pair_response.status_code, equal_to(status.HTTP_200_OK))
@@ -348,11 +377,12 @@ def test_config_get_includes_remote_request_toggle(admin_client: APIClient) -> N
     assert_that(body["is_paired"], is_(True))
     assert_that(body["remote_request_location_enabled"], is_(False))
     assert_that(body["location_request_device_cooldown_seconds"], equal_to(2))
+    assert_that(body["location_request_user_cooldown_seconds"], equal_to(30))
     assert_that(
         body["location_request_rate_limits"],
         has_entries(
             {
-                "user_cooldown_seconds": LOCATION_REQUEST_USER_COOLDOWN_SECONDS,
+                "user_cooldown_seconds": LOCATION_REQUEST_USER_COOLDOWN_SECONDS_DEFAULT,
                 "device_cooldown_seconds": 2,
             }
         ),
@@ -375,6 +405,7 @@ def test_admin_panel_integrations_tab(django_admin_client: Client, admin_client:
     )
     assert_that(content, contains_string("Test location update webhook"))
     assert_that(content, contains_string("Allow domesti-bot to request device location via API key"))
+    assert_that(content, contains_string("Per-user request cooldown"))
     assert_that(content, contains_string("Per-device request cooldown"))
     assert_that(content, contains_string("domesti-bot instance"))
     assert_that(content, contains_string("http://192.168.1.10:8003"))

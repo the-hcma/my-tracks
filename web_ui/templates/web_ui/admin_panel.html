@@ -1526,13 +1526,23 @@
                     </label>
                 </div>
                 <div class="form-group" style="margin-bottom:1rem;">
+                    <label for="domesti-user-cooldown-seconds">Per-user request cooldown (seconds)</label>
+                    <input type="number" id="domesti-user-cooldown-seconds" min="1" step="1"
+                        {% if not domesti_bot_is_paired %}disabled {% endif %}
+                        value="{{ domesti_bot_config.location_request_user_cooldown_seconds }}"
+                        style="width:6rem; background:var(--input-bg); border:1px solid var(--border); color:var(--text); padding:0.5rem 0.75rem; border-radius:6px;">
+                    <div class="muted" style="font-size:0.85rem; margin-top:0.35rem;">
+                        Minimum interval between all-device reportLocation fan-out requests for the same user.
+                    </div>
+                </div>
+                <div class="form-group" style="margin-bottom:1rem;">
                     <label for="domesti-device-cooldown-seconds">Per-device request cooldown (seconds)</label>
                     <input type="number" id="domesti-device-cooldown-seconds" min="1" step="1"
                         {% if not domesti_bot_is_paired %}disabled {% endif %}
                         value="{{ domesti_bot_config.location_request_device_cooldown_seconds }}"
                         style="width:6rem; background:var(--input-bg); border:1px solid var(--border); color:var(--text); padding:0.5rem 0.75rem; border-radius:6px;">
                     <div class="muted" style="font-size:0.85rem; margin-top:0.35rem;">
-                        Minimum interval between reportLocation requests for the same device (user-wide fan-out uses a separate {{ location_request_user_cooldown_seconds }} s cooldown).
+                        Minimum interval between reportLocation requests for the same device.
                     </div>
                 </div>
                 <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:center; margin-bottom:0.75rem;">
@@ -1638,8 +1648,8 @@
                 if (deviceCooldownInput) {
                     var deviceCooldownPrevious = deviceCooldownInput.value;
                     deviceCooldownInput.addEventListener('change', function() {
-                        var requestedSeconds = parseInt(deviceCooldownInput.value, 10);
-                        if (!requestedSeconds || requestedSeconds < 1) {
+                        var requestedSeconds = deviceCooldownInput.valueAsNumber;
+                        if (!Number.isInteger(requestedSeconds) || requestedSeconds < 1) {
                             deviceCooldownInput.value = deviceCooldownPrevious;
                             domestiSetResult(false, 'Device cooldown must be at least 1 second.');
                             return;
@@ -1666,6 +1676,41 @@
                           })
                           .finally(function() {
                               deviceCooldownInput.disabled = false;
+                          });
+                    });
+                }
+                var userCooldownInput = document.getElementById('domesti-user-cooldown-seconds');
+                if (userCooldownInput) {
+                    var userCooldownPrevious = userCooldownInput.value;
+                    userCooldownInput.addEventListener('change', function() {
+                        var requestedSeconds = userCooldownInput.valueAsNumber;
+                        if (!Number.isInteger(requestedSeconds) || requestedSeconds < 1) {
+                            userCooldownInput.value = userCooldownPrevious;
+                            domestiSetResult(false, 'User cooldown must be at least 1 second.');
+                            return;
+                        }
+                        userCooldownInput.disabled = true;
+                        fetch('/api/admin/domesti-bot/config/', {
+                            method: 'PATCH',
+                            credentials: 'same-origin',
+                            headers: domestiCsrfHeaders(),
+                            body: JSON.stringify({ location_request_user_cooldown_seconds: requestedSeconds }),
+                        }).then(function(r) { return r.json().then(function(d) { return { ok: r.ok, d: d }; }); })
+                          .then(function(res) {
+                              if (res.ok) {
+                                  userCooldownPrevious = String(requestedSeconds);
+                                  domestiSetResult(true, 'User request cooldown saved (' + requestedSeconds + ' s).');
+                              } else {
+                                  userCooldownInput.value = userCooldownPrevious;
+                                  domestiSetResult(false, (res.d.errors && res.d.errors[0]) || res.d.detail || 'Failed to save setting.');
+                              }
+                          })
+                          .catch(function() {
+                              userCooldownInput.value = userCooldownPrevious;
+                              domestiSetResult(false, 'Request failed.');
+                          })
+                          .finally(function() {
+                              userCooldownInput.disabled = false;
                           });
                     });
                 }
