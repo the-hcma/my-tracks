@@ -11,6 +11,7 @@ from decimal import Decimal
 from typing import Any, cast
 
 from django.contrib.auth.models import User
+from django.core.validators import MinValueValidator
 from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
@@ -651,7 +652,13 @@ class DomestiBotConfig(models.Model):
     )
     location_request_device_cooldown_seconds = models.PositiveIntegerField(
         default=2,  # type: ignore[reportArgumentType]
+        validators=[MinValueValidator(1)],
         help_text="Minimum seconds between reportLocation requests for the same device (device endpoint)",
+    )
+    location_request_user_cooldown_seconds = models.PositiveIntegerField(
+        default=30,  # type: ignore[reportArgumentType]
+        validators=[MinValueValidator(1)],
+        help_text="Minimum seconds between all-device reportLocation fan-out requests for the same user",
     )
     recent_webhook_log = models.JSONField(
         default=list,

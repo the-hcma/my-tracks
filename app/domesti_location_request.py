@@ -23,9 +23,10 @@ from app.mqtt.commands import CommandPublisher
 
 logger = logging.getLogger(__name__)
 
-# Per-user cooldown (30 s): applies to POST .../users/{id}/request-location/ (all owned devices).
-# Limits how often domesti-bot can fan out reportLocation to every device for one user.
-LOCATION_REQUEST_USER_COOLDOWN_SECONDS = 30
+# Per-user cooldown (default 30 s, operator-tunable in Admin Panel): applies to POST
+# .../users/{id}/request-location/ (all owned devices). Limits how often domesti-bot can
+# fan out reportLocation to every device for one user; echoed in admin config GET and 202s.
+LOCATION_REQUEST_USER_COOLDOWN_SECONDS_DEFAULT = 30
 
 # Per-device cooldown (default 2 s, operator-tunable in Admin Panel): applies to POST
 # .../users/{id}/devices/{device_id}/request-location/. Lets domesti-bot poll individual
@@ -82,9 +83,14 @@ class LocationRequestError(Exception):
 def location_request_rate_limits(config: DomestiBotConfig) -> dict[str, int]:
     """Rate-limit metadata for domesti-bot (admin config GET and 202 responses)."""
     return {
-        "user_cooldown_seconds": LOCATION_REQUEST_USER_COOLDOWN_SECONDS,
+        "user_cooldown_seconds": user_cooldown_seconds(config),
         "device_cooldown_seconds": device_cooldown_seconds(config),
     }
+
+
+def user_cooldown_seconds(config: DomestiBotConfig) -> int:
+    """Configured per-user minimum interval between all-device reportLocation requests."""
+    return cast(int, config.location_request_user_cooldown_seconds)
 
 
 def device_cooldown_seconds(config: DomestiBotConfig) -> int:
@@ -128,7 +134,7 @@ def cooldown_until_for_user(config: DomestiBotConfig, user_id: str) -> datetime 
         return None
     if timezone.is_naive(last_requested):
         last_requested = timezone.make_aware(last_requested, UTC)
-    cooldown_end = last_requested + timedelta(seconds=LOCATION_REQUEST_USER_COOLDOWN_SECONDS)
+    cooldown_end = last_requested + timedelta(seconds=user_cooldown_seconds(config))
     now = timezone.now()
     if cooldown_end <= now:
         return None
@@ -354,7 +360,7 @@ def request_all_devices_location(
             )
         raise
 
-    cooldown_until = requested_at + timedelta(seconds=LOCATION_REQUEST_USER_COOLDOWN_SECONDS)
+    cooldown_until = requested_at + timedelta(seconds=user_cooldown_seconds(config))
     return LocationRequestBatchResult(
         user_id=cleaned_user_id,
         device_ids=mqtt_device_ids,

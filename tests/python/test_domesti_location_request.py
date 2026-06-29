@@ -22,7 +22,7 @@ from rest_framework.test import APIClient
 
 from app.domesti_bot import pair_domesti_bot
 from app.domesti_bot_auth import DOMESTI_API_KEY_HEADER
-from app.domesti_location_request import LOCATION_REQUEST_USER_COOLDOWN_SECONDS
+from app.domesti_location_request import LOCATION_REQUEST_USER_COOLDOWN_SECONDS_DEFAULT
 from app.models import Device, DomestiBotConfig
 
 ALL_DEVICES_URL = "/api/domesti-bot/users/{user_id}/request-location/"
@@ -257,7 +257,7 @@ def test_request_all_devices_success(
     assert_that(body["device_ids"], has_length(2))
     assert_that(body, has_key("requested_at"))
     assert_that(body, has_key("cooldown_until"))
-    assert_that(body["user_cooldown_seconds"], equal_to(LOCATION_REQUEST_USER_COOLDOWN_SECONDS))
+    assert_that(body["user_cooldown_seconds"], equal_to(LOCATION_REQUEST_USER_COOLDOWN_SECONDS_DEFAULT))
     assert_that(body["device_cooldown_seconds"], equal_to(2))
     assert_that(mock_request_location.call_count, equal_to(2))
 
@@ -395,5 +395,5 @@ def test_request_all_devices_enforces_user_cooldown(
     assert_that(body, has_key("cooldown_until"))
 
 
-def test_cooldown_constant_is_thirty_seconds() -> None:
-    assert_that(LOCATION_REQUEST_USER_COOLDOWN_SECONDS, equal_to(30))
+def test_user_cooldown_default_is_thirty_seconds() -> None:
+    assert_that(LOCATION_REQUEST_USER_COOLDOWN_SECONDS_DEFAULT, equal_to(30))
