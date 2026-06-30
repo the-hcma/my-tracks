@@ -1,11 +1,22 @@
 """Shared test fixtures for the my-tracks project."""
 
+from collections.abc import Iterator
 from typing import Any
 
 import pytest
 from django.contrib.auth.models import User
 from django.test import Client
 from rest_framework.test import APIClient
+
+
+@pytest.fixture(autouse=True)
+def _inline_domesti_location_request_queue() -> Iterator[None]:
+    """Process domesti-bot location requests synchronously in tests."""
+    from app.domesti_location_request_queue import set_inline_processing
+
+    set_inline_processing(True)
+    yield
+    set_inline_processing(False)
 
 
 @pytest.fixture

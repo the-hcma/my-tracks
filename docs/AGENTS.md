@@ -624,6 +624,11 @@ Passwords must never appear in shell command arguments — they end up in bash h
   - ✅ `assert_that(flag, is_(True))` instead of ❌ `assert flag`
 - Rationale: Consistent assertion style, better error messages on failure, expressive test intent
 
+**No wall-clock timing in tests**:
+- Do **not** use real elapsed time (`time.sleep`, `time.monotonic()` deltas, tight `elapsed < N` checks) to prove async or scheduling behavior — it flakes on CI
+- Prefer **`time-machine`** for time-based production logic, or **synchronization primitives** (`threading.Event`, gated mock side effects) to prove ordering
+- See `.cursor/rules/no-wall-clock-tests.mdc`
+
 **Port Handling in Tests**:
 - **NEVER hardcode well-known ports** (`1883`, `8080`, etc.) in test code
 - Use port `0` (OS-allocated) for any test that needs a port number

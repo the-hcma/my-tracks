@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+from collections.abc import Iterator
 from datetime import timedelta
 from typing import Any, cast
 from unittest.mock import MagicMock, patch
@@ -16,7 +18,6 @@ from hamcrest import (
     has_entries,
     has_key,
     has_length,
-    is_,
 )
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -473,3 +474,147 @@ def test_approach_monitoring_allows_shorter_user_cooldown(
 
 def test_user_cooldown_default_is_thirty_seconds() -> None:
     assert_that(LOCATION_REQUEST_USER_COOLDOWN_SECONDS_DEFAULT, equal_to(30))
+
+
+@pytest.fixture
+def background_location_request_worker() -> Iterator[None]:
+    """Use the in-memory worker thread instead of inline processing."""
+    from app.domesti_location_request_queue import (
+        drain_location_request_queue,
+        set_inline_processing,
+        start_location_request_worker,
+        stop_location_request_worker,
+    )
+
+    set_inline_processing(False)
+    start_location_request_worker()
+    try:
+        yield
+    finally:
+        try:
+            drain_location_request_queue()
+        finally:
+            stop_location_request_worker()
+            set_inline_processing(True)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_async_queue_returns_before_worker_finishes(
+    api_client: APIClient,
+    db: Any,
+    tracked_user: User,
+    background_location_request_worker: None,
+) -> None:
+    from app.domesti_location_request_queue import drain_location_request_queue
+
+    _pair_and_enable_remote_request()
+    Device.objects.create(
+        owner=tracked_user,
+        device_id="pixel7pro",
+        mqtt_user=tracked_user.username,
+    )
+
+    publish_gate = threading.Event()
+
+    def blocked_publish(*_args: object, **_kwargs: object) -> bool:
+        publish_gate.wait(timeout=1.0)
+        return True
+
+    mock_request_location = MagicMock(side_effect=blocked_publish)
+    with patch("app.domesti_location_request.async_to_sync", return_value=mock_request_location):
+        response = api_client.post(
+            ALL_DEVICES_URL.format(user_id=tracked_user.username),
+            _request_body(reason="stale_watchdog"),
+            format="json",
+            headers=_auth_headers(),
+        )
+
+        assert_that(response.status_code, equal_to(status.HTTP_202_ACCEPTED))
+        assert_that(mock_request_location.call_count, equal_to(0))
+        publish_gate.set()
+        drain_location_request_queue()
+        assert_that(mock_request_location.call_count, equal_to(1))
+
+
+@pytest.mark.django_db(transaction=True)
+def test_async_queue_processes_multiple_users_sequentially(
+    api_client: APIClient,
+    db: Any,
+    background_location_request_worker: None,
+) -> None:
+    from app.domesti_location_request_queue import drain_location_request_queue
+
+    _pair_and_enable_remote_request()
+    hcma = User.objects.create_user(username="hcma")
+    kristen = User.objects.create_user(username="kristen")
+    for user, device_id in ((hcma, "pixel7pro"), (kristen, "pixel7")):
+        Device.objects.create(
+            owner=user,
+            device_id=device_id,
+            mqtt_user=user.username,
+        )
+
+    mock_request_location = MagicMock(return_value=True)
+    with patch("app.domesti_location_request.async_to_sync", return_value=mock_request_location):
+        for user_id in ("hcma", "kristen"):
+            response = api_client.post(
+                ALL_DEVICES_URL.format(user_id=user_id),
+                _request_body(reason="stale_watchdog"),
+                format="json",
+                headers=_auth_headers(),
+            )
+            assert_that(response.status_code, equal_to(status.HTTP_202_ACCEPTED))
+
+        drain_location_request_queue()
+        assert_that(mock_request_location.call_count, equal_to(2))
+
+    config = DomestiBotConfig.get_solo()
+    last_by_user = cast(dict[str, str], config.last_location_request_at_by_user)
+    assert_that(last_by_user, has_key("hcma"))
+    assert_that(last_by_user, has_key("kristen"))
+
+
+@pytest.mark.django_db(transaction=True)
+def test_async_queue_honors_pending_user_cooldown_before_worker_persists(
+    api_client: APIClient,
+    db: Any,
+    tracked_user: User,
+    background_location_request_worker: None,
+) -> None:
+    from app.domesti_location_request_queue import drain_location_request_queue
+
+    _pair_and_enable_remote_request()
+    Device.objects.create(
+        owner=tracked_user,
+        device_id="pixel7pro",
+        mqtt_user=tracked_user.username,
+    )
+
+    publish_gate = threading.Event()
+
+    def blocked_publish(*_args: object, **_kwargs: object) -> bool:
+        publish_gate.wait(timeout=1.0)
+        return True
+
+    mock_request_location = MagicMock(side_effect=blocked_publish)
+    with patch("app.domesti_location_request.async_to_sync", return_value=mock_request_location):
+        first = api_client.post(
+            ALL_DEVICES_URL.format(user_id=tracked_user.username),
+            _request_body(reason="stale_watchdog"),
+            format="json",
+            headers=_auth_headers(),
+        )
+        second = api_client.post(
+            ALL_DEVICES_URL.format(user_id=tracked_user.username),
+            _request_body(reason="stale_watchdog"),
+            format="json",
+            headers=_auth_headers(),
+        )
+
+        assert_that(first.status_code, equal_to(status.HTTP_202_ACCEPTED))
+        assert_that(second.status_code, equal_to(status.HTTP_409_CONFLICT))
+        assert_that(second.json()["detail"], equal_to("Location request cooldown active"))
+
+        publish_gate.set()
+        drain_location_request_queue()
+        assert_that(mock_request_location.call_count, equal_to(1))

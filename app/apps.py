@@ -534,14 +534,18 @@ class MyTracksConfig(AppConfig):
 
         if mqtt_port < 0 and mqtt_tls_port < 0:
             logger.info("MQTT broker disabled (port=%d, tls_port=%d)", mqtt_port, mqtt_tls_port)
-            return
+        else:
+            _state.thread = threading.Thread(
+                target=_run_mqtt_broker,
+                args=(mqtt_port, mqtt_tls_port),
+                daemon=True,
+                name="mqtt-broker",
+            )
+            _state.thread.start()
+            atexit.register(_stop_mqtt_broker)
+            logger.info("MQTT broker thread started (port=%d, tls_port=%d)", mqtt_port, mqtt_tls_port)
 
-        _state.thread = threading.Thread(
-            target=_run_mqtt_broker,
-            args=(mqtt_port, mqtt_tls_port),
-            daemon=True,
-            name="mqtt-broker",
-        )
-        _state.thread.start()
-        atexit.register(_stop_mqtt_broker)
-        logger.info("MQTT broker thread started (port=%d, tls_port=%d)", mqtt_port, mqtt_tls_port)
+        from app.domesti_location_request_queue import start_location_request_worker
+
+        start_location_request_worker()
+        logger.info("domesti-bot location request worker started")

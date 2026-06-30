@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from django.contrib.auth.models import User
+from django.http import HttpResponseBase
 from rest_framework import status
 from rest_framework.permissions import IsAdminUser
 from rest_framework.request import Request
@@ -26,10 +27,13 @@ from app.domesti_bot import (
 from app.domesti_bot_auth import DomestiRelayApiKeyPermission
 from app.domesti_location_request import (
     LocationRequestError,
-    request_all_devices_location,
-    request_single_device_location,
     serialize_location_request_batch_result,
     serialize_location_request_result,
+)
+from app.domesti_location_request_queue import (
+    domesti_location_request_lock,
+    enqueue_batch_location_request,
+    enqueue_device_location_request,
 )
 from app.models import Device, DomestiBotConfig
 
@@ -204,11 +208,15 @@ class DomestiBotRequestAllLocationsView(APIView):
     authentication_classes: list[type] = []
     permission_classes = [DomestiRelayApiKeyPermission]
 
+    def dispatch(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponseBase:
+        with domesti_location_request_lock():
+            return super().dispatch(request, *args, **kwargs)
+
     def post(self, request: Request, user_id: str) -> Response:
         reason, rule_id, geofence_id = _location_request_context(request)
         config = DomestiBotConfig.get_solo()
         try:
-            result = request_all_devices_location(
+            result = enqueue_batch_location_request(
                 config,
                 user_id=user_id,
                 reason=reason,
@@ -230,11 +238,15 @@ class DomestiBotRequestDeviceLocationView(APIView):
     authentication_classes: list[type] = []
     permission_classes = [DomestiRelayApiKeyPermission]
 
+    def dispatch(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponseBase:
+        with domesti_location_request_lock():
+            return super().dispatch(request, *args, **kwargs)
+
     def post(self, request: Request, user_id: str, device_id: str) -> Response:
         reason, rule_id, geofence_id = _location_request_context(request)
         config = DomestiBotConfig.get_solo()
         try:
-            result = request_single_device_location(
+            result = enqueue_device_location_request(
                 config,
                 user_id=user_id,
                 device_id=device_id,
