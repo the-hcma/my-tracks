@@ -18,6 +18,7 @@ from app.domesti_bot import (
     record_webhook_delivery_failure,
     send_location_webhook,
 )
+from app.location_report import location_reported_at
 from app.models import DomestiBotConfig
 
 if TYPE_CHECKING:
@@ -48,17 +49,12 @@ def relay_location_to_domesti_bot(location: Location) -> None:
         lat = float(latitude)
         lon = float(longitude)
         user_id = owner.username
-        fingerprint = location_relay_fingerprint(
-            user_id=user_id,
-            timestamp_iso=timestamp_iso,
-            latitude=latitude,
-            longitude=longitude,
-        )
+        reported_at_iso = format_location_timestamp_iso(location_reported_at(location))
+        fingerprint = location_relay_fingerprint(location)
         if already_relayed_location(config, user_id=user_id, fingerprint=fingerprint):
             logger.debug(
-                "[domesti-bot] skipping duplicate live relay user=%s timestamp=%s",
+                "[domesti-bot] skipping duplicate live relay user=%s",
                 user_id,
-                timestamp_iso,
             )
             return
 
@@ -70,6 +66,7 @@ def relay_location_to_domesti_bot(location: Location) -> None:
             connection_type=str(location.connection_type) if location.connection_type else None,
             device_id=device.device_id,
             mqtt_user=device.mqtt_user or user_id,
+            reported_at_iso=reported_at_iso,
             timestamp_iso=timestamp_iso,
             location_metadata=location_metadata_for_webhook(location),
         )
