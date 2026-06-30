@@ -46,7 +46,6 @@ import { boundFetch, dateAndMinutesToTimestamps, extractResultsList, formatLatLo
 import { formatActivityLogMeta } from './locationMeta';
 import {
     compareLocationsByReportTimeDesc,
-    formatFixAgeNote,
     formatFixObservedLogLine,
     formatTriggerLabel,
     locationReportedAtUnix,
