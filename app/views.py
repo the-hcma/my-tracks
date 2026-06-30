@@ -28,6 +28,7 @@ from rest_framework.response import Response
 from .apps import get_mqtt_broker, is_mqtt_degraded
 from .auth import CommandApiKeyAuthentication, CsrfExemptSessionAuthentication
 from .location_display import location_network_vac_log_fragment_from_mapping
+from .location_report import location_report_log_fragment_from_mapping
 from .models import (
     CertificateAuthority,
     ClientCertificate,
@@ -267,7 +268,8 @@ class LocationViewSet(viewsets.ModelViewSet):
             "[http] Location saved: id=%s, device=%s%s",
             location_data.get("id"),
             location_data.get("device_name"),
-            location_network_vac_log_fragment_from_mapping(location_data),
+            location_network_vac_log_fragment_from_mapping(location_data)
+            + location_report_log_fragment_from_mapping(location_data),
         )
 
         # Broadcast new location via WebSocket to owner, shared friends, and staff.
@@ -452,6 +454,9 @@ class LocationViewSet(viewsets.ModelViewSet):
         """
         Return the latest location for each visible device.
 
+        Latest is the most recently reported row per device (``created_at`` or
+        ``received_at``), not highest GPS fix (``tst``) alone.
+
         Optional query parameters:
         - device: Repeat to filter to specific devices (``owner/device_id`` or plain ``device_id``)
         """
@@ -463,9 +468,27 @@ class LocationViewSet(viewsets.ModelViewSet):
                 return filtered
             devices = filtered
 
-        latest_location_ids = devices.filter(latest_location_id__isnull=False).values_list(
-            "latest_location_id", flat=True
+        from django.db.models import OuterRef, Subquery
+        from django.db.models.functions import Coalesce
+
+        from app.models import Location
+
+        latest_location_subquery = (
+            Location.objects.filter(device_id=OuterRef("pk"))
+            .order_by(
+                Coalesce("owntracks_created_at", "received_at").desc(),
+                "-timestamp",
+                "-id",
+            )
+            .values("id")[:1]
         )
+        latest_location_ids = [
+            loc_id
+            for loc_id in devices.annotate(latest_loc_id=Subquery(latest_location_subquery)).values_list(
+                "latest_loc_id", flat=True
+            )
+            if loc_id is not None
+        ]
         queryset = (
             self.get_queryset()
             .filter(id__in=latest_location_ids)

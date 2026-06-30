@@ -2,12 +2,15 @@
  * Live activity refresh helpers (HTTP is the single source for the activity log).
  */
 
+import { locationReportedAtUnix } from './locationReport';
+
 export type LiveActivityLoadKind = 'hour' | '30m' | 'latest';
 export type LiveActivityRefreshRequest = LiveActivityLoadKind | 'incremental';
 
 export interface TrackLocationRow {
     id?: number;
     timestamp_unix?: number;
+    reported_at_unix?: number;
 }
 
 export interface LiveActivityCursor {
@@ -99,7 +102,7 @@ export function updateCursorFromLocations(
     let lastSeenLocationId = cursor.lastSeenLocationId;
 
     for (const loc of locations) {
-        const ts = loc.timestamp_unix ?? 0;
+        const ts = locationReportedAtUnix(loc);
         if (lastTimestamp === null || ts > lastTimestamp) {
             lastTimestamp = ts;
         }
@@ -113,9 +116,16 @@ export function updateCursorFromLocations(
     return { lastTimestamp, lastSeenLocationId };
 }
 
-/** Sort oldest-first for stable incremental append order. */
+/** Sort oldest-first for stable incremental append order (by report time, then id). */
 export function sortLocationsOldestFirst<T extends TrackLocationRow>(locations: T[]): T[] {
-    return [...locations].sort((a, b) => (a.timestamp_unix ?? 0) - (b.timestamp_unix ?? 0));
+    return [...locations].sort((a, b) => {
+        const aReport = locationReportedAtUnix(a);
+        const bReport = locationReportedAtUnix(b);
+        if (aReport !== bReport) {
+            return aReport - bReport;
+        }
+        return (a.id ?? 0) - (b.id ?? 0);
+    });
 }
 
 export function mergeHintLocationIds(queue: number[], hintLocationId?: number): number[] {

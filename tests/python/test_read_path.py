@@ -493,6 +493,41 @@ class TestLastKnownLocations:
         response = alice_client.get("/api/locations/last-known/?device=bob-phone")
         assert_that(response.status_code, equal_to(status.HTTP_404_NOT_FOUND))
 
+    def test_last_known_prefers_newer_report_over_higher_tst(
+        self,
+        alice_client: APIClient,
+        alice_device: Device,
+    ) -> None:
+        """Ping with old tst but new created_at wins over a row with higher tst only."""
+        older_fix = timezone.now() - timezone.timedelta(hours=2)
+        newer_fix = timezone.now() - timezone.timedelta(hours=1)
+        report_time = timezone.now()
+        Location.objects.create(
+            device=alice_device,
+            latitude=Decimal("51.1"),
+            longitude=Decimal("-0.2"),
+            timestamp=newer_fix,
+            owntracks_created_at=newer_fix,
+            received_via="mqtt",
+        )
+        ping_row = Location.objects.create(
+            device=alice_device,
+            latitude=Decimal("51.1"),
+            longitude=Decimal("-0.2"),
+            timestamp=older_fix,
+            owntracks_created_at=report_time,
+            trigger="p",
+            received_via="mqtt",
+        )
+
+        response = alice_client.get("/api/locations/last-known/?device=alice/alice-phone")
+        assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+        results = response.json()["results"]
+        assert_that(len(results), equal_to(1))
+        assert_that(results[0]["id"], equal_to(ping_row.id))
+        assert_that(results[0]["reported_at_unix"], equal_to(int(report_time.timestamp())))
+        assert_that(results[0]["fix_age_seconds"], equal_to(int((report_time - older_fix).total_seconds())))
+
 
 class TestDeviceNameInApi:
     def test_device_list_includes_canonical_device_name(

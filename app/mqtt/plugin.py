@@ -28,6 +28,8 @@ from django.contrib.auth.models import User
 from django.utils import timezone as dj_tz
 
 from app.location_display import location_network_vac_log_fragment_from_mapping
+from app.location_report import location_report_log_fragment_from_mapping
+from app.location_report import location_report_log_fragment_from_mapping
 from app.models import (
     Device,
     Location,
@@ -564,7 +566,8 @@ class OwnTracksPlugin(BasePlugin[BrokerContext]):
             transport,
             serialized.get("id"),
             serialized.get("device_name"),
-            location_network_vac_log_fragment_from_mapping(serialized),
+            location_network_vac_log_fragment_from_mapping(serialized)
+            + location_report_log_fragment_from_mapping(serialized),
             identity,
         )
 

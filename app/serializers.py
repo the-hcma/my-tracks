@@ -20,6 +20,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
 from .device_names import device_name_for
+from .location_report import location_fix_age_seconds, location_reported_at, location_reported_at_unix
 from .models import (
     CertificateAuthority,
     ClientCertificate,
@@ -112,6 +113,9 @@ class LocationSerializer(serializers.ModelSerializer):
     device_name = serializers.SerializerMethodField()
     tid_display = serializers.SerializerMethodField()
     timestamp_unix = serializers.SerializerMethodField()
+    reported_at = serializers.SerializerMethodField()
+    reported_at_unix = serializers.SerializerMethodField()
+    fix_age_seconds = serializers.SerializerMethodField()
 
     def get_device_name(self, obj: Location) -> str:
         """Return canonical owner/device_id identifier."""
@@ -125,6 +129,18 @@ class LocationSerializer(serializers.ModelSerializer):
         """Return timestamp as Unix timestamp for JavaScript."""
         return int(obj.timestamp.timestamp())
 
+    def get_reported_at(self, obj: Location) -> str:
+        """ISO timestamp when the device report was built or ingested."""
+        return cast(str, serializers.DateTimeField().to_representation(location_reported_at(obj)))
+
+    def get_reported_at_unix(self, obj: Location) -> int:
+        """Unix seconds for report time (live activity ordering)."""
+        return location_reported_at_unix(obj)
+
+    def get_fix_age_seconds(self, obj: Location) -> int:
+        """Seconds between GPS fix (tst) and report time."""
+        return location_fix_age_seconds(obj)
+
     class Meta:
         model = Location
         fields = [
@@ -136,6 +152,9 @@ class LocationSerializer(serializers.ModelSerializer):
             "device_name",
             "tid_display",
             "timestamp_unix",
+            "reported_at",
+            "reported_at_unix",
+            "fix_age_seconds",
             "latitude",
             "longitude",
             "timestamp",
