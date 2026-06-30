@@ -163,6 +163,40 @@ def test_relay_includes_optional_location_metadata_in_payload(
     assert_that(payload["in_regions"], equal_to(["home"]))
     assert_that(payload["vertical_accuracy_m"], equal_to(8))
     assert_that(payload["owntracks_message_id"], equal_to("msg-42"))
+    assert_that(payload["reported_at"], is_(not_(none())))
+    assert_that(payload["timestamp"], is_(not_(none())))
+
+
+def test_relay_delivers_ping_with_same_fix_and_new_message_id(
+    location: Location,
+    device: Device,
+) -> None:
+    _pair_config()
+    location.owntracks_message_id = "msg-first"
+    location.save(update_fields=["owntracks_message_id"])
+    mock_response = MagicMock()
+    mock_response.__enter__.return_value = mock_response
+    mock_response.__exit__.return_value = False
+    mock_response.status = 200
+    mock_response.read.return_value = b'{"ok":true}'
+
+    ping = Location.objects.create(
+        device=device,
+        latitude=location.latitude,
+        longitude=location.longitude,
+        timestamp=location.timestamp,
+        accuracy=location.accuracy,
+        received_via="mqtt",
+        trigger="p",
+        owntracks_message_id="msg-ping",
+        owntracks_created_at=timezone.now(),
+    )
+
+    with patch("app.domesti_bot.urllib.request.urlopen", return_value=mock_response) as mock_urlopen:
+        relay_location_to_domesti_bot(location)
+        relay_location_to_domesti_bot(ping)
+
+    assert_that(mock_urlopen.call_count, equal_to(2))
 
 
 def test_relay_skips_duplicate_location_fix(location: Location) -> None:
@@ -180,7 +214,10 @@ def test_relay_skips_duplicate_location_fix(location: Location) -> None:
         timestamp=location.timestamp,
         accuracy=location.accuracy,
         received_via="mqtt",
+        owntracks_message_id="same-msg-id",
     )
+    location.owntracks_message_id = "same-msg-id"
+    location.save(update_fields=["owntracks_message_id"])
 
     with patch("app.domesti_bot.urllib.request.urlopen", return_value=mock_response) as mock_urlopen:
         relay_location_to_domesti_bot(location)

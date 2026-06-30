@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from decimal import Decimal
 from typing import Any, cast
 from unittest.mock import MagicMock, patch
@@ -21,6 +22,7 @@ from app.domesti_bot import (
     build_location_webhook_payload,
     location_metadata_for_webhook,
     location_post_url_for_source,
+    location_relay_fingerprint,
     send_location_webhook,
 )
 from app.domesti_location_request import LOCATION_REQUEST_USER_COOLDOWN_SECONDS_DEFAULT
@@ -185,6 +187,8 @@ def test_build_location_webhook_payload_merges_location_metadata(
         lat=TEST_LOCATION_DEFAULT_LAT,
         lon=TEST_LOCATION_DEFAULT_LON,
         user_id=username,
+        reported_at_iso="2026-06-30T14:01:22Z",
+        timestamp_iso="2026-06-30T12:09:05Z",
         location_metadata={
             "fix_source": "network",
             "trigger": "p",
@@ -192,6 +196,8 @@ def test_build_location_webhook_payload_merges_location_metadata(
         },
     )
     assert_that(payload["source"], equal_to("my-tracks"))
+    assert_that(payload["reported_at"], equal_to("2026-06-30T14:01:22Z"))
+    assert_that(payload["timestamp"], equal_to("2026-06-30T12:09:05Z"))
     assert_that(payload["fix_source"], equal_to("network"))
     assert_that(payload["trigger"], equal_to("p"))
     assert_that(payload["wifi_ssid"], equal_to("home"))
@@ -239,6 +245,77 @@ def test_location_metadata_for_webhook_includes_optional_fields(
     assert_that(metadata["in_regions"], equal_to(["home"]))
     assert_that(metadata["vertical_accuracy_m"], equal_to(5))
     assert_that(metadata["battery_status"], equal_to(2))
+
+
+def test_location_relay_fingerprint_uses_message_id_when_present(
+    admin_user: User,
+    db: Any,
+) -> None:
+    device = Device.objects.create(
+        owner=admin_user,
+        device_id="pixel7pro",
+        mqtt_user=admin_user.username,
+    )
+    location = Location.objects.create(
+        device=device,
+        latitude=Decimal("41.194085"),
+        longitude=Decimal("-73.888365"),
+        timestamp=timezone.now(),
+        accuracy=12,
+        received_via="mqtt",
+        owntracks_message_id="msg-42",
+    )
+    assert_that(
+        location_relay_fingerprint(location),
+        equal_to(f"{admin_user.username}|msg:msg-42"),
+    )
+
+
+def test_location_relay_fingerprint_falls_back_to_report_time(
+    admin_user: User,
+    db: Any,
+) -> None:
+    device = Device.objects.create(
+        owner=admin_user,
+        device_id="pixel7pro",
+        mqtt_user=admin_user.username,
+    )
+    reported = timezone.now()
+    location = Location.objects.create(
+        device=device,
+        latitude=Decimal("41.194085"),
+        longitude=Decimal("-73.888365"),
+        timestamp=reported - timedelta(hours=2),
+        accuracy=12,
+        received_via="mqtt",
+        owntracks_created_at=reported,
+    )
+    fingerprint = location_relay_fingerprint(location)
+    assert_that(fingerprint.startswith(f"{admin_user.username}|report:"), is_(True))
+    assert_that(fingerprint.endswith("|41.194085|-73.888365"), is_(True))
+
+
+def test_location_relay_fingerprint_falls_back_to_fix_time_without_created_at(
+    admin_user: User,
+    db: Any,
+) -> None:
+    device = Device.objects.create(
+        owner=admin_user,
+        device_id="pixel7pro",
+        mqtt_user=admin_user.username,
+    )
+    fix_at = timezone.now() - timedelta(hours=2)
+    location = Location.objects.create(
+        device=device,
+        latitude=Decimal("41.194085"),
+        longitude=Decimal("-73.888365"),
+        timestamp=fix_at,
+        accuracy=12,
+        received_via="mqtt",
+    )
+    fingerprint = location_relay_fingerprint(location)
+    assert_that(fingerprint.startswith(f"{admin_user.username}|fix:"), is_(True))
+    assert_that(fingerprint.endswith("|41.194085|-73.888365"), is_(True))
 
 
 def test_test_location_update_uses_test_url(admin_client: APIClient, admin_user: User) -> None:

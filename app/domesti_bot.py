@@ -15,6 +15,7 @@ from urllib.parse import urlparse, urlunparse
 
 from django.utils import timezone
 
+from app.location_report import location_reported_at
 from app.pki import decrypt_private_key, encrypt_private_key
 
 if TYPE_CHECKING:
@@ -26,7 +27,7 @@ WEBHOOK_LOG_MAX = 5
 DOMESTI_BOT_REPO_URL = "https://github.com/the-hcma/domesti-bot"
 TEST_LOCATION_DEFAULT_LAT = 41.194085
 TEST_LOCATION_DEFAULT_LON = -73.888365
-WEBHOOK_TIMEOUT_SECONDS = 5
+WEBHOOK_TIMEOUT_SECONDS = 10
 
 
 def _parse_positive_int_patch(raw: Any, field_name: str) -> tuple[int | None, str | None]:
@@ -191,25 +192,30 @@ def location_post_url_for_source(config: DomestiBotConfig, *, source: str) -> st
     return live_url
 
 
-def location_relay_fingerprint(
-    *,
-    user_id: str,
-    timestamp_iso: str,
-    latitude: Decimal,
-    longitude: Decimal,
-) -> str:
-    """Stable key for a live location fix (dedupes MQTT republishes of the same packet)."""
-    return f"{user_id}|{timestamp_iso}|{latitude}|{longitude}"
+def location_relay_fingerprint(location: Location) -> str:
+    """Stable key for a relayed location report (dedupes MQTT republishes of the same packet)."""
+    owner = location.device.owner
+    user_id = owner.username if owner is not None else ""
+    message_id = (location.owntracks_message_id or "").strip()
+    if message_id != "":
+        return f"{user_id}|msg:{message_id}"
+    latitude = cast(Decimal, location.latitude)
+    longitude = cast(Decimal, location.longitude)
+    if location.owntracks_created_at is not None:
+        reported_at_iso = format_location_timestamp_iso(location_reported_at(location))
+        return f"{user_id}|report:{reported_at_iso}|{latitude}|{longitude}"
+    fix_at_iso = format_location_timestamp_iso(cast(datetime, location.timestamp))
+    return f"{user_id}|fix:{fix_at_iso}|{latitude}|{longitude}"
 
 
 def already_relayed_location(config: DomestiBotConfig, *, user_id: str, fingerprint: str) -> bool:
-    """Return True when this exact fix was already delivered to domesti-bot for the user."""
+    """Return True when this exact report was already delivered to domesti-bot for the user."""
     last_by_user = cast(dict[str, str], config.last_relayed_location_by_user or {})
     return last_by_user.get(user_id) == fingerprint
 
 
 def record_relayed_location(config: DomestiBotConfig, *, user_id: str, fingerprint: str) -> None:
-    """Remember a successfully relayed live location fix for duplicate suppression."""
+    """Remember a successfully relayed live location report for duplicate suppression."""
     last_by_user = dict(cast(dict[str, str], config.last_relayed_location_by_user or {}))
     last_by_user[user_id] = fingerprint
     config.last_relayed_location_by_user = last_by_user
@@ -272,6 +278,7 @@ def build_location_webhook_payload(
     connection_type: str | None = None,
     device_id: str = "test-device",
     mqtt_user: str | None = None,
+    reported_at_iso: str | None = None,
     timestamp_iso: str | None = None,
     location_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -285,6 +292,8 @@ def build_location_webhook_payload(
         "device_id": device_id,
         "mqtt_user": mqtt_user or user_id,
     }
+    if reported_at_iso is not None:
+        payload["reported_at"] = reported_at_iso
     if accuracy_m is not None:
         payload["accuracy_m"] = accuracy_m
     if connection_type is not None and connection_type != "":

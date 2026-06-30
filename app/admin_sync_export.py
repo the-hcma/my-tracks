@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from decimal import Decimal
 from typing import Any, cast
 
@@ -13,6 +14,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from app.device_names import device_name_for
+from app.domesti_bot import format_location_timestamp_iso
+from app.location_report import location_reported_at
 from app.models import Device, Location, Waypoint
 
 _SOURCE = "my-tracks"
@@ -45,7 +48,8 @@ def latest_location_for_device(device: Device) -> dict[str, Any] | None:
         "lat": float(cast(Decimal, location.latitude)),
         "lon": float(cast(Decimal, location.longitude)),
         "accuracy_m": int(accuracy_raw) if accuracy_raw is not None else None,
-        "timestamp": location.timestamp.isoformat(),
+        "reported_at": format_location_timestamp_iso(location_reported_at(location)),
+        "timestamp": format_location_timestamp_iso(cast(datetime, location.timestamp)),
     }
 
 

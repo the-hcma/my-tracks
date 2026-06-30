@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 from django.contrib.auth.models import User
 from django.utils import timezone
-from hamcrest import assert_that, equal_to, has_length, is_not, none
+from hamcrest import assert_that, contains_string, equal_to, has_length, is_not, none
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -89,6 +89,49 @@ def test_users_with_devices_export_includes_latest_location(
     assert location is not None
     assert_that(location["lat"], equal_to(41.194072))
     assert_that(location["accuracy_m"], equal_to(12))
+    assert_that(location["reported_at"], is_not(none()))
+    assert_that(location["timestamp"], is_not(none()))
+
+
+def test_users_with_devices_export_prefers_newest_report_over_older_fix(
+    admin_client: APIClient,
+    regular_user: User,
+) -> None:
+    device = Device.objects.create(
+        owner=regular_user,
+        device_id="iphone",
+        name="Henrique's iPhone",
+        mqtt_user=regular_user.username,
+    )
+    older_fix = timezone.now() - timedelta(hours=2)
+    report_time = timezone.now()
+    Location.objects.create(
+        device=device,
+        latitude=Decimal("41.100000"),
+        longitude=Decimal("-73.800000"),
+        timestamp=older_fix,
+        accuracy=20,
+        received_via="mqtt",
+        owntracks_created_at=report_time - timedelta(minutes=30),
+    )
+    Location.objects.create(
+        device=device,
+        latitude=Decimal("41.194072"),
+        longitude=Decimal("-73.8883254"),
+        timestamp=older_fix,
+        accuracy=12,
+        received_via="mqtt",
+        trigger="p",
+        owntracks_created_at=report_time,
+        owntracks_message_id="ping-msg",
+    )
+    response = admin_client.get("/api/admin/users-with-devices/")
+    assert_that(response.status_code, equal_to(status.HTTP_200_OK))
+    location = response.json()["users_with_devices"][0]["latest_location"]
+    assert location is not None
+    assert_that(location["lat"], equal_to(41.194072))
+    assert_that(location["reported_at"], contains_string("T"))
+    assert_that(location["timestamp"], contains_string("T"))
 
 
 def test_waypoints_export_lists_active_waypoints(

@@ -58,9 +58,13 @@ After pairing (below), and when **location update webhooks are enabled** (`locat
   "lon": -73.888365,
   "accuracy_m": 12,
   "timestamp": "2026-06-09T23:14:58Z",
+  "reported_at": "2026-06-09T23:15:02Z",
   "source": "my-tracks",
   "device_id": "pixel7pro",
-  "mqtt_user": "kristen"
+  "mqtt_user": "kristen",
+  "trigger": "p",
+  "owntracks_created_at": "2026-06-09T23:15:02Z",
+  "owntracks_message_id": "abc123"
 }
 ```
 
@@ -69,10 +73,12 @@ After pairing (below), and when **location update webhooks are enabled** (`locat
 | `user_id` | `device.owner.username` (domesti-bot roster `user_id`) |
 | `lat` / `lon` | `Location.latitude` / `Location.longitude` |
 | `accuracy_m` | `Location.accuracy` (omit when null) |
-| `timestamp` | `Location.timestamp` ISO-8601 UTC |
+| `timestamp` | GPS fix time (`Location.timestamp` / OwnTracks `tst`) ISO-8601 UTC |
+| `reported_at` | When the device report was built or ingested (`owntracks_created_at` or `received_at`) ISO-8601 UTC |
+| `owntracks_created_at` / `received_at` / `trigger` / … | Optional metadata (same semantics as ingest) |
 | `device_id` / `mqtt_user` | debug only on domesti-bot side |
 
-**Transport:** `urllib` POST, 5 s timeout, header `X-Domesti-Api-Key: <stored key>`. Failures are **logged and swallowed** — domesti-bot downtime must never block location ingest. Every send (live or test) appends one row to the ring buffer; only the **five most recent** entries are kept.
+**Transport:** `urllib` POST, 10 s timeout, header `X-Domesti-Api-Key: <stored key>`. Failures are **logged and swallowed** — domesti-bot downtime must never block location ingest. Every send (live or test) appends one row to the ring buffer; only the **five most recent** entries are kept.
 
 **Gating:** skip relay when not paired, when `location_updates_enabled` is `false`, or when `user_location_update_url` / `api_key` is missing.
 
