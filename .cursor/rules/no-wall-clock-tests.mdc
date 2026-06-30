@@ -1,0 +1,17 @@
+---
+description: Do not use wall-clock timing in tests; prefer time-machine or synchronization primitives
+globs: tests/**/*
+alwaysApply: false
+---
+
+# No wall-clock timing in tests
+
+Do **not** assert on real elapsed time (`time.sleep`, `time.monotonic()`, `datetime.now()` deltas, or tight thresholds like `elapsed < 0.1`) to prove async or scheduling behavior. Those assertions are flaky on CI.
+
+Prefer:
+
+- **`time-machine`** (`@time_machine.travel`, `time_machine.move_to`) for time-based logic under test
+- **Synchronization primitives** (`threading.Event`, mocks with side effects) to prove ordering without sleeping
+- **Domain outcomes** (state changes, call counts) after `drain_*` helpers instead of race-prone delays
+
+When a test needs to prove non-blocking behavior, block the background worker (e.g. gate inside a mocked publish) and assert the HTTP response returns before releasing the gate.
