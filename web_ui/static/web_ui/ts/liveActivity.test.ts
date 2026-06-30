@@ -135,4 +135,12 @@ describe('incremental refresh scenario', () => {
         const next = updateCursorFromLocations(cursor, [{ id: 31371, timestamp_unix: 1_747_999_000 }]);
         expect(next.lastSeenLocationId).toBe(31371);
     });
+
+    it('advances cursor lastTimestamp using reported_at_unix when present', () => {
+        const cursor = { lastTimestamp: 1_748_000_000, lastSeenLocationId: 10 };
+        const next = updateCursorFromLocations(cursor, [
+            { id: 11, timestamp_unix: 1_747_000_000, reported_at_unix: 1_749_000_000 },
+        ]);
+        expect(next.lastTimestamp).toBe(1_749_000_000);
+    });
 });

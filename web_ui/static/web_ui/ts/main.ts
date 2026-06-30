@@ -45,6 +45,12 @@ import { getPreferredTheme, setTheme, toggleTheme } from './theme';
 import { boundFetch, dateAndMinutesToTimestamps, extractResultsList, formatLatLonCoordinate, formatLatLonPair, formatMinutesAsTime, getTodayDateString, selectStablePaletteColor } from './utils';
 import { formatActivityLogMeta } from './locationMeta';
 import {
+    compareLocationsByReportTimeDesc,
+    formatFixObservedLogLine,
+    formatTriggerLabel,
+    locationReportedAtUnix,
+} from './locationReport';
+import {
     reconnectBackoffDelayMs,
     shouldScheduleVisibleTabWsRetry,
     VISIBLE_TAB_WS_RETRY_DELAY_MS,
@@ -132,17 +138,21 @@ function locationTimestampUnix(loc: TrackLocation): number {
     return loc.timestamp_unix ?? 0;
 }
 
-/** Sort newest first (for live activity log and API-aligned lists). */
-function compareLocationsByTimestampDesc(a: TrackLocation, b: TrackLocation): number {
-    return locationTimestampUnix(b) - locationTimestampUnix(a);
+/** Sort newest first by report time (live activity log). */
+function compareLocationsByReportTimeDescForLive(a: TrackLocation, b: TrackLocation): number {
+    return compareLocationsByReportTimeDesc(a, b);
 }
 
 /**
- * Insert a log row in strict timestamp order (newest at top).
- * Finds the first existing row strictly older than tsUnix and inserts before it.
+ * Insert a log row in report-time order (newest at top).
+ * Finds the first existing row strictly older than reportUnix and inserts before it.
  */
-function insertLiveLogEntryInTimestampOrder(container: HTMLElement, entry: HTMLElement, tsUnix: number): void {
-    entry.setAttribute('data-ts', String(tsUnix));
+function insertLiveLogEntryInReportTimeOrder(
+    container: HTMLElement,
+    entry: HTMLElement,
+    reportUnix: number,
+): void {
+    entry.setAttribute('data-ts', String(reportUnix));
     for (const child of [...container.children]) {
         if (!(child instanceof HTMLElement)) continue;
         if (child.id === 'loading') continue;
@@ -150,7 +160,7 @@ function insertLiveLogEntryInTimestampOrder(container: HTMLElement, entry: HTMLE
         if (raw === null) continue;
         const cts = Number(raw);
         if (!Number.isFinite(cts)) continue;
-        if (cts < tsUnix) {
+        if (cts < reportUnix) {
             container.insertBefore(entry, child);
             return;
         }
@@ -180,6 +190,9 @@ interface TrackLocation {
     ip_address?: string;
     received_via?: string;
     timestamp_unix?: number;
+    reported_at_unix?: number;
+    fix_age_seconds?: number;
+    trigger?: string;
     /** Internal: number of collapsed waypoints at this location */
     _collapsedCount?: number;
 }
@@ -759,7 +772,7 @@ function attachLocationSelectionToEntry(entry: HTMLElement, location: TrackLocat
     const locationKey = locationKeyFor(location);
     entry.dataset.locationKey = locationKey;
     entry.dataset.deviceName = location.device_name || selectedDevice || 'Unknown';
-    entry.dataset.ts = String(locationTimestampUnix(location));
+    entry.dataset.ts = String(locationReportedAtUnix(location));
     entry.tabIndex = 0;
     entry.setAttribute('role', 'button');
     entry.setAttribute('aria-label', 'Toggle highlight for this location on the map');
@@ -1375,7 +1388,15 @@ function initMap(): void {
  */
 function getPopupContent(location: TrackLocation): string {
     const device = location.device_name || 'Unknown';
-    const time = formatTime(location.timestamp_unix || 0);
+    const reportUnix = locationReportedAtUnix(location);
+    const fixUnix = location.timestamp_unix || 0;
+    const reportTime = formatTime(reportUnix);
+    const fixTime = formatTime(fixUnix);
+    const fixAge = location.fix_age_seconds ?? Math.max(0, reportUnix - fixUnix);
+    const timeLine =
+        fixAge >= 60
+            ? `<em>Reported ${reportTime}</em><br><em>Position from ${fixTime}</em>`
+            : `<em>${reportTime}</em>`;
     const lat = formatLatLonCoordinate(location.latitude);
     const lon = formatLatLonCoordinate(location.longitude);
     const acc = location.accuracy || 'N/A';
@@ -1384,7 +1405,7 @@ function getPopupContent(location: TrackLocation): string {
 
     return `<div style="font-size: 12px;">
         <strong>${device}</strong><br>
-        <em>${time}</em><br>
+        ${timeLine}<br>
         <strong>Position:</strong> ${lat}, ${lon}<br>
         <strong>Accuracy:</strong> ${acc}m<br>
         <strong>Speed:</strong> ${vel} km/h<br>
@@ -2612,17 +2633,57 @@ function buildLogEntryElement(location: TrackLocation): HTMLElement {
         entry.setAttribute('data-location-id', String(location.id));
     }
 
-    const time = formatTime(location.timestamp_unix || 0, true);
+    const reportUnix = locationReportedAtUnix(location);
+    const time = formatTime(reportUnix, true);
     const device = location.device_name || 'Unknown';
     const lat = formatLatLonCoordinate(location.latitude);
     const lon = formatLatLonCoordinate(location.longitude);
     const meta = formatActivityLogMeta(location);
     const ipDisplay = location.received_via === 'mqtt' ? 'MQTT' : (location.ip_address || 'N/A');
+    const triggerLabel = formatTriggerLabel(location.trigger);
+    const fixUnix = location.timestamp_unix ?? 0;
+    const fixAgeSeconds = location.fix_age_seconds ?? Math.max(0, reportUnix - fixUnix);
+    const fixNote = formatFixObservedLogLine(formatTime(fixUnix, true), fixAgeSeconds);
+
+    const appendSpan = (className: string, text: string): void => {
+        const span = document.createElement('span');
+        span.className = className;
+        span.textContent = text;
+        entry.appendChild(span);
+    };
+    const appendSeparator = (): void => {
+        entry.appendChild(document.createTextNode(' | '));
+    };
+
+    appendSpan('log-time', time);
+    appendSeparator();
+    if (triggerLabel) {
+        appendSpan('log-trigger', triggerLabel);
+        appendSeparator();
+    }
+    appendSpan('log-ip', ipDisplay);
+    appendSeparator();
+    appendSpan('log-coords', `${lat}, ${lon}`);
+    appendSeparator();
+    appendSpan('log-meta', meta);
 
     const deviceColor = getDeviceColor(device);
-    const deviceBadge = `<span style="background:${deviceColor};color:white;padding:1px 6px;border-radius:10px;font-size:11px;margin-left:8px;">${device}</span>`;
+    const deviceBadge = document.createElement('span');
+    deviceBadge.style.background = deviceColor;
+    deviceBadge.style.color = 'white';
+    deviceBadge.style.padding = '1px 6px';
+    deviceBadge.style.borderRadius = '10px';
+    deviceBadge.style.fontSize = '11px';
+    deviceBadge.style.marginLeft = '8px';
+    deviceBadge.textContent = device;
+    entry.appendChild(deviceBadge);
 
-    entry.innerHTML = `<span class="log-time">${time}</span> | <span class="log-ip">${ipDisplay}</span> | <span class="log-coords">${lat}, ${lon}</span> | <span class="log-meta">${meta}</span>${deviceBadge}`;
+    if (fixNote) {
+        const fixNoteDiv = document.createElement('div');
+        fixNoteDiv.className = 'log-fix-note';
+        fixNoteDiv.textContent = fixNote;
+        entry.appendChild(fixNoteDiv);
+    }
 
     attachLocationSelectionToEntry(entry, location);
     decorateActivityLogEntryForAccuracy(entry, location);
@@ -2643,7 +2704,7 @@ function replaceLiveActivityFromLocations(locations: TrackLocation[], countLabel
 
     container.innerHTML = '';
 
-    const sorted = [...locations].sort(compareLocationsByTimestampDesc);
+    const sorted = [...locations].sort(compareLocationsByReportTimeDescForLive);
     const locationsByDevice: Record<string, TrackLocation[]> = {};
     const markerUpdatedForDevice = new Set<string>();
 
@@ -2889,7 +2950,7 @@ function addLogEntry(location: TrackLocation, skipScroll = false): void {
     }
 
     const entry = buildLogEntryElement(location);
-    insertLiveLogEntryInTimestampOrder(container, entry, locationTimestampUnix(location));
+    insertLiveLogEntryInReportTimeOrder(container, entry, locationReportedAtUnix(location));
 
     // Auto-scroll so newest entry is roughly in the middle of the view
     if (!skipScroll) {

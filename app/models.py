@@ -59,7 +59,7 @@ class Device(models.Model):
         null=True,
         blank=True,
         related_name="+",
-        help_text="Most recent location row for this device (by timestamp)",
+        help_text="Most recent location row for this device (by report time, then fix time)",
     )
 
     class Meta:

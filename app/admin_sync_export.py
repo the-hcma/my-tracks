@@ -26,8 +26,18 @@ def slugify_waypoint_id(raw: str) -> str:
 
 
 def latest_location_for_device(device: Device) -> dict[str, Any] | None:
-    """Return the newest location reading for ``device``, if any."""
-    location = Location.objects.filter(device=device).order_by("-timestamp").first()
+    """Return the most recently reported location reading for ``device``, if any."""
+    from django.db.models.functions import Coalesce
+
+    location = (
+        Location.objects.filter(device=device)
+        .order_by(
+            Coalesce("owntracks_created_at", "received_at").desc(),
+            "-timestamp",
+            "-id",
+        )
+        .first()
+    )
     if location is None:
         return None
     accuracy_raw = location.accuracy

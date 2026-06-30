@@ -1031,6 +1031,8 @@ class TestHandleLocationEarlyReturn:
             "fix_source": "network",
             "connection_type": "w",
             "wifi_ssid": "familia",
+            "timestamp_unix": 1_751_800_000,
+            "reported_at_unix": 1_751_806_720,
         }
         broadcast_mock = AsyncMock()
         mock_location = MagicMock()
@@ -1054,6 +1056,8 @@ class TestHandleLocationEarlyReturn:
         assert_that(info_calls[0][0][4], contains_string("vac=100m"))
         assert_that(info_calls[0][0][4], contains_string("conn=WiFi (familia)"))
         assert_that(info_calls[0][0][4], contains_string("src=network"))
+        assert_that(info_calls[0][0][4], contains_string("report_at="))
+        assert_that(info_calls[0][0][4], contains_string("fix_at="))
 
 
 class TestHandleLwtEarlyReturn:
