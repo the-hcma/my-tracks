@@ -44,7 +44,12 @@ import { registerAndUpdateServiceWorker } from './serviceWorkerRecovery';
 import { getPreferredTheme, setTheme, toggleTheme } from './theme';
 import { boundFetch, dateAndMinutesToTimestamps, extractResultsList, formatLatLonCoordinate, formatLatLonPair, formatMinutesAsTime, getTodayDateString, selectStablePaletteColor } from './utils';
 import { formatActivityLogMeta } from './locationMeta';
-import { reconnectBackoffDelayMs, webSocketNeedsReconnect } from './webSocketReconnect';
+import {
+    reconnectBackoffDelayMs,
+    shouldScheduleVisibleTabWsRetry,
+    VISIBLE_TAB_WS_RETRY_DELAY_MS,
+    webSocketNeedsReconnect,
+} from './webSocketReconnect';
 
 // Configuration passed from Django template
 interface MyTracksConfig {
@@ -329,6 +334,7 @@ let pendingRestoreState: UIState | null = null;
 let ws: WebSocket | null = null;
 let wsReconnectAttempts = 0;
 let wsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let visibleTabWsRetryTimer: ReturnType<typeof setTimeout> | null = null;
 const maxReconnectAttempts = 5;
 const reconnectDelay = 3000;
 const wsStaleAfterMs = 15000;
@@ -3054,6 +3060,7 @@ function switchToLiveMode(): void {
  */
 function switchToHistoricMode(): void {
     isLiveMode = false;
+    clearPendingVisibleTabWsRetry();
     // Only fit bounds if not restoring state (user has saved map position)
     if (!isRestoringState) {
         needsFitBounds = true;
@@ -3210,6 +3217,32 @@ function clearPendingWebSocketReconnect(): void {
     }
 }
 
+function clearPendingVisibleTabWsRetry(): void {
+    if (visibleTabWsRetryTimer !== null) {
+        clearTimeout(visibleTabWsRetryTimer);
+        visibleTabWsRetryTimer = null;
+    }
+}
+
+function scheduleVisibleTabWsRetry(): void {
+    clearPendingVisibleTabWsRetry();
+    visibleTabWsRetryTimer = setTimeout(() => {
+        visibleTabWsRetryTimer = null;
+        if (
+            !shouldScheduleVisibleTabWsRetry({
+                visibilityState: document.visibilityState,
+                isLiveMode,
+            })
+        ) {
+            return;
+        }
+        if (!webSocketNeedsReconnect(ws)) {
+            return;
+        }
+        ensureLiveWebSocketConnected();
+    }, VISIBLE_TAB_WS_RETRY_DELAY_MS);
+}
+
 function detachWebSocketHandlers(socket: WebSocket): void {
     socket.onclose = null;
     socket.onerror = null;
@@ -3265,6 +3298,7 @@ function ensureLiveWebSocketConnected(): void {
     }
 
     clearPendingWebSocketReconnect();
+    clearPendingVisibleTabWsRetry();
     wsReconnectAttempts = 0;
 
     if (ws !== null) {
@@ -3293,6 +3327,7 @@ function connectWebSocket(): void {
         ws.onopen = (): void => {
             console.log('WebSocket connected');
             clearPendingWebSocketReconnect();
+            clearPendingVisibleTabWsRetry();
             wsReconnectAttempts = 0;
             wsOpenedAtMs = Date.now();
             lastWebSocketMessageAtMs = null;
@@ -3407,9 +3442,21 @@ function connectWebSocket(): void {
                     connectWebSocket();
                 }, delay);
             } else {
-                console.warn(
-                    'Max reconnection attempts reached; will retry when the tab is focused again',
-                );
+                if (
+                    shouldScheduleVisibleTabWsRetry({
+                        visibilityState: document.visibilityState,
+                        isLiveMode,
+                    })
+                ) {
+                    console.warn(
+                        `Max reconnection attempts reached; will retry WebSocket in ${VISIBLE_TAB_WS_RETRY_DELAY_MS}ms while tab stays visible`,
+                    );
+                    scheduleVisibleTabWsRetry();
+                } else {
+                    console.warn(
+                        'Max reconnection attempts reached; will retry when the tab is focused again',
+                    );
+                }
                 startPolling();
             }
         };
@@ -3795,7 +3842,11 @@ function initEventListeners(): void {
     });
 
     document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState !== 'visible' || !isLiveMode) {
+        if (document.visibilityState !== 'visible') {
+            clearPendingVisibleTabWsRetry();
+            return;
+        }
+        if (!isLiveMode) {
             return;
         }
         ensureLiveWebSocketConnected();

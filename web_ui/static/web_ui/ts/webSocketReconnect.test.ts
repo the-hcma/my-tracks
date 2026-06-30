@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { reconnectBackoffDelayMs, webSocketNeedsReconnect } from './webSocketReconnect';
+import {
+    reconnectBackoffDelayMs,
+    shouldScheduleVisibleTabWsRetry,
+    webSocketNeedsReconnect,
+} from './webSocketReconnect';
 
 describe('webSocketNeedsReconnect', () => {
     it('returns true when socket is null', () => {
@@ -23,5 +27,19 @@ describe('reconnectBackoffDelayMs', () => {
         expect(reconnectBackoffDelayMs(1, 3000)).toBe(3000);
         expect(reconnectBackoffDelayMs(2, 3000)).toBe(6000);
         expect(reconnectBackoffDelayMs(5, 3000)).toBe(48000);
+    });
+});
+
+describe('shouldScheduleVisibleTabWsRetry', () => {
+    it('returns true only when live mode and tab is visible', () => {
+        expect(
+            shouldScheduleVisibleTabWsRetry({ visibilityState: 'visible', isLiveMode: true }),
+        ).toBe(true);
+        expect(
+            shouldScheduleVisibleTabWsRetry({ visibilityState: 'visible', isLiveMode: false }),
+        ).toBe(false);
+        expect(
+            shouldScheduleVisibleTabWsRetry({ visibilityState: 'hidden', isLiveMode: true }),
+        ).toBe(false);
     });
 });
