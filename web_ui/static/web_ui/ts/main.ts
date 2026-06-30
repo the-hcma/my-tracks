@@ -44,6 +44,7 @@ import { registerAndUpdateServiceWorker } from './serviceWorkerRecovery';
 import { getPreferredTheme, setTheme, toggleTheme } from './theme';
 import { boundFetch, dateAndMinutesToTimestamps, extractResultsList, formatLatLonCoordinate, formatLatLonPair, formatMinutesAsTime, getTodayDateString, selectStablePaletteColor } from './utils';
 import { formatActivityLogMeta } from './locationMeta';
+import { reconnectBackoffDelayMs, webSocketNeedsReconnect } from './webSocketReconnect';
 
 // Configuration passed from Django template
 interface MyTracksConfig {
@@ -327,9 +328,12 @@ let pendingRestoreState: UIState | null = null;
 // WebSocket connection state
 let ws: WebSocket | null = null;
 let wsReconnectAttempts = 0;
+let wsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 const maxReconnectAttempts = 5;
 const reconnectDelay = 3000;
+const wsStaleAfterMs = 15000;
 let serverStartupTimestamp: string | null = null; // Track server version
+let wsOpenedAtMs: number | null = null;
 let lastWebSocketMessageAtMs: number | null = null;
 
 // Track last known IP to detect changes
@@ -3039,6 +3043,8 @@ function switchToLiveMode(): void {
 
     void refreshLiveActivity('hour');
 
+    ensureLiveWebSocketConnected();
+
     // Save UI state
     saveUIState();
 }
@@ -3190,6 +3196,88 @@ async function checkNetworkInfo(): Promise<void> {
 // WebSocket Connection
 // ============================================================================
 
+function stopPollingFallback(): void {
+    if (pollingInterval !== null) {
+        clearInterval(pollingInterval);
+        pollingInterval = null;
+    }
+}
+
+function clearPendingWebSocketReconnect(): void {
+    if (wsReconnectTimer !== null) {
+        clearTimeout(wsReconnectTimer);
+        wsReconnectTimer = null;
+    }
+}
+
+function detachWebSocketHandlers(socket: WebSocket): void {
+    socket.onclose = null;
+    socket.onerror = null;
+    socket.onmessage = null;
+    socket.onopen = null;
+}
+
+function closeWebSocketSession(socket: WebSocket | null): void {
+    if (socket === null) {
+        return;
+    }
+    detachWebSocketHandlers(socket);
+    try {
+        socket.close();
+    } catch {
+        // ignore close errors on a dead socket
+    }
+}
+
+/** True when the socket is OPEN but never received the server welcome message. */
+function webSocketWelcomeTimedOut(): boolean {
+    if (ws === null || ws.readyState !== WebSocket.OPEN) {
+        return false;
+    }
+    if (lastWebSocketMessageAtMs !== null) {
+        return false;
+    }
+    if (wsOpenedAtMs === null) {
+        return false;
+    }
+    return Date.now() - wsOpenedAtMs > wsStaleAfterMs;
+}
+
+/**
+ * Re-open the live WebSocket when the tab is focused and the session is down.
+ * Resets the reconnect attempt budget so a prior on-close exhaustion does not stick.
+ */
+function ensureLiveWebSocketConnected(): void {
+    if (!isLiveMode) {
+        return;
+    }
+
+    if (webSocketWelcomeTimedOut()) {
+        clearPendingWebSocketReconnect();
+        closeWebSocketSession(ws);
+        ws = null;
+        wsOpenedAtMs = null;
+        lastWebSocketMessageAtMs = null;
+    }
+
+    if (!webSocketNeedsReconnect(ws)) {
+        return;
+    }
+
+    clearPendingWebSocketReconnect();
+    wsReconnectAttempts = 0;
+
+    if (ws !== null) {
+        const stale = ws;
+        ws = null;
+        closeWebSocketSession(stale);
+        wsOpenedAtMs = null;
+        lastWebSocketMessageAtMs = null;
+    }
+
+    connectWebSocket();
+}
+
 /**
  * Connect to WebSocket for real-time updates.
  */
@@ -3204,8 +3292,11 @@ function connectWebSocket(): void {
 
         ws.onopen = (): void => {
             console.log('WebSocket connected');
+            clearPendingWebSocketReconnect();
             wsReconnectAttempts = 0;
-            lastWebSocketMessageAtMs = Date.now();
+            wsOpenedAtMs = Date.now();
+            lastWebSocketMessageAtMs = null;
+            stopPollingFallback();
         };
 
         ws.onmessage = (event: MessageEvent): void => {
@@ -3302,16 +3393,23 @@ function connectWebSocket(): void {
         ws.onclose = (): void => {
             console.log('WebSocket disconnected');
             ws = null;
+            wsOpenedAtMs = null;
             lastWebSocketMessageAtMs = null;
 
             // Try to reconnect with exponential backoff
             if (wsReconnectAttempts < maxReconnectAttempts) {
                 wsReconnectAttempts++;
-                const delay = reconnectDelay * Math.pow(2, wsReconnectAttempts - 1);
+                const delay = reconnectBackoffDelayMs(wsReconnectAttempts, reconnectDelay);
                 console.log(`Reconnecting in ${delay}ms (attempt ${wsReconnectAttempts})...`);
-                setTimeout(connectWebSocket, delay);
+                clearPendingWebSocketReconnect();
+                wsReconnectTimer = setTimeout(() => {
+                    wsReconnectTimer = null;
+                    connectWebSocket();
+                }, delay);
             } else {
-                console.warn('Max reconnection attempts reached, falling back to polling');
+                console.warn(
+                    'Max reconnection attempts reached; will retry when the tab is focused again',
+                );
                 startPolling();
             }
         };
@@ -3319,27 +3417,6 @@ function connectWebSocket(): void {
         console.error('Failed to create WebSocket:', error);
         startPolling();
     }
-}
-
-// If a proxy blocks WS upgrades, the browser can appear "connected" but never
-// receive location messages. Keep a lightweight watchdog so live mode still
-// refreshes via HTTP.
-function startWebSocketWatchdog(): void {
-    const watchdogIntervalMs = 5000;
-    const staleAfterMs = 15000;
-
-    window.setInterval(() => {
-        if (!isLiveMode) return;
-        if (skipHistoryFetch) return;
-
-        const now = Date.now();
-        const last = lastWebSocketMessageAtMs;
-
-        // If we have no WS, or it has gone silent, do an incremental HTTP refresh.
-        if (!ws || ws.readyState !== WebSocket.OPEN || !last || (now - last) > staleAfterMs) {
-            void refreshLiveActivity('incremental');
-        }
-    }, watchdogIntervalMs);
 }
 
 // ============================================================================
@@ -3721,10 +3798,18 @@ function initEventListeners(): void {
         if (document.visibilityState !== 'visible' || !isLiveMode) {
             return;
         }
+        ensureLiveWebSocketConnected();
         void refreshLiveActivity(skipHistoryFetch ? 'incremental' : liveActivityLoadKind);
         if (map) {
             map.invalidateSize();
         }
+    });
+
+    window.addEventListener('focus', () => {
+        if (!isLiveMode) {
+            return;
+        }
+        ensureLiveWebSocketConnected();
     });
 }
 
@@ -3903,7 +3988,6 @@ function init(): void {
 
     // Start WebSocket connection for real-time updates (welcome triggers incremental refresh)
     connectWebSocket();
-    startWebSocketWatchdog();
 
     // Check health immediately and then every 5 seconds
     checkServerHealth();
