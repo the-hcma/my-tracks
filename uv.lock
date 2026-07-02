@@ -756,7 +756,7 @@ requires-dist = [
     { name = "certifi", specifier = ">=2026.6.17" },
     { name = "channels", specifier = ">=4.3.2" },
     { name = "charset-normalizer", specifier = "==3.4.7" },
-    { name = "coverage", specifier = ">=7.14.2" },
+    { name = "coverage", specifier = ">=7.14.3" },
     { name = "cryptography", specifier = ">=49.0.0" },
     { name = "cyclonedx-python-lib", specifier = ">=11.11.0" },
     { name = "daphne", specifier = ">=4.2.2" },
