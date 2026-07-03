@@ -51,6 +51,7 @@ dependencies = [
     "cyclonedx-python-lib>=11.11.0",
     "msgpack==1.2.1",
     "txaio==26.6.1",
+    "hpack==4.2.0",
 ]
 
 [build-system]
