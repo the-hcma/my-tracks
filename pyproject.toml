@@ -52,6 +52,7 @@ dependencies = [
     "msgpack==1.2.1",
     "txaio==26.6.1",
     "hpack==4.2.0",
+    "pyright==1.1.411",
 ]
 
 [build-system]
