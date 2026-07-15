@@ -13,7 +13,7 @@ dependencies = [
     "channels>=4.3.2",
     "daphne>=4.2.2",
     "whitenoise>=6.12.0",
-    "typer>=0.15.0",
+    "typer>=0.24.0",
     "amqtt",
     "cryptography>=49.0.0",
     "dj-database-url>=3.1.2",
@@ -54,6 +54,7 @@ dependencies = [
     "hpack==4.2.0",
     "pyright==1.1.411",
     "typing-extensions==4.16.0",
+    "click==8.3.3",
 ]
 
 [build-system]
@@ -121,5 +122,12 @@ dev = [
 # amqtt==0.10.x requires pyyaml<6.0 and amqtt==0.11.x requires pyyaml==6.0.2.
 # Without this floor, uv can backtrack amqtt to 0.10.x and then select
 # pyyaml==5.4.1, which has no Python 3.14 wheel and fails to build from source.
+#
+# Temporary git pin: Yakifo/amqtt#351 (ajmirsky/amqtt@a1a172c) relaxes
+# typer==0.15.4 so click==8.3.3 (CVE-2026-7246 / #1217) can resolve.
+# Revert [tool.uv.sources] when amqtt >=0.11.4 is on PyPI.
 [tool.uv]
 constraint-dependencies = ["pyyaml>=6.0"]
+
+[tool.uv.sources]
+amqtt = { git = "https://github.com/ajmirsky/amqtt.git", rev = "a1a172ca40ffabde7eab9899c6c25009b38b9e59" }

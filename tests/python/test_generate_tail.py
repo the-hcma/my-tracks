@@ -16,6 +16,7 @@ from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import typer
 from hamcrest import (assert_that, calling, close_to, contains_string,
                       equal_to, greater_than, has_entries, has_key, is_,
                       is_not, less_than, none, not_none)
@@ -390,8 +391,9 @@ class TestPrintHelpers:
         assert_that(captured.out, contains_string("Failed: 0"))
 
     def test_print_summary_with_failures_raises_exit(self) -> None:
-        import click
-        with pytest.raises(click.exceptions.Exit):
+        # Typer 0.24+ vendors its own click; typer.Exit is no longer
+        # identity-equal to the site-packages click.exceptions.Exit.
+        with pytest.raises(typer.Exit):
             _print_summary(10, 7, 3, dry_run=False)
 
 
