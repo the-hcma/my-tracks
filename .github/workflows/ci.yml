@@ -162,7 +162,9 @@ jobs:
   backend-lint:
     name: Backend Lint
     needs: [guard, python-static]
-    if: needs.guard.outputs.skip != 'true'
+    # Custom if overrides Actions' default success(); gate on python-static or
+    # required checks go green when lint/typecheck failed.
+    if: needs.guard.outputs.skip != 'true' && needs.python-static.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - run: echo "Covered by Python lint & format checks"
