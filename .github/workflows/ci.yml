@@ -136,8 +136,8 @@ jobs:
     - name: Run TypeScript tests
       run: pnpm run test
 
-  backend-lint:
-    name: Backend Lint
+  python-static:
+    name: Python lint & format checks
     needs: guard
     if: needs.guard.outputs.skip != 'true'
     runs-on: ubuntu-latest
@@ -151,35 +151,21 @@ jobs:
       with:
         version: "latest"
 
-    - name: Set up Python
-      run: uv python install 3.14
-
-    - name: Verify Python version matches latest stable
-      run: |
-        CURRENT_VERSION=$(uv run python --version | cut -d' ' -f2 | cut -d'.' -f1,2)
-        REQUIRED_VERSION="3.14"
-        if [ "$CURRENT_VERSION" != "$REQUIRED_VERSION" ]; then
-          echo "❌ Python version mismatch: using $CURRENT_VERSION but required $REQUIRED_VERSION"
-          echo "Please update .github/workflows/ci.yml and pyproject.toml to use Python $CURRENT_VERSION"
-          exit 1
-        fi
-        echo "✅ Using Python $CURRENT_VERSION (latest stable)"
-
-    - name: Install dependencies
-      run: uv sync --all-extras
-
-    - name: Lint and format check with Ruff
-      run: |
-        uv run ruff check app config web_ui
-        uv run ruff format --check app config web_ui
-
-    - name: Check type annotations with Pyright
-      run: |
-        uv run pyright
-        echo "✅ All type annotations are complete and correct"
+    - name: Python lint & format checks
+      run: bash .github/ci/python-static
 
     - name: Check for pending migrations
       run: uv run python manage.py makemigrations --check --dry-run
+
+  # Cutover alias for classic branch protection. Remove in a follow-up after
+  # `github-repo-lint --repo OWNER/NAME --apply-fix` retargets required checks.
+  backend-lint:
+    name: Backend Lint
+    needs: [guard, python-static]
+    if: needs.guard.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Covered by Python lint & format checks"
 
   backend-test:
     name: Backend Tests
