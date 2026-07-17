@@ -157,18 +157,6 @@ jobs:
     - name: Check for pending migrations
       run: uv run python manage.py makemigrations --check --dry-run
 
-  # Cutover alias for classic branch protection. Remove in a follow-up after
-  # `github-repo-lint --repo OWNER/NAME --apply-fix` retargets required checks.
-  backend-lint:
-    name: Backend Lint
-    needs: [guard, python-static]
-    # Custom if overrides Actions' default success(); gate on python-static or
-    # required checks go green when lint/typecheck failed.
-    if: needs.guard.outputs.skip != 'true' && needs.python-static.result == 'success'
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "Covered by Python lint & format checks"
-
   backend-test:
     name: Backend Tests
     needs: guard
