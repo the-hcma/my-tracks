@@ -354,7 +354,7 @@ http --pretty=format GET localhost:8080/api/locations/
 
 ## Version Control (gh stack)
 
-This project uses GitHub Stacked PRs via the `gh stack` CLI (marker: `.github/stacking-tool` → `gh-stack`). See [GH-STACK.md](./GH-STACK.md) and the [canonical skill](https://github.com/the-hcma/repository-helpers/blob/main/.cursor/skills/gh-stack/SKILL.md).
+This project uses GitHub Stacked PRs via the `gh stack` CLI (marker: `.github/stacking-tool` → `gh-stack`). Agents: [`.cursor/rules/stacking-tool.mdc`](../.cursor/rules/stacking-tool.mdc). Humans: [GH-STACK.md](./GH-STACK.md). Canonical skill: [repository-helpers gh-stack](https://github.com/the-hcma/repository-helpers/blob/main/.cursor/skills/gh-stack/SKILL.md).
 
 Prefer repository-helpers wrappers (`start-development`, `submit-stack`, `ship-and-review`) from a **stack worktree**, not the primary clone.
 
