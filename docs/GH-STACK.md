@@ -9,17 +9,21 @@ points at the canonical playbook in repository-helpers:
 - Skill: https://github.com/the-hcma/repository-helpers/blob/main/.cursor/skills/gh-stack/SKILL.md
 - Local clone: `~/work/ai/repository-helpers/.cursor/skills/gh-stack/SKILL.md`
 
-Prefer repository-helpers wrappers (`start-development`, `submit-stack`,
-`ship-and-review`) from a **stack worktree**.
+Run `start-development --refresh` from the **primary clone**, then create the
+stack worktree (also from the primary clone). `cd` into
+`.worktrees/<stack>-wt` before any implementation. Run `submit-stack` /
+`ship-and-review` from that worktree only.
 
 ## Everyday commands (non-interactive)
 
 | Action | Command |
 | --- | --- |
-| Session / worktree | `~/work/ai/repository-helpers/scripts/dev/start-development --worktree <stack> --no-interactive` |
+| Refresh (primary clone) | `~/work/ai/repository-helpers/scripts/dev/start-development --refresh` |
+| Create worktree (primary clone) | `~/work/ai/repository-helpers/scripts/dev/start-development --worktree <stack> --no-interactive` |
+| Enter worktree | `cd .worktrees/<stack>-wt` |
 | First layer | `gh stack init <stack>/<topic>` |
 | Next layer | `gh stack add <stack>/<next>` |
-| Submit | `~/work/ai/repository-helpers/scripts/dev/submit-stack` |
+| Submit (from worktree) | `~/work/ai/repository-helpers/scripts/dev/submit-stack` |
 | View | `gh stack view --json` |
 | Sync | `gh stack sync --remote origin` |
 
