@@ -352,101 +352,51 @@ http GET localhost:8080/api/locations/ device==AB
 http --pretty=format GET localhost:8080/api/locations/
 ```
 
-## Version Control (Graphite)
+## Version Control (gh stack)
 
-This project uses [Graphite](https://graphite.dev) for all version control operations. The `gt` command is a **passthrough for git** - all git commands work through `gt`, so always use `gt` instead of `git`.
+This project uses GitHub Stacked PRs via the `gh stack` CLI (marker: `.github/stacking-tool` → `gh-stack`). See [GH-STACK.md](./GH-STACK.md) and the [canonical skill](https://github.com/the-hcma/repository-helpers/blob/main/.cursor/skills/gh-stack/SKILL.md).
 
-### Why Graphite?
-
-- **Git Passthrough**: All git commands work via `gt` (e.g., `gt status`, `gt diff`, `gt log`)
-- **PR Stacking**: Create dependent PRs that automatically rebase
-- **Automatic Cleanup**: Merged branches are auto-deleted
-- **Better Workflow**: Single commands replace multi-step git operations
-- **Force Push Safety**: Built-in protection against overwriting remote changes
+Prefer repository-helpers wrappers (`start-development`, `submit-stack`, `ship-and-review`) from a **stack worktree**, not the primary clone.
 
 ### Common Commands
 
 ```bash
-# Create a new branch with staged changes
-gt create --all --message "feat: add new feature"
+# Session / worktree
+~/work/ai/repository-helpers/scripts/dev/start-development --refresh
+~/work/ai/repository-helpers/scripts/dev/start-development --worktree <stack-name> --no-interactive
+cd .worktrees/<stack-name>-wt
 
-# Amend current branch commit
-gt modify --all --message "feat: updated implementation"
+# First stack layer (named branch)
+gh stack init <stack>/<topic>
+git add -A && git commit -m "feat: add new feature"
 
-# Submit PR(s) to GitHub
-gt submit --no-interactive --publish
+# Additional layer
+gh stack add <stack>/<next>
 
-# View current stack
-gt log short
+# Submit / update PRs
+~/work/ai/repository-helpers/scripts/dev/submit-stack
+# or: gh stack submit --auto --open --remote origin
 
-# Sync with remote (fetch + rebase)
-gt sync --force
+# View stack
+gh stack view --json
 
-# Switch branches
-gt checkout <branch-name>
+# Sync / restack
+gh stack sync --remote origin
 
-# Move up/down the stack
-gt up
-gt down
-
-# Delete a branch
-gt delete <branch-name>
+# Navigate
+gh stack up
+gh stack down
+gh stack top
+gh stack bottom
 ```
 
-### Git Passthrough Commands
-
-Many git commands work through `gt`:
+### Merge (GitHub merge queue)
 
 ```bash
-# Check status
-gt status
-
-# View changes
-gt diff
-
-# Fetch and prune
-gt fetch --prune
-
-# Other passthroughs
-gt add, gt reset, gt restore, gt rebase, gt cherry-pick
+gh pr merge <pr-number> --auto --squash
 ```
 
-### Commands Requiring Native Git
-
-Some commands have different behavior in gt, so use native git:
-
-```bash
-# View commit history (gt log shows stack instead)
-git log --oneline -10
-
-# List all branches (gt branch is a subcommand)
-git branch -a
-```
-
-### Initial Repository Setup
-
-For new repositories only:
-
-```bash
-# Initialize repository
-gt init  # Select trunk branch (main)
-
-# Create .gitignore
-cat > .gitignore << 'EOF'
-__pycache__/
-*.pyc
-.venv/
-db.sqlite3
-.env
-.DS_Store
-node_modules/
-dist/
-EOF
-
-# Initial commit
-gt create --all --message "chore: initial commit"
-gt submit --no-interactive --publish
-```
+Do **not** use Graphite enqueue labels (`merge-it`, `merge-mq`).
 
 ## Production Commands
 
