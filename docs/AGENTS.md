@@ -93,7 +93,8 @@ The **primary clone** (repo root — first entry in `git worktree list`, usually
 - ❌ **Leave multiple commits on a PR branch** — squash to one commit before/at submit (see Branch Workflow)
 - ❌ **Use Graphite enqueue labels** (`merge-it`, `merge-mq`) — this repo uses GitHub merge queue via auto-merge
 
-> See [GH-STACK.md](./GH-STACK.md) for the `gh stack` workflow reference.
+> Stacking SSOT for agents: [`.cursor/rules/stacking-tool.mdc`](../.cursor/rules/stacking-tool.mdc)
+> (canonical skill in repository-helpers). Short cheat sheet: [GH-STACK.md](./GH-STACK.md).
 
 **Branch Workflow** (CRITICAL — Use `gh stack`):
 - ✅ **ALWAYS** use `gh stack` (marker `.github/stacking-tool` = `gh-stack`) for branch and PR stacking

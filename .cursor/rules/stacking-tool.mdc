@@ -1,9 +1,11 @@
 ---
-description: Choose Graphite vs GitHub Stacked PRs from .github/stacking-tool
+description: Stacking backend from .github/stacking-tool — prefer repository-helpers skills
 alwaysApply: true
 ---
 
 # Stacking tool preference
+
+This is the **in-repo agent SSOT** for stacking (replaces any retired `docs/GRAPHITE.md`).
 
 Before creating branches or submitting/restacking PRs, **read** `.github/stacking-tool`
 (single line: `graphite` or `gh-stack`). Missing or invalid values: **stop and ask** —
@@ -11,15 +13,24 @@ do not guess.
 
 ## `gh-stack` (this repo)
 
-- Follow `.cursor/skills/gh-stack/SKILL.md` (canonical details in repository-helpers).
-- Prefer `~/work/ai/repository-helpers/scripts/dev/submit-stack` /
-  `ship-and-review` (they dispatch via `scripts/lib/stacking-tool`).
-- **Do not** mix with `gt create` / `gt submit` / `gt restack` on the same stack.
+Canonical playbook (do not invent flags):
+
+- Local: `~/work/ai/repository-helpers/.cursor/skills/gh-stack/SKILL.md`
+- GitHub: https://github.com/the-hcma/repository-helpers/blob/main/.cursor/skills/gh-stack/SKILL.md
+- Thin local pointer: `.cursor/skills/gh-stack/SKILL.md`
+
+Prefer `~/work/ai/repository-helpers/scripts/dev/submit-stack` /
+`ship-and-review` (they dispatch via `scripts/lib/stacking-tool`).
+
+**Do not** mix with `gt create` / `gt submit` / `gt restack` on the same stack.
+
+Human-oriented cheat sheet: `docs/GH-STACK.md`.
 
 ## `graphite`
 
-- Not used in this repository. If the marker is ever `graphite`, follow the Graphite
-  skill in repository-helpers and `gt` via `submit-stack`.
+Not used in this repository. If the marker is ever `graphite`, follow
+`~/work/ai/repository-helpers/.cursor/skills/graphite/SKILL.md` and `gt` via
+`submit-stack`.
 
 ## Unchanged regardless of marker
 

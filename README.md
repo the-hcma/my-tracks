@@ -255,4 +255,6 @@ gh stack init <stack>/<topic>
 ~/work/ai/repository-helpers/scripts/dev/submit-stack
 ```
 
-See [docs/GH-STACK.md](docs/GH-STACK.md) and [docs/COMMANDS.md](docs/COMMANDS.md#version-control-gh-stack) for the workflow.
+See [`.cursor/rules/stacking-tool.mdc`](.cursor/rules/stacking-tool.mdc) (agents),
+[docs/GH-STACK.md](docs/GH-STACK.md), and
+[docs/COMMANDS.md](docs/COMMANDS.md#version-control-gh-stack).
