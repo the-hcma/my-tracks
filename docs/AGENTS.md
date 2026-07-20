@@ -38,14 +38,12 @@ New dependency versions are adopted on a staggered schedule so **dep-updater** (
    ~/work/ai/repository-helpers/scripts/dev/start-development --refresh
    ~/work/ai/repository-helpers/scripts/dev/start-development
    ```
-   - **`--refresh`** (first): syncs main with Graphite (`gt sync`), prunes merged worktrees and branches, pulls latest main, and ensures the background service is running (or installs it via `setup-service` if not yet configured). Exits immediately — it does **not** prompt for a worktree.
-   - **plain** (second): repeats the sync/cleanup, then prompts you to name a new worktree for the upcoming work.
-   - **non-interactive alternative** (second): bypass the prompt by passing a worktree name:
-     ```
+   - **`--refresh`** (first): marker-aware sync via `.github/stacking-tool` (`gh-stack`), prunes merged worktrees and branches, pulls latest main, and ensures the background service is running (or installs it via `setup-service` if not yet configured). Exits immediately — it does **not** create a worktree.
+   - **Second invocation** (required): creates the stack worktree — either interactive (plain `start-development`, prompts for a name) or non-interactive:
+     ```bash
      ~/work/ai/repository-helpers/scripts/dev/start-development --worktree <stack-name> --no-interactive
      ```
-   - Both commands are required: `--refresh` is the only one that checks/starts the service; the plain invocation is the only one that creates the worktree.
-   - This replaces the manual `gt sync --force` step.
+   - Both commands are required: `--refresh` is the only one that checks/starts the service; the second invocation (plain or `--worktree … --no-interactive`) is what creates the worktree.
    - After `start-development` finishes, **`cd` into the stack worktree** (`.worktrees/<stack-name>-wt`) before any other work. Do not stay in the primary clone.
 
 ### Main worktree is off-limits (agents)
@@ -57,7 +55,7 @@ The **primary clone** (repo root — first entry in `git worktree list`, usually
 - Edit, create, or delete source files, config, or lockfiles
 - Run `uv sync`, `pnpm install`, tests, builds, or formatters
 - Run `dep-updater` with `--dir` pointing at the primary clone (it may fast-forward `main` and mutate git state)
-- Run `gt create`, `gt modify`, `gt submit`, `gt sync`, `gt restack`, or other Graphite/git write operations
+- Run `gh stack` / `gt` / commits / checkouts or other git write operations
 - Leave uncommitted changes, stray branches, or detached HEAD state
 
 **Always** do implementation, investigation that mutates state, and validation in a **stack worktree** under `.worktrees/<stack-name>-wt`. Pass that path to tools (`--dir`, `cd`, etc.).
@@ -81,53 +79,40 @@ The **primary clone** (repo root — first entry in `git worktree list`, usually
 
 1. **Create PR**: Once all pre-PR quality gates pass, create the pull request
 2. **One commit per PR**: Each PR branch should have **exactly one commit** on top of its base when ready for review. Fold all implementation, review fixups, and CI fixups into that commit — do not leave a chain of `fix:` / `style:` commits on the branch.
-3. **Wait for CI/CD**: After every push, **actively monitor** GitHub Actions until all checks pass or fail — do not push and stop. Poll with `gh pr checks <pr-number>` (see **GitHub Actions Polling** below). If CI fails, fix locally, then **`gt modify`** (never add a new commit for CI/lint/type fixups) and push again; repeat until green.
+3. **Wait for CI/CD**: After every push, **actively monitor** GitHub Actions until all checks pass or fail — do not push and stop. Poll with `gh pr checks <pr-number>` (see **GitHub Actions Polling** below). If CI fails, fix locally, squash/amend on the stack layer, resubmit with `gh stack submit --auto --open --remote origin`, and poll again.
 4. **User Testing**: After CI passes, inform user that PR is ready for manual testing
 5. **User Approval**: Wait for explicit user approval before proceeding
-6. **Submit to merge queue**: Only after user approval, add the `merge-mq` label to submit the PR to the Graphite merge queue: `gh pr edit <pr-number> --add-label "merge-mq"`
-7. **Cleanup**: After merge completes, `gt sync --force` to update local main and clean up branches
+6. **Submit to merge queue**: Only after user approval, enable GitHub auto-merge: `gh pr merge <pr-number> --auto --squash`
+7. **Cleanup**: After merge completes, `~/work/ai/repository-helpers/scripts/dev/start-development --refresh` (or `gh stack sync --remote origin`) to update local main and clean up branches
 
 **DO NOT**:
 - ❌ Create PR before all quality gates pass
 - ❌ Ask user to test before CI/CD passes
 - ❌ Merge PR without explicit user approval
 - ❌ Skip waiting for CI/CD checks or push without monitoring CI to completion
-- ❌ **Add new commits for fixups on an open PR** — use `gt modify` to amend the single branch commit (CI failures, review comments, ruff/pyright fixes)
 - ❌ **Leave multiple commits on a PR branch** — squash to one commit before/at submit (see Branch Workflow)
-- ❌ **NEVER merge PRs directly** (`gh pr merge`, GitHub merge button, etc.) — always use the `merge-mq` label to submit to the merge queue
+- ❌ **Use Graphite enqueue labels** (`merge-it`, `merge-mq`) — this repo uses GitHub merge queue via auto-merge
 
-> See [GRAPHITE.md](./GRAPHITE.md) for the full Graphite workflow reference (branch naming, stack creation, navigation, submission, troubleshooting, and advanced rebasing).
+> See [GH-STACK.md](./GH-STACK.md) for the `gh stack` workflow reference.
 
-**Branch Workflow** (CRITICAL - Use Graphite CLI):
-- ✅ **ALWAYS** use Graphite CLI for branch and PR management
-- ✅ **ALWAYS** use non-interactive mode flags to prevent terminal hangs:
-  - `gt create --all --message "msg"` (not `-am`, use full flags)
-  - `gt submit --no-interactive --publish` (prevents prompts, publishes as ready-for-review)
-  - `gt modify --all --message "msg"` (amend commits non-interactively)
-  - `gt sync --force` (sync without prompts)
-- ✅ **Create branches**: `gt create --all --message "descriptive commit message"`
-- ✅ **One commit per PR**: Prefer a single commit on the branch. If you already have multiple commits, squash before submit: `git reset --soft origin/<base>` then `gt modify --all --message "..."`. Branches created outside Graphite (e.g. `git worktree add -b …`) must be tracked first: `gt track --parent main`.
-- ✅ **Submit PRs** (two steps — both required):
-  1. `gt submit --no-interactive --publish` — pushes branch and creates ready-for-review PR (`--publish` is on `gt submit`, not `gt create`)
-  2. Fill description: `gh api repos/{owner}/{repo}/pulls/{pr} --method PATCH --field body="..."` (no `--body` flag exists on `gt submit`)
-- ✅ **Amend commits** (incremental fixes to an existing PR): **`gt modify --all --message "..."`** — use for **every** follow-up on the same PR (review feedback, CI lint/type/test fixes, logging tweaks). **Do not** run `git commit` for these. After amending, run `gt submit --no-interactive --publish` and **monitor CI** until green.
-- ✅ **Squash extra commits** (if you accidentally created several fixup commits): `git reset --soft origin/<base>` to collapse them into the staging area, then `gt modify --all --message "..."` to fold into one commit. If `gt modify` fails with "untracked branch", run `gt track --parent main` first.
-- ✅ **View stack**: `gt log short` to see current PR stack
-- ✅ **Sync with remote**: `gt sync --force` to update local branches
-- ✅ **Prune stale branches**: Periodically run `gt fetch --prune && git branch -vv | grep ': gone]' | awk '{print $1}' | xargs -r git branch -D`
-- ❌ **NEVER** use raw git commands for PR workflow (use `gt` instead)
-- ❌ **NEVER** commit directly to main
-- ❌ **NEVER** push directly to main
-- ❌ **NEVER** use interactive gt commands (always add `--no-interactive` or use explicit flags)
+**Branch Workflow** (CRITICAL — Use `gh stack`):
+- ✅ **ALWAYS** use `gh stack` (marker `.github/stacking-tool` = `gh-stack`) for branch and PR stacking
+- ✅ Prefer `~/work/ai/repository-helpers/scripts/dev/submit-stack` / `ship-and-review`
+- ✅ Non-interactive flags: `gh stack view --json`, `gh stack submit --auto --open --remote origin`, named `init`/`add`
+- ✅ **Create stack**: `gh stack init <stack>/<topic>` then commit; add layers with `gh stack add <stack>/<next>`
+- ✅ **One commit per PR layer**: Prefer a single commit on the branch. Squash before submit if needed.
+- ✅ **Submit PRs**: `gh stack submit --auto --open --remote origin`, then patch description with `gh pr edit` / `gh api` as needed
+- ✅ **View stack**: `gh stack view --json`
+- ✅ **Sync**: `gh stack sync --remote origin` (or `gh stack rebase --remote origin`)
+- ❌ **NEVER** mix `gt` and `gh stack` on the same stack
+- ❌ **NEVER** commit or push directly to main
 - ❌ **NEVER** add `Co-Authored-By: Claude` (or any AI attribution) to commit messages or PR descriptions
-- Rationale: Graphite enables clean PR stacking, better code review, consistent workflow. Non-interactive mode prevents terminal hangs in automated environments. `--publish` belongs on `gt submit`, not `gt create`.
+- Rationale: GitHub Stacked PRs keep review diffs focused; repository-helpers wrappers keep agents non-interactive.
 
 **Branch Cleanup**:
-- Periodically prune stale remote-tracking branches: `gt fetch --prune`
+- Periodically prune stale remote-tracking branches: `git fetch --prune`
 - Delete local branches whose upstream is gone: `git branch -vv | grep ': gone]' | awk '{print $1}' | xargs -r git branch -D`
-- `graphite-base/{pr}` branches are auto-deleted on PR merge (via GitHub Actions)
-- Stale `graphite-base/*` branches are cleaned up daily by scheduled workflow
-- Graphite auto-cleans merged branches during `gt submit` when it detects merged PRs
+- Transitional: leftover `graphite-base/*` / `gtmq_*` branches are cleaned by scheduled workflows until gone
 - Run cleanup after merging PRs or when branch list becomes cluttered
 - Rationale: Keeps repository clean, avoids confusion from old branches
 
@@ -144,22 +129,27 @@ The first three checks (`pyright`, `ruff check`, `ruff format --check`) are inde
 
 Do not proceed if any of these fail. Fix first.
 
-**Step 2 — Submit via Graphite** (pushes branches and updates PRs):
+**Step 2 — Submit via gh stack** (pushes branches and updates PRs):
 ```bash
-gt submit --no-interactive --publish
+~/work/ai/repository-helpers/scripts/dev/submit-stack
+# or: gh stack submit --auto --open --remote origin
 ```
 
 **Step 2b — Monitor CI until complete** (mandatory after every push):
+Prefer the stack-aware helper (waits on the PR for the current branch; for multi-PR stacks, check every open layer):
 ```bash
-gh pr checks <pr-number>    # repeat every ~5s until all pass or one fails
+~/work/ai/repository-helpers/scripts/dev/post-pr-submission-checks --pr <pr-number>
+# Multi-PR stack: enumerate layers from gh stack view --json, then for each PR:
+#   ~/work/ai/repository-helpers/scripts/dev/post-pr-submission-checks --pr <n>
+# or: gh pr checks <n>   # repeat every ~5s until all pass or one fails
 ```
-If any check fails, inspect logs (`gh run view <run-id> --log-failed`), fix locally, **`gt modify --all --message "..."`** (amend — do not add commits), `gt submit --no-interactive --publish`, and poll again.
+Do **not** mark CI done until **every** submitted PR in the stack is green. If any check fails, inspect logs (`gh run view <run-id> --log-failed`), fix locally, squash/amend on the layer, resubmit, and poll all layers again.
 
 **Step 3 — Verify stack health locally**:
 ```bash
-gt log short
+gh stack view --json
 ```
-Check: correct parent order, no "needs restack", no diverged branch warnings for branches you touched.
+Check: correct parent order and expected PRs for branches you touched.
 
 **Step 4 — Verify each PR on GitHub**:
 ```bash
@@ -214,11 +204,11 @@ Do not declare a PR ready until Steps 3, 4, and 5 all pass.
 1. Initialize session: `~/work/ai/repository-helpers/scripts/dev/start-development --refresh` — pulls the merged commit, prunes the branch, and restarts the service to pick up changes.
 2. Apply any pending migrations: `uv run python manage.py migrate`
 
-**GitHub Actions Polling** (mandatory after every `gt submit`):
-- Do **not** tell the user CI is fixed or the PR is ready until you have seen checks pass (or report the specific failure).
-- Poll frequently: `gh pr checks <pr-number>` with short sleeps (5–10 seconds between attempts).
-- On failure, fetch logs (`gh run view <run-id> --log-failed` or job logs via `gh api`), fix, **`gt modify --all`**, push, and poll again.
-- Example loop: `sleep 10 && gh pr checks <pr-number>` then repeat every 5 seconds until all green or you report a blocker.
+**GitHub Actions Polling** (mandatory after every stack submit):
+- Do **not** tell the user CI is fixed or the PR is ready until you have seen checks pass on **every** open PR in the stack (or report the specific failure).
+- Prefer `~/work/ai/repository-helpers/scripts/dev/post-pr-submission-checks --pr <n>` per layer; or poll `gh pr checks <n>` with short sleeps (5–10 seconds).
+- Discover stack PRs with `gh stack view --json` and wait on each number before declaring the stack green.
+- On failure, fetch logs (`gh run view <run-id> --log-failed` or job logs via `gh api`), fix, resubmit the stack layer, and poll all layers again.
 - Avoid long idle waits (20–30 seconds) between checks.
 - Rationale: Faster feedback loop; avoids leaving the user to discover CI failures; keeps PR branches to one amended commit.
 

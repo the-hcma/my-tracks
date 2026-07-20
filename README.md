@@ -245,14 +245,14 @@ PolyForm Noncommercial License 1.0.0 - See [LICENSE](LICENSE) for details.
 
 ## Contributing
 
-Contributions are welcome! This project uses [Graphite](https://graphite.dev) for PR management:
+Contributions are welcome! This project uses GitHub Stacked PRs (`gh stack`) and the GitHub merge queue:
 
 ```bash
-# Create a feature branch
-gt create --all --message "feat: your feature"
-
-# Submit PR
-gt submit --no-interactive --publish
+~/work/ai/repository-helpers/scripts/dev/start-development --worktree <stack-name> --no-interactive
+cd .worktrees/<stack-name>-wt
+gh stack init <stack>/<topic>
+# … commit changes …
+~/work/ai/repository-helpers/scripts/dev/submit-stack
 ```
 
-See [docs/COMMANDS.md](docs/COMMANDS.md#version-control-graphite) for the complete Graphite workflow.
+See [docs/GH-STACK.md](docs/GH-STACK.md) and [docs/COMMANDS.md](docs/COMMANDS.md#version-control-gh-stack) for the workflow.

@@ -5,7 +5,7 @@ alwaysApply: true
 
 # PR ship, agent review, and operator email
 
-When the user asks to **ship**, **submit**, **open a PR**, or **follow the flow**, run this sequence in a **stack worktree** (never the primary clone). See `pr-workflow.mdc` for worktree/Graphite basics.
+When the user asks to **ship**, **submit**, **open a PR**, or **follow the flow**, run this sequence in a **stack worktree** (never the primary clone). See `stacking-tool.mdc` for `gh-stack` vs Graphite.
 
 Helper scripts live in **repository-helpers** (canonical agent review loop):
 
@@ -37,13 +37,13 @@ Run this repository's quality gates from the stack worktree (tests, linters, etc
 
 ## 2. Commit and submit
 
-Only after §1 quality gates pass:
+Only after §1 quality gates pass (marker is `gh-stack`):
 
 ```bash
-gt create <stack>/<topic> -m 'feat: …'   # or gt modify -m '…'
-# Prefer this repo's submit wrapper if it runs quality gates; otherwise:
-# re-run §1 gates, then:
-gt submit --publish --no-interactive
+gh stack init <stack>/<topic>   # or gh stack add <layer> after commits
+# Prefer repository-helpers submit wrapper:
+"${rh}/scripts/dev/submit-stack"
+# or: gh stack submit --auto --open --remote origin
 ```
 
 Wait for CI:
@@ -109,4 +109,12 @@ When `check` reports `complete_ready: true`:
 commit status / rate-limit stub). This emails `AGENT_REVIEW_REPORT_TO`. It does **not**
 run `gh pr review --approve` (self-approve is skipped; merge stays an explicit operator step).
 
-Do **not** add `merge-it` unless the user explicitly confirms.
+## 4. Merge (GitHub merge queue)
+
+After user approval, enqueue with auto-merge (not Graphite labels):
+
+```bash
+gh pr merge <n> --auto --squash
+```
+
+Do **not** add `merge-it` or `merge-mq`.

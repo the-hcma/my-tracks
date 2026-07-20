@@ -3,33 +3,33 @@ name: CI
 on:
   # Run on every PR event and on direct pushes to feature branches.
   # The push trigger catches cases where a branch is restacked without
-  # generating a new PR synchronize event (e.g. `gt sync` when the remote
-  # already has the rebased commit). The guard job skips push CI when a
+  # generating a new PR synchronize event. The guard job skips push CI when a
   # pull_request workflow is already queued for the same SHA (see below).
   pull_request:
     types: [opened, reopened, synchronize, edited]
     branches-ignore:
+      # Transitional: legacy Graphite restack bases (safe to remove after cleanup).
       - '**/graphite-base/**'
   push:
     branches-ignore:
       - main
       - '**/graphite-base/**'
+      # GitHub merge queue temporary branches — use merge_group, not push.
+      - 'gh-readonly-queue/**'
+  merge_group:
   schedule:
     # Weekly full suite — catches regressions between PRs.
     # Thursday 07:00 UTC. CVEs are checked daily in cve-check.yml.
     - cron: '0 7 * * 4'
   workflow_dispatch:
 
-# Cancel in-progress reruns within the same event type only. push and pull_request
-# must not share a group: cancel-in-progress would leave CANCELLED required checks
-# on the PR commit and block merge even when pull_request CI passed.
 # Cancel in-progress reruns for the same trigger only. push and pull_request must
 # not share a group: cancel-in-progress would leave CANCELLED required checks on
 # the PR commit and block merge even when pull_request CI passed. pull_request
 # actions are also split (opened/synchronize vs edited) so review-bot description
 # patches do not cancel an in-flight test run for the same commit.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.event.action || github.event_name }}
+  group: ci-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.ref }}-${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.sha }}-${{ github.event.action || github.event_name }}
   cancel-in-progress: true
 jobs:
   guard:
@@ -64,11 +64,9 @@ jobs:
           PR_STATE: ${{ steps.pr-state.outputs.state }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Skip merge-queue staging branches — the merge queue validates the
-          # integrated state itself; CI there duplicates work.
-          # Skip when the PR is already merged — Graphite pushes a restack
-          # commit to the next branch after a merge lands, which would otherwise
-          # trigger a redundant CI run on an already-validated diff.
+          # Skip legacy Graphite MQ staging branches (transitional).
+          # Skip when the PR is already merged — a restack push after merge would
+          # otherwise trigger a redundant CI run on an already-validated diff.
           if [[ "$HEAD_REF" == gtmq_merge_* ]] || [[ "$PR_STATE" == "MERGED" ]]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
@@ -110,7 +108,8 @@ jobs:
     steps:
     - uses: actions/checkout@v7.0.0
       with:
-        ref: ${{ github.event.pull_request.head.sha || github.sha }}
+        persist-credentials: false
+        ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.sha }}
 
     - name: Set up Node.js
       uses: actions/setup-node@v6.4.0
@@ -144,7 +143,8 @@ jobs:
     steps:
     - uses: actions/checkout@v7.0.0
       with:
-        ref: ${{ github.event.pull_request.head.sha || github.sha }}
+        persist-credentials: false
+        ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.sha }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v8.3.2
@@ -165,7 +165,8 @@ jobs:
     steps:
     - uses: actions/checkout@v7.0.0
       with:
-        ref: ${{ github.event.pull_request.head.sha || github.sha }}
+        persist-credentials: false
+        ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.sha }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v8.3.2
@@ -218,8 +219,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.0
         with:
+          persist-credentials: false
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.sha }}
       - name: Secret Scan
         env:
           GITLEAKS_BASE: ${{ github.event.pull_request.base.sha || '' }}
@@ -233,7 +235,8 @@ jobs:
     steps:
     - uses: actions/checkout@v7.0.0
       with:
-        ref: ${{ github.event.pull_request.head.sha || github.sha }}
+        persist-credentials: false
+        ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.sha }}
 
     - name: Lint GitHub Actions workflows
       uses: rhysd/actionlint@v1.7.12
@@ -246,7 +249,8 @@ jobs:
     steps:
     - uses: actions/checkout@v7.0.0
       with:
-        ref: ${{ github.event.pull_request.head.sha || github.sha }}
+        persist-credentials: false
+        ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.sha }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v8.3.2
