@@ -38,13 +38,12 @@ New dependency versions are adopted on a staggered schedule so **dep-updater** (
    ~/work/ai/repository-helpers/scripts/dev/start-development --refresh
    ~/work/ai/repository-helpers/scripts/dev/start-development
    ```
-   - **`--refresh`** (first): marker-aware sync via `.github/stacking-tool` (`gh-stack`), prunes merged worktrees and branches, pulls latest main, and ensures the background service is running (or installs it via `setup-service` if not yet configured). Exits immediately — it does **not** prompt for a worktree.
-   - **plain** (second): repeats the sync/cleanup, then prompts you to name a new worktree for the upcoming work.
-   - **non-interactive alternative** (second): bypass the prompt by passing a worktree name:
-     ```
+   - **`--refresh`** (first): marker-aware sync via `.github/stacking-tool` (`gh-stack`), prunes merged worktrees and branches, pulls latest main, and ensures the background service is running (or installs it via `setup-service` if not yet configured). Exits immediately — it does **not** create a worktree.
+   - **Second invocation** (required): creates the stack worktree — either interactive (plain `start-development`, prompts for a name) or non-interactive:
+     ```bash
      ~/work/ai/repository-helpers/scripts/dev/start-development --worktree <stack-name> --no-interactive
      ```
-   - Both commands are required: `--refresh` is the only one that checks/starts the service; the plain invocation is the only one that creates the worktree.
+   - Both commands are required: `--refresh` is the only one that checks/starts the service; the second invocation (plain or `--worktree … --no-interactive`) is what creates the worktree.
    - After `start-development` finishes, **`cd` into the stack worktree** (`.worktrees/<stack-name>-wt`) before any other work. Do not stay in the primary clone.
 
 ### Main worktree is off-limits (agents)
@@ -137,10 +136,14 @@ Do not proceed if any of these fail. Fix first.
 ```
 
 **Step 2b — Monitor CI until complete** (mandatory after every push):
+Prefer the stack-aware helper (waits on the PR for the current branch; for multi-PR stacks, check every open layer):
 ```bash
-gh pr checks <pr-number>    # repeat every ~5s until all pass or one fails
+~/work/ai/repository-helpers/scripts/dev/post-pr-submission-checks --pr <pr-number>
+# Multi-PR stack: enumerate layers from gh stack view --json, then for each PR:
+#   ~/work/ai/repository-helpers/scripts/dev/post-pr-submission-checks --pr <n>
+# or: gh pr checks <n>   # repeat every ~5s until all pass or one fails
 ```
-If any check fails, inspect logs (`gh run view <run-id> --log-failed`), fix locally, squash/amend on the layer, resubmit, and poll again.
+Do **not** mark CI done until **every** submitted PR in the stack is green. If any check fails, inspect logs (`gh run view <run-id> --log-failed`), fix locally, squash/amend on the layer, resubmit, and poll all layers again.
 
 **Step 3 — Verify stack health locally**:
 ```bash
@@ -202,10 +205,10 @@ Do not declare a PR ready until Steps 3, 4, and 5 all pass.
 2. Apply any pending migrations: `uv run python manage.py migrate`
 
 **GitHub Actions Polling** (mandatory after every stack submit):
-- Do **not** tell the user CI is fixed or the PR is ready until you have seen checks pass (or report the specific failure).
-- Poll frequently: `gh pr checks <pr-number>` with short sleeps (5–10 seconds between attempts).
-- On failure, fetch logs (`gh run view <run-id> --log-failed` or job logs via `gh api`), fix, resubmit the stack layer, and poll again.
-- Example loop: `sleep 10 && gh pr checks <pr-number>` then repeat every 5 seconds until all green or you report a blocker.
+- Do **not** tell the user CI is fixed or the PR is ready until you have seen checks pass on **every** open PR in the stack (or report the specific failure).
+- Prefer `~/work/ai/repository-helpers/scripts/dev/post-pr-submission-checks --pr <n>` per layer; or poll `gh pr checks <n>` with short sleeps (5–10 seconds).
+- Discover stack PRs with `gh stack view --json` and wait on each number before declaring the stack green.
+- On failure, fetch logs (`gh run view <run-id> --log-failed` or job logs via `gh api`), fix, resubmit the stack layer, and poll all layers again.
 - Avoid long idle waits (20–30 seconds) between checks.
 - Rationale: Faster feedback loop; avoids leaving the user to discover CI failures; keeps PR branches to one amended commit.
 

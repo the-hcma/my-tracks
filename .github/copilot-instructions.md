@@ -12,8 +12,8 @@ Before doing anything else, run both commands in order:
 ```
 
 - **`--refresh`**: marker-aware sync (`.github/stacking-tool` is `gh-stack`), prunes merged worktrees/branches, pulls latest main, ensures the service is running. Exits without creating a worktree.
-- **plain**: repeats cleanup, then prompts for a new worktree name.
-- Both are required — `--refresh` is the only invocation that checks/starts the service; the plain invocation is the only one that creates the worktree.
+- **Second invocation** (required): creates the stack worktree — plain `start-development` (prompts for a name) or `--worktree <stack-name> --no-interactive`.
+- Both are required — `--refresh` checks/starts the service; the second invocation (interactive or `--worktree`) creates the worktree.
 
 ## Package manager
 
