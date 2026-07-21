@@ -1,38 +1,42 @@
 ---
-description: Stacking backend from .github/stacking-tool — prefer repository-helpers skills
+description: Choose Graphite vs GitHub Stacked PRs from .github/stacking-tool
 alwaysApply: true
 ---
 
 # Stacking tool preference
 
-This is the **in-repo agent SSOT** for stacking (replaces any retired `docs/GRAPHITE.md`).
-
 Before creating branches or submitting/restacking PRs, **read** `.github/stacking-tool`
 (single line: `graphite` or `gh-stack`). Missing or invalid values: **stop and ask** —
 do not guess.
 
-## `gh-stack` (this repo)
+<!-- stacking-tool-canonical-graphite-skill: https://github.com/the-hcma/repository-helpers/blob/main/.cursor/skills/graphite/SKILL.md -->
+<!-- stacking-tool-canonical-gh-stack-skill: https://github.com/the-hcma/repository-helpers/blob/main/.cursor/skills/gh-stack/SKILL.md -->
 
-Canonical playbook (do not invent flags):
+Canonical skills live in **repository-helpers** (not copied into this repo):
 
-- Local: `~/work/ai/repository-helpers/.cursor/skills/gh-stack/SKILL.md`
-- GitHub: https://github.com/the-hcma/repository-helpers/blob/main/.cursor/skills/gh-stack/SKILL.md
-- Thin local pointer: `.cursor/skills/gh-stack/SKILL.md`
+- **Graphite:** https://github.com/the-hcma/repository-helpers/blob/main/.cursor/skills/graphite/SKILL.md
+- **gh-stack:** https://github.com/the-hcma/repository-helpers/blob/main/.cursor/skills/gh-stack/SKILL.md
 
-Prefer `~/work/ai/repository-helpers/scripts/dev/submit-stack` /
-`ship-and-review` (they dispatch via `scripts/lib/stacking-tool`).
+Local clone (when `${REPOSITORY_HELPERS_DIR:-$HOME/work/ai/repository-helpers}` is synced):
 
-**Do not** mix with `gt create` / `gt submit` / `gt restack` on the same stack.
-
-Human-oriented cheat sheet: `docs/GH-STACK.md`.
+- `${REPOSITORY_HELPERS_DIR}/.cursor/skills/graphite/SKILL.md`
+- `${REPOSITORY_HELPERS_DIR}/.cursor/skills/gh-stack/SKILL.md`
 
 ## `graphite`
 
-Not used in this repository. If the marker is ever `graphite`, follow
-`~/work/ai/repository-helpers/.cursor/skills/graphite/SKILL.md` and `gt` via
-`submit-stack`.
+- Follow the Graphite skill above (`gt create` / `gt submit` / `gt restack`).
+- Prefer repository-helpers `scripts/dev/submit-stack` when available in that clone.
+
+## `gh-stack`
+
+- Follow the gh-stack skill (non-interactive: `view --json`, `submit --auto --open`,
+  named `init`/`add`).
+- Prefer repository-helpers `scripts/dev/submit-stack` / `scripts/dev/ship-and-review`
+  when available (they dispatch via `scripts/lib/stacking-tool`).
+- **Do not** mix with `gt create` / `gt submit` / `gt restack` on the same stack.
 
 ## Unchanged regardless of marker
 
 Agent review, CI wait, and reply-before-resolve still follow
-`.cursor/rules/pr-ship-and-review.mdc` and the repository-helpers ship-and-review Skill.
+`.cursor/rules/pr-ship-and-review.mdc` and the canonical ship-and-review skill in
+repository-helpers.
