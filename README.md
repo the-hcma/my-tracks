@@ -258,3 +258,5 @@ gh stack init <stack>/<topic>
 See [`.cursor/rules/stacking-tool.mdc`](.cursor/rules/stacking-tool.mdc) (agents),
 [docs/GH-STACK.md](docs/GH-STACK.md), and
 [docs/COMMANDS.md](docs/COMMANDS.md#version-control-gh-stack).
+
+# mq-validate 20260722T130534Z
