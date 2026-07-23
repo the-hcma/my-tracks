@@ -112,7 +112,7 @@ jobs:
         ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.sha }}
 
     - name: Set up Node.js
-      uses: actions/setup-node@v6.4.0
+      uses: actions/setup-node@v7.0.0
       with:
         node-version: '22'
 
@@ -180,7 +180,7 @@ jobs:
       run: uv sync --all-extras
 
     - name: Set up Node.js
-      uses: actions/setup-node@v6.4.0
+      uses: actions/setup-node@v7.0.0
       with:
         node-version: '22'
 
@@ -264,7 +264,7 @@ jobs:
       run: uv sync --all-extras
 
     - name: Set up Node.js
-      uses: actions/setup-node@v6.4.0
+      uses: actions/setup-node@v7.0.0
       with:
         node-version: '22'
 
