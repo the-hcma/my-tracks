@@ -29,7 +29,7 @@
     "esbuild": "0.28.1",
     "sharp": "0.35.3",
     "eslint": "10.8.0",
-    "globals": "17.7.0",
+    "globals": "17.8.0",
     "jsdom": "29.1.1",
     "typescript": "6.0.3",
     "typescript-eslint": "8.65.0",
