@@ -17,7 +17,7 @@ dependencies = [
     "amqtt",
     "cryptography>=50.0.0",
     "dj-database-url>=3.1.2",
-    "h2>=4.4.0",
+    "h2==4.4.1",
     "priority>=2.0.0",
     "cbor2>=6.1.3",
     "pyasn1>=0.6.4",
