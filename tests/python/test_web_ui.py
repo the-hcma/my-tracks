@@ -142,10 +142,17 @@ class TestWebUIViews:
         assert_that(content, contains_string('id="historic-controls"'))
         assert_that(content, contains_string('id="historic-from-date"'))
         assert_that(content, contains_string('id="historic-to-date"'))
+        assert_that(content, contains_string("historic-date-caption"))
+        assert_that(content, contains_string(">From<"))
+        assert_that(content, contains_string(">To<"))
         assert_that(content, contains_string('id="historic-same-day"'))
         assert_that(content, contains_string('aria-label="Use only the from day"'))
         assert_that(content, contains_string('id="time-slider"'))
         assert_that(content, contains_string('id="time-slider-label"'))
+        assert_that(content, contains_string('id="precision-slider"'))
+        assert_that(content, contains_string('aria-label="Trail precision"'))
+        assert_that(content, contains_string('id="precision-value"'))
+        assert_that(content, contains_string("precision-slider-row"))
 
     def test_home_view_no_cache_headers(self, logged_in_client: Client) -> None:
         """Test that the home view sets no-cache headers."""
