@@ -42,7 +42,7 @@ import {
 import { runLastKnownLoad } from './lastKnownLoad';
 import { registerAndUpdateServiceWorker } from './serviceWorkerRecovery';
 import { getPreferredTheme, setTheme, toggleTheme } from './theme';
-import { boundFetch, dateAndMinutesToTimestamps, extractResultsList, formatLatLonCoordinate, formatLatLonPair, formatMinutesAsTime, getTodayDateString, selectStablePaletteColor } from './utils';
+import { boundFetch, clampHistoricToDate, collapseLocations, extractResultsList, formatDwellDuration, formatDwellHoverHtml, formatLatLonCoordinate, formatLatLonPair, formatMinutesAsTime, getTodayDateString, getYesterdayDateString, historicFetchResolutionSeconds, historicPeriodToTimestamps, HISTORIC_MAX_SPAN_DAYS, HISTORIC_WARN_SPAN_DAYS, inclusiveDaySpan, prepareHistoricTripLocations, selectStablePaletteColor, tripSnapshotMaxPoints } from './utils';
 import { formatActivityLogMeta } from './locationMeta';
 import {
     compareLocationsByReportTimeDesc,
@@ -195,6 +195,8 @@ interface TrackLocation {
     trigger?: string;
     /** Internal: number of collapsed waypoints at this location */
     _collapsedCount?: number;
+    /** Internal: seconds spent at this collapsed location */
+    _dwellSeconds?: number;
 }
 
 /** API response for locations list */
@@ -230,6 +232,9 @@ interface UIState {
     trailResolution: number;
     showLastKnownOnly?: boolean;
     historicDate?: string;
+    historicFromDate?: string;
+    historicToDate?: string;
+    historicSameDayOnly?: boolean;
     historicStartMinutes?: number;
     historicEndMinutes?: number;
     mobileLayoutMode?: MobileLayoutMode;
@@ -312,11 +317,14 @@ let needsFitBounds = true; // Only fit bounds on initial trail load
 let isRestoringState = false; // Flag to prevent saving during restore
 let skipHistoryFetch = false; // Flag to skip history fetch after reset (only show new incoming data)
 
-// Historic date+time range state
-let historicDate = ''; // YYYY-MM-DD, defaults to today
+// Historic date+time range state (defaults applied on first Historic entry)
+let historicFromDate = ''; // YYYY-MM-DD
+let historicToDate = ''; // YYYY-MM-DD
+let historicSameDayOnly = true;
 let historicStartMinutes = 0; // Minutes from midnight (0 = 00:00)
 let historicEndMinutes = 1439; // Minutes from midnight (1439 = 23:59)
 let timeSliderApi: NoUiSliderAPI | null = null;
+let historicLongRangeWarned = false;
 
 // Device color palette - ordered for MAXIMUM visual difference between adjacent colors
 // First colors should be most distinct from each other (used when few devices)
@@ -516,28 +524,131 @@ function getDateRangeText(hours: number): string {
 
 /**
  * Get the display text for historic date + time range.
- * @returns Formatted string like "Thu, Feb 20 · 08:00 – 17:30"
+ * @returns Formatted string like "Thu, Feb 20 · 08:00 – 17:30" or a multi-day range
  */
 function getHistoricRangeText(): string {
-    const dateStr = historicDate || getTodayDateString();
-    const [year, month, day] = dateStr.split('-').map(Number);
-    const date = new Date(year, month - 1, day);
-    const dateText = formatDateForTitle(date);
-    const startTime = formatMinutesAsTime(historicStartMinutes);
-    const endTime = formatMinutesAsTime(historicEndMinutes);
-    return `${dateText} · ${startTime} – ${endTime}`;
+    ensureHistoricDatesInitialized();
+    const [fy, fm, fd] = historicFromDate.split('-').map(Number);
+    const fromDate = new Date(fy, fm - 1, fd);
+    const fromText = formatDateForTitle(fromDate);
+    if (historicSameDayOnly) {
+        const startTime = formatMinutesAsTime(historicStartMinutes);
+        const endTime = formatMinutesAsTime(historicEndMinutes);
+        return `${fromText} · ${startTime} – ${endTime}`;
+    }
+    if (historicFromDate === historicToDate) {
+        return fromText;
+    }
+    const [ty, tm, td] = historicToDate.split('-').map(Number);
+    const toDate = new Date(ty, tm - 1, td);
+    return `${fromText} → ${formatDateForTitle(toDate)}`;
 }
 
 /**
- * Compute start and end Unix timestamps from historic date + time range.
+ * Compute start and end Unix timestamps from historic from/to (+ optional same-day minutes).
  * @returns [startTimestamp, endTimestamp] in seconds
  */
 function getHistoricTimestamps(): [number, number] {
-    return dateAndMinutesToTimestamps(
-        historicDate || getTodayDateString(),
+    ensureHistoricDatesInitialized();
+    return historicPeriodToTimestamps(
+        historicFromDate,
+        historicToDate,
+        historicSameDayOnly,
         historicStartMinutes,
         historicEndMinutes,
     );
+}
+
+/**
+ * Default historic period when unset: yesterday, same-day.
+ */
+function ensureHistoricDatesInitialized(): void {
+    if (!historicFromDate) {
+        historicFromDate = getYesterdayDateString();
+    }
+    if (!historicToDate) {
+        historicToDate = historicFromDate;
+    }
+}
+
+/**
+ * Sync historic date inputs, same-day checkbox, and time-slider visibility.
+ */
+function syncHistoricControls(): void {
+    ensureHistoricDatesInitialized();
+    const today = getTodayDateString();
+    const fromInput = document.getElementById('historic-from-date') as HTMLInputElement | null;
+    const toInput = document.getElementById('historic-to-date') as HTMLInputElement | null;
+    const sameDayInput = document.getElementById('historic-same-day') as HTMLInputElement | null;
+    const toWrap = document.getElementById('historic-to-date-wrap');
+    const sliderContainer = document.getElementById('time-slider-container');
+
+    if (fromInput) {
+        fromInput.value = historicFromDate;
+        fromInput.max = today;
+    }
+    if (toInput) {
+        toInput.value = historicToDate;
+        toInput.min = historicFromDate;
+        toInput.max = today;
+        toInput.disabled = historicSameDayOnly;
+    }
+    if (sameDayInput) {
+        sameDayInput.checked = historicSameDayOnly;
+    }
+    if (toWrap) {
+        toWrap.classList.toggle('historic-to-disabled', historicSameDayOnly);
+    }
+    if (sliderContainer) {
+        sliderContainer.classList.toggle('hidden', !historicSameDayOnly);
+    }
+}
+
+/**
+ * Precision slider percent (0–100) from trailResolution (360–0).
+ */
+function trailPrecisionPercent(): number {
+    return Math.round((1 - trailResolution / 360) * 100);
+}
+
+/**
+ * Collapse dwells and thin for historic trip snapshot display (per device).
+ */
+function prepareHistoricDisplayLocations(locations: TrackLocation[]): TrackLocation[] {
+    ensureHistoricDatesInitialized();
+    const daySpan = inclusiveDaySpan(historicFromDate, historicToDate);
+    const maxPoints = tripSnapshotMaxPoints(daySpan, trailPrecisionPercent());
+    return prepareHistoricTripLocations(locations, maxPoints, config.collapsePrecision);
+}
+
+/**
+ * Resolution query value for historic API fetch (aggressive floor on long spans).
+ */
+function historicApiResolution(): number {
+    ensureHistoricDatesInitialized();
+    const daySpan = inclusiveDaySpan(historicFromDate, historicToDate);
+    return historicFetchResolutionSeconds(daySpan, trailResolution);
+}
+
+/**
+ * Warn once per long range and clamp to the hard max span.
+ */
+function applyHistoricSpanGuards(): void {
+    ensureHistoricDatesInitialized();
+    const clamped = clampHistoricToDate(historicFromDate, historicToDate, HISTORIC_MAX_SPAN_DAYS);
+    if (clamped !== historicToDate) {
+        historicToDate = clamped;
+        showToast(`Historic range limited to ${HISTORIC_MAX_SPAN_DAYS} days`, { type: 'warning' });
+        historicLongRangeWarned = true;
+    }
+    const span = inclusiveDaySpan(historicFromDate, historicToDate);
+    if (span > HISTORIC_WARN_SPAN_DAYS && !historicLongRangeWarned) {
+        showToast('Long range: trail is heavily simplified for trip snapshots', { type: 'info' });
+        historicLongRangeWarned = true;
+    }
+    if (span <= HISTORIC_WARN_SPAN_DAYS) {
+        historicLongRangeWarned = false;
+    }
 }
 
 /**
@@ -1199,7 +1310,9 @@ function saveUIState(): void {
         timeRangeHours: timeRangeHours,
         trailResolution: trailResolution,
         showLastKnownOnly: showLastKnownOnly,
-        historicDate: historicDate,
+        historicFromDate: historicFromDate,
+        historicToDate: historicToDate,
+        historicSameDayOnly: historicSameDayOnly,
         historicStartMinutes: historicStartMinutes,
         historicEndMinutes: historicEndMinutes,
         mobileLayoutMode: mobileLayoutMode,
@@ -1271,9 +1384,24 @@ function restoreUIState(): void {
         }
     }
 
-    // Restore historic date + time range
-    if (state.historicDate) {
-        historicDate = state.historicDate;
+    // Restore historic from/to + time range (migrate legacy historicDate)
+    if (state.historicFromDate) {
+        historicFromDate = state.historicFromDate;
+    } else if (state.historicDate) {
+        historicFromDate = state.historicDate;
+    }
+    if (state.historicToDate) {
+        historicToDate = state.historicToDate;
+    } else if (historicFromDate) {
+        historicToDate = historicFromDate;
+    }
+    if (state.historicSameDayOnly !== undefined) {
+        historicSameDayOnly = state.historicSameDayOnly;
+    } else if (historicFromDate && historicToDate) {
+        historicSameDayOnly = historicFromDate === historicToDate;
+    }
+    if (historicSameDayOnly && historicFromDate) {
+        historicToDate = historicFromDate;
     }
     if (state.historicStartMinutes !== undefined) {
         historicStartMinutes = state.historicStartMinutes;
@@ -1691,46 +1819,43 @@ async function reverseGeocode(lat: number, lon: number): Promise<string> {
 
 /**
  * Collapse consecutive waypoints at the same location into a single point.
- * Uses the oldest timestamp for the collapsed point (first occurrence in chronological order).
- * Precision derived from database schema (decimal_places), capped at 5 (~1.1m).
- *
- * @param locations - Array of locations in chronological order
- * @returns Collapsed locations with _collapsedCount property
+ * Uses utils.collapseLocations with project collapse precision and dwell seconds.
  */
-function collapseLocations(locations: TrackLocation[]): TrackLocation[] {
-    if (locations.length === 0) return [];
+function collapseTrackLocations(locations: TrackLocation[]): TrackLocation[] {
+    return collapseLocations(locations, config.collapsePrecision);
+}
 
-    // Precision from DB schema: config.collapsePrecision decimals
-    // 5 decimals ≈ 1.1m, 4 decimals ≈ 11m, 6 decimals ≈ 0.1m
-    const PRECISION = config.collapsePrecision;
-    const collapsed: TrackLocation[] = [];
-    let currentGroup: TrackLocation[] = [locations[0]];
-    let currentKey = `${parseFloat(String(locations[0].latitude)).toFixed(PRECISION)},${parseFloat(String(locations[0].longitude)).toFixed(PRECISION)}`;
-
-    for (let i = 1; i < locations.length; i++) {
-        const loc = locations[i];
-        const key = `${parseFloat(String(loc.latitude)).toFixed(PRECISION)},${parseFloat(String(loc.longitude)).toFixed(PRECISION)}`;
-
-        if (key === currentKey) {
-            // Same location - add to current group
-            currentGroup.push(loc);
-        } else {
-            // New location - save current group and start new one
-            // Use the OLDEST (first) location in the group as the representative
-            const representative: TrackLocation = { ...currentGroup[0], _collapsedCount: currentGroup.length };
-            collapsed.push(representative);
-            currentGroup = [loc];
-            currentKey = key;
-        }
+/**
+ * Popup HTML for collapsed historic/live stays (dwell preferred over raw count).
+ */
+function formatHistoricCollapsedPopupHtml(
+    dwellSeconds: number | undefined,
+    collapsedCount: number | undefined,
+): string {
+    const dwell = dwellSeconds ?? 0;
+    const count = collapsedCount ?? 1;
+    if (dwell > 0) {
+        return `<i>Time spent: ${formatDwellDuration(dwell)}</i><br>`;
     }
-
-    // Don't forget the last group
-    if (currentGroup.length > 0) {
-        const representative: TrackLocation = { ...currentGroup[0], _collapsedCount: currentGroup.length };
-        collapsed.push(representative);
+    if (count > 1) {
+        return `<i>(${count} waypoints at this location)</i><br>`;
     }
+    return '';
+}
 
-    return collapsed;
+/**
+ * Activity-log badge for dwell / collapsed count.
+ */
+function formatDwellActivityBadge(loc: TrackLocation): string {
+    const dwell = loc._dwellSeconds ?? 0;
+    const count = loc._collapsedCount ?? 1;
+    if (dwell > 0) {
+        return `<span style="background:#6c757d;color:white;padding:1px 5px;border-radius:10px;font-size:10px;margin-left:8px;">${formatDwellDuration(dwell)}</span>`;
+    }
+    if (count > 1) {
+        return `<span style="background:#6c757d;color:white;padding:1px 5px;border-radius:10px;font-size:10px;margin-left:8px;">×${count}</span>`;
+    }
+    return '';
 }
 
 // Track locations for incremental trail building (used after reset)
@@ -1782,7 +1907,7 @@ function addLocationToTrail(location: TrackLocation): void {
 
     // Rebuild trail from all incremental locations for this device
     const locations = incrementalLocations[deviceName];
-    const collapsedLocations = collapseLocations(locations);
+    const collapsedLocations = collapseTrackLocations(locations);
 
     // Create path from collapsed location coordinates
     const path: [number, number][] = collapsedLocations
@@ -1834,7 +1959,7 @@ function addLocationToTrail(location: TrackLocation): void {
                 : 'Unknown time';
 
             // Show count if multiple waypoints were collapsed at this location
-            const countInfo = collapsedCount > 1 ? `<br><i>(${collapsedCount} waypoints)</i>` : '';
+            const countInfo = formatDwellHoverHtml(loc._dwellSeconds, collapsedCount);
 
             const marker = L.marker(latLng, {
                 icon: waypointIcon,
@@ -1961,7 +2086,7 @@ function drawLiveTrails(locationsByDevice: Record<string, TrackLocation[]>): voi
         const chronological = [...locations].reverse().filter(locationPassesAccuracyForTrail);
 
         // Collapse consecutive waypoints at same location
-        const collapsedLocations = collapseLocations(chronological);
+        const collapsedLocations = collapseTrackLocations(chronological);
 
         // Create path from collapsed location coordinates
         const path: [number, number][] = collapsedLocations
@@ -2013,7 +2138,7 @@ function drawLiveTrails(locationsByDevice: Record<string, TrackLocation[]>): voi
                     : 'Unknown time';
 
                 // Show count if multiple waypoints were collapsed at this location
-                const countInfo = collapsedCount > 1 ? `<br><i>(${collapsedCount} waypoints)</i>` : '';
+                const countInfo = formatDwellHoverHtml(loc._dwellSeconds, collapsedCount);
 
                 const marker = L.marker(latLng, {
                     icon: waypointIcon,
@@ -2076,7 +2201,7 @@ async function fetchAndDisplayTrail(): Promise<void> {
         resetDeviceColors();
         try {
             // Always include resolution to bypass pagination limit
-            const url = `/api/locations/?start_time=${Math.floor(startTime)}&end_time=${Math.floor(endTime)}&ordering=-timestamp&resolution=${trailResolution}`;
+            const url = `/api/locations/?start_time=${Math.floor(startTime)}&end_time=${Math.floor(endTime)}&ordering=-timestamp&resolution=${historicApiResolution()}`;
             const response = await fetch(url);
             if (!response.ok) {
                 syncTrailPolylineVisibilityForLastKnownMode();
@@ -2115,7 +2240,7 @@ async function fetchAndDisplayTrail(): Promise<void> {
                 if (chronologicalLocations.length === 0) return;
 
                 // Collapse consecutive waypoints at same location
-                const collapsedLocations = collapseLocations(chronologicalLocations);
+                const collapsedLocations = prepareHistoricDisplayLocations(chronologicalLocations);
 
                 // Create path from collapsed location coordinates
                 const path: [number, number][] = collapsedLocations.map(loc => [
@@ -2162,7 +2287,7 @@ async function fetchAndDisplayTrail(): Promise<void> {
                             : 'Unknown time';
 
                         // Show count if multiple waypoints were collapsed at this location
-                        const countInfo = collapsedCount > 1 ? `<br><i>(${collapsedCount} waypoints)</i>` : '';
+                        const countInfo = formatDwellHoverHtml(loc._dwellSeconds, collapsedCount);
 
                         const marker = L.marker(latLng, {
                             icon: waypointIcon,
@@ -2178,7 +2303,7 @@ async function fetchAndDisplayTrail(): Promise<void> {
                         });
 
                         // Create popup content
-                        const collapsedInfo = collapsedCount > 1 ? `<i>(${collapsedCount} waypoints at this location)</i><br>` : '';
+                        const collapsedInfo = formatHistoricCollapsedPopupHtml(loc._dwellSeconds, collapsedCount);
                         const popupContent = `
                             <div class="waypoint-popup">
                                 <b>${deviceName} - Waypoint #${waypointNumber}</b><br>
@@ -2266,7 +2391,7 @@ async function fetchAndDisplayTrail(): Promise<void> {
 
     try {
         // Always include resolution to bypass pagination limit
-        const url = `/api/locations/?device=${selectedDevice}&start_time=${Math.floor(startTime)}&end_time=${Math.floor(endTime)}&ordering=-timestamp&resolution=${trailResolution}`;
+        const url = `/api/locations/?device=${selectedDevice}&start_time=${Math.floor(startTime)}&end_time=${Math.floor(endTime)}&ordering=-timestamp&resolution=${historicApiResolution()}`;
         const response = await fetch(url);
         if (!response.ok) {
             syncTrailPolylineVisibilityForLastKnownMode();
@@ -2310,7 +2435,7 @@ async function fetchAndDisplayTrail(): Promise<void> {
 
         // Collapse consecutive waypoints at same location (only shows movement)
         // Each collapsed point uses the oldest timestamp from the group
-        const collapsedLocations = collapseLocations(chronologicalLocations);
+        const collapsedLocations = prepareHistoricDisplayLocations(chronologicalLocations);
 
         // Create path from collapsed location coordinates
         const path: [number, number][] = collapsedLocations.map(loc => [
@@ -2355,7 +2480,7 @@ async function fetchAndDisplayTrail(): Promise<void> {
                     : 'Unknown time';
 
                 // Show count if multiple waypoints were collapsed at this location
-                const countInfo = collapsedCount > 1 ? `<br><i>(${collapsedCount} waypoints)</i>` : '';
+                const countInfo = formatDwellHoverHtml(loc._dwellSeconds, collapsedCount);
 
                 const marker = L.marker(latLng, {
                     icon: waypointIcon,
@@ -2371,7 +2496,7 @@ async function fetchAndDisplayTrail(): Promise<void> {
                 });
 
                 // Create popup content (will be updated with address on click)
-                const collapsedInfo = collapsedCount > 1 ? `<i>(${collapsedCount} waypoints at this location)</i><br>` : '';
+                const collapsedInfo = formatHistoricCollapsedPopupHtml(loc._dwellSeconds, collapsedCount);
                 const popupContent = `
                     <div class="waypoint-popup">
                         <b>Waypoint #${waypointNumber}</b><br>
@@ -2513,7 +2638,7 @@ function displayHistoricWaypoints(locations: TrackLocation[], showDeviceNames = 
 
         Object.entries(locationsByDevice).forEach(([deviceName, deviceLocations]) => {
             const chronological = [...deviceLocations].reverse();
-            const collapsedLocations = collapseLocations(chronological);
+            const collapsedLocations = prepareHistoricDisplayLocations(chronological);
 
             collapsedLocations.forEach((loc) => {
                 displayEntries.push({
@@ -2537,12 +2662,8 @@ function displayHistoricWaypoints(locations: TrackLocation[], showDeviceNames = 
             const lat = formatLatLonCoordinate(loc.latitude);
             const lon = formatLatLonCoordinate(loc.longitude);
             const meta = formatActivityLogMeta(loc);
-            const collapsedCount = loc._collapsedCount || 1;
 
-            const countBadge =
-                collapsedCount > 1
-                    ? `<span style="background:#6c757d;color:white;padding:1px 5px;border-radius:10px;font-size:10px;margin-left:8px;">×${collapsedCount}</span>`
-                    : '';
+            const countBadge = formatDwellActivityBadge(loc);
 
             const deviceBadge = `<span style="background:${deviceColor};color:white;padding:1px 6px;border-radius:10px;font-size:11px;margin-left:8px;">${deviceName}</span>`;
 
@@ -2566,7 +2687,7 @@ function displayHistoricWaypoints(locations: TrackLocation[], showDeviceNames = 
         // Collapse consecutive waypoints at same location
         // API returns newest first, so we reverse to get chronological order for collapsing
         const chronological = [...locations].reverse();
-        const collapsedLocations = collapseLocations(chronological);
+        const collapsedLocations = prepareHistoricDisplayLocations(chronological);
         // Reverse back to show newest first in the list
         const displayLocations = [...collapsedLocations].reverse();
 
@@ -2581,12 +2702,7 @@ function displayHistoricWaypoints(locations: TrackLocation[], showDeviceNames = 
             const lat = formatLatLonCoordinate(loc.latitude);
             const lon = formatLatLonCoordinate(loc.longitude);
             const meta = formatActivityLogMeta(loc);
-            const collapsedCount = loc._collapsedCount || 1;
-
-            const countBadge =
-                collapsedCount > 1
-                    ? `<span style="background:#6c757d;color:white;padding:1px 5px;border-radius:10px;font-size:10px;margin-left:8px;">×${collapsedCount}</span>`
-                    : '';
+            const countBadge = formatDwellActivityBadge(loc);
 
             const deviceColor = getDeviceColor(device);
             const deviceBadge = `<span style="background:${deviceColor};color:white;padding:1px 6px;border-radius:10px;font-size:11px;margin-left:8px;">${device}</span>`;
@@ -3136,18 +3252,15 @@ function switchToHistoricMode(): void {
     document.getElementById('request-location-button')?.classList.add('hidden');
     document.getElementById('reset-button')?.classList.add('hidden');
 
-    // Set date picker to current historic date (or today)
-    if (!historicDate) {
-        historicDate = getTodayDateString();
-    }
-    const dateInput = document.getElementById('historic-date') as HTMLInputElement;
-    if (dateInput) {
-        dateInput.value = historicDate;
-        dateInput.max = getTodayDateString();
-    }
+    // Set historic period defaults (yesterday / same-day) and sync controls
+    ensureHistoricDatesInitialized();
+    applyHistoricSpanGuards();
+    syncHistoricControls();
 
-    // Initialize or update time slider
-    initTimeSlider();
+    // Initialize or update time slider (same-day only)
+    if (historicSameDayOnly) {
+        initTimeSlider();
+    }
 
     // Update title with date + time range
     const rangeText = getHistoricRangeText();
@@ -3821,23 +3934,67 @@ function initEventListeners(): void {
         });
     }
 
-    // Historic date picker
-    const historicDateInput = document.getElementById('historic-date') as HTMLInputElement | null;
-    if (historicDateInput) {
-        historicDateInput.addEventListener('change', (e: Event) => {
-            historicDate = (e.target as HTMLInputElement).value;
-            needsFitBounds = true;
+    // Historic from/to date pickers + same-day checkbox
+    const refreshHistoricPeriod = (): void => {
+        applyHistoricSpanGuards();
+        if (historicSameDayOnly) {
+            historicToDate = historicFromDate;
+        }
+        syncHistoricControls();
+        needsFitBounds = true;
+        const activityTitle = document.getElementById('activity-title');
+        if (activityTitle) {
+            activityTitle.textContent = `📅 Historic Trail - ${getHistoricRangeText()}`;
+        }
+        if (!isLiveMode) {
+            fetchAndDisplayTrail();
+        }
+        saveUIState();
+    };
 
-            // Update activity title
-            const activityTitle = document.getElementById('activity-title');
-            if (activityTitle) {
-                activityTitle.textContent = `📅 Historic Trail - ${getHistoricRangeText()}`;
+    const historicFromInput = document.getElementById('historic-from-date') as HTMLInputElement | null;
+    if (historicFromInput) {
+        historicFromInput.addEventListener('change', (e: Event) => {
+            const value = (e.target as HTMLInputElement).value;
+            if (!value) {
+                syncHistoricControls();
+                return;
             }
+            historicFromDate = value;
+            if (historicSameDayOnly || historicToDate < historicFromDate) {
+                historicToDate = historicFromDate;
+            }
+            refreshHistoricPeriod();
+        });
+    }
 
-            if (!isLiveMode) {
-                fetchAndDisplayTrail();
+    const historicToInput = document.getElementById('historic-to-date') as HTMLInputElement | null;
+    if (historicToInput) {
+        historicToInput.addEventListener('change', (e: Event) => {
+            const value = (e.target as HTMLInputElement).value;
+            if (!value) {
+                syncHistoricControls();
+                return;
             }
-            saveUIState();
+            historicToDate = value;
+            if (historicToDate < historicFromDate) {
+                historicToDate = historicFromDate;
+            }
+            refreshHistoricPeriod();
+        });
+    }
+
+    const historicSameDayInput = document.getElementById('historic-same-day') as HTMLInputElement | null;
+    if (historicSameDayInput) {
+        historicSameDayInput.addEventListener('change', (e: Event) => {
+            historicSameDayOnly = (e.target as HTMLInputElement).checked;
+            if (historicSameDayOnly) {
+                historicToDate = historicFromDate;
+                historicStartMinutes = 0;
+                historicEndMinutes = 1439;
+                initTimeSlider();
+            }
+            refreshHistoricPeriod();
         });
     }
 

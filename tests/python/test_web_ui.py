@@ -135,12 +135,15 @@ class TestWebUIViews:
         assert_that("/static/web_ui/icons/icon-512.png" in srcs, is_(True))
 
     def test_home_view_contains_historic_controls(self, logged_in_client: Client) -> None:
-        """Test that the home view contains date picker and time slider controls."""
+        """Test that the home view contains from/to date pickers and time slider controls."""
         response = logged_in_client.get("/")
 
         content = response.content.decode("utf-8")
         assert_that(content, contains_string('id="historic-controls"'))
-        assert_that(content, contains_string('id="historic-date"'))
+        assert_that(content, contains_string('id="historic-from-date"'))
+        assert_that(content, contains_string('id="historic-to-date"'))
+        assert_that(content, contains_string('id="historic-same-day"'))
+        assert_that(content, contains_string('aria-label="Use only the from day"'))
         assert_that(content, contains_string('id="time-slider"'))
         assert_that(content, contains_string('id="time-slider-label"'))
 

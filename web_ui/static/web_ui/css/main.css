@@ -657,6 +657,31 @@ a:hover {
     color-scheme: light;
 }
 
+.historic-date-input:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.historic-same-day {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-main);
+    background: var(--endpoint-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 5px 10px;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+}
+
+.historic-same-day input {
+    margin: 0;
+    cursor: pointer;
+}
+
 [data-theme="dark"] .historic-date-input {
     color-scheme: dark;
 }
@@ -1299,6 +1324,15 @@ body.my-tracks-live #friend-request-banner-root .friend-request-banner {
         background-color: var(--endpoint-bg);
         background-image: none;
         cursor: pointer;
+    }
+
+    .historic-same-day span {
+        display: none;
+    }
+
+    .historic-same-day {
+        padding: 6px 8px;
+        min-height: 32px;
     }
 
     /* Strip the native date input's internal value display + indicator so
