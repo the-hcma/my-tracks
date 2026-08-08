@@ -51,13 +51,19 @@
                         <option value="24">Last 24 hours</option>
                     </select>
                     <div class="historic-controls hidden" id="historic-controls">
-                        <div class="icon-input-wrap" data-icon-input="historic-from-date">
-                            <span class="icon-input-glyph" aria-hidden="true">📅</span>
-                            <input type="date" id="historic-from-date" class="historic-date-input" title="From date for historic trail" aria-label="From date for historic trail">
+                        <div class="historic-date-field" data-icon-input="historic-from-date">
+                            <span class="historic-date-caption">From</span>
+                            <div class="icon-input-wrap">
+                                <span class="icon-input-glyph" aria-hidden="true">📅</span>
+                                <input type="date" id="historic-from-date" class="historic-date-input" title="From date for historic trail" aria-label="From date for historic trail">
+                            </div>
                         </div>
-                        <div class="icon-input-wrap" data-icon-input="historic-to-date" id="historic-to-date-wrap">
-                            <span class="icon-input-glyph" aria-hidden="true">➡️</span>
-                            <input type="date" id="historic-to-date" class="historic-date-input" title="To date for historic trail" aria-label="To date for historic trail">
+                        <div class="historic-date-field" data-icon-input="historic-to-date" id="historic-to-date-wrap">
+                            <span class="historic-date-caption">To</span>
+                            <div class="icon-input-wrap">
+                                <span class="icon-input-glyph" aria-hidden="true">➡️</span>
+                                <input type="date" id="historic-to-date" class="historic-date-input" title="To date for historic trail" aria-label="To date for historic trail">
+                            </div>
                         </div>
                         <label class="historic-same-day" id="historic-same-day-label" title="Use only the from day (to date matches from)">
                             <input type="checkbox" id="historic-same-day" aria-label="Use only the from day" checked>
@@ -72,11 +78,11 @@
                     </div>
                     <div class="precision-slider-container hidden" id="precision-slider-container" title="Trail precision: 0% = Coarse (~10 pts/hr), 100% = Precise (all points)">
                         <div class="precision-slider-row">
-                            <span class="precision-label">🔍</span>
-                            <input type="range" id="precision-slider" class="precision-slider" min="0" max="100" value="100">
-                            <span class="precision-label">🎯</span>
+                            <span class="precision-label" aria-hidden="true">🔍</span>
+                            <input type="range" id="precision-slider" class="precision-slider" min="0" max="100" value="100" aria-label="Trail precision">
+                            <span class="precision-label" aria-hidden="true">🎯</span>
+                            <span class="precision-value" id="precision-value">100%</span>
                         </div>
-                        <span class="precision-value" id="precision-value">100%</span>
                     </div>
                     <div class="icon-input-wrap" data-icon-input="device-selector">
                         <span class="icon-input-glyph" aria-hidden="true">📱</span>

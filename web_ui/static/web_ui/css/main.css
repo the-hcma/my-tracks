@@ -645,12 +645,31 @@ a:hover {
     gap: 8px;
 }
 
-.historic-date-input {
+.historic-date-field {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     background: var(--endpoint-bg);
-    color: var(--text-main);
     border: 1px solid var(--border-color);
     border-radius: 6px;
     padding: 5px 10px;
+    min-height: 32px;
+    box-sizing: border-box;
+}
+
+.historic-date-caption {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-main);
+    white-space: nowrap;
+}
+
+.historic-date-input {
+    background: transparent;
+    color: var(--text-main);
+    border: none;
+    border-radius: 4px;
+    padding: 0;
     font-size: 12px;
     cursor: pointer;
     font-family: inherit;
@@ -660,6 +679,10 @@ a:hover {
 .historic-date-input:disabled {
     opacity: 0.55;
     cursor: not-allowed;
+}
+
+.historic-date-field.historic-to-disabled {
+    opacity: 0.7;
 }
 
 .historic-same-day {
@@ -672,6 +695,8 @@ a:hover {
     border: 1px solid var(--border-color);
     border-radius: 6px;
     padding: 5px 10px;
+    min-height: 32px;
+    box-sizing: border-box;
     cursor: pointer;
     user-select: none;
     white-space: nowrap;
@@ -758,23 +783,22 @@ a:hover {
     box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.3);
 }
 
-/* precision-slider-container restored as standalone column box */
-
+/* Single-row precision control so it matches other top-bar widget heights */
 .precision-slider-container {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
+    display: inline-flex;
+    align-items: center;
     background: var(--endpoint-bg);
     border: 1px solid var(--border-color);
     border-radius: 6px;
-    padding: 10px 16px 6px;
+    padding: 5px 10px;
+    min-height: 32px;
+    box-sizing: border-box;
 }
 
 .precision-slider-row {
     display: flex;
     align-items: center;
     gap: 6px;
-    min-height: 20px;
 }
 
 .precision-slider {
@@ -785,7 +809,7 @@ a:hover {
     appearance: none;
     background: var(--border-color);
     border-radius: 2px;
-    margin: 6px 0;
+    margin: 0;
 }
 
 .precision-slider::-webkit-slider-thumb {
@@ -819,13 +843,16 @@ a:hover {
 
 .precision-label {
     font-size: 14px;
+    line-height: 1;
 }
 
 .precision-value {
-    font-size: 11px;
+    font-size: 12px;
     font-weight: bold;
     color: var(--text-main);
-    text-align: center;
+    text-align: right;
+    min-width: 3.25em;
+    white-space: nowrap;
 }
 
 .mode-toggle {
@@ -1294,7 +1321,19 @@ body.my-tracks-live #friend-request-banner-root .friend-request-banner {
     .historic-controls {
         flex-wrap: nowrap;
         width: auto;
+        gap: 4px;
+    }
+
+    .historic-date-field {
+        padding: 0;
+        border: none;
+        background: transparent;
+        min-height: 0;
         gap: 0;
+    }
+
+    .historic-date-caption {
+        display: none;
     }
 
     .time-slider-container {
@@ -1323,6 +1362,8 @@ body.my-tracks-live #friend-request-banner-root .friend-request-banner {
         text-indent: -9999px;
         background-color: var(--endpoint-bg);
         background-image: none;
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
         cursor: pointer;
     }
 
@@ -1490,7 +1531,7 @@ body.my-tracks-live #friend-request-banner-root .friend-request-banner {
     }
 
     .precision-slider-container {
-        padding: 8px 12px 4px;
+        padding: 5px 10px;
     }
 
     .device-legend {
