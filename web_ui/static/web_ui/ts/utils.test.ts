@@ -12,12 +12,23 @@ import {
     formatTime,
     formatDateForTitle,
     collapseLocations,
+    formatDwellDuration,
+    formatDwellHoverHtml,
     haversineDistance,
     debounce,
     parseNumeric,
     formatMinutesAsTime,
     getTodayDateString,
+    getYesterdayDateString,
     dateAndMinutesToTimestamps,
+    historicPeriodToTimestamps,
+    inclusiveDaySpan,
+    clampHistoricToDate,
+    tripSnapshotMaxPoints,
+    thinTrailForTripSnapshot,
+    prepareHistoricTripLocations,
+    historicFetchResolutionSeconds,
+    HISTORIC_MAX_SPAN_DAYS,
     sameOriginApiPath,
     LocationData,
 } from './utils';
@@ -175,6 +186,16 @@ describe('collapseLocations', () => {
         expect(result).toHaveLength(1);
         expect(result[0]._collapsedCount).toBe(3);
         expect(result[0].timestamp_unix).toBe(1000); // Should be oldest
+        expect(result[0]._dwellSeconds).toBe(2000);
+    });
+
+    it('sets zero dwell when timestamps are missing', () => {
+        const locations: LocationData[] = [
+            { latitude: 51.5074, longitude: -0.1278 },
+            { latitude: 51.5074, longitude: -0.1278 },
+        ];
+        const result = collapseLocations(locations);
+        expect(result[0]._dwellSeconds).toBe(0);
     });
 
     it('keeps distinct locations separate', () => {
@@ -429,6 +450,153 @@ describe('dateAndMinutesToTimestamps', () => {
         const [start, end] = dateAndMinutesToTimestamps('2026-02-20', 720, 720);
         // Both at minute 720 but end gets +59 seconds
         expect(end - start).toBe(59);
+    });
+});
+
+describe('getYesterdayDateString', () => {
+    it('returns the local calendar day before today', () => {
+        const today = getTodayDateString();
+        const [y, m, d] = today.split('-').map(Number);
+        const expectedDate = new Date(y, m - 1, d);
+        expectedDate.setDate(expectedDate.getDate() - 1);
+        const expected = `${expectedDate.getFullYear()}-${String(expectedDate.getMonth() + 1).padStart(2, '0')}-${String(expectedDate.getDate()).padStart(2, '0')}`;
+        expect(getYesterdayDateString()).toBe(expected);
+    });
+});
+
+describe('historicPeriodToTimestamps', () => {
+    it('uses minute window for same-day periods', () => {
+        const [start, end] = historicPeriodToTimestamps('2026-02-20', '2026-02-20', true, 60, 120);
+        const [expectedStart, expectedEnd] = dateAndMinutesToTimestamps('2026-02-20', 60, 120);
+        expect(start).toBe(expectedStart);
+        expect(end).toBe(expectedEnd);
+    });
+
+    it('uses full inclusive days when same-day is off even if from equals to', () => {
+        const [start, end] = historicPeriodToTimestamps('2026-02-20', '2026-02-20', false, 60, 120);
+        const [expectedStart, expectedEnd] = dateAndMinutesToTimestamps('2026-02-20', 0, 1439);
+        expect(start).toBe(expectedStart);
+        expect(end).toBe(expectedEnd);
+    });
+
+    it('uses full inclusive days for multi-day periods', () => {
+        const [start, end] = historicPeriodToTimestamps('2026-02-20', '2026-02-22', false, 60, 120);
+        const [expectedStart] = dateAndMinutesToTimestamps('2026-02-20', 0, 1439);
+        const [, expectedEnd] = dateAndMinutesToTimestamps('2026-02-22', 0, 1439);
+        expect(start).toBe(expectedStart);
+        expect(end).toBe(expectedEnd);
+    });
+});
+
+describe('inclusiveDaySpan and clampHistoricToDate', () => {
+    it('counts inclusive calendar days', () => {
+        expect(inclusiveDaySpan('2026-02-20', '2026-02-20')).toBe(1);
+        expect(inclusiveDaySpan('2026-02-20', '2026-02-26')).toBe(7);
+    });
+
+    it('clamps to-date to the max span', () => {
+        const clamped = clampHistoricToDate('2026-01-01', '2026-12-31', HISTORIC_MAX_SPAN_DAYS);
+        expect(inclusiveDaySpan('2026-01-01', clamped)).toBe(HISTORIC_MAX_SPAN_DAYS);
+    });
+
+    it('orders inverted to-date up to from-date', () => {
+        expect(clampHistoricToDate('2026-02-20', '2026-02-10')).toBe('2026-02-20');
+    });
+});
+
+describe('formatDwellDuration', () => {
+    it('formats seconds, minutes, and hours', () => {
+        expect(formatDwellDuration(45)).toBe('45s');
+        expect(formatDwellDuration(90)).toBe('1m');
+        expect(formatDwellDuration(3660)).toBe('1h 1m');
+        expect(formatDwellDuration(7200)).toBe('2h');
+    });
+});
+
+describe('formatDwellHoverHtml', () => {
+    it('prefers time spent when dwell is present', () => {
+        expect(formatDwellHoverHtml(3600, 12)).toContain('Time spent: 1h');
+    });
+
+    it('falls back to waypoint count when dwell is zero', () => {
+        expect(formatDwellHoverHtml(0, 4)).toContain('4 waypoints');
+    });
+
+    it('returns empty for a single non-dwell point', () => {
+        expect(formatDwellHoverHtml(0, 1)).toBe('');
+    });
+});
+
+describe('trip snapshot thinning', () => {
+    it('shrinks max points as the span grows', () => {
+        expect(tripSnapshotMaxPoints(1, 100)).toBeGreaterThan(tripSnapshotMaxPoints(10, 100));
+        expect(tripSnapshotMaxPoints(10, 100)).toBeGreaterThan(tripSnapshotMaxPoints(40, 100));
+    });
+
+    it('raises historic fetch resolution for multi-day spans', () => {
+        expect(historicFetchResolutionSeconds(1, 0)).toBe(0);
+        expect(historicFetchResolutionSeconds(5, 0)).toBe(300);
+        expect(historicFetchResolutionSeconds(20, 0)).toBe(600);
+        expect(historicFetchResolutionSeconds(45, 0)).toBe(600);
+    });
+
+    it('keeps first and last points and reduces middle density', () => {
+        const locations: LocationData[] = [];
+        for (let i = 0; i < 100; i++) {
+            locations.push({
+                latitude: 40 + i * 0.01,
+                longitude: -74 + (i % 2) * 0.001,
+                timestamp_unix: 1_700_000_000 + i * 60,
+            });
+        }
+        const thinned = thinTrailForTripSnapshot(locations, 20);
+        expect(thinned.length).toBeLessThanOrEqual(20);
+        expect(thinned[0]).toEqual(locations[0]);
+        expect(thinned[thinned.length - 1]).toEqual(locations[locations.length - 1]);
+    });
+
+    it('collapses dwell then thins for trip preparation', () => {
+        const locations: LocationData[] = [
+            { latitude: 40, longitude: -74, timestamp_unix: 1000 },
+            { latitude: 40, longitude: -74, timestamp_unix: 4000 },
+            { latitude: 41, longitude: -74, timestamp_unix: 5000 },
+            { latitude: 42, longitude: -74, timestamp_unix: 6000 },
+        ];
+        const prepared = prepareHistoricTripLocations(locations, 10);
+        expect(prepared[0]._dwellSeconds).toBe(3000);
+        expect(prepared.length).toBeLessThanOrEqual(3);
+    });
+
+    it('force-retains significant dwell points when thinning', () => {
+        const locations: LocationData[] = [];
+        locations.push({ latitude: 40, longitude: -74, timestamp_unix: 1_000_000 });
+        // Long dwell (~20m) near the path — pure RDP would drop an on-line stop
+        locations.push({ latitude: 40.05, longitude: -74, timestamp_unix: 1_003_600 });
+        locations.push({ latitude: 40.05, longitude: -74, timestamp_unix: 1_004_800 });
+        for (let i = 1; i <= 40; i++) {
+            locations.push({
+                latitude: 40 + i * 0.02,
+                longitude: -74 + (i === 20 ? 0.5 : 0),
+                timestamp_unix: 1_010_000 + i * 60,
+            });
+        }
+        const prepared = prepareHistoricTripLocations(locations, 12, 5, 900);
+        const dwellPoint = prepared.find((loc) => (loc._dwellSeconds ?? 0) >= 900);
+        expect(dwellPoint).toBeTruthy();
+        expect(prepared.length).toBeLessThanOrEqual(12);
+    });
+
+    it('caps retained dwells so the result never exceeds maxPoints', () => {
+        const locations: LocationData[] = [];
+        for (let stop = 0; stop < 30; stop++) {
+            const base = 1_000_000 + stop * 10_000;
+            locations.push({ latitude: 40 + stop, longitude: -74, timestamp_unix: base });
+            locations.push({ latitude: 40 + stop, longitude: -74, timestamp_unix: base + 2_000 });
+        }
+        const prepared = prepareHistoricTripLocations(locations, 10, 5, 900);
+        expect(prepared.length).toBeLessThanOrEqual(10);
+        expect(prepared[0]).toEqual(expect.objectContaining({ latitude: 40 }));
+        expect(prepared[prepared.length - 1]).toEqual(expect.objectContaining({ latitude: 69 }));
     });
 });
 
