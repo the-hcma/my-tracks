@@ -33,7 +33,9 @@ when it still thinks the app is installed, or before the service worker is ready
 **Fix**:
 
 1. Open a normal Chrome tab (address bar visible) to `https://your-host/`.
-2. Visit `chrome://apps`, uninstall **My Tracks** if listed.
+2. Uninstall any leftover **My Tracks** web app: Settings → Apps → See all apps →
+   **My Tracks** → Uninstall (or long-press the home-screen icon → Uninstall).
+   (`chrome://apps` is desktop-only and does not apply on Android Chrome.)
 3. Site settings → Clear & reset for the origin; reload and log in.
 4. After ~2s the banner shows manual steps if one-tap Install is still unavailable;
    use Chrome ⋮ → **Add to Home screen** / **Install app**.

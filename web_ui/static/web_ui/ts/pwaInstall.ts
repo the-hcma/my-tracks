@@ -11,7 +11,7 @@ export const PWA_INSTALL_DISMISS_LEGACY_SESSION_KEY = 'my-tracks-pwa-install-dis
 export const PWA_INSTALL_PROMPT_WAIT_MS = 2500;
 
 export const PWA_MANUAL_INSTALL_STEPS_ANDROID =
-    'Chrome menu (⋮) → Install app or Add to Home screen. If that is missing: open chrome://apps, uninstall My Tracks, clear site data for this site, reload, then try again.';
+    'Chrome menu (⋮) → Install app or Add to Home screen. If that is missing: Settings → Apps → See all apps → My Tracks → Uninstall (or long-press the home-screen icon → Uninstall), clear site data for this site, reload, then try again.';
 
 export type PwaInstallEligibility = {
     showBanner: boolean;
@@ -37,9 +37,8 @@ export function isMobileFormFactor(options: {
     if (options.userAgentDataMobile === true) {
         return true;
     }
-    if (options.userAgentDataMobile === false) {
-        return false;
-    }
+    // Android tablets often report userAgentData.mobile === false; still treat
+    // coarse/compact layouts as install-eligible.
     const { matchMedia } = options;
     return (
         matchMedia('(any-pointer: coarse)').matches ||

@@ -59,6 +59,12 @@ describe('isMobileFormFactor', () => {
                 userAgentDataMobile: false,
                 matchMedia: media({ '(max-width: 768px)': true }),
             }),
+        ).toBe(true);
+        expect(
+            isMobileFormFactor({
+                userAgentDataMobile: false,
+                matchMedia: media({}),
+            }),
         ).toBe(false);
     });
 });
@@ -82,7 +88,8 @@ describe('nextPwaInstallUiMode', () => {
 });
 
 describe('pwaInstallCopyForMode', () => {
-    it('mentions chrome apps cleanup in manual mode', () => {
-        expect(pwaInstallCopyForMode('manual-only')).toContain('chrome://apps');
+    it('mentions Android uninstall cleanup in manual mode', () => {
+        expect(pwaInstallCopyForMode('manual-only')).toContain('Settings → Apps');
+        expect(pwaInstallCopyForMode('manual-only')).toContain('Uninstall');
     });
 });

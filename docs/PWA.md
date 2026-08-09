@@ -7,8 +7,8 @@ stylized globe launcher icon.
 On eligible mobile browsers, a banner on the live map offers **Install** when
 `beforeinstallprompt` is available. If Chromium does not fire that event (common
 after an uninstall remnant), the banner switches to **manual install steps**
-(Chrome ⋮ → Install app / Add to Home screen, plus `chrome://apps` cleanup).
-**Dismiss** / **Do not ask again** still apply.
+(Chrome ⋮ → Install app / Add to Home screen, plus Settings → Apps uninstall
+cleanup on Android). **Dismiss** / **Do not ask again** still apply.
 
 ## What works offline
 
