@@ -69,14 +69,14 @@ export function isMobileFormFactor(options: {
         return true;
     }
     const ua = options.userAgent ?? '';
-    const phoneOrTabletUa = isAndroidOrAppleMobileUa(ua);
-    // Desktop UA-CH reports mobile=false. Do not treat touch laptops / narrow
-    // desktop windows as install-eligible unless the UA is Android/iOS.
-    if (options.userAgentDataMobile === false && !phoneOrTabletUa) {
+    // Require an Android/iOS UA before coarse/compact media queries. Otherwise
+    // desktop Firefox/Safari (no UA-CH) and Chromium (mobile=false) would treat
+    // touch laptops / narrow windows as install-eligible.
+    if (!isAndroidOrAppleMobileUa(ua)) {
         return false;
     }
-    // Android tablets often report UA-CH mobile=false; allow coarse/compact
-    // fallback when the UA is a phone/tablet platform (or UA-CH is absent).
+    // Android/iOS tablets often report UA-CH mobile=false (or omit UA-CH);
+    // use form-factor media queries for those.
     const { matchMedia } = options;
     return (
         matchMedia('(any-pointer: coarse)').matches ||
