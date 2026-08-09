@@ -41,6 +41,16 @@ import {
 } from './liveActivityToolbar';
 import { runLastKnownLoad } from './lastKnownLoad';
 import { registerAndUpdateServiceWorker } from './serviceWorkerRecovery';
+import {
+    PWA_INSTALL_DISMISS_LEGACY_SESSION_KEY,
+    PWA_INSTALL_DISMISS_PERMANENT_KEY,
+    PWA_INSTALL_DISMISS_SESSION_KEY,
+    PWA_INSTALL_PROMPT_WAIT_MS,
+    nextPwaInstallUiMode,
+    pwaInstallCopyForMode,
+    resolvePwaInstallEligibility,
+    type PwaInstallUiMode,
+} from './pwaInstall';
 import { createHistoricRangeCalendar } from './historicRangeCalendar';
 import type { HistoricRangeCalendarApi } from './historicRangeCalendar';
 import { getPreferredTheme, setTheme, toggleTheme } from './theme';
@@ -4186,50 +4196,26 @@ function initEventListeners(): void {
     });
 }
 
-const PWA_INSTALL_DISMISS_PERMANENT_KEY = 'my-tracks-pwa-install-dismiss-permanent';
-const PWA_INSTALL_DISMISS_SESSION_KEY = 'my-tracks-pwa-install-dismiss-session';
-
 interface PwaBeforeInstallPromptEvent extends Event {
     prompt: () => Promise<void>;
     userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
 }
 
-function isMobileFormFactor(): boolean {
+function initPwaInstallBanner(): void {
     const uaData = (
         navigator as Navigator & { userAgentData?: { mobile?: boolean } }
     ).userAgentData;
-    if (uaData?.mobile === true) {
-        return true;
-    }
-    if (uaData?.mobile === false) {
-        return false;
-    }
-    return (
-        window.matchMedia('(any-pointer: coarse)').matches ||
-        window.matchMedia('(pointer: coarse)').matches ||
-        window.matchMedia('(max-width: 768px)').matches
-    );
-}
-
-function initPwaInstallBanner(): void {
-    if (window.matchMedia('(display-mode: standalone)').matches) {
-        return;
-    }
     const nav = window.navigator as Navigator & { standalone?: boolean };
-    if (nav.standalone === true) {
-        return;
-    }
-    if (localStorage.getItem(PWA_INSTALL_DISMISS_PERMANENT_KEY) === '1') {
-        return;
-    }
-    if (
-        sessionStorage.getItem(PWA_INSTALL_DISMISS_SESSION_KEY) === '1' ||
-        sessionStorage.getItem('my-tracks-pwa-install-dismissed') === '1'
-    ) {
-        return;
-    }
-
-    if (!isMobileFormFactor()) {
+    const eligibility = resolvePwaInstallEligibility({
+        matchMedia: (q) => window.matchMedia(q),
+        navigatorStandalone: nav.standalone,
+        userAgentDataMobile: uaData?.mobile,
+        permanentDismissed: localStorage.getItem(PWA_INSTALL_DISMISS_PERMANENT_KEY) === '1',
+        sessionDismissed:
+            sessionStorage.getItem(PWA_INSTALL_DISMISS_SESSION_KEY) === '1' ||
+            sessionStorage.getItem(PWA_INSTALL_DISMISS_LEGACY_SESSION_KEY) === '1',
+    });
+    if (!eligibility.showBanner) {
         return;
     }
 
@@ -4246,10 +4232,10 @@ function initPwaInstallBanner(): void {
     title.className = 'pwa-install-banner-title';
     title.textContent = 'Install My Tracks';
 
+    let mode: PwaInstallUiMode = 'waiting-for-prompt';
     const copy = document.createElement('p');
     copy.className = 'pwa-install-banner-copy';
-    copy.textContent =
-        'Add this dashboard to your home screen for one-tap access. Use Install below when your browser enables it; otherwise open the browser menu and choose Add to Home screen or Install app.';
+    copy.textContent = pwaInstallCopyForMode(mode);
 
     const persistRow = document.createElement('div');
     persistRow.className = 'pwa-install-persist-row';
@@ -4277,14 +4263,30 @@ function initPwaInstallBanner(): void {
     dismissBtn.textContent = 'Dismiss';
 
     let deferred: PwaBeforeInstallPromptEvent | null = null;
+    let waitTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const applyMode = (next: PwaInstallUiMode): void => {
+        mode = next;
+        copy.textContent = pwaInstallCopyForMode(mode);
+        installBtn.hidden = mode !== 'deferred-prompt';
+        banner.dataset.installMode = mode;
+    };
 
     const onBeforeInstall = (ev: Event): void => {
         ev.preventDefault();
         deferred = ev as PwaBeforeInstallPromptEvent;
-        installBtn.hidden = false;
+        if (waitTimer !== null) {
+            clearTimeout(waitTimer);
+            waitTimer = null;
+        }
+        applyMode(nextPwaInstallUiMode(mode, 'prompt-available'));
     };
 
     const dismiss = (): void => {
+        if (waitTimer !== null) {
+            clearTimeout(waitTimer);
+            waitTimer = null;
+        }
         if (persistCb.checked) {
             localStorage.setItem(PWA_INSTALL_DISMISS_PERMANENT_KEY, '1');
         } else {
@@ -4295,6 +4297,10 @@ function initPwaInstallBanner(): void {
     };
 
     window.addEventListener('beforeinstallprompt', onBeforeInstall);
+    waitTimer = setTimeout(() => {
+        waitTimer = null;
+        applyMode(nextPwaInstallUiMode(mode, 'wait-elapsed'));
+    }, PWA_INSTALL_PROMPT_WAIT_MS);
 
     installBtn.addEventListener('click', () => {
         void (async () => {
@@ -4327,13 +4333,9 @@ function registerServiceWorker(): void {
     if (!allowed) {
         return;
     }
-    window.addEventListener(
-        'load',
-        () => {
-            void registerAndUpdateServiceWorker();
-        },
-        { once: true },
-    );
+    // Register promptly so Chromium can treat the page as installable and fire
+    // beforeinstallprompt; waiting for window load delayed / hid Install.
+    void registerAndUpdateServiceWorker();
 }
 
 /**
@@ -4343,8 +4345,10 @@ function init(): void {
     // Initialize theme
     setTheme(getPreferredTheme());
 
-    initPwaInstallBanner();
+    // Register the SW before mounting the install banner so the deferred
+    // install prompt can appear.
     registerServiceWorker();
+    initPwaInstallBanner();
 
     // Initialize event listeners
     initEventListeners();

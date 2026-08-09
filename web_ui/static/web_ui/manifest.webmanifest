@@ -7,6 +7,7 @@
   "display": "standalone",
   "background_color": "#f5f5f5",
   "theme_color": "#007bff",
+  "prefer_related_applications": false,
   "icons": [
     {
       "src": "/static/web_ui/icons/icon-192.png",

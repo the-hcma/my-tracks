@@ -22,6 +22,22 @@ banner.
    ([DEPLOYMENT.md](DEPLOYMENT.md)) or install from the same host via
    `http://localhost:8080`.
 
+## PWA: Install button missing (Android Chrome)
+
+**Symptom**: Banner appears but only **Dismiss** is useful; Chrome ⋮ has no
+**Install app**.
+
+**Cause**: Chromium withholds `beforeinstallprompt` (and the menu Install entry)
+when it still thinks the app is installed, or before the service worker is ready.
+
+**Fix**:
+
+1. Open a normal Chrome tab (address bar visible) to `https://your-host/`.
+2. Visit `chrome://apps`, uninstall **My Tracks** if listed.
+3. Site settings → Clear & reset for the origin; reload and log in.
+4. After ~2s the banner shows manual steps if one-tap Install is still unavailable;
+   use Chrome ⋮ → **Add to Home screen** / **Install app**.
+
 See [PWA.md](PWA.md) for the full install flow.
 
 ---

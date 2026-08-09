@@ -7,7 +7,7 @@
 //
 // Routing rules are mirrored in web_ui/static/web_ui/ts/swRouting.ts (vitest).
 
-const VERSION = "my-tracks-pwa-v6";
+const VERSION = "my-tracks-pwa-v7";
 const PRECACHE = [
   "/static/web_ui/manifest.webmanifest",
   "/static/web_ui/icons/icon-192.png",

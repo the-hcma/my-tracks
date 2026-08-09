@@ -5,8 +5,10 @@ a native app. It opens in **standalone** mode (no browser chrome) and uses a
 stylized globe launcher icon.
 
 On eligible mobile browsers, a banner on the live map offers **Install** when
-`beforeinstallprompt` is available, manual “Add to Home screen” instructions
-otherwise, and **Dismiss** / **Do not ask again** controls.
+`beforeinstallprompt` is available. If Chromium does not fire that event (common
+after an uninstall remnant), the banner switches to **manual install steps**
+(Chrome ⋮ → Install app / Add to Home screen, plus `chrome://apps` cleanup).
+**Dismiss** / **Do not ask again** still apply.
 
 ## What works offline
 
@@ -58,7 +60,7 @@ in `localStorage` (`my-tracks-pwa-install-dismiss-permanent`).
 | Service worker | `web_ui/static/web_ui/sw.js` → served at **`/sw.js`** (site root scope) |
 | Icon source (SVG) | `web_ui/static/web_ui/icons/app-icon.svg` |
 | Launcher PNGs | `icon-192.png`, `icon-512.png` (generated at build time) |
-| Install UI | `web_ui/static/web_ui/ts/main.ts` — `initPwaInstallBanner()`, `registerServiceWorker()` |
+| Install UI | `web_ui/static/web_ui/ts/pwaInstall.ts` + `main.ts` — `initPwaInstallBanner()`, `registerServiceWorker()` |
 
 Build icons and the JS bundle:
 
