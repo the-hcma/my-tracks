@@ -4274,6 +4274,7 @@ function initPwaInstallBanner(): void {
 
     const onBeforeInstall = (ev: Event): void => {
         ev.preventDefault();
+        window.removeEventListener('beforeinstallprompt', onBeforeInstall);
         deferred = ev as PwaBeforeInstallPromptEvent;
         if (waitTimer !== null) {
             clearTimeout(waitTimer);
