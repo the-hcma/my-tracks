@@ -20,6 +20,8 @@ import {
     formatMinutesAsTime,
     getTodayDateString,
     getYesterdayDateString,
+    defaultHistoricDateRange,
+    historicDatesAfterSameDayToggle,
     dateAndMinutesToTimestamps,
     historicPeriodToTimestamps,
     inclusiveDaySpan,
@@ -461,6 +463,53 @@ describe('getYesterdayDateString', () => {
         expectedDate.setDate(expectedDate.getDate() - 1);
         const expected = `${expectedDate.getFullYear()}-${String(expectedDate.getMonth() + 1).padStart(2, '0')}-${String(expectedDate.getDate()).padStart(2, '0')}`;
         expect(getYesterdayDateString()).toBe(expected);
+    });
+});
+
+describe('defaultHistoricDateRange', () => {
+    beforeEach(() => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date(2026, 7, 9, 12, 0, 0));
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it('defaults both ends to yesterday with same day on', () => {
+        const range = defaultHistoricDateRange();
+        expect(range.fromDate).toBe('2026-08-08');
+        expect(range.toDate).toBe('2026-08-08');
+        expect(range.sameDayOnly).toBe(true);
+    });
+});
+
+describe('historicDatesAfterSameDayToggle', () => {
+    it('keeps both ends on from when enabling same day', () => {
+        expect(historicDatesAfterSameDayToggle(true, '2026-08-01', '2026-08-07')).toEqual({
+            fromDate: '2026-08-01',
+            toDate: '2026-08-01',
+        });
+    });
+
+    it('uses the to date for both ends when disabling same day', () => {
+        expect(historicDatesAfterSameDayToggle(false, '2026-08-01', '2026-08-07')).toEqual({
+            fromDate: '2026-08-07',
+            toDate: '2026-08-07',
+        });
+    });
+
+    it('falls back to yesterday when both dates are empty on disable', () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date(2026, 7, 9, 12, 0, 0));
+        try {
+            expect(historicDatesAfterSameDayToggle(false, '', '')).toEqual({
+                fromDate: '2026-08-08',
+                toDate: '2026-08-08',
+            });
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });
 

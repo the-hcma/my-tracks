@@ -3,6 +3,7 @@
 
 import json
 import re
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, cast
 from unittest.mock import patch
@@ -136,7 +137,9 @@ class TestWebUIViews:
 
     def test_home_view_contains_historic_controls(self, logged_in_client: Client) -> None:
         """Test that the home view contains from/to date pickers and time slider controls."""
-        response = logged_in_client.get("/")
+        frozen_today = date(2026, 8, 9)
+        with patch("web_ui.views.tz.localdate", return_value=frozen_today):
+            response = logged_in_client.get("/")
 
         content = response.content.decode("utf-8")
         assert_that(content, contains_string('id="historic-controls"'))
@@ -153,6 +156,16 @@ class TestWebUIViews:
         assert_that(content, contains_string('aria-label="Trail precision"'))
         assert_that(content, contains_string('id="precision-value"'))
         assert_that(content, contains_string("precision-slider-row"))
+
+        yesterday = (frozen_today - timedelta(days=1)).isoformat()
+        assert_that(
+            content,
+            contains_string(f'id="historic-from-date" class="historic-date-input" value="{yesterday}"'),
+        )
+        assert_that(
+            content,
+            contains_string(f'id="historic-to-date" class="historic-date-input" value="{yesterday}"'),
+        )
 
     def test_home_view_no_cache_headers(self, logged_in_client: Client) -> None:
         """Test that the home view sets no-cache headers."""

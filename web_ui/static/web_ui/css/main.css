@@ -1341,11 +1341,18 @@ body.my-tracks-live #friend-request-banner-root .friend-request-banner {
         flex: 1;
     }
 
-    /* Collapse the date picker and device selector to a single tappable icon
-       on phones. The native control sits underneath (transparent), so taps
-       still open the platform's native picker (calendar / device dropdown). */
+    /* Collapse each historic date field and the device selector to a tappable
+       icon on phones. From and To each keep their own calendar control so the
+       native picker can open independently for either end of the range. The
+       native control sits underneath (transparent), so taps still open the
+       platform's native picker (calendar / device dropdown). */
     .icon-input-glyph {
         display: flex;
+    }
+
+    .historic-controls .historic-date-field {
+        display: inline-flex;
+        flex: 0 0 auto;
     }
 
     .icon-input-wrap .historic-date-input,

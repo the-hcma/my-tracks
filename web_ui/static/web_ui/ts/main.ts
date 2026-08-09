@@ -42,7 +42,7 @@ import {
 import { runLastKnownLoad } from './lastKnownLoad';
 import { registerAndUpdateServiceWorker } from './serviceWorkerRecovery';
 import { getPreferredTheme, setTheme, toggleTheme } from './theme';
-import { boundFetch, clampHistoricToDate, collapseLocations, extractResultsList, formatDwellDuration, formatDwellHoverHtml, formatLatLonCoordinate, formatLatLonPair, formatMinutesAsTime, getTodayDateString, getYesterdayDateString, historicFetchResolutionSeconds, historicPeriodToTimestamps, HISTORIC_MAX_SPAN_DAYS, HISTORIC_WARN_SPAN_DAYS, inclusiveDaySpan, prepareHistoricTripLocations, selectStablePaletteColor, tripSnapshotMaxPoints } from './utils';
+import { boundFetch, clampHistoricToDate, collapseLocations, defaultHistoricDateRange, extractResultsList, formatDwellDuration, formatDwellHoverHtml, formatLatLonCoordinate, formatLatLonPair, formatMinutesAsTime, getTodayDateString, historicDatesAfterSameDayToggle, historicFetchResolutionSeconds, historicPeriodToTimestamps, HISTORIC_MAX_SPAN_DAYS, HISTORIC_WARN_SPAN_DAYS, inclusiveDaySpan, prepareHistoricTripLocations, selectStablePaletteColor, tripSnapshotMaxPoints } from './utils';
 import { formatActivityLogMeta } from './locationMeta';
 import {
     compareLocationsByReportTimeDesc,
@@ -563,10 +563,16 @@ function getHistoricTimestamps(): [number, number] {
  * Default historic period when unset: yesterday, same-day.
  */
 function ensureHistoricDatesInitialized(): void {
-    if (!historicFromDate) {
-        historicFromDate = getYesterdayDateString();
+    if (!historicFromDate || !historicToDate) {
+        const defaults = defaultHistoricDateRange();
+        if (!historicFromDate) {
+            historicFromDate = defaults.fromDate;
+        }
+        if (!historicToDate) {
+            historicToDate = historicFromDate;
+        }
     }
-    if (!historicToDate) {
+    if (historicSameDayOnly) {
         historicToDate = historicFromDate;
     }
 }
@@ -584,11 +590,17 @@ function syncHistoricControls(): void {
     const sliderContainer = document.getElementById('time-slider-container');
 
     if (fromInput) {
+        // Re-assign value after the control is visible so mobile calendars open
+        // on the selected day (yesterday by default) instead of today.
+        fromInput.value = '';
         fromInput.value = historicFromDate;
+        fromInput.defaultValue = historicFromDate;
         fromInput.max = today;
     }
     if (toInput) {
+        toInput.value = '';
         toInput.value = historicToDate;
+        toInput.defaultValue = historicToDate;
         toInput.min = historicFromDate;
         toInput.max = today;
         toInput.disabled = historicSameDayOnly;
@@ -3252,6 +3264,12 @@ function switchToHistoricMode(): void {
     document.getElementById('request-location-button')?.classList.add('hidden');
     document.getElementById('reset-button')?.classList.add('hidden');
 
+    // Reveal controls before syncing date values so mobile Safari applies
+    // yesterday (or the restored day) to the native calendar pickers.
+    document.getElementById('historic-controls')?.classList.remove('hidden');
+    document.getElementById('precision-slider-container')?.classList.remove('hidden');
+    document.getElementById('device-selector')?.classList.remove('hidden');
+
     // Set historic period defaults (yesterday / same-day) and sync controls
     ensureHistoricDatesInitialized();
     applyHistoricSpanGuards();
@@ -3272,11 +3290,6 @@ function switchToHistoricMode(): void {
     if (activityTitle) {
         activityTitle.textContent = `📅 Historic Trail - ${rangeText}`;
     }
-
-    // Show historic controls
-    document.getElementById('historic-controls')?.classList.remove('hidden');
-    document.getElementById('precision-slider-container')?.classList.remove('hidden');
-    document.getElementById('device-selector')?.classList.remove('hidden');
 
     // Clear markers (will be restored by fetchAndDisplayTrail)
     removeAllDeviceMarkers();
@@ -3988,8 +4001,14 @@ function initEventListeners(): void {
     if (historicSameDayInput) {
         historicSameDayInput.addEventListener('change', (e: Event) => {
             historicSameDayOnly = (e.target as HTMLInputElement).checked;
+            const nextDates = historicDatesAfterSameDayToggle(
+                historicSameDayOnly,
+                historicFromDate,
+                historicToDate,
+            );
+            historicFromDate = nextDates.fromDate;
+            historicToDate = nextDates.toDate;
             if (historicSameDayOnly) {
-                historicToDate = historicFromDate;
                 historicStartMinutes = 0;
                 historicEndMinutes = 1439;
                 initTimeSlider();

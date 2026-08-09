@@ -297,6 +297,8 @@ def home(request: HttpRequest) -> HttpResponse:
     mqtt_port = mqtt_actual_port if mqtt_actual_port is not None else mqtt_configured_port
     mqtt_enabled = mqtt_configured_port >= 0
 
+    historic_default_date = (tz.localdate() - timedelta(days=1)).isoformat()
+
     lq = LocationQualitySettings.get_solo()
     context = {
         "hostname": info.hostname,
@@ -306,6 +308,7 @@ def home(request: HttpRequest) -> HttpResponse:
         "collapse_precision": collapse_precision,
         "mqtt_port": mqtt_port,
         "mqtt_enabled": mqtt_enabled,
+        "historic_default_date": historic_default_date,
         "location_accuracy_filter_enabled": lq.filter_accuracy_enabled,
         "location_accuracy_minimum_m": lq.minimum_accuracy_meters,
     }

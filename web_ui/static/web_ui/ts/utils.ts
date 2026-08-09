@@ -529,6 +529,45 @@ export function getYesterdayDateString(): string {
     return `${year}-${month}-${day}`;
 }
 
+/** Default Historic period: yesterday for both ends, Same day on. */
+export type HistoricDateRangeState = {
+    fromDate: string;
+    toDate: string;
+    sameDayOnly: boolean;
+};
+
+/**
+ * Fresh Historic defaults when no saved period exists.
+ */
+export function defaultHistoricDateRange(): HistoricDateRangeState {
+    const yesterday = getYesterdayDateString();
+    return {
+        fromDate: yesterday,
+        toDate: yesterday,
+        sameDayOnly: true,
+    };
+}
+
+/**
+ * Update from/to after the Same day checkbox changes.
+ *
+ * When enabling Same day, To tracks From.
+ * When disabling Same day, both ends start at the current To day (falls back to
+ * From, then yesterday) so the range opens on the single-day selection.
+ */
+export function historicDatesAfterSameDayToggle(
+    sameDayOnly: boolean,
+    fromDate: string,
+    toDate: string,
+): Pick<HistoricDateRangeState, 'fromDate' | 'toDate'> {
+    if (sameDayOnly) {
+        const day = fromDate || toDate || getYesterdayDateString();
+        return { fromDate: day, toDate: day };
+    }
+    const day = toDate || fromDate || getYesterdayDateString();
+    return { fromDate: day, toDate: day };
+}
+
 /**
  * Compute start and end Unix timestamps from a date string and minute offsets.
  * @param dateStr - Date string in YYYY-MM-DD format
