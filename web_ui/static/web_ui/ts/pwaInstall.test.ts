@@ -108,6 +108,28 @@ describe('isMobileFormFactor', () => {
             }),
         ).toBe(false);
     });
+
+    it('allows iPadOS desktop-class Safari UA with a coarse pointer', () => {
+        const ipadDesktopSafariUa =
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15';
+        expect(
+            isMobileFormFactor({
+                userAgent: ipadDesktopSafariUa,
+                matchMedia: media({ '(any-pointer: coarse)': true }),
+            }),
+        ).toBe(true);
+    });
+
+    it('excludes macOS Safari narrow windows without a coarse pointer', () => {
+        const macSafariUa =
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15';
+        expect(
+            isMobileFormFactor({
+                userAgent: macSafariUa,
+                matchMedia: media({ '(max-width: 768px)': true }),
+            }),
+        ).toBe(false);
+    });
 });
 
 describe('resolvePwaInstallCopyVariant', () => {

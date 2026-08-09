@@ -39,6 +39,15 @@ function isAndroidOrAppleMobileUa(userAgent: string): boolean {
     return /Android|iPhone|iPad|iPod/i.test(userAgent);
 }
 
+/** iPadOS 13+ Safari defaults to a Macintosh desktop-class UA (no iPad token). */
+function isLikelyIpadDesktopSafariUa(userAgent: string): boolean {
+    return (
+        /Macintosh/i.test(userAgent) &&
+        /Safari\//i.test(userAgent) &&
+        !/Chrome\/|Chromium\/|Edg\//i.test(userAgent)
+    );
+}
+
 /**
  * Classify install-help copy. Prefer an explicit Chrome-on-Android signal;
  * WebView / Brave / other Chromium forks fall back to generic steps.
@@ -69,20 +78,25 @@ export function isMobileFormFactor(options: {
         return true;
     }
     const ua = options.userAgent ?? '';
-    // Require an Android/iOS UA before coarse/compact media queries. Otherwise
-    // desktop Firefox/Safari (no UA-CH) and Chromium (mobile=false) would treat
+    const phoneOrTabletUa = isAndroidOrAppleMobileUa(ua);
+    const ipadDesktopSafari = isLikelyIpadDesktopSafariUa(ua);
+    // Require a phone/tablet signal before coarse/compact media queries.
+    // Otherwise desktop Firefox and Chromium (UA-CH mobile=false) would treat
     // touch laptops / narrow windows as install-eligible.
-    if (!isAndroidOrAppleMobileUa(ua)) {
+    if (!phoneOrTabletUa && !ipadDesktopSafari) {
         return false;
     }
-    // Android/iOS tablets often report UA-CH mobile=false (or omit UA-CH);
-    // use form-factor media queries for those.
     const { matchMedia } = options;
-    return (
+    const coarse =
         matchMedia('(any-pointer: coarse)').matches ||
-        matchMedia('(pointer: coarse)').matches ||
-        matchMedia('(max-width: 768px)').matches
-    );
+        matchMedia('(pointer: coarse)').matches;
+    const compact = matchMedia('(max-width: 768px)').matches;
+    // Macintosh Safari UA (iPadOS desktop mode): require a coarse pointer so
+    // narrow macOS Safari windows do not qualify via max-width alone.
+    if (ipadDesktopSafari && !phoneOrTabletUa) {
+        return coarse;
+    }
+    return coarse || compact;
 }
 
 export function resolvePwaInstallEligibility(options: {
