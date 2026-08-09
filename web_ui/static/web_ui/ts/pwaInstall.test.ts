@@ -12,6 +12,17 @@ function media(matchesFor: Record<string, boolean>): (query: string) => { matche
     return (query: string) => ({ matches: Boolean(matchesFor[query]) });
 }
 
+const ANDROID_CHROME_UA =
+    'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36';
+const ANDROID_TABLET_CHROME_UA =
+    'Mozilla/5.0 (Linux; Android 14; Pixel Tablet) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
+const ANDROID_WEBVIEW_UA =
+    'Mozilla/5.0 (Linux; Android 14; Pixel 8; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/128.0.0.0 Mobile Safari/537.36';
+const ANDROID_BRAVE_UA =
+    'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36 Brave/1.68';
+const DESKTOP_CHROME_UA =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
+
 describe('resolvePwaInstallEligibility', () => {
     it('hides in standalone', () => {
         expect(
@@ -20,6 +31,7 @@ describe('resolvePwaInstallEligibility', () => {
                 permanentDismissed: false,
                 sessionDismissed: false,
                 userAgentDataMobile: true,
+                userAgent: ANDROID_CHROME_UA,
             }).reason,
         ).toBe('standalone');
     });
@@ -31,6 +43,7 @@ describe('resolvePwaInstallEligibility', () => {
                 permanentDismissed: true,
                 sessionDismissed: false,
                 userAgentDataMobile: true,
+                userAgent: ANDROID_CHROME_UA,
             }).reason,
         ).toBe('dismissed-permanent');
     });
@@ -42,6 +55,7 @@ describe('resolvePwaInstallEligibility', () => {
                 permanentDismissed: false,
                 sessionDismissed: false,
                 userAgentDataMobile: true,
+                userAgent: ANDROID_CHROME_UA,
             }),
         ).toEqual({ showBanner: true, reason: 'ok' });
     });
@@ -52,21 +66,63 @@ describe('isMobileFormFactor', () => {
         expect(
             isMobileFormFactor({
                 userAgentDataMobile: true,
+                userAgent: ANDROID_CHROME_UA,
                 matchMedia: media({}),
             }),
         ).toBe(true);
+    });
+
+    it('allows Android tablets with UA-CH mobile=false via compact fallback', () => {
         expect(
             isMobileFormFactor({
                 userAgentDataMobile: false,
+                userAgent: ANDROID_TABLET_CHROME_UA,
                 matchMedia: media({ '(max-width: 768px)': true }),
             }),
         ).toBe(true);
+    });
+
+    it('excludes desktop touch laptops with UA-CH mobile=false', () => {
         expect(
             isMobileFormFactor({
                 userAgentDataMobile: false,
-                matchMedia: media({}),
+                userAgent: DESKTOP_CHROME_UA,
+                matchMedia: media({
+                    '(any-pointer: coarse)': true,
+                    '(max-width: 768px)': true,
+                }),
             }),
         ).toBe(false);
+    });
+});
+
+describe('resolvePwaInstallCopyVariant', () => {
+    it('detects Chrome on Android', () => {
+        expect(resolvePwaInstallCopyVariant(ANDROID_CHROME_UA)).toBe('android-chrome');
+    });
+
+    it('defaults WebView and Brave to generic', () => {
+        expect(resolvePwaInstallCopyVariant(ANDROID_WEBVIEW_UA)).toBe('generic-mobile');
+        expect(resolvePwaInstallCopyVariant(ANDROID_BRAVE_UA)).toBe('generic-mobile');
+    });
+
+    it('defaults desktop, iOS Safari, Samsung, and Edge Android to generic', () => {
+        expect(resolvePwaInstallCopyVariant(DESKTOP_CHROME_UA)).toBe('generic-mobile');
+        expect(
+            resolvePwaInstallCopyVariant(
+                'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
+            ),
+        ).toBe('generic-mobile');
+        expect(
+            resolvePwaInstallCopyVariant(
+                'Mozilla/5.0 (Linux; Android 14; SM-X710) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/28.0 Chrome/125.0.0.0 Safari/537.36',
+            ),
+        ).toBe('generic-mobile');
+        expect(
+            resolvePwaInstallCopyVariant(
+                'Mozilla/5.0 (Linux; Android 14; Pixel Tablet) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36 EdgA/125.0.0.0',
+            ),
+        ).toBe('generic-mobile');
     });
 });
 
@@ -89,41 +145,17 @@ describe('nextPwaInstallUiMode', () => {
 });
 
 describe('pwaInstallCopyForMode', () => {
-    it('mentions Android uninstall cleanup in manual mode', () => {
+    it('mentions Android uninstall cleanup for android-chrome manual mode', () => {
         expect(pwaInstallCopyForMode('manual-only', 'android-chrome')).toContain('Settings → Apps');
         expect(pwaInstallCopyForMode('manual-only', 'android-chrome')).toContain('Uninstall');
     });
 
     it('uses generic manual copy outside Android Chrome', () => {
-        expect(pwaInstallCopyForMode('manual-only', 'generic-mobile')).not.toContain('Settings → Apps');
+        expect(pwaInstallCopyForMode('manual-only', 'generic-mobile')).toContain('browser menu');
         expect(pwaInstallCopyForMode('manual-only', 'generic-mobile')).toContain('share sheet');
+        expect(pwaInstallCopyForMode('manual-only', 'generic-mobile')).not.toContain('Settings → Apps');
         expect(pwaInstallCopyForMode('waiting-for-prompt', 'generic-mobile')).not.toContain(
             'Chrome menu',
         );
-    });
-});
-
-describe('resolvePwaInstallCopyVariant', () => {
-    it('keeps Android Chrome-specific guidance scoped to Chrome on Android', () => {
-        expect(
-            resolvePwaInstallCopyVariant(
-                'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Mobile Safari/537.36',
-            ),
-        ).toBe('android-chrome');
-        expect(
-            resolvePwaInstallCopyVariant(
-                'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
-            ),
-        ).toBe('generic-mobile');
-        expect(
-            resolvePwaInstallCopyVariant(
-                'Mozilla/5.0 (Linux; Android 14; SM-X710) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/28.0 Chrome/125.0.0.0 Safari/537.36',
-            ),
-        ).toBe('generic-mobile');
-        expect(
-            resolvePwaInstallCopyVariant(
-                'Mozilla/5.0 (Linux; Android 14; Pixel Tablet) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36 EdgA/125.0.0.0',
-            ),
-        ).toBe('generic-mobile');
     });
 });

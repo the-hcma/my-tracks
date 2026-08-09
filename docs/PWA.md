@@ -7,8 +7,8 @@ stylized globe launcher icon.
 On eligible mobile browsers, a banner on the live map offers **Install** when
 `beforeinstallprompt` is available. If Chromium does not fire that event (common
 after an uninstall remnant), the banner switches to **manual install steps**.
-Android Chrome shows Chrome-specific uninstall cleanup; other mobile browsers
-fall back to generic menu / share-sheet install guidance. **Dismiss** /
+Android Chrome gets Settings → Apps uninstall cleanup copy; other mobile browsers
+get generic menu / share-sheet install guidance. **Dismiss** /
 **Do not ask again** still apply.
 
 ## What works offline
@@ -24,7 +24,7 @@ standalone display, not offline tracking.
 |-------------|---------|
 | **HTTPS or loopback** | Service worker registration and the install prompt run only on `https://` URLs or `http://localhost` / `http://127.0.0.1`. Plain HTTP on a LAN IP shows manifest metadata in some browsers but not the full install flow. |
 | **Logged in** | Open the live map at `/` after signing in. The install banner is mounted from the home dashboard JavaScript bundle. |
-| **Mobile form factor** | Banner is shown on touch-first / compact layouts (not desktop browsers). |
+| **Mobile form factor** | Banner uses UA-CH `mobile` when available; Android/iOS UA plus coarse/compact media queries cover tablets. Desktop browsers (including touch laptops) are excluded. |
 | **Not already installed** | Hidden when running in standalone mode or iOS “Add to Home Screen” mode. |
 
 ### Production (HTTPS)

@@ -13,7 +13,8 @@ export const PWA_INSTALL_PROMPT_WAIT_MS = 2500;
 export const PWA_MANUAL_INSTALL_STEPS_ANDROID =
     'Chrome menu (⋮) → Install app or Add to Home screen. If that is missing: Settings → Apps → See all apps → My Tracks → Uninstall (or long-press the home-screen icon → Uninstall), clear site data for this site, reload, then try again.';
 
-export type PwaInstallCopyVariant = 'android-chrome' | 'generic-mobile';
+export const PWA_MANUAL_INSTALL_STEPS_GENERIC =
+    'Use your browser menu or share sheet to Add to Home screen or Install this app. If the app was previously installed, uninstall it, clear site data for this site, reload, then try again.';
 
 export type PwaInstallEligibility = {
     showBanner: boolean;
@@ -25,6 +26,8 @@ export type PwaInstallEligibility = {
         | 'not-mobile';
 };
 
+export type PwaInstallCopyVariant = 'android-chrome' | 'generic-mobile';
+
 export function isDisplayStandalone(
     matchMedia: (query: string) => { matches: boolean },
     navigatorStandalone: boolean | undefined,
@@ -32,15 +35,48 @@ export function isDisplayStandalone(
     return matchMedia('(display-mode: standalone)').matches || navigatorStandalone === true;
 }
 
+function isAndroidOrAppleMobileUa(userAgent: string): boolean {
+    return /Android|iPhone|iPad|iPod/i.test(userAgent);
+}
+
+/**
+ * Classify install-help copy. Prefer an explicit Chrome-on-Android signal;
+ * WebView / Brave / other Chromium forks fall back to generic steps.
+ */
+export function resolvePwaInstallCopyVariant(userAgent: string): PwaInstallCopyVariant {
+    if (!/Android/i.test(userAgent)) {
+        return 'generic-mobile';
+    }
+    if (/\bwv\b|; wv\)/i.test(userAgent)) {
+        return 'generic-mobile';
+    }
+    if (/Brave|EdgA|OPR\/|SamsungBrowser|YaBrowser|DuckDuckGo|Firefox/i.test(userAgent)) {
+        return 'generic-mobile';
+    }
+    // Chrome for Android typically includes both Chrome/ and Mobile Safari tokens.
+    if (/Chrome\/\d+/i.test(userAgent) && /Mobile Safari/i.test(userAgent)) {
+        return 'android-chrome';
+    }
+    return 'generic-mobile';
+}
+
 export function isMobileFormFactor(options: {
     userAgentDataMobile?: boolean;
+    userAgent?: string;
     matchMedia: (query: string) => { matches: boolean };
 }): boolean {
     if (options.userAgentDataMobile === true) {
         return true;
     }
-    // Android tablets often report userAgentData.mobile === false; still treat
-    // coarse/compact layouts as install-eligible.
+    const ua = options.userAgent ?? '';
+    const phoneOrTabletUa = isAndroidOrAppleMobileUa(ua);
+    // Desktop UA-CH reports mobile=false. Do not treat touch laptops / narrow
+    // desktop windows as install-eligible unless the UA is Android/iOS.
+    if (options.userAgentDataMobile === false && !phoneOrTabletUa) {
+        return false;
+    }
+    // Android tablets often report UA-CH mobile=false; allow coarse/compact
+    // fallback when the UA is a phone/tablet platform (or UA-CH is absent).
     const { matchMedia } = options;
     return (
         matchMedia('(any-pointer: coarse)').matches ||
@@ -53,6 +89,7 @@ export function resolvePwaInstallEligibility(options: {
     matchMedia: (query: string) => { matches: boolean };
     navigatorStandalone?: boolean;
     userAgentDataMobile?: boolean;
+    userAgent?: string;
     permanentDismissed: boolean;
     sessionDismissed: boolean;
 }): PwaInstallEligibility {
@@ -68,6 +105,7 @@ export function resolvePwaInstallEligibility(options: {
     if (
         !isMobileFormFactor({
             userAgentDataMobile: options.userAgentDataMobile,
+            userAgent: options.userAgent,
             matchMedia: options.matchMedia,
         })
     ) {
@@ -96,33 +134,26 @@ export function nextPwaInstallUiMode(
     return 'manual-only';
 }
 
-export function resolvePwaInstallCopyVariant(userAgent: string): PwaInstallCopyVariant {
-    return /Android/i.test(userAgent) &&
-        /\bChrome\/\d+/i.test(userAgent) &&
-        !/\b(?:EdgA|OPR|SamsungBrowser)\b/i.test(userAgent)
-        ? 'android-chrome'
-        : 'generic-mobile';
-}
-
 function assertNever(value: never): never {
     throw new Error(`Unhandled PWA install UI mode: ${String(value)}`);
 }
 
 export function pwaInstallCopyForMode(
     mode: PwaInstallUiMode,
-    copyVariant: PwaInstallCopyVariant = 'generic-mobile',
+    variant: PwaInstallCopyVariant = 'generic-mobile',
 ): string {
     if (mode === 'deferred-prompt') {
         return 'Tap Install to add My Tracks to your home screen.';
     }
     if (mode === 'manual-only') {
-        if (copyVariant === 'generic-mobile') {
-            return 'Your browser did not offer a one-tap Install button. Use your browser menu or share sheet to Add to Home screen or Install this app.';
-        }
-        return `Your browser did not offer a one-tap Install button. ${PWA_MANUAL_INSTALL_STEPS_ANDROID}`;
+        const steps =
+            variant === 'android-chrome'
+                ? PWA_MANUAL_INSTALL_STEPS_ANDROID
+                : PWA_MANUAL_INSTALL_STEPS_GENERIC;
+        return `Your browser did not offer a one-tap Install button. ${steps}`;
     }
     if (mode === 'waiting-for-prompt') {
-        if (copyVariant === 'generic-mobile') {
+        if (variant === 'generic-mobile') {
             return 'Checking whether this browser can show a one-tap Install button… If it does not appear, use your browser menu or share sheet to Add to Home screen or Install this app.';
         }
         return 'Checking whether this browser can show a one-tap Install button… If it does not appear, use Chrome menu (⋮) → Install app or Add to Home screen.';

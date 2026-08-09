@@ -4212,6 +4212,7 @@ function initPwaInstallBanner(): void {
         matchMedia: (q) => window.matchMedia(q),
         navigatorStandalone: nav.standalone,
         userAgentDataMobile: uaData?.mobile,
+        userAgent: navigator.userAgent,
         permanentDismissed: localStorage.getItem(PWA_INSTALL_DISMISS_PERMANENT_KEY) === '1',
         sessionDismissed:
             sessionStorage.getItem(PWA_INSTALL_DISMISS_SESSION_KEY) === '1' ||
