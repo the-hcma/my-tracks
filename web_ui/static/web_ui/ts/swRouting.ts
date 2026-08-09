@@ -5,7 +5,7 @@
  * without requiring a browser deploy.
  */
 
-export type ServiceWorkerFetchRoute = 'bypass' | 'main-bundle' | 'cache-first';
+export type ServiceWorkerFetchRoute = 'bypass' | 'main-bundle' | 'network-first' | 'cache-first';
 
 /** Live API and WebSocket traffic must not use cache-first handling. */
 export function shouldBypassServiceWorker(pathname: string): boolean {
@@ -19,9 +19,31 @@ export function isMainBundlePath(pathname: string): boolean {
     );
 }
 
-export function resolveServiceWorkerFetchRoute(pathname: string): ServiceWorkerFetchRoute {
+/**
+ * HTML shells that embed CSRF / session-bound markup must not be cache-first.
+ * Mirror the path list inlined in sw.js.
+ */
+export function isShellHtmlPath(pathname: string): boolean {
+    return (
+        pathname === '/' ||
+        pathname === '/login/' ||
+        pathname === '/logout/' ||
+        pathname === '/profile/' ||
+        pathname === '/geofences/' ||
+        pathname === '/admin-panel/' ||
+        pathname === '/about/'
+    );
+}
+
+export function resolveServiceWorkerFetchRoute(
+    pathname: string,
+    options: { navigate?: boolean } = {},
+): ServiceWorkerFetchRoute {
     if (shouldBypassServiceWorker(pathname)) {
         return 'bypass';
+    }
+    if (options.navigate || isShellHtmlPath(pathname)) {
+        return 'network-first';
     }
     if (isMainBundlePath(pathname)) {
         return 'main-bundle';

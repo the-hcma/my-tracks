@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     isMainBundlePath,
+    isShellHtmlPath,
     resolveServiceWorkerFetchRoute,
     shouldBypassServiceWorker,
 } from './swRouting';
@@ -35,9 +36,31 @@ describe('isMainBundlePath', () => {
     });
 });
 
+describe('isShellHtmlPath', () => {
+    it('marks CSRF-bearing HTML shells', () => {
+        expect(isShellHtmlPath('/')).toBe(true);
+        expect(isShellHtmlPath('/login/')).toBe(true);
+        expect(isShellHtmlPath('/logout/')).toBe(true);
+        expect(isShellHtmlPath('/profile/')).toBe(true);
+    });
+
+    it('does not mark static assets', () => {
+        expect(isShellHtmlPath('/static/web_ui/css/main.css')).toBe(false);
+        expect(isShellHtmlPath('/static/web_ui/js/main.js')).toBe(false);
+    });
+});
+
 describe('resolveServiceWorkerFetchRoute', () => {
     it('prioritizes API bypass over main bundle matching', () => {
         expect(resolveServiceWorkerFetchRoute('/api/locations/last-known/')).toBe('bypass');
+    });
+
+    it('routes HTML shells and navigations network-first', () => {
+        expect(resolveServiceWorkerFetchRoute('/')).toBe('network-first');
+        expect(resolveServiceWorkerFetchRoute('/login/')).toBe('network-first');
+        expect(resolveServiceWorkerFetchRoute('/static/web_ui/css/main.css', { navigate: true })).toBe(
+            'network-first',
+        );
     });
 
     it('routes main bundle to stale-while-revalidate handling', () => {

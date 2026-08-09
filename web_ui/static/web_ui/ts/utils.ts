@@ -568,6 +568,37 @@ export function historicDatesAfterSameDayToggle(
     return { fromDate: day, toDate: day };
 }
 
+/** Which end the compact (mobile) historic calendar is editing next. */
+export type HistoricMobilePickStep = 'from' | 'to';
+
+/**
+ * Apply a date picked from the compact historic calendar.
+ *
+ * Same day: both ends follow the pick and the next step stays From.
+ * Range mode: first pick sets From (and To to match); second pick sets To,
+ * then the next step returns to From.
+ */
+export function applyHistoricMobileDatePick(
+    step: HistoricMobilePickStep,
+    pickedDate: string,
+    sameDayOnly: boolean,
+    fromDate: string,
+): { fromDate: string; toDate: string; nextStep: HistoricMobilePickStep } {
+    if (sameDayOnly || step === 'from') {
+        return {
+            fromDate: pickedDate,
+            toDate: pickedDate,
+            nextStep: sameDayOnly ? 'from' : 'to',
+        };
+    }
+    let nextTo = pickedDate;
+    const nextFrom = fromDate;
+    if (nextTo < nextFrom) {
+        nextTo = nextFrom;
+    }
+    return { fromDate: nextFrom, toDate: nextTo, nextStep: 'from' };
+}
+
 /**
  * Compute start and end Unix timestamps from a date string and minute offsets.
  * @param dateStr - Date string in YYYY-MM-DD format
