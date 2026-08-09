@@ -707,18 +707,137 @@ a:hover {
     cursor: pointer;
 }
 
-/* Compact (mobile) From/To step hint — shown via JS when max-width matches. */
-.historic-range-step {
-    display: none;
-    font-size: 11px;
-    font-weight: 600;
+[data-theme="dark"] .historic-date-input {
+    color-scheme: dark;
+}
+
+/* Mobile historic range calendar popover */
+.historic-range-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1200;
+    background: rgba(0, 0, 0, 0.35);
+}
+
+.historic-range-panel {
+    position: fixed;
+    z-index: 1201;
+    box-sizing: border-box;
+    max-width: calc(100vw - 16px);
+    max-height: calc(100dvh - 16px);
+    overflow-y: auto;
+    padding: 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-main, var(--endpoint-bg));
     color: var(--text-main);
-    min-width: 2.5em;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.25);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+/* Author `display: flex` would otherwise override the UA `[hidden]` rule. */
+.historic-range-panel[hidden] {
+    display: none;
+}
+
+.historic-range-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.historic-range-title {
+    margin: 0;
+    flex: 1;
+    text-align: center;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.historic-range-nav {
+    border: 1px solid var(--border-color);
+    background: var(--endpoint-bg);
+    color: var(--text-main);
+    border-radius: 6px;
+    width: 36px;
+    height: 32px;
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.historic-range-weekdays,
+.historic-range-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 2px;
     text-align: center;
 }
 
-[data-theme="dark"] .historic-date-input {
-    color-scheme: dark;
+.historic-range-weekdays {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-main);
+    opacity: 0.75;
+}
+
+.historic-range-day {
+    border: none;
+    background: transparent;
+    color: var(--text-main);
+    border-radius: 6px;
+    min-height: 36px;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.historic-range-day:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.historic-range-day-outside {
+    visibility: hidden;
+}
+
+.historic-range-day-in-range {
+    background: color-mix(in srgb, var(--status-color, #0056b3) 18%, transparent);
+}
+
+.historic-range-day-from,
+.historic-range-day-to {
+    background: var(--status-color, #0056b3);
+    color: #fff;
+    font-weight: 600;
+}
+
+.historic-range-status {
+    margin: 0;
+    font-size: 12px;
+    opacity: 0.9;
+}
+
+.historic-range-same-day {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.historic-range-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.historic-range-actions .btn {
+    min-height: 36px;
+    padding: 6px 12px;
 }
 
 .time-slider-container {
@@ -1351,9 +1470,9 @@ body.my-tracks-live #friend-request-banner-root .friend-request-banner {
         flex: 1;
     }
 
-    /* Collapse each historic date field and the device selector to a tappable
-       icon on phones. Compact mode uses a single calendar: first pick sets
-       From, second pick sets To (Same day keeps one-tap day selection). */
+    /* Compact historic: one calendar icon opens the custom range popover.
+       Hide the separate To field and the toolbar Same day control (Same day
+       lives inside the popover). */
     .icon-input-glyph {
         display: flex;
     }
@@ -1365,20 +1484,9 @@ body.my-tracks-live #friend-request-banner-root .friend-request-banner {
         gap: 4px;
     }
 
-    #historic-to-date-wrap {
+    #historic-to-date-wrap,
+    #historic-same-day-label {
         display: none !important;
-    }
-
-    .historic-range-step:not([hidden]) {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        padding: 4px 6px;
-        min-height: 32px;
-        box-sizing: border-box;
-        background: var(--endpoint-bg);
-        border: 1px solid var(--border-color);
-        border-radius: 6px;
     }
 
     .icon-input-wrap .historic-date-input,
@@ -1400,17 +1508,8 @@ body.my-tracks-live #friend-request-banner-root .friend-request-banner {
         cursor: pointer;
     }
 
-    .historic-same-day span {
-        display: none;
-    }
-
-    .historic-same-day {
-        padding: 6px 8px;
-        min-height: 32px;
-    }
-
     /* Strip the native date input's internal value display + indicator so
-       only our overlay glyph shows. The picker still opens on tap. */
+       only our overlay glyph shows. Taps open the custom range calendar. */
     .icon-input-wrap .historic-date-input::-webkit-datetime-edit,
     .icon-input-wrap .historic-date-input::-webkit-datetime-edit-fields-wrapper,
     .icon-input-wrap .historic-date-input::-webkit-clear-button,

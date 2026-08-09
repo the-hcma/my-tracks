@@ -41,9 +41,10 @@ import {
 } from './liveActivityToolbar';
 import { runLastKnownLoad } from './lastKnownLoad';
 import { registerAndUpdateServiceWorker } from './serviceWorkerRecovery';
+import { createHistoricRangeCalendar } from './historicRangeCalendar';
+import type { HistoricRangeCalendarApi } from './historicRangeCalendar';
 import { getPreferredTheme, setTheme, toggleTheme } from './theme';
-import { boundFetch, clampHistoricToDate, collapseLocations, defaultHistoricDateRange, extractResultsList, formatDwellDuration, formatDwellHoverHtml, formatLatLonCoordinate, formatLatLonPair, formatMinutesAsTime, getTodayDateString, applyHistoricMobileDatePick, historicDatesAfterSameDayToggle, historicFetchResolutionSeconds, historicPeriodToTimestamps, HISTORIC_MAX_SPAN_DAYS, HISTORIC_WARN_SPAN_DAYS, inclusiveDaySpan, prepareHistoricTripLocations, selectStablePaletteColor, tripSnapshotMaxPoints } from './utils';
-import type { HistoricMobilePickStep } from './utils';
+import { boundFetch, clampHistoricToDate, collapseLocations, defaultHistoricDateRange, extractResultsList, formatDwellDuration, formatDwellHoverHtml, formatLatLonCoordinate, formatLatLonPair, formatMinutesAsTime, getTodayDateString, historicDatesAfterSameDayToggle, historicFetchResolutionSeconds, historicPeriodToTimestamps, HISTORIC_MAX_SPAN_DAYS, HISTORIC_WARN_SPAN_DAYS, inclusiveDaySpan, prepareHistoricTripLocations, selectStablePaletteColor, tripSnapshotMaxPoints } from './utils';
 import { formatActivityLogMeta } from './locationMeta';
 import {
     compareLocationsByReportTimeDesc,
@@ -324,9 +325,9 @@ let historicToDate = ''; // YYYY-MM-DD
 let historicSameDayOnly = true;
 let historicStartMinutes = 0; // Minutes from midnight (0 = 00:00)
 let historicEndMinutes = 1439; // Minutes from midnight (1439 = 23:59)
-let historicMobilePickStep: HistoricMobilePickStep = 'from';
 let timeSliderApi: NoUiSliderAPI | null = null;
 let historicLongRangeWarned = false;
+let historicRangeCalendarApi: HistoricRangeCalendarApi | null = null;
 
 // Device color palette - ordered for MAXIMUM visual difference between adjacent colors
 // First colors should be most distinct from each other (used when few devices)
@@ -562,7 +563,7 @@ function getHistoricTimestamps(): [number, number] {
 }
 
 /**
- * Compact historic UI (phones): one calendar, first pick From, second pick To.
+ * Compact historic UI (phones): custom range calendar popover.
  */
 function isCompactHistoricDateUi(): boolean {
     return window.matchMedia('(max-width: 768px)').matches;
@@ -583,7 +584,6 @@ function ensureHistoricDatesInitialized(): void {
     }
     if (historicSameDayOnly) {
         historicToDate = historicFromDate;
-        historicMobilePickStep = 'from';
     }
 }
 
@@ -598,44 +598,24 @@ function syncHistoricControls(): void {
     const sameDayInput = document.getElementById('historic-same-day') as HTMLInputElement | null;
     const toWrap = document.getElementById('historic-to-date-wrap');
     const sliderContainer = document.getElementById('time-slider-container');
-    const stepHint = document.getElementById('historic-range-step');
     const compact = isCompactHistoricDateUi();
 
-    const activeDate =
-        compact && !historicSameDayOnly && historicMobilePickStep === 'to'
-            ? historicToDate
-            : historicFromDate;
-
     if (fromInput) {
-        // Re-assign value after the control is visible so mobile calendars open
-        // on the selected day (yesterday by default) instead of today.
+        // Re-assign value after the control is visible so calendars open on the
+        // selected day (yesterday by default) instead of today.
         fromInput.value = '';
-        fromInput.value = activeDate;
-        fromInput.defaultValue = activeDate;
+        fromInput.value = historicFromDate;
+        fromInput.defaultValue = historicFromDate;
         fromInput.max = today;
-        if (compact && !historicSameDayOnly && historicMobilePickStep === 'to') {
-            fromInput.min = historicFromDate;
-            fromInput.title = 'To date for historic trail (second tap)';
-            fromInput.setAttribute('aria-label', 'To date for historic trail');
-        } else {
-            fromInput.removeAttribute('min');
-            fromInput.title = compact
-                ? historicSameDayOnly
-                    ? 'Historic day'
-                    : 'From date for historic trail (first tap)'
-                : 'From date for historic trail';
-            fromInput.setAttribute(
-                'aria-label',
-                compact && !historicSameDayOnly
-                    ? 'From date for historic trail'
-                    : 'From date for historic trail',
-            );
-        }
-        fromInput.dataset.rangeStep = compact
-            ? historicSameDayOnly
-                ? 'same-day'
-                : historicMobilePickStep
-            : '';
+        fromInput.removeAttribute('min');
+        fromInput.readOnly = compact;
+        fromInput.title = compact
+            ? 'Historic date range'
+            : 'From date for historic trail';
+        fromInput.setAttribute(
+            'aria-label',
+            compact ? 'Historic date range' : 'From date for historic trail',
+        );
     }
     if (toInput) {
         toInput.value = '';
@@ -647,27 +627,15 @@ function syncHistoricControls(): void {
     }
     if (sameDayInput) {
         sameDayInput.checked = historicSameDayOnly;
+        // Compact UI uses the in-panel Same day control; keep the toolbar
+        // checkbox disabled so keyboard/AT cannot fire a second control path.
+        sameDayInput.disabled = compact;
     }
     if (toWrap) {
         toWrap.classList.toggle('historic-to-disabled', historicSameDayOnly);
     }
     if (sliderContainer) {
         sliderContainer.classList.toggle('hidden', !historicSameDayOnly);
-    }
-    if (stepHint) {
-        if (compact && !historicSameDayOnly) {
-            stepHint.hidden = false;
-            stepHint.textContent = historicMobilePickStep === 'from' ? 'From' : 'To';
-            stepHint.dataset.rangeStep = historicMobilePickStep;
-        } else if (compact && historicSameDayOnly) {
-            stepHint.hidden = false;
-            stepHint.textContent = 'Day';
-            stepHint.dataset.rangeStep = 'same-day';
-        } else {
-            stepHint.hidden = true;
-            stepHint.textContent = '';
-            delete stepHint.dataset.rangeStep;
-        }
     }
 }
 
@@ -4020,46 +3988,67 @@ function initEventListeners(): void {
         saveUIState();
     };
 
+    const historicFromField = document.querySelector(
+        '.historic-date-field[data-icon-input="historic-from-date"]',
+    ) as HTMLElement | null;
     const historicFromInput = document.getElementById('historic-from-date') as HTMLInputElement | null;
-    if (historicFromInput) {
-        // Native date inputs omit change when the committed value is unchanged.
-        // On the compact To step, clear on focus so re-picking From (= equal range)
-        // still commits; blur restores the display if the picker was cancelled.
-        historicFromInput.addEventListener('focus', () => {
-            if (
-                isCompactHistoricDateUi() &&
-                !historicSameDayOnly &&
-                historicMobilePickStep === 'to'
-            ) {
-                historicFromInput.value = '';
-            }
+
+    if (historicFromField) {
+        historicRangeCalendarApi = createHistoricRangeCalendar(historicFromField, {
+            getState: () => ({
+                fromDate: historicFromDate,
+                toDate: historicToDate,
+                sameDayOnly: historicSameDayOnly,
+            }),
+            getToday: getTodayDateString,
+            maxSpanDays: HISTORIC_MAX_SPAN_DAYS,
+            onApply: (state) => {
+                historicFromDate = state.fromDate;
+                historicToDate = state.toDate;
+                historicSameDayOnly = state.sameDayOnly;
+                if (historicSameDayOnly) {
+                    historicStartMinutes = 0;
+                    historicEndMinutes = 1439;
+                    initTimeSlider();
+                }
+                refreshHistoricPeriod();
+            },
         });
-        historicFromInput.addEventListener('blur', () => {
-            if (!historicFromInput.value) {
-                syncHistoricControls();
+    }
+
+    if (historicFromInput) {
+        // Compact: open the custom range calendar instead of the native picker.
+        const openCompactCalendar = (e: Event): void => {
+            if (!isCompactHistoricDateUi() || !historicRangeCalendarApi) {
+                return;
             }
+            e.preventDefault();
+            e.stopPropagation();
+            historicFromInput.blur();
+            historicRangeCalendarApi.open();
+        };
+        historicFromInput.addEventListener('mousedown', openCompactCalendar);
+        historicFromInput.addEventListener('touchstart', openCompactCalendar, { passive: false });
+        historicFromInput.addEventListener('click', openCompactCalendar);
+        historicFromInput.addEventListener('keydown', (e: KeyboardEvent) => {
+            if (e.key !== 'Enter' && e.key !== ' ') {
+                return;
+            }
+            openCompactCalendar(e);
         });
         historicFromInput.addEventListener('change', (e: Event) => {
+            if (isCompactHistoricDateUi()) {
+                syncHistoricControls();
+                return;
+            }
             const value = (e.target as HTMLInputElement).value;
             if (!value) {
                 syncHistoricControls();
                 return;
             }
-            if (isCompactHistoricDateUi()) {
-                const picked = applyHistoricMobileDatePick(
-                    historicMobilePickStep,
-                    value,
-                    historicSameDayOnly,
-                    historicFromDate,
-                );
-                historicFromDate = picked.fromDate;
-                historicToDate = picked.toDate;
-                historicMobilePickStep = picked.nextStep;
-            } else {
-                historicFromDate = value;
-                if (historicSameDayOnly || historicToDate < historicFromDate) {
-                    historicToDate = historicFromDate;
-                }
+            historicFromDate = value;
+            if (historicSameDayOnly || historicToDate < historicFromDate) {
+                historicToDate = historicFromDate;
             }
             refreshHistoricPeriod();
         });
@@ -4084,6 +4073,9 @@ function initEventListeners(): void {
     const historicSameDayInput = document.getElementById('historic-same-day') as HTMLInputElement | null;
     if (historicSameDayInput) {
         historicSameDayInput.addEventListener('change', (e: Event) => {
+            if (isCompactHistoricDateUi()) {
+                return;
+            }
             historicSameDayOnly = (e.target as HTMLInputElement).checked;
             const nextDates = historicDatesAfterSameDayToggle(
                 historicSameDayOnly,
@@ -4092,7 +4084,6 @@ function initEventListeners(): void {
             );
             historicFromDate = nextDates.fromDate;
             historicToDate = nextDates.toDate;
-            historicMobilePickStep = 'from';
             if (historicSameDayOnly) {
                 historicStartMinutes = 0;
                 historicEndMinutes = 1439;
@@ -4161,6 +4152,15 @@ function initEventListeners(): void {
         if (!localStorage.getItem('theme')) {
             setTheme(e.matches ? 'dark' : 'light');
         }
+    });
+
+    // Re-sync compact vs desktop historic controls when crossing the breakpoint
+    // (e.g. phone rotate) so readOnly/disabled flags do not stick.
+    window.matchMedia('(max-width: 768px)').addEventListener('change', () => {
+        if (!isCompactHistoricDateUi()) {
+            historicRangeCalendarApi?.close();
+        }
+        syncHistoricControls();
     });
 
     document.addEventListener('visibilitychange', () => {
