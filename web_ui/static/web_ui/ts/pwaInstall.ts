@@ -62,8 +62,9 @@ export function resolvePwaInstallCopyVariant(userAgent: string): PwaInstallCopyV
     if (/Brave|EdgA|OPR\/|SamsungBrowser|YaBrowser|DuckDuckGo|Firefox/i.test(userAgent)) {
         return 'generic-mobile';
     }
-    // Chrome for Android typically includes both Chrome/ and Mobile Safari tokens.
-    if (/Chrome\/\d+/i.test(userAgent) && /Mobile Safari/i.test(userAgent)) {
+    // Chrome for Android (phone or tablet) includes Chrome/ and a Safari/ token;
+    // phones usually also have "Mobile Safari", tablets often omit "Mobile".
+    if (/Chrome\/\d+/i.test(userAgent) && /Safari\//i.test(userAgent)) {
         return 'android-chrome';
     }
     return 'generic-mobile';

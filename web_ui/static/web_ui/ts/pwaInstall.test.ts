@@ -133,8 +133,9 @@ describe('isMobileFormFactor', () => {
 });
 
 describe('resolvePwaInstallCopyVariant', () => {
-    it('detects Chrome on Android', () => {
+    it('detects Chrome on Android phones and tablets', () => {
         expect(resolvePwaInstallCopyVariant(ANDROID_CHROME_UA)).toBe('android-chrome');
+        expect(resolvePwaInstallCopyVariant(ANDROID_TABLET_CHROME_UA)).toBe('android-chrome');
     });
 
     it('defaults WebView and Brave to generic', () => {
