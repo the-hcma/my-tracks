@@ -707,6 +707,16 @@ a:hover {
     cursor: pointer;
 }
 
+/* Compact (mobile) From/To step hint — shown via JS when max-width matches. */
+.historic-range-step {
+    display: none;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-main);
+    min-width: 2.5em;
+    text-align: center;
+}
+
 [data-theme="dark"] .historic-date-input {
     color-scheme: dark;
 }
@@ -1342,10 +1352,8 @@ body.my-tracks-live #friend-request-banner-root .friend-request-banner {
     }
 
     /* Collapse each historic date field and the device selector to a tappable
-       icon on phones. From and To each keep their own calendar control so the
-       native picker can open independently for either end of the range. The
-       native control sits underneath (transparent), so taps still open the
-       platform's native picker (calendar / device dropdown). */
+       icon on phones. Compact mode uses a single calendar: first pick sets
+       From, second pick sets To (Same day keeps one-tap day selection). */
     .icon-input-glyph {
         display: flex;
     }
@@ -1353,6 +1361,24 @@ body.my-tracks-live #friend-request-banner-root .friend-request-banner {
     .historic-controls .historic-date-field {
         display: inline-flex;
         flex: 0 0 auto;
+        align-items: center;
+        gap: 4px;
+    }
+
+    #historic-to-date-wrap {
+        display: none !important;
+    }
+
+    .historic-range-step:not([hidden]) {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 4px 6px;
+        min-height: 32px;
+        box-sizing: border-box;
+        background: var(--endpoint-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
     }
 
     .icon-input-wrap .historic-date-input,

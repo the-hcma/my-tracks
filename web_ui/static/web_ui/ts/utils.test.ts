@@ -22,6 +22,7 @@ import {
     getYesterdayDateString,
     defaultHistoricDateRange,
     historicDatesAfterSameDayToggle,
+    applyHistoricMobileDatePick,
     dateAndMinutesToTimestamps,
     historicPeriodToTimestamps,
     inclusiveDaySpan,
@@ -510,6 +511,40 @@ describe('historicDatesAfterSameDayToggle', () => {
         } finally {
             vi.useRealTimers();
         }
+    });
+});
+
+describe('applyHistoricMobileDatePick', () => {
+    it('sets both ends on same-day picks and stays on from', () => {
+        expect(applyHistoricMobileDatePick('from', '2026-08-05', true, '2026-08-01')).toEqual({
+            fromDate: '2026-08-05',
+            toDate: '2026-08-05',
+            nextStep: 'from',
+        });
+    });
+
+    it('uses first range pick as from and advances to to', () => {
+        expect(applyHistoricMobileDatePick('from', '2026-08-01', false, '2026-07-20')).toEqual({
+            fromDate: '2026-08-01',
+            toDate: '2026-08-01',
+            nextStep: 'to',
+        });
+    });
+
+    it('uses second range pick as to and returns to from', () => {
+        expect(applyHistoricMobileDatePick('to', '2026-08-07', false, '2026-08-01')).toEqual({
+            fromDate: '2026-08-01',
+            toDate: '2026-08-07',
+            nextStep: 'from',
+        });
+    });
+
+    it('clamps second range pick to from when earlier', () => {
+        expect(applyHistoricMobileDatePick('to', '2026-07-15', false, '2026-08-01')).toEqual({
+            fromDate: '2026-08-01',
+            toDate: '2026-08-01',
+            nextStep: 'from',
+        });
     });
 });
 
