@@ -13,6 +13,8 @@ export const PWA_INSTALL_PROMPT_WAIT_MS = 2500;
 export const PWA_MANUAL_INSTALL_STEPS_ANDROID =
     'Chrome menu (⋮) → Install app or Add to Home screen. If that is missing: Settings → Apps → See all apps → My Tracks → Uninstall (or long-press the home-screen icon → Uninstall), clear site data for this site, reload, then try again.';
 
+export type PwaInstallCopyVariant = 'android-chrome' | 'generic-mobile';
+
 export type PwaInstallEligibility = {
     showBanner: boolean;
     reason:
@@ -94,12 +96,36 @@ export function nextPwaInstallUiMode(
     return 'manual-only';
 }
 
-export function pwaInstallCopyForMode(mode: PwaInstallUiMode): string {
+export function resolvePwaInstallCopyVariant(userAgent: string): PwaInstallCopyVariant {
+    return /Android/i.test(userAgent) &&
+        /\bChrome\/\d+/i.test(userAgent) &&
+        !/\b(?:EdgA|OPR|SamsungBrowser)\b/i.test(userAgent)
+        ? 'android-chrome'
+        : 'generic-mobile';
+}
+
+function assertNever(value: never): never {
+    throw new Error(`Unhandled PWA install UI mode: ${String(value)}`);
+}
+
+export function pwaInstallCopyForMode(
+    mode: PwaInstallUiMode,
+    copyVariant: PwaInstallCopyVariant = 'generic-mobile',
+): string {
     if (mode === 'deferred-prompt') {
         return 'Tap Install to add My Tracks to your home screen.';
     }
     if (mode === 'manual-only') {
+        if (copyVariant === 'generic-mobile') {
+            return 'Your browser did not offer a one-tap Install button. Use your browser menu or share sheet to Add to Home screen or Install this app.';
+        }
         return `Your browser did not offer a one-tap Install button. ${PWA_MANUAL_INSTALL_STEPS_ANDROID}`;
     }
-    return 'Checking whether this browser can show a one-tap Install button… If it does not appear, use Chrome menu (⋮) → Install app or Add to Home screen.';
+    if (mode === 'waiting-for-prompt') {
+        if (copyVariant === 'generic-mobile') {
+            return 'Checking whether this browser can show a one-tap Install button… If it does not appear, use your browser menu or share sheet to Add to Home screen or Install this app.';
+        }
+        return 'Checking whether this browser can show a one-tap Install button… If it does not appear, use Chrome menu (⋮) → Install app or Add to Home screen.';
+    }
+    return assertNever(mode);
 }

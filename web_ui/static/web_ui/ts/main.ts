@@ -48,6 +48,7 @@ import {
     PWA_INSTALL_PROMPT_WAIT_MS,
     nextPwaInstallUiMode,
     pwaInstallCopyForMode,
+    resolvePwaInstallCopyVariant,
     resolvePwaInstallEligibility,
     type PwaInstallUiMode,
 } from './pwaInstall';
@@ -4206,6 +4207,7 @@ function initPwaInstallBanner(): void {
         navigator as Navigator & { userAgentData?: { mobile?: boolean } }
     ).userAgentData;
     const nav = window.navigator as Navigator & { standalone?: boolean };
+    const copyVariant = resolvePwaInstallCopyVariant(nav.userAgent);
     const eligibility = resolvePwaInstallEligibility({
         matchMedia: (q) => window.matchMedia(q),
         navigatorStandalone: nav.standalone,
@@ -4235,7 +4237,7 @@ function initPwaInstallBanner(): void {
     let mode: PwaInstallUiMode = 'waiting-for-prompt';
     const copy = document.createElement('p');
     copy.className = 'pwa-install-banner-copy';
-    copy.textContent = pwaInstallCopyForMode(mode);
+    copy.textContent = pwaInstallCopyForMode(mode, copyVariant);
 
     const persistRow = document.createElement('div');
     persistRow.className = 'pwa-install-persist-row';
@@ -4267,7 +4269,7 @@ function initPwaInstallBanner(): void {
 
     const applyMode = (next: PwaInstallUiMode): void => {
         mode = next;
-        copy.textContent = pwaInstallCopyForMode(mode);
+        copy.textContent = pwaInstallCopyForMode(mode, copyVariant);
         installBtn.hidden = mode !== 'deferred-prompt';
         banner.dataset.installMode = mode;
     };

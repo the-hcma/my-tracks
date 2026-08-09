@@ -6,9 +6,10 @@ stylized globe launcher icon.
 
 On eligible mobile browsers, a banner on the live map offers **Install** when
 `beforeinstallprompt` is available. If Chromium does not fire that event (common
-after an uninstall remnant), the banner switches to **manual install steps**
-(Chrome ⋮ → Install app / Add to Home screen, plus Settings → Apps uninstall
-cleanup on Android). **Dismiss** / **Do not ask again** still apply.
+after an uninstall remnant), the banner switches to **manual install steps**.
+Android Chrome shows Chrome-specific uninstall cleanup; other mobile browsers
+fall back to generic menu / share-sheet install guidance. **Dismiss** /
+**Do not ask again** still apply.
 
 ## What works offline
 
@@ -44,8 +45,8 @@ reverse proxy) — do not expose an unauthenticated HTTP listener to the network
 1. On a phone, open the My Tracks URL and log in.
 2. On the live map, if eligible, an **Install My Tracks** banner appears at the
    top of the dashboard.
-3. Tap **Install** when enabled, or use the browser menu (**Add to Home screen**
-   / **Install app**).
+3. Tap **Install** when enabled, or use the browser menu / share sheet
+   (**Add to Home screen** / **Install app**).
 4. The home-screen icon uses the globe artwork; launching it opens the dashboard
    in standalone mode.
 

@@ -40,6 +40,10 @@ when it still thinks the app is installed, or before the service worker is ready
 4. After ~2s the banner shows manual steps if one-tap Install is still unavailable;
    use Chrome ⋮ → **Add to Home screen** / **Install app**.
 
+On iPhone/iPad Safari or other non-Chromium mobile browsers, the banner falls
+back to generic menu / share-sheet **Add to Home screen** guidance instead of
+the Android Chrome cleanup path above.
+
 See [PWA.md](PWA.md) for the full install flow.
 
 ---

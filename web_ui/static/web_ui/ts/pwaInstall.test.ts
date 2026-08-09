@@ -4,6 +4,7 @@ import {
     isMobileFormFactor,
     nextPwaInstallUiMode,
     pwaInstallCopyForMode,
+    resolvePwaInstallCopyVariant,
     resolvePwaInstallEligibility,
 } from './pwaInstall';
 
@@ -89,7 +90,40 @@ describe('nextPwaInstallUiMode', () => {
 
 describe('pwaInstallCopyForMode', () => {
     it('mentions Android uninstall cleanup in manual mode', () => {
-        expect(pwaInstallCopyForMode('manual-only')).toContain('Settings → Apps');
-        expect(pwaInstallCopyForMode('manual-only')).toContain('Uninstall');
+        expect(pwaInstallCopyForMode('manual-only', 'android-chrome')).toContain('Settings → Apps');
+        expect(pwaInstallCopyForMode('manual-only', 'android-chrome')).toContain('Uninstall');
+    });
+
+    it('uses generic manual copy outside Android Chrome', () => {
+        expect(pwaInstallCopyForMode('manual-only', 'generic-mobile')).not.toContain('Settings → Apps');
+        expect(pwaInstallCopyForMode('manual-only', 'generic-mobile')).toContain('share sheet');
+        expect(pwaInstallCopyForMode('waiting-for-prompt', 'generic-mobile')).not.toContain(
+            'Chrome menu',
+        );
+    });
+});
+
+describe('resolvePwaInstallCopyVariant', () => {
+    it('keeps Android Chrome-specific guidance scoped to Chrome on Android', () => {
+        expect(
+            resolvePwaInstallCopyVariant(
+                'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Mobile Safari/537.36',
+            ),
+        ).toBe('android-chrome');
+        expect(
+            resolvePwaInstallCopyVariant(
+                'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
+            ),
+        ).toBe('generic-mobile');
+        expect(
+            resolvePwaInstallCopyVariant(
+                'Mozilla/5.0 (Linux; Android 14; SM-X710) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/28.0 Chrome/125.0.0.0 Safari/537.36',
+            ),
+        ).toBe('generic-mobile');
+        expect(
+            resolvePwaInstallCopyVariant(
+                'Mozilla/5.0 (Linux; Android 14; Pixel Tablet) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36 EdgA/125.0.0.0',
+            ),
+        ).toBe('generic-mobile');
     });
 });
