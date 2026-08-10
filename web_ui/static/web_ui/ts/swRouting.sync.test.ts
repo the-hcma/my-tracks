@@ -21,7 +21,7 @@ describe('sw.js stays aligned with swRouting.ts', () => {
     });
 
     it('bumps the cache version and keeps HTML shells network-first', () => {
-        expect(swJs).toContain('my-tracks-pwa-v6');
+        expect(swJs).toContain('my-tracks-pwa-v7');
         expect(swJs).not.toMatch(/const PRECACHE = \[\s*"\/"/);
         expect(swJs).toContain('function isShellHtmlPath(pathname)');
         expect(swJs).toContain('request.mode === "navigate"');

@@ -5,8 +5,11 @@ a native app. It opens in **standalone** mode (no browser chrome) and uses a
 stylized globe launcher icon.
 
 On eligible mobile browsers, a banner on the live map offers **Install** when
-`beforeinstallprompt` is available, manual “Add to Home screen” instructions
-otherwise, and **Dismiss** / **Do not ask again** controls.
+`beforeinstallprompt` is available. If Chromium does not fire that event (common
+after an uninstall remnant), the banner switches to **manual install steps**.
+Android Chrome gets Settings → Apps uninstall cleanup copy; other mobile browsers
+get generic menu / share-sheet install guidance. **Dismiss** /
+**Do not ask again** still apply.
 
 ## What works offline
 
@@ -21,7 +24,7 @@ standalone display, not offline tracking.
 |-------------|---------|
 | **HTTPS or loopback** | Service worker registration and the install prompt run only on `https://` URLs or `http://localhost` / `http://127.0.0.1`. Plain HTTP on a LAN IP shows manifest metadata in some browsers but not the full install flow. |
 | **Logged in** | Open the live map at `/` after signing in. The install banner is mounted from the home dashboard JavaScript bundle. |
-| **Mobile form factor** | Banner is shown on touch-first / compact layouts (not desktop browsers). |
+| **Mobile form factor** | Banner uses UA-CH `mobile` when available; Android/iOS UA plus coarse/compact media queries cover tablets. Desktop browsers (including touch laptops) are excluded. |
 | **Not already installed** | Hidden when running in standalone mode or iOS “Add to Home Screen” mode. |
 
 ### Production (HTTPS)
@@ -42,8 +45,8 @@ reverse proxy) — do not expose an unauthenticated HTTP listener to the network
 1. On a phone, open the My Tracks URL and log in.
 2. On the live map, if eligible, an **Install My Tracks** banner appears at the
    top of the dashboard.
-3. Tap **Install** when enabled, or use the browser menu (**Add to Home screen**
-   / **Install app**).
+3. Tap **Install** when enabled, or use the browser menu / share sheet
+   (**Add to Home screen** / **Install app**).
 4. The home-screen icon uses the globe artwork; launching it opens the dashboard
    in standalone mode.
 
@@ -58,7 +61,7 @@ in `localStorage` (`my-tracks-pwa-install-dismiss-permanent`).
 | Service worker | `web_ui/static/web_ui/sw.js` → served at **`/sw.js`** (site root scope) |
 | Icon source (SVG) | `web_ui/static/web_ui/icons/app-icon.svg` |
 | Launcher PNGs | `icon-192.png`, `icon-512.png` (generated at build time) |
-| Install UI | `web_ui/static/web_ui/ts/main.ts` — `initPwaInstallBanner()`, `registerServiceWorker()` |
+| Install UI | `web_ui/static/web_ui/ts/pwaInstall.ts` + `main.ts` — `initPwaInstallBanner()`, `registerServiceWorker()` |
 
 Build icons and the JS bundle:
 
