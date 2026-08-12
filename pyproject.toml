@@ -13,7 +13,7 @@ dependencies = [
     "channels>=4.3.2",
     "daphne>=4.2.3",
     "whitenoise>=6.12.0",
-    "typer>=0.27.0",
+    "typer>=0.27.1",
     "amqtt",
     "cryptography>=50.0.0",
     "dj-database-url>=3.1.2",
