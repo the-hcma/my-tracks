@@ -55,7 +55,7 @@ dependencies = [
     "pyright>=1.1.411",
     "typing-extensions==4.16.0",
     "click>=8.4.2",
-    "cffi==2.1.0",
+    "cffi>=2.1.1",
     "pyyaml==6.0.3",
     "transitions==0.9.3",
     "ruff>=0.16.1",
