@@ -55,7 +55,7 @@ import {
 import { createHistoricRangeCalendar } from './historicRangeCalendar';
 import type { HistoricRangeCalendarApi } from './historicRangeCalendar';
 import { getPreferredTheme, setTheme, toggleTheme } from './theme';
-import { boundFetch, clampHistoricToDate, collapseLocations, defaultHistoricDateRange, extractResultsList, formatDwellDuration, formatDwellHoverHtml, formatLatLonCoordinate, formatLatLonPair, formatMinutesAsTime, getTodayDateString, historicDatesAfterSameDayToggle, historicFetchResolutionSeconds, historicPeriodToTimestamps, HISTORIC_MAX_SPAN_DAYS, HISTORIC_WARN_SPAN_DAYS, inclusiveDaySpan, prepareHistoricTripLocations, selectStablePaletteColor, tripSnapshotMaxPoints } from './utils';
+import { boundFetch, clampHistoricToDate, collapseLocations, defaultHistoricDateRange, extractResultsList, formatDwellDuration, formatDwellHoverHtml, formatLatLonCoordinate, formatLatLonPair, formatMinutesAsTime, getTodayDateString, historicDatesAfterSameDayToggle, historicFetchResolutionSeconds, historicPeriodToTimestamps, HISTORIC_MAX_SPAN_DAYS, HISTORIC_WARN_SPAN_DAYS, inclusiveDaySpan, prepareHistoricTripLocations, restoredHistoricPeriodFromSavedState, selectStablePaletteColor, tripSnapshotMaxPoints } from './utils';
 import { formatActivityLogMeta } from './locationMeta';
 import {
     compareLocationsByReportTimeDesc,
@@ -613,7 +613,7 @@ function syncHistoricControls(): void {
 
     if (fromInput) {
         // Re-assign value after the control is visible so calendars open on the
-        // selected day (yesterday by default) instead of today.
+        // selected day instead of today.
         fromInput.value = '';
         fromInput.value = historicFromDate;
         fromInput.defaultValue = historicFromDate;
@@ -1430,30 +1430,28 @@ function restoreUIState(): void {
         }
     }
 
-    // Restore historic from/to + time range (migrate legacy historicDate)
-    if (state.historicFromDate) {
-        historicFromDate = state.historicFromDate;
-    } else if (state.historicDate) {
-        historicFromDate = state.historicDate;
+    // Restore historic from/to + time range (migrate legacy historicDate).
+    // Phone skips a previous query's dates (fresh yesterday default) but still
+    // restores the same-day time-slider window. Compact vs desktop is the
+    // viewport at init.
+    const restoredHistoric = restoredHistoricPeriodFromSavedState(
+        isCompactHistoricDateUi(),
+        state,
+    );
+    if (restoredHistoric.fromDate) {
+        historicFromDate = restoredHistoric.fromDate;
     }
-    if (state.historicToDate) {
-        historicToDate = state.historicToDate;
-    } else if (historicFromDate) {
-        historicToDate = historicFromDate;
+    if (restoredHistoric.toDate) {
+        historicToDate = restoredHistoric.toDate;
     }
-    if (state.historicSameDayOnly !== undefined) {
-        historicSameDayOnly = state.historicSameDayOnly;
-    } else if (historicFromDate && historicToDate) {
-        historicSameDayOnly = historicFromDate === historicToDate;
+    if (restoredHistoric.sameDayOnly !== undefined) {
+        historicSameDayOnly = restoredHistoric.sameDayOnly;
     }
-    if (historicSameDayOnly && historicFromDate) {
-        historicToDate = historicFromDate;
+    if (restoredHistoric.startMinutes !== undefined) {
+        historicStartMinutes = restoredHistoric.startMinutes;
     }
-    if (state.historicStartMinutes !== undefined) {
-        historicStartMinutes = state.historicStartMinutes;
-    }
-    if (state.historicEndMinutes !== undefined) {
-        historicEndMinutes = state.historicEndMinutes;
+    if (restoredHistoric.endMinutes !== undefined) {
+        historicEndMinutes = restoredHistoric.endMinutes;
     }
 
     // Restore resolution (slider value 0-100)
@@ -3299,12 +3297,12 @@ function switchToHistoricMode(): void {
     document.getElementById('reset-button')?.classList.add('hidden');
 
     // Reveal controls before syncing date values so mobile Safari applies
-    // yesterday (or the restored day) to the native calendar pickers.
+    // yesterday (or the restored day on desktop) to native calendars.
     document.getElementById('historic-controls')?.classList.remove('hidden');
     document.getElementById('precision-slider-container')?.classList.remove('hidden');
     document.getElementById('device-selector')?.classList.remove('hidden');
 
-    // Set historic period defaults (yesterday / same-day) and sync controls
+    // Set historic period defaults and sync controls
     ensureHistoricDatesInitialized();
     applyHistoricSpanGuards();
     syncHistoricControls();

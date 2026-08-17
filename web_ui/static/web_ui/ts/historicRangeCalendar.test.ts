@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
     applyCalendarSameDayToggle,
     applyRangeDayClick,
@@ -124,10 +124,18 @@ describe('applyCalendarSameDayToggle', () => {
     });
 
     it('falls back to yesterday when both dates are empty', () => {
-        const result = applyCalendarSameDayToggle(true, '', '');
-        expect(result.fromDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-        expect(result.toDate).toBe(result.fromDate);
-        expect(result.sameDayOnly).toBe(true);
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date(2026, 7, 9, 12, 0, 0));
+        try {
+            expect(applyCalendarSameDayToggle(true, '', '')).toEqual({
+                fromDate: '2026-08-08',
+                toDate: '2026-08-08',
+                sameDayOnly: true,
+                pendingStep: 'from',
+            });
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });
 
