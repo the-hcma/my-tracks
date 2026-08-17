@@ -521,12 +521,7 @@ export function getTodayDateString(): string {
  * Get yesterday's local date as YYYY-MM-DD.
  */
 export function getYesterdayDateString(): string {
-    const d = new Date();
-    d.setDate(d.getDate() - 1);
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
+    return _localDateStringDaysAgo(1);
 }
 
 /** Default Historic period: yesterday for both ends, Same day on. */
@@ -537,7 +532,7 @@ export type HistoricDateRangeState = {
 };
 
 /**
- * Fresh Historic defaults when no saved period exists.
+ * Fresh Historic defaults when no saved period exists: yesterday, same-day.
  */
 export function defaultHistoricDateRange(): HistoricDateRangeState {
     const yesterday = getYesterdayDateString();
@@ -637,6 +632,64 @@ export function historicPeriodToTimestamps(
     return [start, end];
 }
 
+export type RestoredHistoricPeriod = {
+    endMinutes?: number;
+    fromDate?: string;
+    sameDayOnly?: boolean;
+    startMinutes?: number;
+    toDate?: string;
+};
+
+export type SavedHistoricPeriodFields = {
+    historicDate?: string;
+    historicEndMinutes?: number;
+    historicFromDate?: string;
+    historicSameDayOnly?: boolean;
+    historicStartMinutes?: number;
+    historicToDate?: string;
+};
+
+/**
+ * Historic fields to apply when restoring UI state.
+ *
+ * Compact (phone) skips saved from/to dates so Historic opens on yesterday,
+ * but still restores the same-day time-slider window. Desktop restores dates
+ * and minutes.
+ */
+export function restoredHistoricPeriodFromSavedState(
+    compactHistoricUi: boolean,
+    saved: SavedHistoricPeriodFields,
+): RestoredHistoricPeriod {
+    const restored: RestoredHistoricPeriod = {};
+    if (!compactHistoricUi) {
+        if (saved.historicFromDate) {
+            restored.fromDate = saved.historicFromDate;
+        } else if (saved.historicDate) {
+            restored.fromDate = saved.historicDate;
+        }
+        if (saved.historicToDate) {
+            restored.toDate = saved.historicToDate;
+        } else if (restored.fromDate) {
+            restored.toDate = restored.fromDate;
+        }
+        if (saved.historicSameDayOnly !== undefined) {
+            restored.sameDayOnly = saved.historicSameDayOnly;
+        } else if (restored.fromDate && restored.toDate) {
+            restored.sameDayOnly = restored.fromDate === restored.toDate;
+        }
+        if (restored.sameDayOnly && restored.fromDate) {
+            restored.toDate = restored.fromDate;
+        }
+    }
+    if (saved.historicStartMinutes !== undefined) {
+        restored.startMinutes = saved.historicStartMinutes;
+    }
+    if (saved.historicEndMinutes !== undefined) {
+        restored.endMinutes = saved.historicEndMinutes;
+    }
+    return restored;
+}
+
 /**
  * Extract an array from a potentially paginated API response.
  *
@@ -673,4 +726,13 @@ export function extractResultsList<T>(data: unknown): T[] {
         }
     }
     return [];
+}
+
+function _localDateStringDaysAgo(daysAgo: number): string {
+    const d = new Date();
+    d.setDate(d.getDate() - daysAgo);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
 }

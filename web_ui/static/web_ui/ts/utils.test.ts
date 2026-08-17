@@ -32,6 +32,7 @@ import {
     prepareHistoricTripLocations,
     historicFetchResolutionSeconds,
     HISTORIC_MAX_SPAN_DAYS,
+    restoredHistoricPeriodFromSavedState,
     sameOriginApiPath,
     LocationData,
 } from './utils';
@@ -482,6 +483,53 @@ describe('defaultHistoricDateRange', () => {
         expect(range.fromDate).toBe('2026-08-08');
         expect(range.toDate).toBe('2026-08-08');
         expect(range.sameDayOnly).toBe(true);
+    });
+});
+
+describe('restoredHistoricPeriodFromSavedState', () => {
+    const staleSaved = {
+        historicEndMinutes: 1050,
+        historicFromDate: '2020-01-01',
+        historicSameDayOnly: true,
+        historicStartMinutes: 480,
+        historicToDate: '2020-01-01',
+    };
+
+    it('skips stale dates on compact UI but restores the time-slider window', () => {
+        expect(restoredHistoricPeriodFromSavedState(true, staleSaved)).toEqual({
+            endMinutes: 1050,
+            startMinutes: 480,
+        });
+    });
+
+    it('restores dates and minutes on desktop', () => {
+        expect(restoredHistoricPeriodFromSavedState(false, staleSaved)).toEqual({
+            endMinutes: 1050,
+            fromDate: '2020-01-01',
+            sameDayOnly: true,
+            startMinutes: 480,
+            toDate: '2020-01-01',
+        });
+    });
+
+    it('migrates legacy historicDate on desktop', () => {
+        expect(
+            restoredHistoricPeriodFromSavedState(false, {
+                historicDate: '2026-04-02',
+            }),
+        ).toEqual({
+            fromDate: '2026-04-02',
+            sameDayOnly: true,
+            toDate: '2026-04-02',
+        });
+    });
+
+    it('does not invent dates on compact when only a legacy historicDate is saved', () => {
+        expect(
+            restoredHistoricPeriodFromSavedState(true, {
+                historicDate: '2026-04-02',
+            }),
+        ).toEqual({});
     });
 });
 
