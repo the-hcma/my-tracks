@@ -11,7 +11,9 @@ resolution-markers = [
 [options]
 
 [options.exclude-newer-package]
-django = "2026-08-09T17:48:43Z"
+cyclonedx-python-lib = "2026-08-11T07:20:50Z"
+platformdirs = "2026-08-11T07:20:50Z"
+pytest-django = "2026-08-11T07:20:50Z"
 
 [manifest]
 constraints = [{ name = "pyyaml", specifier = ">=6.0" }]
@@ -559,7 +561,7 @@ wheels = [
 
 [[package]]
 name = "cyclonedx-python-lib"
-version = "11.11.0"
+version = "11.11.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "license-expression" },
@@ -567,9 +569,9 @@ dependencies = [
     { name = "py-serializable" },
     { name = "sortedcontainers" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/75/c9/5d0ccdd19bc7d8ab803b90695c1706aa2ea8529685d18e682dc2524d2630/cyclonedx_python_lib-11.11.0.tar.gz", hash = "sha256:4b3194db72b613717f2912447e67ab618c75ff7dcac6c4af3c0e9e1ac617c102", size = 1442983, upload-time = "2026-06-17T11:57:49.055Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/bd/32/3380dc26e6f07d6b14997c2af51ff66d7c2427cc902de76854ba047a9c3b/cyclonedx_python_lib-11.11.1.tar.gz", hash = "sha256:e41f52bf399fc6346accd520a2b9a6e5a48b59f4dc27a471cd536c8d621d99f4", size = 1443335, upload-time = "2026-08-10T13:05:27.003Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/22/f3/56ccb2884aaa3db5622368e5191a3384b15f35392aa93df8b2f508c660d2/cyclonedx_python_lib-11.11.0-py3-none-any.whl", hash = "sha256:3049fc83e06a059b5c5907a527625a8ed5073caab10607ed4c9e5503b590fd44", size = 528689, upload-time = "2026-06-17T11:57:47.358Z" },
+    { url = "https://files.pythonhosted.org/packages/bf/91/310a890f8f6fba3f3f98f8240013c48dc452e7c53d1483ffdbef1769aeec/cyclonedx_python_lib-11.11.1-py3-none-any.whl", hash = "sha256:a93a8288e90a55c7c7c578559a0f5fdd8b9318c59ddde1c7a9ac67ad6f36e354", size = 528689, upload-time = "2026-08-10T13:05:24.485Z" },
 ]
 
 [[package]]
@@ -973,7 +975,7 @@ requires-dist = [
     { name = "click", specifier = ">=8.4.2" },
     { name = "coverage", specifier = ">=7.15.4" },
     { name = "cryptography", specifier = ">=50.0.0" },
-    { name = "cyclonedx-python-lib", specifier = ">=11.11.0" },
+    { name = "cyclonedx-python-lib", specifier = ">=11.11.1" },
     { name = "daphne", specifier = ">=4.2.3" },
     { name = "dj-database-url", specifier = ">=3.1.2" },
     { name = "django", specifier = ">=6.1" },
@@ -991,7 +993,7 @@ requires-dist = [
     { name = "pathspec", specifier = "==1.1.1" },
     { name = "pip", specifier = ">=26.2.1" },
     { name = "pip-audit", specifier = ">=2.10.1" },
-    { name = "platformdirs", specifier = ">=4.11.1" },
+    { name = "platformdirs", specifier = ">=4.11.2" },
     { name = "priority", specifier = ">=2.0.0" },
     { name = "psycopg2-binary", specifier = ">=2.9.12" },
     { name = "pyasn1", specifier = ">=0.6.4" },
@@ -1000,7 +1002,7 @@ requires-dist = [
     { name = "pyright", specifier = ">=1.1.411" },
     { name = "pytest-asyncio", specifier = ">=1.4.0" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
-    { name = "pytest-django", specifier = ">=4.13.0" },
+    { name = "pytest-django", specifier = ">=4.14.0" },
     { name = "python-decouple", specifier = ">=3.8" },
     { name = "pyyaml", specifier = "==6.0.3" },
     { name = "requests", specifier = ">=2.34.2" },
@@ -1030,7 +1032,7 @@ dev = [
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest-asyncio", specifier = ">=1.4.0" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
-    { name = "pytest-django", specifier = ">=4.13.0" },
+    { name = "pytest-django", specifier = ">=4.14.0" },
     { name = "pytest-xdist", specifier = ">=3.8.0" },
     { name = "ruff", specifier = ">=0.16.2" },
     { name = "shellcheck-py", specifier = ">=0.11.0.1" },
@@ -1175,11 +1177,11 @@ wheels = [
 
 [[package]]
 name = "platformdirs"
-version = "4.11.3"
+version = "4.11.2"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/b8/d7/e7bfbc86e9f99ff7807e24de7703f032e9c9ba80bb355cf26e0e9bc5a75e/platformdirs-4.11.3.tar.gz", hash = "sha256:66a73d38a849810252df809a3d8bcbda8e26f6c189920e7535ad608a48dbb5ab", size = 33050, upload-time = "2026-08-13T22:43:27.52Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e5/98/0bf930c4f97d0266b58a89e36c015f56232c52b5d2f207215d48cca9e8f7/platformdirs-4.11.2.tar.gz", hash = "sha256:3a2ae5fca3520a01ab1be8b45613537f52ddf5b5f6f53d88233892dfbf0cd82d", size = 32716, upload-time = "2026-08-10T15:48:06.092Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/19/a9/c34aebedd3a4c9afe5101b1b8713710b3fec18087c8a36c35d2f909861bd/platformdirs-4.11.3-py3-none-any.whl", hash = "sha256:5ed065d443751de711da036041a7a214122efc4a4de393b3f4137ba5576540e7", size = 23491, upload-time = "2026-08-13T22:43:26.121Z" },
+    { url = "https://files.pythonhosted.org/packages/49/e2/4e6eee633809c376c024821b91ade709cbfd040ec53939ffbcc292aa7eee/platformdirs-4.11.2-py3-none-any.whl", hash = "sha256:7f89089b6ea71bda7962953edcf784b2e2d9d285b40ad88be2bb75c6e9d82ab4", size = 23361, upload-time = "2026-08-10T15:48:04.855Z" },
 ]
 
 [[package]]
