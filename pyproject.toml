@@ -24,7 +24,7 @@ dependencies = [
     "pygments==2.20.0",
     "pyopenssl>=26.4.0",
     "ujson>=5.13.0",
-    "charset-normalizer>=3.5.0",
+    "charset-normalizer>=3.5.1",
     "filelock>=3.32.3",
     "librt>=0.15.0",
     "packaging==26.3",
