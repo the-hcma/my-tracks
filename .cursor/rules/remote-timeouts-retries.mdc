@@ -37,11 +37,15 @@ template sync: repository-helpers#570.
 - Cap attempts (small fixed `N`, 2–5) **or** a total retry budget. Back off
   between attempts (exponential with **jitter**); honor `Retry-After` clamped to
   a ceiling with a wall-clock deadline.
-- Do **not** retry a non-idempotent write unless the receiver de-duplicates.
-  The domesti-bot webhook `POST` is state-changing, but the receiver drops
-  duplicates by report identity (`app/domesti_bot.py` — "already delivered for
-  the user"), so a bounded retry after an ambiguous timeout is safe there; a new
-  sender without that guarantee must send once.
+- Do **not** retry a non-idempotent write after an ambiguous timeout. The
+  domesti-bot webhook `POST` is state-changing, and the in-repo dedup
+  (`already_relayed_location` / `record_relayed_location`, `app/domesti_bot.py`)
+  is **sender-side and only records on success** — it does **not** suppress a
+  duplicate after attempt 1 times out. Retrying the webhook is safe only if the
+  **receiver** contract guarantees idempotency on a stable key (report id +
+  user); absent that, send once and record the failure. A connection-error
+  before any bytes were sent is safe to retry; a read timeout after the request
+  body was written is not.
 - Today the webhook path does **not** retry — it sends once and records the
   failure (`record_webhook_delivery_failure`, `app/domesti_relay.py`). If you
   add a retrier, put it there with a bound; never spin beside the queue worker.
@@ -67,13 +71,14 @@ while True:
 with urllib.request.urlopen(request, timeout=WEBHOOK_TIMEOUT_SECONDS) as response:
     ...
 
-# good — bounded, jittered retry of a transient delivery
-# (literals below are illustrative; there is no shared retry helper today)
+# good — bounded, jittered retry of an IDEMPOTENT read (a config/roster GET, or
+# a POST only when the receiver dedups on a stable key). Literals are illustrative;
+# there is no shared retry helper today.
 max_attempts, backoff_s, deadline = 3, 0.5, time.monotonic() + 30.0
 retryable_status = {408, 429, 502, 503, 504}
 for attempt in range(1, max_attempts + 1):
     try:
-        return deliver(payload, timeout=WEBHOOK_TIMEOUT_SECONDS)
+        return fetch(url, timeout=WEBHOOK_TIMEOUT_SECONDS)
     except urllib.error.HTTPError as err:
         if err.code not in retryable_status:
             raise
@@ -83,7 +88,7 @@ for attempt in range(1, max_attempts + 1):
         if not isinstance(err.reason, (TimeoutError, ConnectionError)):
             raise
     if attempt == max_attempts or time.monotonic() >= deadline:
-        raise RuntimeError("webhook delivery: retries / deadline exhausted")
+        raise RuntimeError("request: retries / deadline exhausted")
     time.sleep(min(backoff_s * 2 ** (attempt - 1) + random.uniform(0, backoff_s),
                    deadline - time.monotonic()))
 ```
