@@ -19,6 +19,10 @@ template sync: repository-helpers#570.
 - Reuse the module constant: `WEBHOOK_TIMEOUT_SECONDS` in `app/domesti_bot.py`.
   Any new HTTP client (`requests` / `httpx`) sets connect+read timeouts from a
   documented finite default, never library defaults.
+- **Credential-bearing requests must use `https://`.** `send_location_webhook`
+  attaches `X-Domesti-Api-Key`; require an approved `https://` destination
+  (live *and* test) before any secret header is added — never send it over
+  `http://`.
 - MQTT (`amqtt`, `app/mqtt/broker.py`): the client keepalive and any `await` on
   a broker operation must be bounded; a fire-and-forget QoS-1 publish must be
   wrapped so a PUBACK timeout is logged, not swallowed silently.
@@ -46,9 +50,12 @@ template sync: repository-helpers#570.
   user); absent that, send once and record the failure. A connection-error
   before any bytes were sent is safe to retry; a read timeout after the request
   body was written is not.
-- Today the webhook path does **not** retry — it sends once and records the
-  failure (`record_webhook_delivery_failure`, `app/domesti_relay.py`). If you
-  add a retrier, put it there with a bound; never spin beside the queue worker.
+- Today the webhook sender does **not** retry — it sends once; `HTTPError` and
+  transport failures are logged via `_record_webhook_delivery`
+  (`app/domesti_bot.py`), and the relay path calls
+  `record_webhook_delivery_failure` (`app/domesti_relay.py`) when it raises. If
+  you add a retrier, put it in the sender with a bound; never spin beside the
+  queue worker.
 - Log or surface a clear timeout / retry-exhaustion error — never spin silently.
 
 ## Anti-patterns
@@ -71,24 +78,22 @@ while True:
 with urllib.request.urlopen(request, timeout=WEBHOOK_TIMEOUT_SECONDS) as response:
     ...
 
-# good — bounded, jittered retry of an IDEMPOTENT read (a config/roster GET, or
-# a POST only when the receiver dedups on a stable key). Literals are illustrative;
-# there is no shared retry helper today.
-max_attempts, backoff_s, deadline = 3, 0.5, time.monotonic() + 30.0
-retryable_status = {408, 429, 502, 503, 504}
-for attempt in range(1, max_attempts + 1):
+# good — the SHAPE of a bounded retry of an IDEMPOTENT read. This fragment
+# leaves out details the Retries section still requires in real code:
+# Retry-After parsing (clamped to the deadline), and jitter on the sleep.
+DEADLINE = time.monotonic() + 30.0
+for attempt in range(1, MAX_ATTEMPTS + 1):
     try:
         return fetch(url, timeout=WEBHOOK_TIMEOUT_SECONDS)
     except urllib.error.HTTPError as err:
-        if err.code not in retryable_status:
+        if err.code not in RETRYABLE_STATUS:      # {408, 429, 502, 503, 504}
             raise
-    except (TimeoutError, ConnectionError):
+    except (TimeoutError, ConnectionResetError):  # NOT ConnectionRefused/Aborted
         pass
     except urllib.error.URLError as err:
-        if not isinstance(err.reason, (TimeoutError, ConnectionError)):
-            raise
-    if attempt == max_attempts or time.monotonic() >= deadline:
+        if not isinstance(err.reason, (TimeoutError, ConnectionResetError)):
+            raise                                 # cert / DNS / refused -> permanent
+    if attempt == MAX_ATTEMPTS or time.monotonic() >= DEADLINE:
         raise RuntimeError("request: retries / deadline exhausted")
-    time.sleep(min(backoff_s * 2 ** (attempt - 1) + random.uniform(0, backoff_s),
-                   deadline - time.monotonic()))
+    sleep_for(attempt, retry_after=err_retry_after, deadline=DEADLINE)  # backoff+jitter, clamped
 ```
