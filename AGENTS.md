@@ -10,6 +10,15 @@ This document defines the four specialized agents for the My Tracks project.
 
 **Spelling locale**: Use **American English** spelling in all new project-authored prose: user-visible web copy, Django `help_text` / `verbose_name`, API field descriptions, comments in new code, and documentation under `docs/` that this repository maintains. Prefer *meters*, *behavior*, *center*, *color*, and similar US forms—not *metres*, *behaviour*, *centre*, *colour*. Do **not** rewrite third-party literals (for example JSON keys, CSS properties such as `behaviour`, or upstream API names) when those spellings are required for correctness.
 
+## Session startup
+
+At the **start of every agent session**, before acting from assumed conventions:
+
+1. Read this `AGENTS.md` in full.
+2. Read every rule under `.cursor/rules/*.mdc` whose front matter has `alwaysApply: true`, plus any whose `globs` match files you will touch. `AGENTS.md` and `.cursor/rules/` together are the contract — neither alone is complete.
+
+`CLAUDE.md` (a `@AGENTS.md` import) and `.github/copilot-instructions.md` are thin shims so Claude Code and Copilot reach this same guidance; do not put rules in them.
+
 ## Dependency release age (dep-updater 9 days, Dependabot 10 days)
 
 New dependency versions are adopted on a staggered schedule so **dep-updater** (repository-helpers) lands updates before Dependabot (see [repository-helpers](https://github.com/the-hcma/repository-helpers) `AGENTS.md`).

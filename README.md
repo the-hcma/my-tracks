@@ -39,7 +39,7 @@ Common operations:
 
 ## 📚 Documentation
 
-- **[👥 docs/AGENTS.md](docs/AGENTS.md)** - Development agent workflow
+- **[👥 AGENTS.md](AGENTS.md)** - Development agent workflow
 - **[📘 docs/API.md](docs/API.md)** - Complete API reference
 - **[⌨️ docs/COMMANDS.md](docs/COMMANDS.md)** - Command reference
 - **[🚢 docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** - Production deployment guide
