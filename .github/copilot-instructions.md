@@ -1,6 +1,10 @@
+**Read [`AGENTS.md`](../AGENTS.md) at the repo root first — it is the single source of truth for this repo, and it tells you to also load every `alwaysApply: true` rule under `.cursor/rules/`.**
+
+---
+
 # Copilot Instructions — my-tracks
 
-See [docs/AGENTS.md](../docs/AGENTS.md) for full agent definitions, workflow requirements, and quality gates.
+See [AGENTS.md](../AGENTS.md) for full agent definitions, workflow requirements, and quality gates.
 
 ## Critical: Start of every session
 

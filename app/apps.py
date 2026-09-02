@@ -65,7 +65,7 @@ def _stop_mqtt_broker() -> None:
 def _log_cert_info(server_cert_pem: bytes, ca_cert_pem: bytes) -> None:
     """Log MQTT TLS listener certificate details and warn if expiry is near.
 
-    Messages use the ``[mqtt-tls]`` prefix per docs/AGENTS.md (PKI / server TLS identity logs).
+    Messages use the ``[mqtt-tls]`` prefix per AGENTS.md (PKI / server TLS identity logs).
     """
     from app.pki import (
         get_certificate_expiry,
@@ -112,7 +112,7 @@ _WEB_CERT_PATH = Path("/run/certs/fullchain.pem")
 def _log_web_cert_info() -> None:
     """Log HTTPS frontend certificate details if the cert is mounted at the standard path.
 
-    Messages use the ``[http-tls]`` prefix per docs/AGENTS.md (PKI / server TLS identity logs).
+    Messages use the ``[http-tls]`` prefix per AGENTS.md (PKI / server TLS identity logs).
     """
     if not _WEB_CERT_PATH.exists():
         logger.info(
