@@ -88,7 +88,7 @@ The **primary clone** (repo root — first entry in `git worktree list`, usually
 
 1. **Create PR**: Once all pre-PR quality gates pass, create the pull request
 2. **One commit per PR**: Each PR branch should have **exactly one commit** on top of its base when ready for review. Fold all implementation, review fixups, and CI fixups into that commit — do not leave a chain of `fix:` / `style:` commits on the branch.
-3. **Wait for CI/CD**: After every push, **actively monitor** GitHub Actions until all checks pass or fail — do not push and stop. Poll with `gh pr checks <pr-number>` (see **GitHub Actions Polling** below). If CI fails, fix locally, squash/amend on the stack layer, resubmit with `gh stack submit --auto --open --remote origin`, and poll again.
+3. **Wait for CI/CD**: After every push, **actively monitor** GitHub Actions until all checks pass or fail — do not push and stop. Poll with `~/work/ai/repository-helpers/scripts/gh-api pr checks <pr-number>` (see **GitHub Actions Polling** below). If CI fails, fix locally, squash/amend on the stack layer, resubmit with `gh stack submit --auto --open --remote origin`, and poll again.
 4. **User Testing**: After CI passes, inform user that PR is ready for manual testing
 5. **User Approval**: Wait for explicit user approval before proceeding
 6. **Submit to merge queue**: Only after user approval, enable GitHub auto-merge: `gh pr merge <pr-number> --auto --squash`
@@ -111,8 +111,9 @@ The **primary clone** (repo root — first entry in `git worktree list`, usually
 - ✅ Non-interactive flags: `gh stack view --json`, `gh stack submit --auto --open --remote origin`, named `init`/`add`
 - ✅ **Create stack**: `gh stack init <stack>/<topic>` then commit; add layers with `gh stack add <stack>/<next>`
 - ✅ **One commit per PR layer**: Prefer a single commit on the branch. Squash before submit if needed.
-- ✅ **Submit PRs**: `gh stack submit --auto --open --remote origin`, then patch description with `gh pr edit` / `gh api` as needed
+- ✅ **Submit PRs**: `gh stack submit --auto --open --remote origin`, then patch description with `~/work/ai/repository-helpers/scripts/gh-api pr edit` / `~/work/ai/repository-helpers/scripts/gh-api api` as needed
 - ✅ **View stack**: `gh stack view --json`
+- ✅ **Throttle `gh`**: route ad-hoc `gh` (edits, `api`, `pr checks`, `run view`) through `~/work/ai/repository-helpers/scripts/gh-api` — see `.cursor/rules/github-api-throttle.mdc`. `gh stack` and `gh pr merge --auto --squash` are unaffected.
 - ✅ **Sync**: `gh stack sync --remote origin` (or `gh stack rebase --remote origin`)
 - ❌ **NEVER** mix `gt` and `gh stack` on the same stack
 - ❌ **NEVER** commit or push directly to main
@@ -151,9 +152,9 @@ Prefer the stack-aware helper (waits on the PR for the current branch; for multi
 ~/work/ai/repository-helpers/scripts/dev/post-pr-submission-checks --pr <pr-number>
 # Multi-PR stack: enumerate layers from gh stack view --json, then for each PR:
 #   ~/work/ai/repository-helpers/scripts/dev/post-pr-submission-checks --pr <n>
-# or: gh pr checks <n>   # repeat every ~5s until all pass or one fails
+# or: ~/work/ai/repository-helpers/scripts/gh-api pr checks <n>   # repeat every ~5s until all pass or one fails
 ```
-Do **not** mark CI done until **every** submitted PR in the stack is green. If any check fails, inspect logs (`gh run view <run-id> --log-failed`), fix locally, squash/amend on the layer, resubmit, and poll all layers again.
+Do **not** mark CI done until **every** submitted PR in the stack is green. If any check fails, inspect logs (`~/work/ai/repository-helpers/scripts/gh-api run view <run-id> --log-failed`), fix locally, squash/amend on the layer, resubmit, and poll all layers again.
 
 **Step 3 — Verify stack health locally**:
 ```bash
@@ -171,7 +172,7 @@ Check: `mergeable` is `MERGEABLE`, `mergeStateStatus` is `CLEAN` or `BLOCKED` (n
 **Step 5 — Verify PR titles and descriptions match actual content**:
 After any branch reorganization, rebase, or restack, review each PR's title and description against its actual diff. Titles and descriptions written before a reorg will be stale. Update them via:
 ```bash
-gh api repos/{owner}/{repo}/pulls/{pr} --method PATCH --field title="..." --field body="..."
+~/work/ai/repository-helpers/scripts/gh-api api repos/{owner}/{repo}/pulls/{pr} --method PATCH --field title="..." --field body="..."
 ```
 
 Do not declare a PR ready until Steps 3, 4, and 5 all pass.
@@ -216,9 +217,9 @@ Do not declare a PR ready until Steps 3, 4, and 5 all pass.
 
 **GitHub Actions Polling** (mandatory after every stack submit):
 - Do **not** tell the user CI is fixed or the PR is ready until you have seen checks pass on **every** open PR in the stack (or report the specific failure).
-- Prefer `~/work/ai/repository-helpers/scripts/dev/post-pr-submission-checks --pr <n>` per layer; or poll `gh pr checks <n>` with short sleeps (5–10 seconds).
+- Prefer `~/work/ai/repository-helpers/scripts/dev/post-pr-submission-checks --pr <n>` per layer; or poll `~/work/ai/repository-helpers/scripts/gh-api pr checks <n>` with short sleeps (5–10 seconds).
 - Discover stack PRs with `gh stack view --json` and wait on each number before declaring the stack green.
-- On failure, fetch logs (`gh run view <run-id> --log-failed` or job logs via `gh api`), fix, resubmit the stack layer, and poll all layers again.
+- On failure, fetch logs (`~/work/ai/repository-helpers/scripts/gh-api run view <run-id> --log-failed` or job logs via `~/work/ai/repository-helpers/scripts/gh-api api`), fix, resubmit the stack layer, and poll all layers again.
 - Avoid long idle waits (20–30 seconds) between checks.
 - Rationale: Faster feedback loop; avoids leaving the user to discover CI failures; keeps PR branches to one amended commit.
 
