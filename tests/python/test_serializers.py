@@ -9,6 +9,7 @@ UserProfileSerializer, ChangePasswordSerializer, and certificate serializers.
 # pyright: reportIndexIssue=none
 # pyright: reportOptionalSubscript=none
 # pyright: reportArgumentType=none
+# pyright: reportInvalidTypeArguments=none
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
