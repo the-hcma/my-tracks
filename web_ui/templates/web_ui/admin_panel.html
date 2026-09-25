@@ -157,17 +157,6 @@
             color: var(--danger, #d32f2f);
         }
 
-        .san-tag.san-tag-locked {
-            background: var(--bg);
-            border-color: var(--text-muted, #888);
-            opacity: 0.8;
-            cursor: default;
-        }
-
-        .san-tag.san-tag-locked .san-label {
-            color: var(--text-muted, #888);
-        }
-
         .san-add-row {
             display: flex;
             gap: 0.4rem;
@@ -2090,7 +2079,7 @@
         }
 
         async function downloadP12(certId, commonName) {
-            const password = prompt('Enter a password to protect the .p12 file:');
+            const password = prompt('Enter a password (at least 16 characters) to protect the .p12 file:');
             if (!password) return;
 
             const p12Container = document.getElementById('p12-message');
@@ -2137,9 +2126,6 @@
 
             const requestHost = location.hostname;
             const sans = new Set();
-            // Track the CN value that was auto-added so we can replace it
-            // when the CN field changes without removing user-added entries.
-            let autoCnValue = '';
 
             if (hostWarningName) hostWarningName.textContent = requestHost;
 
@@ -2153,42 +2139,26 @@
                 checkHostWarning();
             }
 
-            function renderTag(value, locked) {
+            function renderTag(value) {
                 const tag = document.createElement('span');
-                tag.className = 'san-tag' + (locked ? ' san-tag-locked' : '');
-                if (locked) {
-                    tag.innerHTML = '<span class="san-label"></span>';
-                    tag.title = 'CN is required in SANs — modern TLS clients check SANs only (RFC 9525)';
-                } else {
-                    tag.innerHTML =
-                        '<span class="san-label"></span>' +
-                        '<button type="button" class="san-remove" title="Remove">&times;</button>';
-                    tag.querySelector('.san-remove').addEventListener('click', function() {
-                        sans.delete(value);
-                        if (value === autoCnValue) autoCnValue = '';
-                        tag.remove();
-                        syncHidden();
-                    });
-                }
+                tag.className = 'san-tag';
+                tag.innerHTML =
+                    '<span class="san-label"></span>' +
+                    '<button type="button" class="san-remove" title="Remove">&times;</button>';
+                tag.querySelector('.san-remove').addEventListener('click', function() {
+                    sans.delete(value);
+                    tag.remove();
+                    syncHidden();
+                });
                 tag.querySelector('.san-label').textContent = value;
                 tagsContainer.appendChild(tag);
             }
 
-            function addSan(value, locked) {
+            function addSan(value) {
                 const v = value.trim();
                 if (!v || sans.has(v)) return;
                 sans.add(v);
-                renderTag(v, locked);
-                syncHidden();
-            }
-
-            function removeSan(value) {
-                if (!value || !sans.has(value)) return;
-                sans.delete(value);
-                const tags = tagsContainer.querySelectorAll('.san-tag');
-                tags.forEach(function(tag) {
-                    if (tag.querySelector('.san-label').textContent === value) tag.remove();
-                });
+                renderTag(v);
                 syncHidden();
             }
 
@@ -2207,21 +2177,13 @@
                 });
             }
 
-            // Keep CN in SANs automatically. When the CN field changes,
-            // remove the previous auto-added CN and add the new one.
-            // Modern TLS clients check SANs only, not the CN (RFC 9525).
-            // The CN tag is locked (no remove button) because CN-in-SAN is required.
+            // The CN is not mirrored into the SANs here: tiny-pki adds a host-like
+            // CN itself, and a descriptive CN (e.g. "My Tracks Server") is not a valid SAN.
             if (cnInput) {
                 cnInput.addEventListener('keydown', function(e) {
                     // Prevent Enter from submitting the cert-generate form — the user
                     // must click "Generate Server Certificate" explicitly.
                     if (e.key === 'Enter') e.preventDefault();
-                });
-                cnInput.addEventListener('input', function() {
-                    const newCn = cnInput.value.trim();
-                    if (autoCnValue && autoCnValue !== newCn) removeSan(autoCnValue);
-                    if (newCn) { addSan(newCn, true); autoCnValue = newCn; }
-                    else autoCnValue = '';
                 });
             }
 
@@ -2229,12 +2191,6 @@
             {% for san in default_san_list %}
             addSan('{{ san }}');
             {% endfor %}
-
-            /* Seed CN into SANs on load — locked because CN must be in SANs */
-            if (cnInput && cnInput.value.trim()) {
-                autoCnValue = cnInput.value.trim();
-                addSan(autoCnValue, true);
-            }
         })();
     </script>
     <script src="{% static 'web_ui/js/messages.js' %}"></script>

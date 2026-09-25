@@ -926,13 +926,16 @@ class TestProfileCertificates:
         from datetime import timedelta
 
         from app.models import CertificateAuthority, ClientCertificate
+        from tiny_pki import (
+            get_certificate_expiry,
+            get_certificate_fingerprint,
+            get_certificate_serial_number,
+        )
+
         from app.pki import (
             encrypt_private_key,
             generate_ca_certificate,
             generate_client_certificate,
-            get_certificate_expiry,
-            get_certificate_fingerprint,
-            get_certificate_serial_number,
         )
 
         ca_cert_pem, ca_key_pem = generate_ca_certificate(common_name="Profile Test CA", key_size=2048)
@@ -1004,11 +1007,11 @@ class TestProfileCertificates:
     def test_download_my_cert_p12(self, logged_in_client: Client, user: User) -> None:
         """Authenticated user can download their client cert as .p12 bundle."""
         self._create_ca_and_client_cert(user)
-        response = logged_in_client.post("/profile/download-cert/", {"p12_password": "test1234"})
+        response = logged_in_client.post("/profile/download-cert/", {"p12_password": "test-p12-password-1234"})
         assert_that(response.status_code, equal_to(status.HTTP_200_OK))
         assert_that(response["Content-Type"], equal_to("application/x-pkcs12"))
         assert_that(response["Content-Disposition"], contains_string(".p12"))
-        private_key, cert, cas = pkcs12.load_key_and_certificates(response.content, b"test1234")
+        private_key, cert, cas = pkcs12.load_key_and_certificates(response.content, b"test-p12-password-1234")
         assert_that(private_key, is_(not_none()))
         assert_that(cert, is_(not_none()))
         assert_that(cas, has_length(1))
@@ -1019,6 +1022,20 @@ class TestProfileCertificates:
         response = logged_in_client.post("/profile/download-cert/", {})
         assert_that(response.status_code, equal_to(400))
 
+    def test_download_my_cert_short_password(self, logged_in_client: Client, user: User) -> None:
+        """A password under the 16-character .p12 minimum returns 400, not 500."""
+        self._create_ca_and_client_cert(user)
+        response = logged_in_client.post("/profile/download-cert/", {"p12_password": "short"})
+        assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
+        assert_that(response.content.decode(), contains_string("at least 16 characters, got 5"))
+
+    def test_download_my_cert_counts_characters_not_bytes(self, logged_in_client: Client, user: User) -> None:
+        """8 non-ASCII characters are 16 UTF-8 bytes but still under the 16-character minimum."""
+        self._create_ca_and_client_cert(user)
+        response = logged_in_client.post("/profile/download-cert/", {"p12_password": "é" * 8})
+        assert_that(response.status_code, equal_to(status.HTTP_400_BAD_REQUEST))
+        assert_that(response.content.decode(), contains_string("at least 16 characters, got 8"))
+
     def test_download_my_cert_get_not_allowed(self, logged_in_client: Client, user: User) -> None:
         """GET is no longer supported (method changed to POST)."""
         self._create_ca_and_client_cert(user)
@@ -1027,7 +1044,7 @@ class TestProfileCertificates:
 
     def test_download_my_cert_no_cert(self, logged_in_client: Client) -> None:
         """Downloading cert when none exists returns 404."""
-        response = logged_in_client.post("/profile/download-cert/", {"p12_password": "test1234"})
+        response = logged_in_client.post("/profile/download-cert/", {"p12_password": "test-p12-password-1234"})
         assert_that(response.status_code, equal_to(404))
 
     def test_download_ca_cert(self, logged_in_client: Client, user: User) -> None:
@@ -1395,6 +1412,24 @@ class TestAdminPanelPKI:
         )
         content = response.content.decode("utf-8")
         assert_that(content, contains_string("Common Name is required"))
+
+    def test_generate_ca_invisible_character_shows_pki_error(self, admin_logged_in_client: Client) -> None:
+        """tiny-pki's name rejection is shown instead of the generic 'must be a number' error."""
+        response = admin_logged_in_client.post(
+            "/admin-panel/",
+            {
+                "form_type": "generate_ca",
+                "ca_common_name": "My\u200bCA",
+                "ca_validity_days": "365",
+                "ca_key_size": "2048",
+            },
+        )
+        from app.models import CertificateAuthority
+
+        content = response.content.decode("utf-8")
+        assert_that(content, contains_string("Expected common_name without control or format characters"))
+        assert_that(content, is_not(contains_string("must be a number")))
+        assert_that(CertificateAuthority.objects.exists(), is_(False))
 
     def test_ca_history_table_shown(self, admin_logged_in_client: Client) -> None:
         """After generating CAs, the history table should appear."""
@@ -1977,6 +2012,54 @@ class TestAdminPanelServerCert:
         san_list: list[str] = cast(Any, sc).san_entries
         assert_that(san_list, has_item("mqtt.hcma.info"))
 
+    def test_non_hostname_cn_is_not_added_to_sans(
+        self,
+        admin_logged_in_client: Client,
+    ) -> None:
+        """A descriptive CN like 'My Tracks Server' is not a valid SAN and must not block issuance."""
+        from app.models import ServerCertificate
+
+        self._create_ca(admin_logged_in_client)
+        response = admin_logged_in_client.post(
+            "/admin-panel/",
+            {
+                "form_type": "generate_server_cert",
+                "sc_common_name": "My Tracks Server",
+                "sc_validity_days": "365",
+                "sc_key_size": "2048",
+                "sc_san_entries": "192.168.1.10",
+            },
+        )
+        assert_that(response.content.decode("utf-8"), contains_string("generated successfully"))
+        sc = ServerCertificate.objects.filter(is_active=True).first()
+        assert_that(sc, is_(not_none()))
+        san_list: list[str] = cast(Any, sc).san_entries
+        assert_that(san_list, is_not(has_item("My Tracks Server")))
+
+    def test_san_editor_does_not_lock_cn_into_sans(self, admin_logged_in_client: Client) -> None:
+        """The SAN editor must not submit the CN as a locked SAN, or a descriptive CN fails issuance."""
+        self._create_ca(admin_logged_in_client)
+        content = admin_logged_in_client.get("/admin-panel/").content.decode("utf-8")
+        assert_that(content, contains_string('id="san-tags"'))
+        assert_that(content, is_not(contains_string("san-tag-locked")))
+
+    def test_server_cert_outliving_ca_shows_pki_error(self, admin_logged_in_client: Client) -> None:
+        """tiny-pki's rejection message is shown instead of the generic 'must be a number' error."""
+        self._create_ca(admin_logged_in_client)
+        response = admin_logged_in_client.post(
+            "/admin-panel/",
+            {
+                "form_type": "generate_server_cert",
+                "sc_common_name": "mqtt.hcma.info",
+                "sc_validity_days": "36500",
+                "sc_key_size": "2048",
+                "sc_san_entries": "mqtt.hcma.info",
+            },
+        )
+        content = response.content.decode("utf-8")
+        assert_that(content, contains_string("renew the CA"))
+        assert_that(content, is_not(contains_string("must be a number")))
+
     def test_cn_not_duplicated_when_already_in_sans(
         self,
         admin_logged_in_client: Client,
@@ -2081,6 +2164,23 @@ class TestAdminPanelClientCert:
         cert = ClientCertificate.objects.filter(user=user, is_active=True).first()
         assert_that(cert, is_(not_none()))
         assert_that(cast(Any, cert).common_name, equal_to("testuser"))
+
+    def test_client_cert_outliving_ca_shows_pki_error(self, admin_logged_in_client: Client) -> None:
+        """tiny-pki's rejection message is shown instead of the generic 'must be a number' error."""
+        self._create_ca(admin_logged_in_client)
+        user = self._create_user()
+        response = admin_logged_in_client.post(
+            "/admin-panel/",
+            {
+                "form_type": "issue_client_cert",
+                "cc_user_id": str(user.pk),
+                "cc_validity_days": "36500",
+                "cc_key_size": "2048",
+            },
+        )
+        content = response.content.decode("utf-8")
+        assert_that(content, contains_string("renew the CA"))
+        assert_that(content, is_not(contains_string("must be a number")))
 
     def test_issue_cert_without_user_selection(self, admin_logged_in_client: Client) -> None:
         """Issuing a cert without selecting a user should show an error."""

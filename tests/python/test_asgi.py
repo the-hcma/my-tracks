@@ -8,14 +8,19 @@ disconnections are handled gracefully by the ASGI middleware.
 """
 
 import asyncio
+import base64
+import hashlib
 import json
 import os
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from cryptography.fernet import Fernet
+from django.conf import settings
 from hamcrest import (assert_that, contains_string, equal_to, is_, not_,
                       not_none)
 
@@ -1092,10 +1097,35 @@ class TestLoadTlsConfig:
         warning_msg = mock_log.warning.call_args[0][0]
         assert_that(warning_msg, contains_string("no active CA"))
 
+    def test_loads_keys_stored_with_legacy_derivation(self) -> None:
+        """Keys encrypted before tiny-pki's HKDF derivation still bring up the TLS listener."""
+        legacy_fernet = Fernet(base64.urlsafe_b64encode(hashlib.sha256(settings.SECRET_KEY.encode()).digest()))
+        srv_pem, ca_pem, result, _ = self._load_with_encrypted_keys(legacy_fernet.encrypt)
+
+        assert_that(result, is_(not_none()))
+        assert_that(cast(Any, result).server_cert_pem, equal_to(srv_pem))
+        assert_that(cast(Any, result).ca_cert_pem, equal_to(ca_pem))
+
     def test_returns_tls_config_and_logs_cert_info(self) -> None:
         """Active server cert + CA → returns TLSConfig, calls _log_cert_info."""
+        from app.pki import encrypt_private_key
+
+        srv_pem, ca_pem, result, mock_cert_log = self._load_with_encrypted_keys(encrypt_private_key)
+
+        assert_that(result, is_(not_none()))
+        mock_cert_log.assert_called_once_with(srv_pem, ca_pem)
+        assert_that(cast(Any, result).server_cert_pem, equal_to(srv_pem))
+        assert_that(cast(Any, result).ca_cert_pem, equal_to(ca_pem))
+
+    def _load_with_encrypted_keys(
+        self, encrypt: Callable[[bytes], bytes]
+    ) -> tuple[bytes, bytes, Any, MagicMock]:
+        """Run _load_tls_config with a fresh CA and server cert whose keys are stored via encrypt.
+
+        Returns (server_cert_pem, ca_cert_pem, result, mock of _log_cert_info).
+        """
         import app.apps as apps_module
-        from app.pki import (encrypt_private_key, generate_ca_certificate,
+        from app.pki import (generate_ca_certificate,
                              generate_server_certificate)
 
         ca_pem, ca_key = generate_ca_certificate(
@@ -1108,11 +1138,11 @@ class TestLoadTlsConfig:
 
         mock_server_cert = MagicMock()
         mock_server_cert.certificate_pem = srv_pem.decode("utf-8")
-        mock_server_cert.encrypted_private_key = encrypt_private_key(srv_key)
+        mock_server_cert.encrypted_private_key = encrypt(srv_key)
 
         mock_ca = MagicMock()
         mock_ca.certificate_pem = ca_pem.decode("utf-8")
-        mock_ca.encrypted_private_key = encrypt_private_key(ca_key)
+        mock_ca.encrypted_private_key = encrypt(ca_key)
 
         mock_server_cls = MagicMock()
         mock_server_cls.objects.filter.return_value.first.return_value = mock_server_cert
@@ -1131,10 +1161,7 @@ class TestLoadTlsConfig:
         ):
             result = apps_module._load_tls_config()
 
-        assert_that(result, is_(not_none()))
-        mock_cert_log.assert_called_once_with(srv_pem, ca_pem)
-        assert_that(cast(Any, result).server_cert_pem, equal_to(srv_pem))
-        assert_that(cast(Any, result).ca_cert_pem, equal_to(ca_pem))
+        return srv_pem, ca_pem, result, mock_cert_log
 
 
 class TestRunMqttBrokerTlsBehavior:
@@ -1401,9 +1428,10 @@ class TestTlsReloadSignals:
     def _create_ca(name: str = "Signal CA") -> tuple[Any, bytes, bytes]:
         """Create a CA model instance, returning (ca_obj, ca_pem, ca_key)."""
         from app.models import CertificateAuthority
-        from app.pki import (encrypt_private_key, generate_ca_certificate,
-                             get_certificate_expiry,
-                             get_certificate_fingerprint)
+        from tiny_pki import (get_certificate_expiry,
+                              get_certificate_fingerprint)
+
+        from app.pki import encrypt_private_key, generate_ca_certificate
 
         ca_pem, ca_key = generate_ca_certificate(
             common_name=name, key_size=2048,
@@ -1423,9 +1451,10 @@ class TestTlsReloadSignals:
     def test_server_cert_active_triggers_reload(self) -> None:
         """Creating an active ServerCertificate triggers TLS reload."""
         from app.models import ServerCertificate
-        from app.pki import (encrypt_private_key, generate_server_certificate,
-                             get_certificate_expiry,
-                             get_certificate_fingerprint)
+        from tiny_pki import (get_certificate_expiry,
+                              get_certificate_fingerprint)
+
+        from app.pki import encrypt_private_key, generate_server_certificate
 
         ca, ca_pem, ca_key = self._create_ca("Signal CA")
 
@@ -1452,9 +1481,10 @@ class TestTlsReloadSignals:
     def test_server_cert_inactive_does_not_trigger(self) -> None:
         """Creating an inactive ServerCertificate does not trigger reload."""
         from app.models import ServerCertificate
-        from app.pki import (encrypt_private_key, generate_server_certificate,
-                             get_certificate_expiry,
-                             get_certificate_fingerprint)
+        from tiny_pki import (get_certificate_expiry,
+                              get_certificate_fingerprint)
+
+        from app.pki import encrypt_private_key, generate_server_certificate
 
         ca, ca_pem, ca_key = self._create_ca("Signal CA2")
 
@@ -1484,9 +1514,10 @@ class TestTlsReloadSignals:
         from django.utils import timezone
 
         from app.models import ClientCertificate
-        from app.pki import (encrypt_private_key, generate_client_certificate,
-                             get_certificate_expiry,
-                             get_certificate_fingerprint)
+        from tiny_pki import (get_certificate_expiry,
+                              get_certificate_fingerprint)
+
+        from app.pki import encrypt_private_key, generate_client_certificate
 
         ca, ca_pem, ca_key = self._create_ca("Revoke CA")
         user = User.objects.create_user(username="revoketest", password="pass123")
@@ -1522,9 +1553,10 @@ class TestTlsReloadSignals:
         from django.contrib.auth.models import User
 
         from app.models import ClientCertificate
-        from app.pki import (encrypt_private_key, generate_client_certificate,
-                             get_certificate_expiry,
-                             get_certificate_fingerprint)
+        from tiny_pki import (get_certificate_expiry,
+                              get_certificate_fingerprint)
+
+        from app.pki import encrypt_private_key, generate_client_certificate
 
         ca, ca_pem, ca_key = self._create_ca("NoRevoke CA")
         user = User.objects.create_user(username="norevoketest", password="pass123")
