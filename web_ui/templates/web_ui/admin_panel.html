@@ -2090,7 +2090,7 @@
         }
 
         async function downloadP12(certId, commonName) {
-            const password = prompt('Enter a password to protect the .p12 file:');
+            const password = prompt('Enter a password (at least 8 characters) to protect the .p12 file:');
             if (!password) return;
 
             const p12Container = document.getElementById('p12-message');

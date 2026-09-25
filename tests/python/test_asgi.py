@@ -1401,9 +1401,10 @@ class TestTlsReloadSignals:
     def _create_ca(name: str = "Signal CA") -> tuple[Any, bytes, bytes]:
         """Create a CA model instance, returning (ca_obj, ca_pem, ca_key)."""
         from app.models import CertificateAuthority
-        from app.pki import (encrypt_private_key, generate_ca_certificate,
-                             get_certificate_expiry,
-                             get_certificate_fingerprint)
+        from tiny_pki import (get_certificate_expiry,
+                              get_certificate_fingerprint)
+
+        from app.pki import encrypt_private_key, generate_ca_certificate
 
         ca_pem, ca_key = generate_ca_certificate(
             common_name=name, key_size=2048,
@@ -1423,9 +1424,10 @@ class TestTlsReloadSignals:
     def test_server_cert_active_triggers_reload(self) -> None:
         """Creating an active ServerCertificate triggers TLS reload."""
         from app.models import ServerCertificate
-        from app.pki import (encrypt_private_key, generate_server_certificate,
-                             get_certificate_expiry,
-                             get_certificate_fingerprint)
+        from tiny_pki import (get_certificate_expiry,
+                              get_certificate_fingerprint)
+
+        from app.pki import encrypt_private_key, generate_server_certificate
 
         ca, ca_pem, ca_key = self._create_ca("Signal CA")
 
@@ -1452,9 +1454,10 @@ class TestTlsReloadSignals:
     def test_server_cert_inactive_does_not_trigger(self) -> None:
         """Creating an inactive ServerCertificate does not trigger reload."""
         from app.models import ServerCertificate
-        from app.pki import (encrypt_private_key, generate_server_certificate,
-                             get_certificate_expiry,
-                             get_certificate_fingerprint)
+        from tiny_pki import (get_certificate_expiry,
+                              get_certificate_fingerprint)
+
+        from app.pki import encrypt_private_key, generate_server_certificate
 
         ca, ca_pem, ca_key = self._create_ca("Signal CA2")
 
@@ -1484,9 +1487,10 @@ class TestTlsReloadSignals:
         from django.utils import timezone
 
         from app.models import ClientCertificate
-        from app.pki import (encrypt_private_key, generate_client_certificate,
-                             get_certificate_expiry,
-                             get_certificate_fingerprint)
+        from tiny_pki import (get_certificate_expiry,
+                              get_certificate_fingerprint)
+
+        from app.pki import encrypt_private_key, generate_client_certificate
 
         ca, ca_pem, ca_key = self._create_ca("Revoke CA")
         user = User.objects.create_user(username="revoketest", password="pass123")
@@ -1522,9 +1526,10 @@ class TestTlsReloadSignals:
         from django.contrib.auth.models import User
 
         from app.models import ClientCertificate
-        from app.pki import (encrypt_private_key, generate_client_certificate,
-                             get_certificate_expiry,
-                             get_certificate_fingerprint)
+        from tiny_pki import (get_certificate_expiry,
+                              get_certificate_fingerprint)
+
+        from app.pki import encrypt_private_key, generate_client_certificate
 
         ca, ca_pem, ca_key = self._create_ca("NoRevoke CA")
         user = User.objects.create_user(username="norevoketest", password="pass123")

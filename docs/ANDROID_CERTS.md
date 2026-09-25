@@ -5,12 +5,14 @@ My Tracks uses its own PKI for **MQTT over TLS (MQTTS)**. On Android, you typica
 - A **CA certificate** (the My Tracks CA) so the client can trust the broker.
 - A **client certificate** (your personal identity) to authenticate to the broker.
 
+Certificates, CRLs, and `.p12` bundles are produced by the shared [tiny-pki](https://github.com/the-hcma/tiny-pki) library; `app/pki.py` only adds My Tracks defaults and encrypts private keys at rest with `SECRET_KEY`.
+
 > Android’s Settings UI changes between versions and OEM skins. The menu labels below are **representative**; if you can’t find an item, use Settings search for: “certificates”, “credentials”, “trusted credentials”, or “install certificate”.
 
 ## Files you’ll download from My Tracks
 
 - **CA certificate**: `*.pem` (CA public cert)
-- **Client certificate bundle**: `*.p12` (PKCS#12), password-protected
+- **Client certificate bundle**: `*.p12` (PKCS#12), password-protected (at least 8 characters)
 
 ## Install
 

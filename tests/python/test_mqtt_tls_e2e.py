@@ -25,11 +25,11 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 from hamcrest import assert_that, equal_to, is_, not_none
+from tiny_pki import generate_crl, get_certificate_serial_number
 
 from app.mqtt.broker import MQTTBroker, TLSConfig
 from app.pki import (generate_ca_certificate, generate_client_certificate,
-                     generate_crl, generate_server_certificate,
-                     get_certificate_serial_number)
+                     generate_server_certificate)
 
 _TEST_KEY_SIZE = 2048
 

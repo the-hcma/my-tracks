@@ -8,8 +8,6 @@ resolution-markers = [
     "(python_full_version < '3.15' and platform_python_implementation != 'PyPy') or (python_full_version < '3.15' and sys_platform != 'win32')",
 ]
 
-[options]
-
 [manifest]
 constraints = [{ name = "pyyaml", specifier = ">=6.0" }]
 
@@ -1015,6 +1013,7 @@ dependencies = [
     { name = "service-identity" },
     { name = "shellcheck-py" },
     { name = "sqlparse" },
+    { name = "tiny-pki" },
     { name = "transitions" },
     { name = "twisted" },
     { name = "txaio" },
@@ -1092,6 +1091,7 @@ requires-dist = [
     { name = "service-identity", specifier = "==26.1.0" },
     { name = "shellcheck-py", specifier = ">=0.11.0.1" },
     { name = "sqlparse", specifier = ">=0.6.0" },
+    { name = "tiny-pki", git = "https://github.com/the-hcma/tiny-pki?rev=main" },
     { name = "transitions", specifier = "==0.9.3" },
     { name = "twisted", specifier = "==26.4.0" },
     { name = "txaio", specifier = "==26.6.1" },
@@ -1662,6 +1662,14 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/5f/d3/3f06a1006f2261d1342aefb3c71eed02f5d4ca5bdbecd86ebc12ad38306e/sqlparse-0.6.0.tar.gz", hash = "sha256:113c35c75365ab9cc9c7231d68c6428fb11c085fc8e9eb1ad659b7ddbf6cd2b9", size = 178477, upload-time = "2026-08-13T19:16:06.396Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d9/50/f00935da0ec7cbf325f8dc4f772ae46fbc7b672dd62876e73f0a94adda57/sqlparse-0.6.0-py3-none-any.whl", hash = "sha256:b861c0288ce2fa56209a9a6412d2e066ac664b3873b89c26c9d8415e8e32996f", size = 50070, upload-time = "2026-08-13T19:16:04.062Z" },
+]
+
+[[package]]
+name = "tiny-pki"
+version = "0.1.0"
+source = { git = "https://github.com/the-hcma/tiny-pki?rev=main#b3bbf011b06b490136e03473775858b201dd7218" }
+dependencies = [
+    { name = "cryptography" },
 ]
 
 [[package]]
