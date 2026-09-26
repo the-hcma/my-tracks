@@ -23,6 +23,16 @@ from django.core.mail.backends.smtp import EmailBackend as SmtpEmailBackend
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone as tz
+from tiny_pki import (
+    TinyPkiError,
+    generate_pkcs12,
+    get_certificate_expiry,
+    get_certificate_fingerprint,
+    get_certificate_metadata,
+    get_certificate_sans,
+    get_certificate_serial_number,
+    get_certificate_subject,
+)
 
 from app.apps import get_mqtt_broker
 from app.domesti_bot import DOMESTI_BOT_REPO_URL
@@ -56,14 +66,7 @@ from app.pki import (
     VALIDITY_PRESETS,
     generate_ca_certificate,
     generate_client_certificate,
-    generate_pkcs12,
     generate_server_certificate,
-    get_certificate_expiry,
-    get_certificate_fingerprint,
-    get_certificate_metadata,
-    get_certificate_sans,
-    get_certificate_serial_number,
-    get_certificate_subject,
 )
 from app.pki import decrypt_private_key as pki_decrypt_private_key
 from app.pki import encrypt_private_key as pki_encrypt_private_key
@@ -555,13 +558,16 @@ def download_my_cert(request: HttpRequest) -> HttpResponse:
         return HttpResponse(b"Password is required for .p12 export", status=400)
 
     client_key_pem = pki_decrypt_private_key(bytes(cert.encrypted_private_key))
-    p12_bytes = generate_pkcs12(
-        cert_pem=cert.certificate_pem.encode(),
-        key_pem=client_key_pem,
-        ca_cert_pem=cert.issuing_ca.certificate_pem.encode(),
-        friendly_name=cert.common_name,
-        password=password.encode(),
-    )
+    try:
+        p12_bytes = generate_pkcs12(
+            cert_pem=cert.certificate_pem.encode(),
+            key_pem=client_key_pem,
+            ca_cert_pem=cert.issuing_ca.certificate_pem.encode(),
+            friendly_name=cert.common_name,
+            password=password.encode(),
+        )
+    except TinyPkiError as e:
+        return HttpResponse(str(e).encode(), status=400)
     response = HttpResponse(p12_bytes, content_type="application/x-pkcs12")
     response["Content-Disposition"] = f'attachment; filename="{cert.common_name}.p12"'
     return response
@@ -732,6 +738,8 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
                             is_active=True,
                         )
                         context["ca_success"] = f"CA '{ca_cn}' generated successfully."
+                except TinyPkiError as e:
+                    context["ca_error"] = str(e)
                 except ValueError:
                     context["ca_error"] = "Validity days and key size must be a number."
                 except Exception as e:
@@ -764,17 +772,6 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
                 logger.info(
                     "Auto-included request hostname '%s' in server certificate SANs",
                     request_host,
-                )
-
-            # Modern TLS clients validate against SANs only — the CN is
-            # ignored for hostname verification (RFC 6125, deprecated in
-            # RFC 9525). Always ensure the CN is also in the SAN list so
-            # that clients connecting by that hostname aren't rejected.
-            if sc_cn and sc_cn not in sc_san_list:
-                sc_san_list.append(sc_cn)
-                logger.info(
-                    "Auto-included CN '%s' in server certificate SANs (CN alone is not checked by modern TLS clients)",
-                    sc_cn,
                 )
 
             active_ca_obj = CertificateAuthority.objects.filter(is_active=True).first()
@@ -820,6 +817,8 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
                             is_active=True,
                         )
                         context["sc_success"] = f"Server certificate '{sc_cn}' generated successfully."
+                except TinyPkiError as e:
+                    context["sc_error"] = str(e)
                 except ValueError:
                     context["sc_error"] = "Validity days and key size must be a number."
                 except Exception as e:
@@ -897,6 +896,8 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
                         context["cc_success"] = f"Client certificate issued for '{target_user.username}'."
                 except User.DoesNotExist:
                     context["cc_error"] = "Selected user not found."
+                except TinyPkiError as e:
+                    context["cc_error"] = str(e)
                 except ValueError:
                     context["cc_error"] = "Validity days and key size must be a number."
                 except Exception as e:

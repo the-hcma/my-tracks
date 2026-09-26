@@ -62,6 +62,7 @@ dependencies = [
     "asgiref==3.12.1",
     "annotated-doc==0.0.5",
     "sqlparse>=0.6.0",
+    "tiny-pki",
 ]
 
 [build-system]
@@ -129,3 +130,6 @@ dev = [
 # Keep pyyaml>=6.0 because pyyaml 5.4.1 has no Python 3.14 wheel.
 [tool.uv]
 constraint-dependencies = ["pyyaml>=6.0"]
+
+[tool.uv.sources]
+tiny-pki = { git = "https://github.com/the-hcma/tiny-pki", rev = "main" }
