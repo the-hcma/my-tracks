@@ -10,7 +10,10 @@ _PKI_MODELS = (CertificateAuthority, ServerCertificate, ClientCertificate)
 
 
 class Command(BaseCommand):
-    help = "Re-encrypt all PKI private keys from an old SECRET_KEY to the current SECRET_KEY."
+    help = (
+        "Re-encrypt all PKI private keys from an old SECRET_KEY to the current SECRET_KEY. "
+        "Passing the current SECRET_KEY upgrades keys stored under tiny-pki's legacy key derivation."
+    )
 
     def add_arguments(self, parser: "BaseCommand") -> None:  # type: ignore[override]
         parser.add_argument(

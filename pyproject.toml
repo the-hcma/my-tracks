@@ -62,6 +62,7 @@ dependencies = [
     "asgiref==3.12.1",
     "annotated-doc==0.0.5",
     "sqlparse>=0.6.0",
+    "tiny-pki==0.1.0",
 ]
 
 [build-system]

@@ -24,6 +24,17 @@ from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from tiny_pki import (
+    MIN_PKCS12_PASSWORD_LENGTH,
+    TinyPkiError,
+    generate_crl,
+    generate_pkcs12,
+    get_certificate_expiry,
+    get_certificate_fingerprint,
+    get_certificate_sans,
+    get_certificate_serial_number,
+    get_certificate_subject,
+)
 
 from .apps import get_mqtt_broker, is_mqtt_degraded
 from .auth import CommandApiKeyAuthentication, CsrfExemptSessionAuthentication
@@ -46,14 +57,7 @@ from .pki import (
     encrypt_private_key,
     generate_ca_certificate,
     generate_client_certificate,
-    generate_crl,
-    generate_pkcs12,
     generate_server_certificate,
-    get_certificate_expiry,
-    get_certificate_fingerprint,
-    get_certificate_sans,
-    get_certificate_serial_number,
-    get_certificate_subject,
 )
 from .serializers import (
     CertificateAuthoritySerializer,
@@ -1218,11 +1222,14 @@ class CertificateAuthorityViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        cert_pem, key_pem = generate_ca_certificate(
-            common_name=common_name,
-            validity_days=validity_days,
-            key_size=key_size,
-        )
+        try:
+            cert_pem, key_pem = generate_ca_certificate(
+                common_name=common_name,
+                validity_days=validity_days,
+                key_size=key_size,
+            )
+        except TinyPkiError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         encrypted_key = encrypt_private_key(key_pem)
 
@@ -1393,14 +1400,17 @@ class ServerCertificateViewSet(viewsets.ViewSet):
 
         ca_key_pem = decrypt_private_key(bytes(active_ca.encrypted_private_key))
 
-        cert_pem, server_key_pem = generate_server_certificate(
-            ca_cert_pem=active_ca.certificate_pem.encode(),
-            ca_key_pem=ca_key_pem,
-            common_name=common_name,
-            san_entries=san_list,
-            validity_days=validity_days,
-            key_size=key_size,
-        )
+        try:
+            cert_pem, server_key_pem = generate_server_certificate(
+                ca_cert_pem=active_ca.certificate_pem.encode(),
+                ca_key_pem=ca_key_pem,
+                common_name=common_name,
+                san_entries=san_list,
+                validity_days=validity_days,
+                key_size=key_size,
+            )
+        except TinyPkiError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         encrypted_key = encrypt_private_key(server_key_pem)
 
@@ -1577,13 +1587,16 @@ class ClientCertificateViewSet(viewsets.ViewSet):
 
         ca_key_pem = decrypt_private_key(bytes(active_ca.encrypted_private_key))
 
-        cert_pem, client_key_pem = generate_client_certificate(
-            ca_cert_pem=active_ca.certificate_pem.encode(),
-            ca_key_pem=ca_key_pem,
-            username=str(target_user.username),
-            validity_days=validity_days,
-            key_size=key_size,
-        )
+        try:
+            cert_pem, client_key_pem = generate_client_certificate(
+                ca_cert_pem=active_ca.certificate_pem.encode(),
+                ca_key_pem=ca_key_pem,
+                username=str(target_user.username),
+                validity_days=validity_days,
+                key_size=key_size,
+            )
+        except TinyPkiError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         encrypted_key = encrypt_private_key(client_key_pem)
 
@@ -1683,15 +1696,27 @@ class ClientCertificateViewSet(viewsets.ViewSet):
                 {"error": "Expected 'password' field for .p12 encryption"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        password_text = str(password)
+        if len(password_text) < MIN_PKCS12_PASSWORD_LENGTH:
+            return Response(
+                {
+                    "error": f"Expected a password of at least {MIN_PKCS12_PASSWORD_LENGTH} characters, "
+                    f"got {len(password_text)}"
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         client_key_pem = decrypt_private_key(bytes(cert.encrypted_private_key))
-        p12_bytes = generate_pkcs12(
-            cert_pem=cert.certificate_pem.encode(),
-            key_pem=client_key_pem,
-            ca_cert_pem=cert.issuing_ca.certificate_pem.encode(),
-            friendly_name=cert.common_name,
-            password=str(password).encode(),
-        )
+        try:
+            p12_bytes = generate_pkcs12(
+                cert_pem=cert.certificate_pem.encode(),
+                key_pem=client_key_pem,
+                ca_cert_pem=cert.issuing_ca.certificate_pem.encode(),
+                friendly_name=cert.common_name,
+                password=password_text.encode(),
+            )
+        except TinyPkiError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         response = DjangoHttpResponse(
             p12_bytes,
             content_type="application/x-pkcs12",

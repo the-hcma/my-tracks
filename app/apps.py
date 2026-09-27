@@ -16,6 +16,16 @@ from typing import Any
 from amqtt.errors import BrokerError
 from django.apps import AppConfig
 from django.conf import settings as django_settings
+from tiny_pki import (
+    generate_crl,
+    get_certificate_expiry,
+    get_certificate_fingerprint,
+    get_certificate_issuer,
+    get_certificate_sans,
+    get_certificate_serial_number,
+    get_certificate_subject,
+    is_certificate_self_signed,
+)
 
 from app.mqtt.broker import MQTTBroker, TLSConfig
 from config.runtime import CONFIG_FILE, get_http_port, get_mqtt_port, get_mqtt_tls_port, update_runtime_config
@@ -67,14 +77,6 @@ def _log_cert_info(server_cert_pem: bytes, ca_cert_pem: bytes) -> None:
 
     Messages use the ``[mqtt-tls]`` prefix per AGENTS.md (PKI / server TLS identity logs).
     """
-    from app.pki import (
-        get_certificate_expiry,
-        get_certificate_fingerprint,
-        get_certificate_sans,
-        get_certificate_serial_number,
-        get_certificate_subject,
-    )
-
     cn = get_certificate_subject(server_cert_pem)
     fingerprint = get_certificate_fingerprint(server_cert_pem)
     serial = get_certificate_serial_number(server_cert_pem)
@@ -121,15 +123,6 @@ def _log_web_cert_info() -> None:
         )
         return
 
-    from app.pki import (
-        get_certificate_expiry,
-        get_certificate_fingerprint,
-        get_certificate_issuer,
-        get_certificate_sans,
-        get_certificate_subject,
-        is_certificate_self_signed,
-    )
-
     cert_pem = _WEB_CERT_PATH.read_bytes()
 
     cn = get_certificate_subject(cert_pem)
@@ -175,7 +168,7 @@ def _load_tls_config() -> TLSConfig | None:
     None otherwise.
     """
     from app.models import CertificateAuthority, ServerCertificate
-    from app.pki import decrypt_private_key, generate_crl
+    from app.pki import decrypt_private_key
 
     try:
         server_cert = ServerCertificate.objects.filter(is_active=True).first()

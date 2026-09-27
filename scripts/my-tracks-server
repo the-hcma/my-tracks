@@ -413,7 +413,7 @@ import os, sys
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
 import django; django.setup()
 from app.models import ServerCertificate, CertificateAuthority
-from app.pki import get_certificate_fingerprint, get_certificate_subject, get_certificate_expiry, get_certificate_sans
+from tiny_pki import get_certificate_fingerprint, get_certificate_subject, get_certificate_expiry, get_certificate_sans
 from datetime import UTC, datetime
 cert = ServerCertificate.objects.filter(is_active=True).first()
 if not cert:
