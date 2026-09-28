@@ -190,7 +190,9 @@ Do not declare a PR ready until Steps 3, 4, and 5 all pass.
   - **Validates type annotations with Pyright (blocks PR if types missing)**
   - Validates lint and formatting with Ruff
   - Validates shell scripts with shellcheck
-  - Checks for pending migrations **Directory Layout Rules**:
+  - Checks for pending migrations
+
+**Directory Layout Rules**:
 - ❌ **NEVER move** `tsconfig.json`, `tsconfig.test.json`, `eslint.config.mjs`, `pyrightconfig.json`, or `vitest.config.ts` out of the project root — these are discovered by VS Code and IDE tooling by walking up from source files; moving them silently breaks IDE integration (type checking, linting, test discovery).
 - ✅ Only move config files that are invoked explicitly by path (e.g., `dev-tooling/esbuild.config.mjs` called via `node dev-tooling/esbuild.config.mjs`). Ruff is configured in `pyproject.toml` under `[tool.ruff]`.
 - Rationale: Tool config discovery and IDE integration depend on root-level placement; build script invocations do not.
@@ -208,7 +210,9 @@ Do not declare a PR ready until Steps 3, 4, and 5 all pass.
 **Test Concurrency**:
 - Tests may be run by multiple agents simultaneously (e.g., parallel agent sessions)
 - Tests use OS-allocated ports (`port=0`) and isolated databases, so concurrent runs do not conflict
-- Rationale: Agents working on different PRs should not have to wait for each other's test suites **After PR is merged**:
+- Rationale: Agents working on different PRs should not have to wait for each other's test suites
+
+**After PR is merged**:
 1. Initialize session: `~/work/ai/repository-helpers/scripts/dev/start-development --refresh` — pulls the merged commit, prunes the branch, and restarts the service to pick up changes.
 2. Apply any pending migrations: `uv run python manage.py migrate`
 
