@@ -19,6 +19,8 @@ At the **start of every agent session**, before acting from assumed conventions:
 
 `CLAUDE.md` (a `@AGENTS.md` import) and `.github/copilot-instructions.md` are thin shims so Claude Code and Copilot reach this same guidance; do not put rules in them.
 
+Markdown files you commit, this one included, use one physical line per paragraph, list item and blockquote, with no hard line breaks (see `.agents/rules/github-content-formatting.md`).
+
 ## Dependency release age (dep-updater 9 days, Dependabot 10 days)
 
 New dependency versions are adopted on a staggered schedule so **dep-updater** (repository-helpers) lands updates before Dependabot (see [repository-helpers](https://github.com/the-hcma/repository-helpers) `AGENTS.md`).
@@ -102,8 +104,7 @@ The **primary clone** (repo root — first entry in `git worktree list`, usually
 - ❌ **Leave multiple commits on a PR branch** — squash to one commit before/at submit (see Branch Workflow)
 - ❌ **Use Graphite enqueue labels** (`merge-it`, `merge-mq`) — this repo uses GitHub merge queue via auto-merge
 
-> Stacking SSOT for agents: [`.cursor/rules/stacking-tool.mdc`](../.cursor/rules/stacking-tool.mdc)
-> (canonical skill in repository-helpers). Short cheat sheet: [GH-STACK.md](./GH-STACK.md).
+> Stacking SSOT for agents: [`.cursor/rules/stacking-tool.mdc`](../.cursor/rules/stacking-tool.mdc) (canonical skill in repository-helpers). Short cheat sheet: [GH-STACK.md](./GH-STACK.md).
 
 **Branch Workflow** (CRITICAL — Use `gh stack`):
 - ✅ **ALWAYS** use `gh stack` (marker `.github/stacking-tool` = `gh-stack`) for branch and PR stacking
@@ -146,8 +147,7 @@ Do not proceed if any of these fail. Fix first.
 # or: gh stack submit --auto --open --remote origin
 ```
 
-**Step 2b — Monitor CI until complete** (mandatory after every push):
-Prefer the stack-aware helper (waits on the PR for the current branch; for multi-PR stacks, check every open layer):
+**Step 2b — Monitor CI until complete** (mandatory after every push): Prefer the stack-aware helper (waits on the PR for the current branch; for multi-PR stacks, check every open layer):
 ```bash
 ~/work/ai/repository-helpers/scripts/dev/post-pr-submission-checks --pr <pr-number>
 # Multi-PR stack: enumerate layers from gh stack view --json, then for each PR:
@@ -169,8 +169,7 @@ gh pr view <number> --json number,title,baseRefName,mergeable,mergeStateStatus,f
 ```
 Check: `mergeable` is `MERGEABLE`, `mergeStateStatus` is `CLEAN` or `BLOCKED` (not `DIRTY` or `CONFLICTING`), base ref is correct, files changed are exactly what you expect.
 
-**Step 5 — Verify PR titles and descriptions match actual content**:
-After any branch reorganization, rebase, or restack, review each PR's title and description against its actual diff. Titles and descriptions written before a reorg will be stale. Update them via:
+**Step 5 — Verify PR titles and descriptions match actual content**: After any branch reorganization, rebase, or restack, review each PR's title and description against its actual diff. Titles and descriptions written before a reorg will be stale. Update them via:
 ```bash
 ~/work/ai/repository-helpers/scripts/gh-api api repos/{owner}/{repo}/pulls/{pr} --method PATCH --field title="..." --field body="..."
 ```
@@ -192,6 +191,7 @@ Do not declare a PR ready until Steps 3, 4, and 5 all pass.
   - Validates lint and formatting with Ruff
   - Validates shell scripts with shellcheck
   - Checks for pending migrations
+
 **Directory Layout Rules**:
 - ❌ **NEVER move** `tsconfig.json`, `tsconfig.test.json`, `eslint.config.mjs`, `pyrightconfig.json`, or `vitest.config.ts` out of the project root — these are discovered by VS Code and IDE tooling by walking up from source files; moving them silently breaks IDE integration (type checking, linting, test discovery).
 - ✅ Only move config files that are invoked explicitly by path (e.g., `dev-tooling/esbuild.config.mjs` called via `node dev-tooling/esbuild.config.mjs`). Ruff is configured in `pyproject.toml` under `[tool.ruff]`.
@@ -211,6 +211,7 @@ Do not declare a PR ready until Steps 3, 4, and 5 all pass.
 - Tests may be run by multiple agents simultaneously (e.g., parallel agent sessions)
 - Tests use OS-allocated ports (`port=0`) and isolated databases, so concurrent runs do not conflict
 - Rationale: Agents working on different PRs should not have to wait for each other's test suites
+
 **After PR is merged**:
 1. Initialize session: `~/work/ai/repository-helpers/scripts/dev/start-development --refresh` — pulls the merged commit, prunes the branch, and restarts the service to pick up changes.
 2. Apply any pending migrations: `uv run python manage.py migrate`
