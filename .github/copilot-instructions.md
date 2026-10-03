@@ -1,4 +1,4 @@
-**Read [`AGENTS.md`](../AGENTS.md) at the repo root first — it is the single source of truth for this repo, and it tells you to also load every `alwaysApply: true` rule under `.cursor/rules/`.**
+**Read [`AGENTS.md`](../AGENTS.md) at the repo root first — it is the single source of truth for this repo, and it tells you to also load every `alwaysApply: true` rule under `.agents/rules/`.**
 
 ---
 
