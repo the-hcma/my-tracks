@@ -13,6 +13,7 @@ UserProfileSerializer, ChangePasswordSerializer, and certificate serializers.
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth.models import User
@@ -622,8 +623,10 @@ class TestCertificateAuthoritySerializer:
 
     def test_serializes_ca_fields(self, ca: CertificateAuthority) -> None:
         """All public CA fields are present."""
-        data = CertificateAuthoritySerializer(ca).data
+        with patch("app.serializers.max_leaf_validity_days", side_effect=[1000, 900]):
+            data = CertificateAuthoritySerializer(ca).data
         assert_that(data["common_name"], equal_to("Test Root CA"))
+        assert_that(data["max_validity_days"], equal_to({"server": 1000, "client": 900}))
         assert_that(data["fingerprint"], equal_to("AA:BB:CC:DD"))
         assert_that(data["key_size"], equal_to(4096))
         assert_that(data["is_active"], is_(True))

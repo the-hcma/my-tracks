@@ -70,6 +70,8 @@ from app.pki import (
     generate_ca_certificate,
     generate_client_certificate,
     generate_server_certificate,
+    max_leaf_validity_days,
+    validity_choices,
 )
 from app.pki import decrypt_private_key as pki_decrypt_private_key
 from app.pki import encrypt_private_key as pki_encrypt_private_key
@@ -1016,8 +1018,20 @@ def admin_panel(request: HttpRequest) -> HttpResponse:
         ClientCertificate.objects.filter(revoked=True).select_related("user").order_by("-revoked_at")[:50]
     )
 
-    context["validity_presets"] = VALIDITY_PRESETS
-    context["default_cert_validity"] = DEFAULT_CERT_VALIDITY_DAYS
+    if active_ca:
+        ca_pem = active_ca.certificate_pem.encode()
+        smallest_preset_days = min(days for days, _ in VALIDITY_PRESETS)
+        sc_max_validity_days = max_leaf_validity_days(ca_pem, kind="server")
+        cc_max_validity_days = max_leaf_validity_days(ca_pem, kind="client")
+        cc_validity_choices = validity_choices(cc_max_validity_days)
+        context["ca_remaining_days"] = max((active_ca.not_valid_after - tz.now()).days, 0)
+        context["sc_max_validity_days"] = sc_max_validity_days
+        context["cc_max_validity_days"] = cc_max_validity_days
+        context["sc_validity_choices"] = validity_choices(sc_max_validity_days)
+        context["cc_validity_choices"] = cc_validity_choices
+        context["sc_renew_ca"] = sc_max_validity_days < smallest_preset_days
+        context["cc_renew_ca"] = cc_max_validity_days < smallest_preset_days
+        context["cc_default_validity"] = next((c.days for c in cc_validity_choices if c.selected), None)
     context["default_ca_validity"] = DEFAULT_CA_VALIDITY_DAYS
 
     pki_has_message = any(

@@ -893,9 +893,9 @@
                                     {% csrf_token %}
                                     <input type="hidden" name="form_type" value="issue_client_cert">
                                     <input type="hidden" name="cc_user_id" value="{{ u.pk }}">
-                                    <input type="hidden" name="cc_validity_days" value="{{ default_cert_validity }}">
+                                    <input type="hidden" name="cc_validity_days" value="{{ cc_default_validity|default_if_none:'' }}">
                                     <input type="hidden" name="cc_key_size" value="4096">
-                                    <button type="submit" class="action-btn" title="Issue client certificate with default settings"
+                                    <button type="submit" class="action-btn" {% if not cc_default_validity %}disabled{% endif %} title="{% if cc_default_validity %}Issue client certificate with default settings{% else %}Renew the CA before issuing client certificates{% endif %}"
                                             onclick="return confirm('Issue a client certificate for \'{{ u.username }}\'?')">Issue Cert</button>
                                 </form>
                             {% else %}
@@ -1138,6 +1138,7 @@
                 <form method="post" action="{% url 'web_ui:admin_panel' %}">
                     {% csrf_token %}
                     <input type="hidden" name="form_type" value="generate_server_cert">
+                    <p class="ca-no-active" data-testid="sc-validity-hint">The active CA expires in {{ ca_remaining_days }} day{{ ca_remaining_days|pluralize }}, so server certificates can be valid for at most {{ sc_max_validity_days }} day{{ sc_max_validity_days|pluralize }}.{% if sc_renew_ca %} Renew the CA below before issuing server certificates.{% endif %}</p>
                     <div class="form-row">
                         <div class="form-group">
                             <label for="id_sc_common_name">Common Name</label>
@@ -1146,8 +1147,8 @@
                         <div class="form-group">
                             <label for="id_sc_validity_days">Validity</label>
                             <select name="sc_validity_days" id="id_sc_validity_days">
-                                {% for days, label in validity_presets %}
-                                <option value="{{ days }}" {% if days == default_cert_validity %}selected{% endif %}>{{ label }}</option>
+                                {% for choice in sc_validity_choices %}
+                                <option value="{{ choice.days }}"{% if choice.disabled %} disabled{% endif %}{% if choice.selected %} selected{% endif %}>{{ choice.label }}</option>
                                 {% endfor %}
                             </select>
                         </div>
@@ -1178,7 +1179,7 @@
                             </div>
                         </div>
                     </div>
-                    <button type="submit" class="submit-btn" {% if active_sc %}onclick="return confirm('This will deactivate the current active server certificate:\n\n  CN: {{ active_sc.common_name }}\n  Expires: {{ active_sc.not_valid_after|date:"Y-m-d" }}\n  SANs: {{ active_sc.san_entries|join:", " }}\n\nA server restart is required for the new certificate to take effect.\n\nContinue?')"{% endif %}>Generate Server Certificate</button>
+                    <button type="submit" class="submit-btn"{% if sc_renew_ca %} disabled{% endif %} {% if active_sc %}onclick="return confirm('This will deactivate the current active server certificate:\n\n  CN: {{ active_sc.common_name }}\n  Expires: {{ active_sc.not_valid_after|date:"Y-m-d" }}\n  SANs: {{ active_sc.san_entries|join:", " }}\n\nA server restart is required for the new certificate to take effect.\n\nContinue?')"{% endif %}>Generate Server Certificate</button>
                 </form>
                 {% if sc_success %}
                 <div class="message success">{{ sc_success }}</div>
@@ -1314,6 +1315,7 @@
                 <form method="post" action="{% url 'web_ui:admin_panel' %}">
                     {% csrf_token %}
                     <input type="hidden" name="form_type" value="issue_client_cert">
+                    <p class="ca-no-active" data-testid="cc-validity-hint">The active CA expires in {{ ca_remaining_days }} day{{ ca_remaining_days|pluralize }}, so client certificates can be valid for at most {{ cc_max_validity_days }} day{{ cc_max_validity_days|pluralize }}.{% if cc_renew_ca %} Renew the CA below before issuing client certificates.{% endif %}</p>
                     <div class="form-row">
                         <div class="form-group">
                             <label for="id_cc_user_id">User</label>
@@ -1327,8 +1329,8 @@
                         <div class="form-group">
                             <label for="id_cc_validity_days">Validity</label>
                             <select name="cc_validity_days" id="id_cc_validity_days">
-                                {% for days, label in validity_presets %}
-                                <option value="{{ days }}" {% if days == default_cert_validity %}selected{% endif %}>{{ label }}</option>
+                                {% for choice in cc_validity_choices %}
+                                <option value="{{ choice.days }}"{% if choice.disabled %} disabled{% endif %}{% if choice.selected %} selected{% endif %}>{{ choice.label }}</option>
                                 {% endfor %}
                             </select>
                         </div>
@@ -1343,7 +1345,7 @@
                             </select>
                         </div>
                     </div>
-                    <button type="submit" class="submit-btn">Issue Client Certificate</button>
+                    <button type="submit" class="submit-btn"{% if cc_renew_ca %} disabled{% endif %}>Issue Client Certificate</button>
                 </form>
                 {% if cc_success %}
                 <div class="message success">{{ cc_success }}</div>
