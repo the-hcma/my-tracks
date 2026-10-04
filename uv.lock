@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.14"
 resolution-markers = [
     "python_full_version >= '3.15' and platform_python_implementation == 'PyPy' and sys_platform == 'win32'",
@@ -7,8 +7,6 @@ resolution-markers = [
     "python_full_version < '3.15' and platform_python_implementation == 'PyPy' and sys_platform == 'win32'",
     "(python_full_version < '3.15' and platform_python_implementation != 'PyPy') or (python_full_version < '3.15' and sys_platform != 'win32')",
 ]
-
-[options]
 
 [manifest]
 constraints = [{ name = "pyyaml", specifier = ">=6.0" }]
@@ -1093,7 +1091,7 @@ requires-dist = [
     { name = "service-identity", specifier = "==26.1.0" },
     { name = "shellcheck-py", specifier = ">=0.11.0.1" },
     { name = "sqlparse", specifier = ">=0.6.0" },
-    { name = "tiny-pki", specifier = "==0.1.0" },
+    { name = "tiny-pki", specifier = "==1.0.0" },
     { name = "transitions", specifier = "==0.9.3" },
     { name = "twisted", specifier = "==26.4.0" },
     { name = "txaio", specifier = "==26.6.1" },
@@ -1668,14 +1666,14 @@ wheels = [
 
 [[package]]
 name = "tiny-pki"
-version = "0.1.0"
+version = "1.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cryptography" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/14/b3/19f810b26fa7a3fbafc2abe7f0b71dc5ec0e8b29452b74c5fe39695613d8/tiny_pki-0.1.0.tar.gz", hash = "sha256:335d1df1686c2b3d9286ad83d7ff775a2474c6666c917b2e683aab21823d998d", size = 224184, upload-time = "2026-09-27T18:45:42.448Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/19/3f/3a630916f052f509d192931a0579c3270c387e68e6b5848ce8e064760e1f/tiny_pki-1.0.0.tar.gz", hash = "sha256:eab84d6eb65664c0e32aa78735fdc9332e2d0dd31adc2cf3d789c79e9e607067", size = 318754, upload-time = "2026-10-04T00:29:54.02Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a5/8d/70de2d54b0404201e6728eb05648d379605b9730361cda22aa053fc2a843/tiny_pki-0.1.0-py3-none-any.whl", hash = "sha256:d176f57a211788a66a16d7de36878c9800b0b9794c6e6c36b20dcc82f7ba4aa0", size = 67501, upload-time = "2026-09-27T18:45:40.982Z" },
+    { url = "https://files.pythonhosted.org/packages/47/5e/82c4ca5d4bcb55b8a7d02f7d371ec5f52755a41fd9fc7781f99c1d487ba3/tiny_pki-1.0.0-py3-none-any.whl", hash = "sha256:ffe28df7b9f772ef9ba6bb8cc8bcb056b672c870995892f1433bfa43cc22f8fe", size = 104077, upload-time = "2026-10-04T00:29:52.334Z" },
 ]
 
 [[package]]
