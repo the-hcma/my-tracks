@@ -8,14 +8,18 @@ import os
 import subprocess
 import sys
 import threading
+import time
 import warnings
-from datetime import UTC, datetime
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePath
 from typing import Any
 
 from amqtt.errors import BrokerError
+from cryptography import x509
 from django.apps import AppConfig
 from django.conf import settings as django_settings
+from django.db import close_old_connections, connections
 from tiny_pki import (
     generate_crl,
     get_certificate_expiry,
@@ -35,6 +39,15 @@ logger = logging.getLogger(__name__)
 # Shutdown polling interval in seconds
 # Lower value = faster shutdown response but more CPU cycles
 _SHUTDOWN_POLL_INTERVAL_SECONDS = 0.1
+
+# The MQTT TLS listener enforces a CRL generated at load time. The CRL is rebuilt on
+# every revocation, but OpenSSL rejects every client certificate once a CRL passes its
+# next-update time, so an uneventful broker must also refresh it before it lapses.
+# The broker also re-reads revocations from the database every
+# MQTT_CRL_REFRESH_INTERVAL_HOURS so a revocation that did not trigger a reload cannot
+# stay unenforced for long.
+_CRL_VALIDITY_DAYS = 30
+_CRL_REFRESH_MARGIN = timedelta(days=7)
 
 
 class _MqttBrokerState:
@@ -200,6 +213,7 @@ def _load_tls_config() -> TLSConfig | None:
             ca_cert_pem=ca_cert_pem,
             ca_key_pem=ca_key_pem,
             revoked_entries=revoked_entries,
+            validity_days=_CRL_VALIDITY_DAYS,
         )
 
         return TLSConfig(
@@ -211,6 +225,87 @@ def _load_tls_config() -> TLSConfig | None:
     except Exception:
         logger.exception("Failed to load TLS certificates from database")
         return None
+
+
+def _crl_needs_refresh(crl_pem: bytes, now: datetime) -> bool:
+    """Return True when the CRL's next-update time is within the refresh margin of ``now``."""
+    next_update = x509.load_pem_x509_crl(crl_pem).next_update_utc
+    return next_update is not None and next_update - now <= _CRL_REFRESH_MARGIN
+
+
+def _crl_check_interval_seconds() -> float:
+    """Return how often the broker re-reads CRL revocations, in seconds."""
+    return float(django_settings.MQTT_CRL_REFRESH_INTERVAL_HOURS) * 3600
+
+
+def _revoked_serials(crl_pem: bytes) -> frozenset[int]:
+    """Return the serial numbers listed as revoked in a PEM CRL."""
+    return frozenset(entry.serial_number for entry in x509.load_pem_x509_crl(crl_pem))
+
+
+def _run_with_fresh_db_connection[T](func: Callable[..., T], /, *args: Any, **kwargs: Any) -> T:
+    """Run ``func`` on a worker thread without leaving a stale database connection behind.
+
+    Executor threads outlive the call and CONN_MAX_AGE keeps connections open, so without this
+    a connection that the database dropped (for example on a restart) would be reused by the
+    next periodic check and fail every time.
+    """
+    close_old_connections()
+    try:
+        return func(*args, **kwargs)
+    finally:
+        connections.close_all()
+
+
+async def _crl_refresh_reason() -> str | None:
+    """Return why the MQTT CRL needs a reload now, or None when it is current.
+
+    Re-reads revocations from the database and compares them with the loaded CRL.
+    """
+    broker = _state.broker
+    if broker is None:
+        return None
+    if broker.reload_in_progress:
+        # tls_reload_failed stays set for the whole reload (e.g. a revocation-triggered one),
+        # so it says nothing about the outcome yet; do not queue a second reload behind it.
+        return None
+    if broker.tls_reload_failed and broker.tls_config is not None:
+        # A previous reload stopped the old listener and never brought the new one up.
+        return "previous TLS reload failed"
+    if broker.tls_config is None or broker.tls_config.crl_pem is None:
+        return None
+    # _load_tls_config() queries the database, which Django forbids on a thread
+    # running an event loop, so run it on a worker thread.
+    fresh = await asyncio.to_thread(_run_with_fresh_db_connection, _load_tls_config)
+    if fresh is None or fresh.crl_pem is None:
+        logger.warning("[mqtt-tls] CRL re-read skipped, keeping the current listener: certificates not loadable")
+        return None
+    # Compare against the config as it is now: a revocation-triggered reload may have
+    # landed while the database was being read.
+    loaded = broker.tls_config
+    if loaded is None or loaded.crl_pem is None:
+        return None
+    if _revoked_serials(fresh.crl_pem) != _revoked_serials(loaded.crl_pem):
+        return "CRL revocations changed"
+    if _crl_needs_refresh(loaded.crl_pem, datetime.now(UTC)):
+        return "CRL nearing expiry"
+    return None
+
+
+async def _refresh_crl() -> None:
+    """Hot-reload MQTT TLS (dropping connected clients) when the loaded CRL is out of date.
+
+    Never raises: a failed check must not take the broker's event loop down.
+    """
+    try:
+        reason = await _crl_refresh_reason()
+        if reason is None:
+            return
+        await asyncio.to_thread(
+            _run_with_fresh_db_connection, trigger_tls_reload, reason=reason, keep_tls_on_failure=True
+        )
+    except Exception:
+        logger.error("[mqtt-tls] CRL refresh check failed", exc_info=True)
 
 
 def _run_mqtt_broker(mqtt_port: int, mqtt_tls_port: int = -1) -> None:
@@ -254,8 +349,13 @@ def _run_mqtt_broker(mqtt_port: int, mqtt_tls_port: int = -1) -> None:
         logger.info("MQTT broker started on port %d", actual_port or mqtt_port)
 
         # Keep the event loop alive while the broker is running
+        crl_check_interval = _crl_check_interval_seconds()
+        next_crl_check = time.monotonic() + crl_check_interval
         while _state.broker.is_running:
             await asyncio.sleep(_SHUTDOWN_POLL_INTERVAL_SECONDS)
+            if time.monotonic() >= next_crl_check:
+                next_crl_check = time.monotonic() + crl_check_interval
+                await _refresh_crl()
 
     try:
         _state.loop.run_until_complete(_start_and_run())
@@ -326,7 +426,7 @@ def get_mqtt_event_loop() -> "asyncio.AbstractEventLoop | None":
     return _state.loop
 
 
-def trigger_tls_reload(reason: str = "configuration changed") -> None:
+def trigger_tls_reload(reason: str = "configuration changed", *, keep_tls_on_failure: bool = False) -> None:
     """Schedule a TLS hot-reload on the running MQTT broker.
 
     Loads fresh certificates from the database and restarts the
@@ -336,6 +436,9 @@ def trigger_tls_reload(reason: str = "configuration changed") -> None:
 
     Args:
         reason: Human-readable reason for the reload (included in logs).
+        keep_tls_on_failure: Skip the reload when the certificates cannot be loaded,
+            leaving the running listener untouched instead of restarting it without
+            TLS. Used by unattended reloads, where nobody asked for TLS to change.
     """
     if _state.broker is None or _state.loop is None:
         logger.debug("TLS reload requested but MQTT broker is not running (reason: %s)", reason)
@@ -346,6 +449,12 @@ def trigger_tls_reload(reason: str = "configuration changed") -> None:
         return
 
     tls_config = _load_tls_config()
+    if tls_config is None and keep_tls_on_failure:
+        logger.warning(
+            "[mqtt-tls] TLS reload skipped, keeping the current listener: certificates not loadable (reason: %s)",
+            reason,
+        )
+        return
     mqtt_tls_port = get_mqtt_tls_port()
 
     future = asyncio.run_coroutine_threadsafe(
