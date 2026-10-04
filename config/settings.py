@@ -9,6 +9,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.0/ref/settings/
 """
 
+import math
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +44,16 @@ ALLOWED_HOSTS: list[str] = [
 ]
 
 PUBLIC_DOMAIN: str = str(config("PUBLIC_DOMAIN", default=""))
+
+# How often the MQTT broker re-reads client certificate revocations from the database and
+# reloads its CRL if they changed. Revoking a certificate reloads it immediately; this bounds
+# how long a revocation made any other way (or a missed reload) can go unenforced.
+MQTT_CRL_REFRESH_INTERVAL_HOURS: float = config("MQTT_CRL_REFRESH_INTERVAL_HOURS", default=2.0, cast=float)
+if not (math.isfinite(MQTT_CRL_REFRESH_INTERVAL_HOURS) and MQTT_CRL_REFRESH_INTERVAL_HOURS > 0):
+    raise ValueError(
+        f"Expected MQTT_CRL_REFRESH_INTERVAL_HOURS to be a finite, positive number of hours, "
+        f"got {MQTT_CRL_REFRESH_INTERVAL_HOURS}"
+    )
 
 if DEBUG:
     # Auto-discover and add all local network IPs to ALLOWED_HOSTS in development.

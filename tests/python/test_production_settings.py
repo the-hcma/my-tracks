@@ -1,5 +1,7 @@
 """Tests for production settings hardening."""
 
+import os
+import runpy
 from pathlib import Path
 from unittest.mock import patch
 
@@ -33,6 +35,32 @@ class TestSecretKeyValidation:
     def test_debug_true_with_explicit_key_uses_it(self) -> None:
         key = _simulate_secret_key_check(debug=True, secret_key="my-custom-key")
         assert_that(key, equal_to("my-custom-key"))
+
+
+class TestCrlRefreshInterval:
+    """MQTT_CRL_REFRESH_INTERVAL_HOURS must be a finite, positive number of hours."""
+
+    @staticmethod
+    def _load_interval(value: str | None) -> float:
+        env = {} if value is None else {"MQTT_CRL_REFRESH_INTERVAL_HOURS": value}
+        with patch.dict(os.environ, env):
+            if value is None:
+                os.environ.pop("MQTT_CRL_REFRESH_INTERVAL_HOURS", None)
+            settings_vars = runpy.run_path(str(Path(__file__).resolve().parents[2] / "config" / "settings.py"))
+        return float(settings_vars["MQTT_CRL_REFRESH_INTERVAL_HOURS"])
+
+    def test_defaults_to_two_hours(self) -> None:
+        assert_that(self._load_interval(None), equal_to(2.0))
+
+    def test_reads_hours_from_the_environment(self) -> None:
+        assert_that(self._load_interval("0.5"), equal_to(0.5))
+
+    @pytest.mark.parametrize("value", ["0", "-1", "nan", "inf"])
+    def test_rejects_values_that_would_disable_or_break_the_refresh(self, value: str) -> None:
+        assert_that(
+            calling(self._load_interval).with_args(value),
+            raises(ValueError, "finite, positive number of hours"),
+        )
 
 
 class TestAllowedHostsAutoDetect:
