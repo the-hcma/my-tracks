@@ -21,6 +21,8 @@ import threading
 import warnings
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
+from typing import Literal
 
 import tiny_pki
 from cryptography.fernet import InvalidToken
@@ -35,12 +37,15 @@ __all__ = [
     "DEFAULT_CA_VALIDITY_DAYS",
     "DEFAULT_CERT_VALIDITY_DAYS",
     "VALIDITY_PRESETS",
+    "ValidityChoice",
     "decrypt_private_key",
     "encrypt_private_key",
     "generate_ca_certificate",
     "generate_client_certificate",
     "generate_server_certificate",
+    "max_leaf_validity_days",
     "reencrypt_private_key",
+    "validity_choices",
 ]
 
 DEFAULT_CA_VALIDITY_DAYS = 3650
@@ -59,6 +64,42 @@ VALIDITY_PRESETS: list[tuple[int, str]] = [
     (1460, "4 years"),
     (1825, "5 years"),
 ]
+
+
+@dataclass(frozen=True)
+class ValidityChoice:
+    """One entry of a certificate validity dropdown."""
+
+    days: int
+    label: str
+    disabled: bool
+    selected: bool
+
+
+def max_leaf_validity_days(ca_cert_pem: bytes, *, kind: Literal["server", "client"]) -> int:
+    """
+    Return the longest validity (in days) the CA can sign for a ``kind`` leaf right now.
+
+    Uses tiny-pki's ``allow_long_validity=True`` so the limit reflects the CA's
+    remaining lifetime rather than platform caps. Returns 0 when the CA has expired
+    or has less than a day left. The answer shrinks as the CA ages; do not cache it.
+    """
+    return tiny_pki.max_leaf_validity_days(ca_cert_pem, kind=kind, allow_long_validity=True)
+
+
+def validity_choices(max_days: int, default_days: int = DEFAULT_CERT_VALIDITY_DAYS) -> list[ValidityChoice]:
+    """
+    Build the validity presets for a certificate form, clamped to ``max_days``.
+
+    Presets longer than ``max_days`` are disabled. The selected entry is the longest
+    enabled preset that does not exceed ``default_days``; nothing is selected when
+    every preset is disabled.
+    """
+    selected_days = max((days for days, _ in VALIDITY_PRESETS if days <= min(default_days, max_days)), default=None)
+    return [
+        ValidityChoice(days=days, label=label, disabled=days > max_days, selected=days == selected_days)
+        for days, label in VALIDITY_PRESETS
+    ]
 
 
 def decrypt_private_key(encrypted_data: bytes) -> bytes:

@@ -3091,7 +3091,7 @@ class TestAdminPanelSmtp:
         """Blank username+password builds backend with empty credentials (unauthenticated relay)."""
         import json
 
-        with patch("web_ui.views.SmtpEmailBackend") as mock_backend_cls:
+        with patch("web_ui.views.build_smtp_backend") as mock_backend_cls:
             with patch("web_ui.views.send_test_email_via_backend") as mock_send:
                 response = admin_logged_in_client.post(
                     "/admin-panel/smtp-test/",
@@ -3274,7 +3274,7 @@ class TestAdminPanelSmtp:
                 pass
             # Call send_test_email_via_backend directly to check the email body
 
-            from app.notifications import send_test_email_via_backend
+            from app.notifications import SMTP_MAILER_ALIAS, send_test_email_via_backend
 
             sent_messages: list[BaseEmailMessage] = []
 
@@ -3283,8 +3283,9 @@ class TestAdminPanelSmtp:
                     sent_messages.extend(messages)
                     return len(messages)
 
+            backend = CapturingBackend(alias=SMTP_MAILER_ALIAS, host="smtp.hcma.info", port=25)
             with override_settings(PUBLIC_DOMAIN="mytracks.example.com"):
-                send_test_email_via_backend("out@example.com", CapturingBackend(), "noreply@my-tracks")
+                send_test_email_via_backend("out@example.com", backend, "noreply@my-tracks")
 
         assert_that(len(sent_messages), equal_to(1))
         assert_that(sent_messages[0].body, contains_string("mytracks.example.com"))

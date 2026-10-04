@@ -470,6 +470,7 @@ class MQTTBroker:
         self.mqtt_port = mqtt_port
         self.mqtt_tls_port = mqtt_tls_port
         self.tls_config = tls_config
+        self.tls_reload_failed = False
         self.allow_anonymous = allow_anonymous
         self.use_django_auth = use_django_auth
         self.use_owntracks_handler = use_owntracks_handler
@@ -603,6 +604,11 @@ class MQTTBroker:
         return None
 
     @property
+    def reload_in_progress(self) -> bool:
+        """Return True while a TLS hot-reload is running (``tls_reload_failed`` is not meaningful then)."""
+        return self._reload_lock.locked()
+
+    @property
     def actual_mqtt_port(self) -> int | None:
         """
         Get the actual MQTT TCP port after startup.
@@ -694,6 +700,10 @@ class MQTTBroker:
         async with self._reload_lock:
             logger.info("TLS hot-reload triggered — reason: %s", reason)
 
+            # Cleared only when the new listener is up, so a reload that dies half-way
+            # (broker stopped, new one never started) stays visible to the CRL refresh check.
+            self.tls_reload_failed = True
+
             if self._broker is not None:
                 logger.info("Stopping current MQTT broker for TLS reload")
                 await self._broker.shutdown()
@@ -733,6 +743,7 @@ class MQTTBroker:
             self._actual_tls_port = None
 
             tls_status = f"TLS on port {mqtt_tls_port}" if mqtt_tls_port >= 0 else "TLS disabled"
+            self.tls_reload_failed = False
             logger.info("TLS hot-reload complete — %s", tls_status)
 
     async def stop(self) -> None:
