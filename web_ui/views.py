@@ -56,6 +56,7 @@ from app.mqtt.commands import CommandPublisher
 from app.notifications import (
     _append_footer,
     _build_email,
+    build_smtp_backend,
     get_smtp_backend,
     send_test_email,
     send_test_email_via_backend,
@@ -1115,11 +1116,10 @@ def action_test(request: HttpRequest) -> JsonResponse:
                 f"If you receive this, the rule is correctly configured.\n\n"
             ),
             to=[action.email_address],
-            connection=backend,
             from_email=str(config.from_address),
         )
         msg.body = _append_footer(msg.body, sent_at=ts_str, sent_by=sent_by)
-        msg.send()
+        backend.send_messages([msg])
         return JsonResponse({"ok": True})
     except Exception as e:
         return JsonResponse({"ok": False, "error": smtp_friendly_error(e, str(config.host))})
@@ -1161,26 +1161,22 @@ def smtp_test(request: HttpRequest) -> JsonResponse:
             if saved and saved.host == host and saved.encrypted_password:
                 backend: SmtpEmailBackend = get_smtp_backend(saved)
             else:
-                backend = SmtpEmailBackend(
+                backend = build_smtp_backend(
                     host=host,
                     port=port,
                     username=username,
                     password="",
                     use_tls=use_tls,
                     use_ssl=use_ssl,
-                    timeout=10,
-                    fail_silently=False,
                 )
         else:
-            backend = SmtpEmailBackend(
+            backend = build_smtp_backend(
                 host=host,
                 port=port,
                 username=username,
                 password=password,
                 use_tls=use_tls,
                 use_ssl=use_ssl,
-                timeout=10,
-                fail_silently=False,
             )
         logger.info(
             "[http] Admin '%s' testing transient SMTP config → %s:%s user=%s to=%s",
