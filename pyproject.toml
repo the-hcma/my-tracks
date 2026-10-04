@@ -121,6 +121,7 @@ dev = [
     "pytest-cov>=7.1.0",
     "pytest-asyncio>=1.4.0",
     "pytest-xdist>=3.8.0",
+    "time-machine>=3.5.1",
     "ruff>=0.16.9",
     "pyright>=1.1.414",
     "shellcheck-py>=0.11.0.1",

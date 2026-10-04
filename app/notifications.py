@@ -25,6 +25,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Alias handed to Django's SMTP backend so it is treated as a mailer-style backend
+# (explicit options, no fallback to the deprecated EMAIL_* settings). The SMTP
+# settings live in the database, so there is no matching entry in settings.MAILERS.
+SMTP_MAILER_ALIAS = "my-tracks-smtp"
+
 
 def _default_reply_to() -> str | None:
     """Return the default Reply-To address for outgoing email.
@@ -45,7 +50,6 @@ def _build_email(
     body: str,
     to: list[str],
     from_email: str,
-    connection: EmailBackend,
     reply_to: str | None = None,
 ) -> EmailMessage:
     """Create an EmailMessage with required headers enforced.
@@ -61,7 +65,6 @@ def _build_email(
         body=body,
         from_email=from_email,
         to=to,
-        connection=connection,
         reply_to=[reply_to_addr] if reply_to_addr else None,
     )
 
@@ -109,6 +112,41 @@ def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * r * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
+def build_smtp_backend(
+    *,
+    host: str,
+    port: int,
+    username: str,
+    password: str,
+    use_tls: bool,
+    use_ssl: bool,
+) -> EmailBackend:
+    """
+    Build a Django SMTP EmailBackend from explicit connection options.
+
+    Args:
+        host: SMTP server hostname
+        port: SMTP server port
+        username: SMTP username (empty for an unauthenticated relay)
+        password: SMTP password (empty for an unauthenticated relay)
+        use_tls: Upgrade the connection with STARTTLS
+        use_ssl: Use implicit TLS (SMTPS)
+
+    Returns:
+        Configured EmailBackend (not yet connected)
+    """
+    return EmailBackend(
+        alias=SMTP_MAILER_ALIAS,
+        host=host,
+        port=port,
+        username=username,
+        password=password,
+        use_tls=use_tls,
+        use_ssl=use_ssl,
+        timeout=10,
+    )
+
+
 def get_smtp_backend(config: "SmtpConfig") -> EmailBackend:
     """
     Build a Django EmailBackend from a SmtpConfig instance.
@@ -122,15 +160,13 @@ def get_smtp_backend(config: "SmtpConfig") -> EmailBackend:
     password = ""
     if config.encrypted_password:
         password = decrypt_private_key(bytes(memoryview(config.encrypted_password))).decode()  # type: ignore[arg-type]
-    return EmailBackend(
-        host=config.host,
-        port=config.port,
-        username=config.username,
+    return build_smtp_backend(
+        host=str(config.host),
+        port=cast(int, config.port),
+        username=str(config.username),
         password=password,
-        use_tls=config.use_tls,
-        use_ssl=config.use_ssl,
-        timeout=10,
-        fail_silently=False,
+        use_tls=cast(bool, config.use_tls),
+        use_ssl=cast(bool, config.use_ssl),
     )
 
 
@@ -160,13 +196,13 @@ def send_test_email_via_backend(
     ts_str = f"{local_ts.strftime('%Y-%m-%d %H:%M:%S %Z')} ({now.strftime('%Y-%m-%d %H:%M:%S UTC')})"
     public_domain = getattr(settings, "PUBLIC_DOMAIN", "")
     sent_by = public_domain or "my-tracks"
-    _build_email(
+    msg = _build_email(
         subject="my-tracks SMTP test",
         body=_append_footer("\n".join(lines), sent_at=ts_str, sent_by=sent_by),
         from_email=from_email,
         to=[to],
-        connection=backend,
-    ).send()
+    )
+    backend.send_messages([msg])
 
 
 def send_test_email(to: str, config: "SmtpConfig", server_names: list[str] | None = None) -> None:
@@ -228,13 +264,13 @@ def send_friend_request_email(friend_request: "FriendRequest") -> None:
     body = _append_footer("\n".join(lines), sent_at=ts_str, sent_by=sent_by)
 
     backend = get_smtp_backend(config)
-    _build_email(
+    msg = _build_email(
         subject=subject,
         body=body,
         from_email=str(config.from_address),
         to=[str(recipient.email)],
-        connection=backend,
-    ).send()
+    )
+    backend.send_messages([msg])
     logger.info(
         "Friend request email sent to %s (from=%s, request_id=%s)",
         recipient.email,
@@ -302,13 +338,13 @@ def send_transition_email(transition: "Transition", action: "TransitionAction") 
     body = _append_footer("\n".join(lines), sent_at=ts_str, sent_by=sent_by)
 
     backend = get_smtp_backend(config)
-    _build_email(
+    msg = _build_email(
         subject=subject,
         body=body,
         from_email=str(config.from_address),
         to=[str(action.email_address)],
-        connection=backend,
-    ).send()
+    )
+    backend.send_messages([msg])
     logger.info(
         "Transition email sent to %s: %s %s %s",
         action.email_address,

@@ -32,6 +32,7 @@ from .models import (
     UserProfile,
 )
 from .mqtt.handlers import extract_location_optional_fields
+from .pki import max_leaf_validity_days
 from .utils import extract_device_id
 
 logger = logging.getLogger(__name__)
@@ -383,6 +384,17 @@ class ChangePasswordSerializer(serializers.Serializer):
 class CertificateAuthoritySerializer(serializers.ModelSerializer):
     """Serializer for CertificateAuthority model (public info only)."""
 
+    max_validity_days = serializers.SerializerMethodField(
+        help_text="Longest validity in days the CA can sign right now, per certificate kind (0 once expired)."
+    )
+
+    def get_max_validity_days(self, obj: CertificateAuthority) -> dict[str, int]:
+        ca_pem = str(obj.certificate_pem).encode()
+        return {
+            "server": max_leaf_validity_days(ca_pem, kind="server"),
+            "client": max_leaf_validity_days(ca_pem, kind="client"),
+        }
+
     class Meta:
         model = CertificateAuthority
         fields = [
@@ -395,6 +407,7 @@ class CertificateAuthoritySerializer(serializers.ModelSerializer):
             "is_active",
             "created_at",
             "certificate_pem",
+            "max_validity_days",
         ]
         read_only_fields = [
             "id",
