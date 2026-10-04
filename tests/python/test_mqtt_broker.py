@@ -1142,6 +1142,50 @@ class TestReloadTLS:
         assert_that(broker._broker, is_(new_inner))
 
     @pytest.mark.asyncio
+    async def test_reload_flags_failure_when_the_new_broker_cannot_start(self) -> None:
+        """A reload that stops the old broker but cannot start the new one stays flagged."""
+        broker = MQTTBroker(mqtt_port=0, use_owntracks_handler=False)
+        broker._running = True
+        broker._broker = AsyncMock()
+
+        failing_inner = AsyncMock()
+        failing_inner.start.side_effect = OSError("address in use")
+        with patch("app.mqtt.broker.Broker", return_value=failing_inner):
+            with pytest.raises(OSError):
+                await broker.reload_tls(None, mqtt_tls_port=-1)
+
+        assert_that(broker.tls_reload_failed, is_(True))
+
+    @pytest.mark.asyncio
+    async def test_reload_in_progress_is_true_only_while_a_reload_runs(self) -> None:
+        broker = MQTTBroker(mqtt_port=0, use_owntracks_handler=False)
+        broker._running = True
+        observed: list[bool] = []
+
+        inner = AsyncMock()
+        inner.shutdown.side_effect = lambda: observed.append(broker.reload_in_progress)
+        broker._broker = inner
+
+        assert_that(broker.reload_in_progress, is_(False))
+        with patch("app.mqtt.broker.Broker", return_value=AsyncMock()):
+            await broker.reload_tls(None, mqtt_tls_port=-1)
+
+        assert_that(observed, equal_to([True]))
+        assert_that(broker.reload_in_progress, is_(False))
+
+    @pytest.mark.asyncio
+    async def test_successful_reload_clears_the_failure_flag(self) -> None:
+        broker = MQTTBroker(mqtt_port=0, use_owntracks_handler=False)
+        broker._running = True
+        broker._broker = AsyncMock()
+        broker.tls_reload_failed = True
+
+        with patch("app.mqtt.broker.Broker", return_value=AsyncMock()):
+            await broker.reload_tls(None, mqtt_tls_port=-1)
+
+        assert_that(broker.tls_reload_failed, is_(False))
+
+    @pytest.mark.asyncio
     async def test_reload_keeps_running_true(self) -> None:
         """_running stays True throughout reload so polling loop continues."""
         broker = MQTTBroker(mqtt_port=0, use_owntracks_handler=False)

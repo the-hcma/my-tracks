@@ -80,6 +80,7 @@ cp examples/.env.production.example production/run/.env.production
 | `POSTGRES_USER`   | `mytracks`   | PostgreSQL username (containerized DB only)          |
 | `POSTGRES_PASSWORD`| *(generated)*| PostgreSQL password (containerized DB only)          |
 | `POSTGRES_DB`     | `mytracks`   | PostgreSQL database name (containerized DB only)     |
+| `MQTT_CRL_REFRESH_INTERVAL_HOURS` | `2` | How often the MQTT broker re-reads client certificate revocations and reloads its CRL if they changed (hours, positive and finite, read at startup) |
 | `HTTPS_PORT`      | `443`        | Host port for HTTPS                                 |
 | `HTTP_PORT`       | `80`         | Host port for HTTP (redirects to HTTPS)             |
 | `MQTT_TLS_PORT`   | `8883`       | Host port for MQTT over TLS                         |
@@ -132,9 +133,7 @@ For external databases, use your provider's backup tools (e.g., `pg_dump`, RDS s
 
 These certificates are for **nginx HTTPS** — the web UI, REST API, and WebSocket connections. They are **not** related to MQTT over TLS, which uses its own PKI certificates managed through the My Tracks admin panel.
 
-With HTTPS in place, phones and tablets can **install the web dashboard as a PWA**
-(home-screen icon, standalone window). The install banner and service worker
-require a secure context — see [PWA.md](PWA.md).
+With HTTPS in place, phones and tablets can **install the web dashboard as a PWA** (home-screen icon, standalone window). The install banner and service worker require a secure context — see [PWA.md](PWA.md).
 
 Nginx requires `fullchain.pem` and `privkey.pem` in the `CERTS_DIR` directory.
 
