@@ -41,7 +41,7 @@ import {
     fetchLastKnownLocations,
 } from './liveActivityToolbar';
 import { runLastKnownLoad } from './lastKnownLoad';
-import { shouldStartFocusFit } from './mapFocus';
+import { shouldStartFocusFit, STREET_LEVEL_ZOOM } from './mapFocus';
 import { registerAndUpdateServiceWorker } from './serviceWorkerRecovery';
 import {
     PWA_INSTALL_DISMISS_LEGACY_SESSION_KEY,
@@ -1063,10 +1063,10 @@ function fitMapToVisibleTrailContent(): void {
     }
     map.invalidateSize();
     if (latLngs.length === 1) {
-        map.setView(latLngs[0], 16);
+        map.setView(latLngs[0], STREET_LEVEL_ZOOM);
         return;
     }
-    map.fitBounds(L.latLngBounds(latLngs), { padding: [60, 60], maxZoom: 17 });
+    map.fitBounds(L.latLngBounds(latLngs), { padding: [60, 60], maxZoom: STREET_LEVEL_ZOOM });
 }
 
 /**
@@ -1136,11 +1136,11 @@ function fitMapToLastKnownLocations(extraLatLngs: L.LatLng[] = []): void {
     }
     map.invalidateSize();
     if (latLngs.length === 1) {
-        map.setView(latLngs[0], 16);
+        map.setView(latLngs[0], STREET_LEVEL_ZOOM);
         return;
     }
     const bounds = L.latLngBounds(latLngs);
-    map.fitBounds(bounds, { padding: [60, 60], maxZoom: 16 });
+    map.fitBounds(bounds, { padding: [60, 60], maxZoom: STREET_LEVEL_ZOOM });
 }
 
 /** Union of point sets, de-duplicated by rounded coordinates, keeping first-seen order. */
@@ -1203,6 +1203,14 @@ let focusFitLastFinishedMs = 0;
  * permanently, so this runs regardless of `needsFitBounds`. Live ingest afterwards still does
  * not recenter (see `updateDeviceMarker`); this pass is the reset to "show everyone".
  */
+async function refreshAndFitToLatestLocations(request: LiveActivityRefreshRequest): Promise<void> {
+    const startedMs = Date.now();
+    const [, latestLatLngs] = await Promise.all([refreshLiveActivity(request), fetchLatestLocationLatLngs()]);
+    if (isLiveMode && lastMapUserInteractionMs <= startedMs) {
+        fitMapToLastKnownLocations(latestLatLngs);
+    }
+}
+
 async function fitMapToLatestLocationsOnFocus(): Promise<void> {
     if (!isLiveMode || !map) {
         return;
@@ -1219,13 +1227,7 @@ async function fitMapToLatestLocationsOnFocus(): Promise<void> {
     const startedMs = Date.now();
     focusFitInFlightSinceMs = startedMs;
     try {
-        const [, latestLatLngs] = await Promise.all([
-            refreshLiveActivity(skipHistoryFetch ? 'incremental' : liveActivityLoadKind),
-            fetchLatestLocationLatLngs(),
-        ]);
-        if (isLiveMode && lastMapUserInteractionMs <= startedMs) {
-            fitMapToLastKnownLocations(latestLatLngs);
-        }
+        await refreshAndFitToLatestLocations(skipHistoryFetch ? 'incremental' : liveActivityLoadKind);
     } finally {
         // A newer pass may have replaced a presumed-dead one; only the owner clears the flag.
         if (focusFitInFlightSinceMs === startedMs) {
@@ -3363,7 +3365,8 @@ function switchToLiveMode(): void {
     removeAllDeviceMarkers();
     selectedLocationKey = null;
 
-    void refreshLiveActivity('hour');
+    // Returning to Live is a focus moment too: end on the latest positions of everyone, not the trail.
+    refreshAndFitToLatestLocations('hour').catch((error) => console.error('Live refit failed', error));
 
     ensureLiveWebSocketConnected();
 

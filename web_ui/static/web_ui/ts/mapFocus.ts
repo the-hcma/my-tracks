@@ -4,6 +4,9 @@
  * only one pass should run per focus gesture.
  */
 
+/** Street-level zoom for a single point (OSM layer `maxZoom` is 19). Shared by every single-point fit. */
+export const STREET_LEVEL_ZOOM = 17;
+
 /** Window in which a second focus signal is treated as part of the same gesture. */
 export const FOCUS_FIT_COOLDOWN_MS = 1000;
 
