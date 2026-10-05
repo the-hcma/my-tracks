@@ -927,25 +927,42 @@ function initMapEscapeRestore(): void {
     });
 }
 
-function focusLocationMarker(locationKey: string, openPopup: boolean): void {
-    const registeredMarkers = locationMarkersByKey.get(locationKey);
-    const registeredMarker = registeredMarkers?.[0];
-    if (!registeredMarker || !map) {
+/**
+ * Center on a selected point at street level. Prefers the registered marker; when the marker is not
+ * on the map (e.g. a historic waypoint hidden by the accuracy filter) the row's own coordinates are
+ * used so the activity-log row still focuses its point.
+ */
+function focusLocationMarker(locationKey: string, openPopup: boolean, fallbackLocation?: TrackLocation): void {
+    if (!map) {
         return;
     }
-
-    const { marker } = registeredMarker;
-    const latLng = registeredMarkerLatLng(marker);
+    const registeredMarker = locationMarkersByKey.get(locationKey)?.[0];
+    let latLng: L.LatLngExpression | null = null;
+    if (registeredMarker) {
+        latLng = registeredMarkerLatLng(registeredMarker.marker);
+    } else if (fallbackLocation) {
+        const lat = parseFloat(String(fallbackLocation.latitude));
+        const lng = parseFloat(String(fallbackLocation.longitude));
+        latLng = Number.isFinite(lat) && Number.isFinite(lng) ? [lat, lng] : null;
+    }
+    if (!latLng) {
+        return;
+    }
     // No animation: an animated zoom would race the popup's autoPan and end off-centre.
     map.setView(latLng, streetLevelZoom(map.getZoom()), { animate: false });
     if (openPopup) {
-        marker.openPopup();
+        registeredMarker?.marker.openPopup();
     }
 }
 
 function selectLocation(
     locationKey: string,
-    options: { scrollRow?: boolean; focusMarker?: boolean; openPopup?: boolean } = {},
+    options: {
+        scrollRow?: boolean;
+        focusMarker?: boolean;
+        openPopup?: boolean;
+        fallbackLocation?: TrackLocation;
+    } = {},
 ): void {
     if (selectedLocationKey === locationKey) {
         // Toggling the selected point off mirrors Escape: clear the highlight and go back.
@@ -969,7 +986,7 @@ function selectLocation(
     }
 
     if (options.focusMarker) {
-        focusLocationMarker(locationKey, options.openPopup ?? true);
+        focusLocationMarker(locationKey, options.openPopup ?? true, options.fallbackLocation);
     }
 }
 
@@ -996,14 +1013,14 @@ function attachLocationSelectionToEntry(entry: HTMLElement, location: TrackLocat
     entry.setAttribute('role', 'button');
     entry.setAttribute('aria-label', 'Toggle highlight for this location on the map');
     entry.addEventListener('click', () => {
-        selectLocation(locationKey, { focusMarker: true, openPopup: true });
+        selectLocation(locationKey, { focusMarker: true, openPopup: true, fallbackLocation: location });
     });
     entry.addEventListener('keydown', (event: KeyboardEvent) => {
         if (event.key !== 'Enter' && event.key !== ' ') {
             return;
         }
         event.preventDefault();
-        selectLocation(locationKey, { focusMarker: true, openPopup: true });
+        selectLocation(locationKey, { focusMarker: true, openPopup: true, fallbackLocation: location });
     });
 }
 
