@@ -41,7 +41,17 @@ import {
     fetchLastKnownLocations,
 } from './liveActivityToolbar';
 import { runLastKnownLoad } from './lastKnownLoad';
-import { shouldStartFocusFit, STREET_LEVEL_ZOOM } from './mapFocus';
+import {
+    createEscapeRestoreHandler,
+    isRapidReclick,
+    type MapView,
+    rememberPreSelectionView,
+    selectedKeyAfterMarkerRekey,
+    shouldApplyFocusFit,
+    shouldStartFocusFit,
+    STREET_LEVEL_ZOOM,
+    streetLevelZoom,
+} from './mapFocus';
 import { registerAndUpdateServiceWorker } from './serviceWorkerRecovery';
 import {
     PWA_INSTALL_DISMISS_LEGACY_SESSION_KEY,
@@ -878,27 +888,86 @@ function scheduleApplyLocationSelection(): void {
     });
 }
 
-function focusLocationMarker(locationKey: string, openPopup: boolean): void {
-    const registeredMarkers = locationMarkersByKey.get(locationKey);
-    const registeredMarker = registeredMarkers?.[0];
-    if (!registeredMarker || !map) {
+/** Map view from before the first street-level selection zoom; Escape restores it. */
+let preSelectionView: MapView | null = null;
+
+function currentMapView(leafletMap: L.Map): MapView {
+    const center = leafletMap.getCenter();
+    return { center: [center.lat, center.lng], zoom: leafletMap.getZoom() };
+}
+
+/** Escape with an active selection: clear the highlight and, if a view was remembered, go back to it. */
+function restorePreSelectionView(): void {
+    const view = preSelectionView;
+    clearLocationSelection();
+    if (view && map) {
+        map.setView(view.center, view.zoom);
+    }
+}
+
+function initMapEscapeRestore(): void {
+    document.addEventListener(
+        'keydown',
+        createEscapeRestoreHandler({
+            hasSelection: () => selectedLocationKey !== null,
+            overlayOpen: () => historicRangeCalendarApi?.isOpen() ?? false,
+            restore: restorePreSelectionView,
+        }),
+    );
+}
+/**
+ * Center on a selected point at street level. Prefers the registered marker; when the marker is not
+ * on the map (e.g. a historic waypoint hidden by the accuracy filter) the row's own coordinates are
+ * used so the activity-log row still focuses its point.
+ */
+function focusLocationMarker(locationKey: string, openPopup: boolean, fallbackLocation?: TrackLocation): void {
+    if (!map) {
         return;
     }
-
-    const { marker } = registeredMarker;
-    map.panTo(registeredMarkerLatLng(marker));
-    if (openPopup) {
-        marker.openPopup();
+    const registeredMarker = locationMarkersByKey.get(locationKey)?.[0];
+    let latLng: L.LatLngExpression | null = null;
+    if (registeredMarker) {
+        latLng = registeredMarkerLatLng(registeredMarker.marker);
+    } else if (fallbackLocation && !showLastKnownOnly) {
+        // Last Known Only hides older waypoints, so zooming to a row's bare coordinates would land on nothing.
+        const lat = parseFloat(String(fallbackLocation.latitude));
+        const lng = parseFloat(String(fallbackLocation.longitude));
+        latLng = Number.isFinite(lat) && Number.isFinite(lng) ? [lat, lng] : null;
+    }
+    if (!latLng) {
+        return;
+    }
+    const popupWasOpen = registeredMarker?.marker.isPopupOpen() ?? false;
+    // No animation: an animated zoom would race Leaflet's popup autoPan and end off-centre.
+    map.setView(latLng, streetLevelZoom(map.getZoom()), { animate: false });
+    if (openPopup || popupWasOpen) {
+        // Re-opening re-runs autoPan, so a popup Leaflet opened on click is not clipped by the recenter.
+        registeredMarker?.marker.openPopup();
     }
 }
 
 function selectLocation(
     locationKey: string,
-    options: { scrollRow?: boolean; focusMarker?: boolean; openPopup?: boolean } = {},
+    options: {
+        scrollRow?: boolean;
+        focusMarker?: boolean;
+        openPopup?: boolean;
+        fallbackLocation?: TrackLocation;
+    } = {},
 ): void {
+    // A selection is a user interaction: it must also invalidate an in-flight focus refit.
+    markMapUserInteraction();
     if (selectedLocationKey === locationKey) {
-        clearLocationSelection();
+        // Toggling the selected point off mirrors Escape: clear the highlight and go back.
+        restorePreSelectionView();
         return;
+    }
+
+    if (options.focusMarker && map) {
+        // Keep the original pre-click view only while a selection is still active; otherwise any
+        // remembered view is stale and must not become the Escape target.
+        const hasActiveSelection = selectedLocationKey !== null;
+        preSelectionView = rememberPreSelectionView(preSelectionView, currentMapView(map), hasActiveSelection);
     }
 
     selectedLocationKey = locationKey;
@@ -910,7 +979,7 @@ function selectLocation(
     }
 
     if (options.focusMarker) {
-        focusLocationMarker(locationKey, options.openPopup ?? true);
+        focusLocationMarker(locationKey, options.openPopup ?? true, options.fallbackLocation);
     }
 }
 
@@ -919,6 +988,7 @@ function selectLocation(
  * popup currently anchored to the previously-selected marker.
  */
 function clearLocationSelection(): void {
+    preSelectionView = null;
     if (selectedLocationKey === null) {
         return;
     }
@@ -936,23 +1006,34 @@ function attachLocationSelectionToEntry(entry: HTMLElement, location: TrackLocat
     entry.setAttribute('role', 'button');
     entry.setAttribute('aria-label', 'Toggle highlight for this location on the map');
     entry.addEventListener('click', () => {
-        selectLocation(locationKey, { focusMarker: true, openPopup: true });
+        selectLocation(locationKey, { focusMarker: true, openPopup: true, fallbackLocation: location });
     });
     entry.addEventListener('keydown', (event: KeyboardEvent) => {
         if (event.key !== 'Enter' && event.key !== ' ') {
             return;
         }
         event.preventDefault();
-        selectLocation(locationKey, { focusMarker: true, openPopup: true });
+        selectLocation(locationKey, { focusMarker: true, openPopup: true, fallbackLocation: location });
     });
 }
+
+/** Last marker click, so the second click of a double-click does not toggle the selection back off. */
+let lastMarkerClickMs = 0;
+let lastMarkerClickKey: string | null = null;
 
 function registerLocationMarker(location: TrackLocation, marker: LocationMarker, kind: RegisteredLocationMarker['kind']): void {
     if (showLastKnownOnly && kind === 'waypoint') {
         return;
     }
+    const previousKey = (marker as SelectableLocationMarker)._myTracksLocationKey;
     unregisterLocationMarker(marker);
     const locationKey = locationKeyFor(location);
+    selectedLocationKey = selectedKeyAfterMarkerRekey({
+        selectedKey: selectedLocationKey,
+        previousKey,
+        newKey: locationKey,
+        previousKeyStillRegistered: previousKey !== undefined && locationMarkersByKey.has(previousKey),
+    });
     const registeredMarkers = locationMarkersByKey.get(locationKey) ?? [];
     registeredMarkers.push({ marker, kind });
     locationMarkersByKey.set(locationKey, registeredMarkers);
@@ -961,9 +1042,22 @@ function registerLocationMarker(location: TrackLocation, marker: LocationMarker,
     if (!selectableMarker._myTracksSelectionHandlerAttached) {
         marker.on('click', () => {
             const currentLocationKey = selectableMarker._myTracksLocationKey;
-            if (currentLocationKey) {
-                selectLocation(currentLocationKey, { scrollRow: true });
+            if (!currentLocationKey) {
+                return;
             }
+            const nowMs = Date.now();
+            const rapidReclick = isRapidReclick({
+                nowMs,
+                lastClickMs: lastMarkerClickMs,
+                lastKey: lastMarkerClickKey,
+                key: currentLocationKey,
+            });
+            lastMarkerClickMs = nowMs;
+            lastMarkerClickKey = currentLocationKey;
+            if (rapidReclick) {
+                return;
+            }
+            selectLocation(currentLocationKey, { scrollRow: true, focusMarker: true, openPopup: false });
         });
         selectableMarker._myTracksSelectionHandlerAttached = true;
     }
@@ -1061,6 +1155,7 @@ function fitMapToVisibleTrailContent(): void {
     if (latLngs.length === 0) {
         return;
     }
+    preSelectionView = null;
     map.invalidateSize();
     if (latLngs.length === 1) {
         map.setView(latLngs[0], STREET_LEVEL_ZOOM);
@@ -1134,6 +1229,7 @@ function fitMapToLastKnownLocations(extraLatLngs: L.LatLng[] = []): void {
     if (latLngs.length === 0) {
         return;
     }
+    preSelectionView = null;
     map.invalidateSize();
     if (latLngs.length === 1) {
         map.setView(latLngs[0], STREET_LEVEL_ZOOM);
@@ -1206,7 +1302,13 @@ let focusFitLastFinishedMs = 0;
 async function refreshAndFitToLatestLocations(request: LiveActivityRefreshRequest): Promise<void> {
     const startedMs = Date.now();
     const [, latestLatLngs] = await Promise.all([refreshLiveActivity(request), fetchLatestLocationLatLngs()]);
-    if (isLiveMode && lastMapUserInteractionMs <= startedMs) {
+    const applyFit = shouldApplyFocusFit({
+        isLiveMode,
+        hasSelection: selectedLocationKey !== null,
+        lastInteractionMs: lastMapUserInteractionMs,
+        startedMs,
+    });
+    if (applyFit) {
         fitMapToLastKnownLocations(latestLatLngs);
     }
 }
@@ -1844,12 +1946,12 @@ function updateDeviceMarker(location: TrackLocation): void {
 
     // Center map on the marker in live mode only (when a single device is selected or first marker)
     // Avoid re-centering when showing "All Devices" — that creates constant map motion/jank.
-    if (isLiveMode && selectedDevice && selectedDevice === deviceName) {
+    if (isLiveMode && selectedLocationKey === null && selectedDevice && selectedDevice === deviceName) {
         map!.setView(latLng, map!.getZoom());
     }
 
     // If we're in live mode with no filter, only center when the very first marker is created.
-    if (isLiveMode && !selectedDevice && Object.keys(deviceMarkers).length === 1) {
+    if (isLiveMode && selectedLocationKey === null && !selectedDevice && Object.keys(deviceMarkers).length === 1) {
         map!.setView(latLng, map!.getZoom());
     }
     updateDeviceLegendVisibility();
@@ -2129,6 +2231,7 @@ function addLocationToTrail(location: TrackLocation): void {
     if (needsFitBounds && path.length > 0) {
         const latLng = L.latLng(path[path.length - 1][0], path[path.length - 1][1]);
         map!.setView(latLng, 17);
+        preSelectionView = null;
         needsFitBounds = false;
     }
     syncTrailPolylineVisibilityForLastKnownMode();
@@ -2320,6 +2423,7 @@ function drawLiveTrails(locationsByDevice: Record<string, TrackLocation[]>): voi
             } else {
                 map!.fitBounds(bounds, { padding: [50, 50], maxZoom: 17 });
             }
+            preSelectionView = null;
             needsFitBounds = false;
         }
     }
@@ -2520,6 +2624,7 @@ async function fetchAndDisplayTrail(): Promise<void> {
                     } else {
                         map!.fitBounds(bounds, { padding: [50, 50], maxZoom: 17 });
                     }
+                    preSelectionView = null;
                     needsFitBounds = false;
                 }
             }
@@ -2703,6 +2808,7 @@ async function fetchAndDisplayTrail(): Promise<void> {
                         maxZoom: 17, // Don't zoom in too much even for close points
                     });
                 }
+                preSelectionView = null;
                 needsFitBounds = false;
             }
         }
@@ -4269,6 +4375,8 @@ function initEventListeners(): void {
         }
         syncHistoricControls();
     });
+
+    initMapEscapeRestore();
 
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState !== 'visible') {
