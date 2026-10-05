@@ -4,6 +4,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
     boundFetch,
+    LIVE_FETCH_TIMEOUT_MS,
+    withFetchTimeout,
     extractResultsList,
     formatLatLonCoordinate,
     formatLatLonPair,
@@ -791,5 +793,33 @@ describe('extractResultsList', () => {
         expect(devices).toHaveLength(1);
         expect(devices[0].device_id).toBe('phone');
         expect(devices[0].is_online).toBe(true);
+    });
+});
+
+describe('withFetchTimeout', () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    it('adds a deadline signal using the default timeout', () => {
+        const timeoutSpy = vi.spyOn(AbortSignal, 'timeout');
+        const init = withFetchTimeout({ method: 'GET' });
+        expect(timeoutSpy).toHaveBeenCalledWith(LIVE_FETCH_TIMEOUT_MS);
+        expect(init.method).toBe('GET');
+        expect(init.signal?.aborted).toBe(false);
+    });
+
+    it('honors a custom timeout', () => {
+        const timeoutSpy = vi.spyOn(AbortSignal, 'timeout');
+        withFetchTimeout({}, 1234);
+        expect(timeoutSpy).toHaveBeenCalledWith(1234);
+    });
+
+    it('still aborts when the caller-supplied signal aborts', () => {
+        const controller = new AbortController();
+        const init = withFetchTimeout({ signal: controller.signal });
+        expect(init.signal?.aborted).toBe(false);
+        controller.abort();
+        expect(init.signal?.aborted).toBe(true);
     });
 });

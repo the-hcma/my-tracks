@@ -38,8 +38,10 @@ import {
     shouldFilterLiveActivityByDevice,
     toggleLastKnownOnlyFlag,
     type LastKnownLogEntry,
+    fetchLastKnownLocations,
 } from './liveActivityToolbar';
 import { runLastKnownLoad } from './lastKnownLoad';
+import { shouldStartFocusFit, STREET_LEVEL_ZOOM } from './mapFocus';
 import { registerAndUpdateServiceWorker } from './serviceWorkerRecovery';
 import {
     PWA_INSTALL_DISMISS_LEGACY_SESSION_KEY,
@@ -55,7 +57,7 @@ import {
 import { createHistoricRangeCalendar } from './historicRangeCalendar';
 import type { HistoricRangeCalendarApi } from './historicRangeCalendar';
 import { getPreferredTheme, setTheme, toggleTheme } from './theme';
-import { boundFetch, clampHistoricToDate, collapseLocations, defaultHistoricDateRange, extractResultsList, formatDwellDuration, formatDwellHoverHtml, formatLatLonCoordinate, formatLatLonPair, formatMinutesAsTime, getTodayDateString, historicDatesAfterSameDayToggle, historicFetchResolutionSeconds, historicPeriodToTimestamps, HISTORIC_MAX_SPAN_DAYS, HISTORIC_WARN_SPAN_DAYS, inclusiveDaySpan, prepareHistoricTripLocations, restoredHistoricPeriodFromSavedState, selectStablePaletteColor, tripSnapshotMaxPoints } from './utils';
+import { boundFetch, clampHistoricToDate, collapseLocations, defaultHistoricDateRange, extractResultsList, formatDwellDuration, formatDwellHoverHtml, formatLatLonCoordinate, formatLatLonPair, formatMinutesAsTime, getTodayDateString, historicDatesAfterSameDayToggle, historicFetchResolutionSeconds, historicPeriodToTimestamps, HISTORIC_MAX_SPAN_DAYS, HISTORIC_WARN_SPAN_DAYS, inclusiveDaySpan, prepareHistoricTripLocations, restoredHistoricPeriodFromSavedState, selectStablePaletteColor, tripSnapshotMaxPoints, withFetchTimeout } from './utils';
 import { formatActivityLogMeta } from './locationMeta';
 import {
     compareLocationsByReportTimeDesc,
@@ -1061,10 +1063,10 @@ function fitMapToVisibleTrailContent(): void {
     }
     map.invalidateSize();
     if (latLngs.length === 1) {
-        map.setView(latLngs[0], 16);
+        map.setView(latLngs[0], STREET_LEVEL_ZOOM);
         return;
     }
-    map.fitBounds(L.latLngBounds(latLngs), { padding: [60, 60], maxZoom: 17 });
+    map.fitBounds(L.latLngBounds(latLngs), { padding: [60, 60], maxZoom: STREET_LEVEL_ZOOM });
 }
 
 /**
@@ -1123,25 +1125,116 @@ function collectLatLngsForLastKnownKeys(keys: Set<string>): L.LatLng[] {
  * with a comfortable margin and street-level detail (capped by `maxZoom`).
  * Silently no-ops when the map or marker set is unavailable.
  */
-function fitMapToLastKnownLocations(): void {
+function fitMapToLastKnownLocations(extraLatLngs: L.LatLng[] = []): void {
     if (!map) {
         return;
     }
     const keys = getLastKnownLocationKeysByDevice();
-    if (keys.size === 0) {
-        return;
-    }
-    const latLngs = collectLatLngsForLastKnownKeys(keys);
+    const latLngs = mergeUniqueLatLngs(collectLatLngsForLastKnownKeys(keys), extraLatLngs);
     if (latLngs.length === 0) {
         return;
     }
     map.invalidateSize();
     if (latLngs.length === 1) {
-        map.setView(latLngs[0], 16);
+        map.setView(latLngs[0], STREET_LEVEL_ZOOM);
         return;
     }
     const bounds = L.latLngBounds(latLngs);
-    map.fitBounds(bounds, { padding: [60, 60], maxZoom: 16 });
+    map.fitBounds(bounds, { padding: [60, 60], maxZoom: STREET_LEVEL_ZOOM });
+}
+
+/** Union of point sets, de-duplicated by rounded coordinates, keeping first-seen order. */
+function mergeUniqueLatLngs(...groups: L.LatLng[][]): L.LatLng[] {
+    const seen = new Set<string>();
+    const merged: L.LatLng[] = [];
+    groups.flat().forEach((ll) => {
+        const fingerprint = `${ll.lat.toFixed(6)}|${ll.lng.toFixed(6)}`;
+        if (!seen.has(fingerprint)) {
+            seen.add(fingerprint);
+            merged.push(ll);
+        }
+    });
+    return merged;
+}
+
+/** `fetch` with the live-activity deadline, for requests that must not hang the focus refit. */
+const timedFetch: typeof fetch = (input, init) => boundFetch(input, withFetchTimeout(init));
+
+/**
+ * Latest known point per visible device straight from the API, so the focus fit covers friends whose
+ * last fix is older than the loaded log window or was trimmed out of the 100-row log. Failures are
+ * non-fatal: the fit then falls back to what the log already shows.
+ */
+async function fetchLatestLocationLatLngs(): Promise<L.LatLng[]> {
+    try {
+        const latest = await fetchLastKnownLocations<TrackLocation>({
+            fetchFn: timedFetch,
+            isStaff: Boolean(config.isStaff),
+            visibleDeviceNames: selectedDevice ? [selectedDevice] : Array.from(devices),
+            extractResults: (data) => extractResultsList<TrackLocation>(data),
+        });
+        const latLngs: L.LatLng[] = [];
+        latest.forEach((location) => {
+            const lat = Number(location.latitude);
+            const lng = Number(location.longitude);
+            if (Number.isFinite(lat) && Number.isFinite(lng)) {
+                latLngs.push(L.latLng(lat, lng));
+            }
+        });
+        return latLngs;
+    } catch (error) {
+        console.warn('Focus fit: latest locations unavailable; fitting to loaded activity only', error);
+        return [];
+    }
+}
+
+let lastMapUserInteractionMs = 0;
+
+function markMapUserInteraction(): void {
+    lastMapUserInteractionMs = Date.now();
+}
+
+let focusFitInFlightSinceMs: number | null = null;
+let focusFitLastFinishedMs = 0;
+
+/**
+ * Live activity only: when the UI regains focus, refresh live data and re-fit the map to the
+ * latest known location of the user and every visible friend. A saved pan/zoom must not win
+ * permanently, so this runs regardless of `needsFitBounds`. Live ingest afterwards still does
+ * not recenter (see `updateDeviceMarker`); this pass is the reset to "show everyone".
+ */
+async function refreshAndFitToLatestLocations(request: LiveActivityRefreshRequest): Promise<void> {
+    const startedMs = Date.now();
+    const [, latestLatLngs] = await Promise.all([refreshLiveActivity(request), fetchLatestLocationLatLngs()]);
+    if (isLiveMode && lastMapUserInteractionMs <= startedMs) {
+        fitMapToLastKnownLocations(latestLatLngs);
+    }
+}
+
+async function fitMapToLatestLocationsOnFocus(): Promise<void> {
+    if (!isLiveMode || !map) {
+        return;
+    }
+    if (
+        !shouldStartFocusFit({
+            inFlightSinceMs: focusFitInFlightSinceMs,
+            nowMs: Date.now(),
+            lastFinishedMs: focusFitLastFinishedMs,
+        })
+    ) {
+        return;
+    }
+    const startedMs = Date.now();
+    focusFitInFlightSinceMs = startedMs;
+    try {
+        await refreshAndFitToLatestLocations(skipHistoryFetch ? 'incremental' : liveActivityLoadKind);
+    } finally {
+        // A newer pass may have replaced a presumed-dead one; only the owner clears the flag.
+        if (focusFitInFlightSinceMs === startedMs) {
+            focusFitInFlightSinceMs = null;
+        }
+        focusFitLastFinishedMs = Date.now();
+    }
 }
 
 function getLastKnownLocationKeysByDevice(): Set<string> {
@@ -1548,6 +1641,10 @@ function initMap(): void {
     // Save map position on move/zoom
     map.on('moveend', saveMapPosition);
     map.on('zoomend', saveMapPosition);
+    // User-initiated moves only (programmatic setView/fitBounds do not fire these), so a slow
+    // focus refit never yanks a map the user has already started panning or zooming.
+    map.on('dragstart', markMapUserInteraction);
+    map.getContainer().addEventListener('wheel', markMapUserInteraction, { passive: true });
 
     // Fix map rendering after initial load
     setTimeout(() => map!.invalidateSize(), 100);
@@ -2996,7 +3093,7 @@ async function runLiveActivityRefresh(request: LiveActivityRefreshRequest): Prom
         }
 
         try {
-            const response = await fetch(url);
+            const response = await fetch(url, withFetchTimeout());
             if (!response.ok) {
                 return;
             }
@@ -3034,7 +3131,7 @@ async function runLiveActivityRefresh(request: LiveActivityRefreshRequest): Prom
     console.log(`📍 refreshLiveActivity(${request}) fetching: ${url}`);
 
     try {
-        const response = await fetch(url);
+        const response = await fetch(url, withFetchTimeout());
         if (!response.ok) {
             console.log(`📍 refreshLiveActivity(${request}) failed: ${response.status}`);
             if (failureMessage) {
@@ -3268,7 +3365,8 @@ function switchToLiveMode(): void {
     removeAllDeviceMarkers();
     selectedLocationKey = null;
 
-    void refreshLiveActivity('hour');
+    // Returning to Live is a focus moment too: end on the latest positions of everyone, not the trail.
+    refreshAndFitToLatestLocations('hour').catch((error) => console.error('Live refit failed', error));
 
     ensureLiveWebSocketConnected();
 
@@ -4181,10 +4279,10 @@ function initEventListeners(): void {
             return;
         }
         ensureLiveWebSocketConnected();
-        void refreshLiveActivity(skipHistoryFetch ? 'incremental' : liveActivityLoadKind);
         if (map) {
             map.invalidateSize();
         }
+        fitMapToLatestLocationsOnFocus().catch((error) => console.error('Focus fit failed', error));
     });
 
     window.addEventListener('focus', () => {
@@ -4192,6 +4290,7 @@ function initEventListeners(): void {
             return;
         }
         ensureLiveWebSocketConnected();
+        fitMapToLatestLocationsOnFocus().catch((error) => console.error('Focus fit failed', error));
     });
 }
 
