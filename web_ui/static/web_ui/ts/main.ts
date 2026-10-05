@@ -948,7 +948,8 @@ function selectLocation(
     options: { scrollRow?: boolean; focusMarker?: boolean; openPopup?: boolean } = {},
 ): void {
     if (selectedLocationKey === locationKey) {
-        clearLocationSelection();
+        // Toggling the selected point off mirrors Escape: clear the highlight and go back.
+        restorePreSelectionView();
         return;
     }
 
