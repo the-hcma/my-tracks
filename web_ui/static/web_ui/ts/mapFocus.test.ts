@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { FOCUS_FIT_COOLDOWN_MS, FOCUS_FIT_MAX_IN_FLIGHT_MS, shouldStartFocusFit } from './mapFocus';
+import {
+    FOCUS_FIT_COOLDOWN_MS,
+    FOCUS_FIT_MAX_IN_FLIGHT_MS,
+    type MapView,
+    rememberPreSelectionView,
+    shouldRestoreViewOnEscape,
+    shouldStartFocusFit,
+    STREET_LEVEL_ZOOM,
+    streetLevelZoom,
+} from './mapFocus';
 
 describe('shouldStartFocusFit', () => {
     it('starts when nothing has run yet', () => {
@@ -37,5 +46,56 @@ describe('shouldStartFocusFit', () => {
     it('honors a custom cooldown', () => {
         const gate = { inFlightSinceMs: null, nowMs: 1200, lastFinishedMs: 1000, cooldownMs: 100 };
         expect(shouldStartFocusFit(gate)).toBe(true);
+    });
+});
+
+describe('selection zoom helpers', () => {
+    it('zooms in to street level from a wide view', () => {
+        expect(streetLevelZoom(9)).toBe(STREET_LEVEL_ZOOM);
+    });
+
+    it('does not zoom out when already closer than street level', () => {
+        expect(streetLevelZoom(19)).toBe(19);
+    });
+
+    it('keeps the first remembered view when selecting another point', () => {
+        const original: MapView = { center: [1, 2], zoom: 10 };
+        const streetLevel: MapView = { center: [3, 4], zoom: STREET_LEVEL_ZOOM };
+        expect(rememberPreSelectionView(null, original)).toBe(original);
+        expect(rememberPreSelectionView(original, streetLevel)).toBe(original);
+    });
+});
+
+describe('shouldRestoreViewOnEscape', () => {
+    const base = {
+        key: 'Escape',
+        defaultPrevented: false,
+        hasRestoreView: true,
+        overlayOpen: false,
+        targetEditable: false,
+    };
+
+    it('restores on a plain Escape when a view was remembered', () => {
+        expect(shouldRestoreViewOnEscape(base)).toBe(true);
+    });
+
+    it('ignores other keys', () => {
+        expect(shouldRestoreViewOnEscape({ ...base, key: 'Enter' })).toBe(false);
+    });
+
+    it('does nothing when no view was remembered', () => {
+        expect(shouldRestoreViewOnEscape({ ...base, hasRestoreView: false })).toBe(false);
+    });
+
+    it('leaves Escape to an open overlay such as the historic calendar', () => {
+        expect(shouldRestoreViewOnEscape({ ...base, overlayOpen: true })).toBe(false);
+    });
+
+    it('leaves Escape to inputs such as the friends search box', () => {
+        expect(shouldRestoreViewOnEscape({ ...base, targetEditable: true })).toBe(false);
+    });
+
+    it('leaves Escape that another handler already consumed', () => {
+        expect(shouldRestoreViewOnEscape({ ...base, defaultPrevented: true })).toBe(false);
     });
 });

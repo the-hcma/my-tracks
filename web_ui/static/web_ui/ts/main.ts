@@ -41,7 +41,14 @@ import {
     fetchLastKnownLocations,
 } from './liveActivityToolbar';
 import { runLastKnownLoad } from './lastKnownLoad';
-import { shouldStartFocusFit, STREET_LEVEL_ZOOM } from './mapFocus';
+import {
+    type MapView,
+    rememberPreSelectionView,
+    shouldRestoreViewOnEscape,
+    shouldStartFocusFit,
+    STREET_LEVEL_ZOOM,
+    streetLevelZoom,
+} from './mapFocus';
 import { registerAndUpdateServiceWorker } from './serviceWorkerRecovery';
 import {
     PWA_INSTALL_DISMISS_LEGACY_SESSION_KEY,
@@ -878,6 +885,50 @@ function scheduleApplyLocationSelection(): void {
     });
 }
 
+/** Map view from before the first street-level selection zoom; Escape restores it. */
+let preSelectionView: MapView | null = null;
+
+function currentMapView(): MapView {
+    const center = map!.getCenter();
+    return { center: [center.lat, center.lng], zoom: map!.getZoom() };
+}
+
+/** Escape after a street-level selection: back to the previous view and clear the highlight. */
+function restorePreSelectionView(): void {
+    const view = preSelectionView;
+    preSelectionView = null;
+    if (!view || !map) {
+        return;
+    }
+    clearLocationSelection();
+    map.setView(view.center, view.zoom);
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+    if (!(target instanceof HTMLElement)) {
+        return false;
+    }
+    return target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
+}
+
+function initMapEscapeRestore(): void {
+    document.addEventListener('keydown', (event: KeyboardEvent) => {
+        if (
+            !shouldRestoreViewOnEscape({
+                key: event.key,
+                defaultPrevented: event.defaultPrevented,
+                hasRestoreView: preSelectionView !== null,
+                overlayOpen: historicRangeCalendarApi?.isOpen() ?? false,
+                targetEditable: isEditableTarget(event.target),
+            })
+        ) {
+            return;
+        }
+        event.preventDefault();
+        restorePreSelectionView();
+    });
+}
+
 function focusLocationMarker(locationKey: string, openPopup: boolean): void {
     const registeredMarkers = locationMarkersByKey.get(locationKey);
     const registeredMarker = registeredMarkers?.[0];
@@ -886,7 +937,9 @@ function focusLocationMarker(locationKey: string, openPopup: boolean): void {
     }
 
     const { marker } = registeredMarker;
-    map.panTo(registeredMarkerLatLng(marker));
+    const latLng = registeredMarkerLatLng(marker);
+    preSelectionView = rememberPreSelectionView(preSelectionView, currentMapView());
+    map.setView(latLng, streetLevelZoom(map.getZoom()));
     if (openPopup) {
         marker.openPopup();
     }
@@ -962,7 +1015,7 @@ function registerLocationMarker(location: TrackLocation, marker: LocationMarker,
         marker.on('click', () => {
             const currentLocationKey = selectableMarker._myTracksLocationKey;
             if (currentLocationKey) {
-                selectLocation(currentLocationKey, { scrollRow: true });
+                selectLocation(currentLocationKey, { scrollRow: true, focusMarker: true, openPopup: false });
             }
         });
         selectableMarker._myTracksSelectionHandlerAttached = true;
@@ -1035,6 +1088,7 @@ function fitMapToVisibleTrailContent(): void {
     if (!map) {
         return;
     }
+    preSelectionView = null;
     const latLngs: L.LatLng[] = [];
     const dedupe = new Set<string>();
     const pushUnique = (ll: L.LatLng): void => {
@@ -1129,6 +1183,7 @@ function fitMapToLastKnownLocations(extraLatLngs: L.LatLng[] = []): void {
     if (!map) {
         return;
     }
+    preSelectionView = null;
     const keys = getLastKnownLocationKeysByDevice();
     const latLngs = mergeUniqueLatLngs(collectLatLngsForLastKnownKeys(keys), extraLatLngs);
     if (latLngs.length === 0) {
@@ -4269,6 +4324,8 @@ function initEventListeners(): void {
         }
         syncHistoricControls();
     });
+
+    initMapEscapeRestore();
 
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState !== 'visible') {

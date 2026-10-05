@@ -36,3 +36,36 @@ export function shouldStartFocusFit(gate: FocusFitGate): boolean {
     const cooldownMs = gate.cooldownMs ?? FOCUS_FIT_COOLDOWN_MS;
     return gate.nowMs - gate.lastFinishedMs >= cooldownMs;
 }
+
+export interface MapView {
+    center: [number, number];
+    zoom: number;
+}
+
+/** Zoom in to street level, but never zoom out when the user is already closer. */
+export function streetLevelZoom(currentZoom: number): number {
+    return Math.max(currentZoom, STREET_LEVEL_ZOOM);
+}
+
+/**
+ * Remember the view from before the first selection zoom. Selecting another point while still at
+ * street level keeps the original view as the Escape target instead of nesting a stack of zooms.
+ */
+export function rememberPreSelectionView(existing: MapView | null, current: MapView): MapView {
+    return existing ?? current;
+}
+
+export interface EscapeRestoreContext {
+    key: string;
+    defaultPrevented: boolean;
+    hasRestoreView: boolean;
+    /** Historic range calendar (or any other overlay that owns Escape) is open. */
+    overlayOpen: boolean;
+    /** Focus is in an input, textarea, select or contenteditable element. */
+    targetEditable: boolean;
+}
+
+/** Escape restores the pre-selection view only when nothing else should consume the key first. */
+export function shouldRestoreViewOnEscape(ctx: EscapeRestoreContext): boolean {
+    return ctx.key === 'Escape' && !ctx.defaultPrevented && ctx.hasRestoreView && !ctx.overlayOpen && !ctx.targetEditable;
+}
