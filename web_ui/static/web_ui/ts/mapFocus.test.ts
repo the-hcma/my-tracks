@@ -58,11 +58,21 @@ describe('selection zoom helpers', () => {
         expect(streetLevelZoom(19)).toBe(19);
     });
 
-    it('keeps the first remembered view when selecting another point', () => {
+    it('remembers the current view for the first selection', () => {
+        const original: MapView = { center: [1, 2], zoom: 10 };
+        expect(rememberPreSelectionView(null, original, false)).toBe(original);
+    });
+
+    it('keeps the first remembered view when selecting another point while a selection is active', () => {
         const original: MapView = { center: [1, 2], zoom: 10 };
         const streetLevel: MapView = { center: [3, 4], zoom: STREET_LEVEL_ZOOM };
-        expect(rememberPreSelectionView(null, original)).toBe(original);
-        expect(rememberPreSelectionView(original, streetLevel)).toBe(original);
+        expect(rememberPreSelectionView(original, streetLevel, true)).toBe(original);
+    });
+
+    it('replaces a stale remembered view when no selection is active any more', () => {
+        const stale: MapView = { center: [1, 2], zoom: 10 };
+        const current: MapView = { center: [5, 6], zoom: 12 };
+        expect(rememberPreSelectionView(stale, current, false)).toBe(current);
     });
 });
 
@@ -70,12 +80,12 @@ describe('shouldRestoreViewOnEscape', () => {
     const base = {
         key: 'Escape',
         defaultPrevented: false,
-        hasRestoreView: true,
+        hasSelection: true,
         overlayOpen: false,
         targetEditable: false,
     };
 
-    it('restores on a plain Escape when a view was remembered', () => {
+    it('clears the selection on a plain Escape when something is selected', () => {
         expect(shouldRestoreViewOnEscape(base)).toBe(true);
     });
 
@@ -83,8 +93,8 @@ describe('shouldRestoreViewOnEscape', () => {
         expect(shouldRestoreViewOnEscape({ ...base, key: 'Enter' })).toBe(false);
     });
 
-    it('does nothing when no view was remembered', () => {
-        expect(shouldRestoreViewOnEscape({ ...base, hasRestoreView: false })).toBe(false);
+    it('does nothing when nothing is selected', () => {
+        expect(shouldRestoreViewOnEscape({ ...base, hasSelection: false })).toBe(false);
     });
 
     it('leaves Escape to an open overlay such as the historic calendar', () => {

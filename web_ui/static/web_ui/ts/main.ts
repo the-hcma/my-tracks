@@ -888,20 +888,18 @@ function scheduleApplyLocationSelection(): void {
 /** Map view from before the first street-level selection zoom; Escape restores it. */
 let preSelectionView: MapView | null = null;
 
-function currentMapView(): MapView {
-    const center = map!.getCenter();
-    return { center: [center.lat, center.lng], zoom: map!.getZoom() };
+function currentMapView(leafletMap: L.Map): MapView {
+    const center = leafletMap.getCenter();
+    return { center: [center.lat, center.lng], zoom: leafletMap.getZoom() };
 }
 
-/** Escape after a street-level selection: back to the previous view and clear the highlight. */
+/** Escape with an active selection: clear the highlight and, if a view was remembered, go back to it. */
 function restorePreSelectionView(): void {
     const view = preSelectionView;
-    preSelectionView = null;
-    if (!view || !map) {
-        return;
-    }
     clearLocationSelection();
-    map.setView(view.center, view.zoom);
+    if (view && map) {
+        map.setView(view.center, view.zoom);
+    }
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -917,7 +915,7 @@ function initMapEscapeRestore(): void {
             !shouldRestoreViewOnEscape({
                 key: event.key,
                 defaultPrevented: event.defaultPrevented,
-                hasRestoreView: preSelectionView !== null,
+                hasSelection: selectedLocationKey !== null,
                 overlayOpen: historicRangeCalendarApi?.isOpen() ?? false,
                 targetEditable: isEditableTarget(event.target),
             })
@@ -938,8 +936,8 @@ function focusLocationMarker(locationKey: string, openPopup: boolean): void {
 
     const { marker } = registeredMarker;
     const latLng = registeredMarkerLatLng(marker);
-    preSelectionView = rememberPreSelectionView(preSelectionView, currentMapView());
-    map.setView(latLng, streetLevelZoom(map.getZoom()));
+    // No animation: an animated zoom would race the popup's autoPan and end off-centre.
+    map.setView(latLng, streetLevelZoom(map.getZoom()), { animate: false });
     if (openPopup) {
         marker.openPopup();
     }
@@ -952,6 +950,13 @@ function selectLocation(
     if (selectedLocationKey === locationKey) {
         clearLocationSelection();
         return;
+    }
+
+    if (options.focusMarker && map) {
+        // Keep the original pre-click view only while a selection is still active; otherwise any
+        // remembered view is stale and must not become the Escape target.
+        const hasActiveSelection = selectedLocationKey !== null;
+        preSelectionView = rememberPreSelectionView(preSelectionView, currentMapView(map), hasActiveSelection);
     }
 
     selectedLocationKey = locationKey;
@@ -972,6 +977,7 @@ function selectLocation(
  * popup currently anchored to the previously-selected marker.
  */
 function clearLocationSelection(): void {
+    preSelectionView = null;
     if (selectedLocationKey === null) {
         return;
     }
@@ -1088,7 +1094,6 @@ function fitMapToVisibleTrailContent(): void {
     if (!map) {
         return;
     }
-    preSelectionView = null;
     const latLngs: L.LatLng[] = [];
     const dedupe = new Set<string>();
     const pushUnique = (ll: L.LatLng): void => {
@@ -1115,6 +1120,7 @@ function fitMapToVisibleTrailContent(): void {
     if (latLngs.length === 0) {
         return;
     }
+    preSelectionView = null;
     map.invalidateSize();
     if (latLngs.length === 1) {
         map.setView(latLngs[0], STREET_LEVEL_ZOOM);
@@ -1183,12 +1189,12 @@ function fitMapToLastKnownLocations(extraLatLngs: L.LatLng[] = []): void {
     if (!map) {
         return;
     }
-    preSelectionView = null;
     const keys = getLastKnownLocationKeysByDevice();
     const latLngs = mergeUniqueLatLngs(collectLatLngsForLastKnownKeys(keys), extraLatLngs);
     if (latLngs.length === 0) {
         return;
     }
+    preSelectionView = null;
     map.invalidateSize();
     if (latLngs.length === 1) {
         map.setView(latLngs[0], STREET_LEVEL_ZOOM);

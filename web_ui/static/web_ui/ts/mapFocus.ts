@@ -48,24 +48,30 @@ export function streetLevelZoom(currentZoom: number): number {
 }
 
 /**
- * Remember the view from before the first selection zoom. Selecting another point while still at
- * street level keeps the original view as the Escape target instead of nesting a stack of zooms.
+ * Remember the view from before the first selection zoom. Selecting another point while a selection
+ * is still active keeps the original view as the Escape target instead of nesting a stack of zooms.
+ * With no active selection any remembered view is stale, so the current view replaces it.
  */
-export function rememberPreSelectionView(existing: MapView | null, current: MapView): MapView {
-    return existing ?? current;
+export function rememberPreSelectionView(
+    existing: MapView | null,
+    current: MapView,
+    hasActiveSelection: boolean,
+): MapView {
+    return hasActiveSelection && existing ? existing : current;
 }
 
 export interface EscapeRestoreContext {
     key: string;
     defaultPrevented: boolean;
-    hasRestoreView: boolean;
+    /** A location is currently selected/highlighted. */
+    hasSelection: boolean;
     /** Historic range calendar (or any other overlay that owns Escape) is open. */
     overlayOpen: boolean;
     /** Focus is in an input, textarea, select or contenteditable element. */
     targetEditable: boolean;
 }
 
-/** Escape restores the pre-selection view only when nothing else should consume the key first. */
+/** Escape clears the selection (and restores the view) only when nothing else should take the key. */
 export function shouldRestoreViewOnEscape(ctx: EscapeRestoreContext): boolean {
-    return ctx.key === 'Escape' && !ctx.defaultPrevented && ctx.hasRestoreView && !ctx.overlayOpen && !ctx.targetEditable;
+    return ctx.key === 'Escape' && !ctx.defaultPrevented && ctx.hasSelection && !ctx.overlayOpen && !ctx.targetEditable;
 }
