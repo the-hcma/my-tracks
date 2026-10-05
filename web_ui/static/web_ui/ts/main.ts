@@ -40,6 +40,7 @@ import {
     type LastKnownLogEntry,
 } from './liveActivityToolbar';
 import { runLastKnownLoad } from './lastKnownLoad';
+import { shouldStartFocusFit } from './mapFocus';
 import { registerAndUpdateServiceWorker } from './serviceWorkerRecovery';
 import {
     PWA_INSTALL_DISMISS_LEGACY_SESSION_KEY,
@@ -1142,6 +1143,40 @@ function fitMapToLastKnownLocations(): void {
     }
     const bounds = L.latLngBounds(latLngs);
     map.fitBounds(bounds, { padding: [60, 60], maxZoom: 16 });
+}
+
+let focusFitInFlight = false;
+let focusFitLastFinishedMs = 0;
+
+/**
+ * Live activity only: when the UI regains focus, refresh live data and re-fit the map to the
+ * latest known location of the user and every visible friend. A saved pan/zoom must not win
+ * permanently, so this runs regardless of `needsFitBounds`. Live ingest afterwards still does
+ * not recenter (see `updateDeviceMarker`); this pass is the reset to "show everyone".
+ */
+async function fitMapToLatestLocationsOnFocus(): Promise<void> {
+    if (!isLiveMode || !map) {
+        return;
+    }
+    if (
+        !shouldStartFocusFit({
+            inFlight: focusFitInFlight,
+            nowMs: Date.now(),
+            lastFinishedMs: focusFitLastFinishedMs,
+        })
+    ) {
+        return;
+    }
+    focusFitInFlight = true;
+    try {
+        await refreshLiveActivity(skipHistoryFetch ? 'incremental' : liveActivityLoadKind);
+        if (isLiveMode) {
+            fitMapToLastKnownLocations();
+        }
+    } finally {
+        focusFitInFlight = false;
+        focusFitLastFinishedMs = Date.now();
+    }
 }
 
 function getLastKnownLocationKeysByDevice(): Set<string> {
@@ -4181,10 +4216,10 @@ function initEventListeners(): void {
             return;
         }
         ensureLiveWebSocketConnected();
-        void refreshLiveActivity(skipHistoryFetch ? 'incremental' : liveActivityLoadKind);
         if (map) {
             map.invalidateSize();
         }
+        void fitMapToLatestLocationsOnFocus();
     });
 
     window.addEventListener('focus', () => {
@@ -4192,6 +4227,7 @@ function initEventListeners(): void {
             return;
         }
         ensureLiveWebSocketConnected();
+        void fitMapToLatestLocationsOnFocus();
     });
 }
 
