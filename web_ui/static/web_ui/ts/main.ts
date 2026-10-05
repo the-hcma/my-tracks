@@ -47,6 +47,7 @@ import {
     type MapView,
     rememberPreSelectionView,
     selectedKeyAfterMarkerRekey,
+    shouldApplyFocusFit,
     shouldStartFocusFit,
     STREET_LEVEL_ZOOM,
     streetLevelZoom,
@@ -1301,7 +1302,13 @@ let focusFitLastFinishedMs = 0;
 async function refreshAndFitToLatestLocations(request: LiveActivityRefreshRequest): Promise<void> {
     const startedMs = Date.now();
     const [, latestLatLngs] = await Promise.all([refreshLiveActivity(request), fetchLatestLocationLatLngs()]);
-    if (isLiveMode && lastMapUserInteractionMs < startedMs) {
+    const applyFit = shouldApplyFocusFit({
+        isLiveMode,
+        hasSelection: selectedLocationKey !== null,
+        lastInteractionMs: lastMapUserInteractionMs,
+        startedMs,
+    });
+    if (applyFit) {
         fitMapToLastKnownLocations(latestLatLngs);
     }
 }

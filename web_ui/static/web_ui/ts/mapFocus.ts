@@ -145,3 +145,18 @@ export function isRapidReclick(options: {
     const windowMs = options.windowMs ?? RAPID_RECLICK_WINDOW_MS;
     return options.lastKey === options.key && options.nowMs - options.lastClickMs < windowMs;
 }
+
+export interface FocusFitApplyContext {
+    isLiveMode: boolean;
+    /** A location is selected: the user is inspecting it, and its Escape restore target must survive. */
+    hasSelection: boolean;
+    /** When the user last panned, zoomed or selected a point on the map. */
+    lastInteractionMs: number;
+    /** When the focus pass started; an interaction at or after this instant cancels the fit. */
+    startedMs: number;
+}
+
+/** Whether a finished focus refresh may still move the map. */
+export function shouldApplyFocusFit(ctx: FocusFitApplyContext): boolean {
+    return ctx.isLiveMode && !ctx.hasSelection && ctx.lastInteractionMs < ctx.startedMs;
+}

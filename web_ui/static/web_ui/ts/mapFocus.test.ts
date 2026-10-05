@@ -9,6 +9,7 @@ import {
     type MapView,
     rememberPreSelectionView,
     selectedKeyAfterMarkerRekey,
+    shouldApplyFocusFit,
     shouldRestoreViewOnEscape,
     shouldStartFocusFit,
     STREET_LEVEL_ZOOM,
@@ -255,5 +256,26 @@ describe('isRapidReclick', () => {
 
     it('does not flag the first click', () => {
         expect(isRapidReclick({ ...base, lastKey: null })).toBe(false);
+    });
+});
+
+describe('shouldApplyFocusFit', () => {
+    const base = { isLiveMode: true, hasSelection: false, lastInteractionMs: 100, startedMs: 200 };
+
+    it('applies when live, nothing is selected and the user has not interacted since the pass started', () => {
+        expect(shouldApplyFocusFit(base)).toBe(true);
+    });
+
+    it('does not apply outside live mode', () => {
+        expect(shouldApplyFocusFit({ ...base, isLiveMode: false })).toBe(false);
+    });
+
+    it('does not apply while a point is selected, so its Escape restore target survives', () => {
+        expect(shouldApplyFocusFit({ ...base, hasSelection: true })).toBe(false);
+    });
+
+    it('does not apply when the user interacted during the pass, even in the same millisecond', () => {
+        expect(shouldApplyFocusFit({ ...base, lastInteractionMs: 200 })).toBe(false);
+        expect(shouldApplyFocusFit({ ...base, lastInteractionMs: 250 })).toBe(false);
     });
 });
