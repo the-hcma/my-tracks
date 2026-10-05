@@ -1,9 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
     FOCUS_FIT_COOLDOWN_MS,
+    createEscapeRestoreHandler,
     FOCUS_FIT_MAX_IN_FLIGHT_MS,
+    isEditableTarget,
+    isRapidReclick,
+    RAPID_RECLICK_WINDOW_MS,
     type MapView,
     rememberPreSelectionView,
+    selectedKeyAfterMarkerRekey,
     shouldRestoreViewOnEscape,
     shouldStartFocusFit,
     STREET_LEVEL_ZOOM,
@@ -107,5 +112,148 @@ describe('shouldRestoreViewOnEscape', () => {
 
     it('leaves Escape that another handler already consumed', () => {
         expect(shouldRestoreViewOnEscape({ ...base, defaultPrevented: true })).toBe(false);
+    });
+});
+
+describe('isEditableTarget', () => {
+    it.each(['input', 'textarea', 'select'])('treats a focused <%s> as editable', (tag) => {
+        expect(isEditableTarget(document.createElement(tag))).toBe(true);
+    });
+
+    it('treats a contenteditable element as editable', () => {
+        const div = document.createElement('div');
+        Object.defineProperty(div, 'isContentEditable', { value: true });
+        expect(isEditableTarget(div)).toBe(true);
+    });
+
+    it('does not treat buttons, plain elements, document or null as editable', () => {
+        expect(isEditableTarget(document.createElement('button'))).toBe(false);
+        expect(isEditableTarget(document.createElement('div'))).toBe(false);
+        expect(isEditableTarget(document)).toBe(false);
+        expect(isEditableTarget(null)).toBe(false);
+    });
+});
+
+describe('createEscapeRestoreHandler', () => {
+    afterEach(() => {
+        document.body.innerHTML = '';
+    });
+
+    function setup(deps: { hasSelection?: boolean; overlayOpen?: boolean } = {}): {
+        restore: ReturnType<typeof vi.fn>;
+        teardown: () => void;
+    } {
+        const restore = vi.fn();
+        const handler = createEscapeRestoreHandler({
+            hasSelection: () => deps.hasSelection ?? true,
+            overlayOpen: () => deps.overlayOpen ?? false,
+            restore,
+        });
+        document.addEventListener('keydown', handler);
+        return { restore, teardown: () => document.removeEventListener('keydown', handler) };
+    }
+
+    function press(target: EventTarget, key = 'Escape'): KeyboardEvent {
+        const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+        target.dispatchEvent(event);
+        return event;
+    }
+
+    it('restores once and consumes the key when a selection is active', () => {
+        const { restore, teardown } = setup();
+        const event = press(document.body);
+        expect(restore).toHaveBeenCalledTimes(1);
+        expect(event.defaultPrevented).toBe(true);
+        teardown();
+    });
+
+    it('leaves Escape alone when nothing is selected', () => {
+        const { restore, teardown } = setup({ hasSelection: false });
+        const event = press(document.body);
+        expect(restore).not.toHaveBeenCalled();
+        expect(event.defaultPrevented).toBe(false);
+        teardown();
+    });
+
+    it('leaves Escape to an open overlay such as the historic calendar', () => {
+        const { restore, teardown } = setup({ overlayOpen: true });
+        press(document.body);
+        expect(restore).not.toHaveBeenCalled();
+        teardown();
+    });
+
+    it('leaves Escape to a focused input', () => {
+        const { restore, teardown } = setup();
+        const input = document.createElement('input');
+        document.body.appendChild(input);
+        const event = press(input);
+        expect(restore).not.toHaveBeenCalled();
+        expect(event.defaultPrevented).toBe(false);
+        teardown();
+    });
+
+    it('ignores other keys', () => {
+        const { restore, teardown } = setup();
+        press(document.body, 'Enter');
+        expect(restore).not.toHaveBeenCalled();
+        teardown();
+    });
+});
+
+describe('selectedKeyAfterMarkerRekey', () => {
+    it('moves the selection to the new key when the old key lost its only marker', () => {
+        const result = selectedKeyAfterMarkerRekey({
+            selectedKey: 'a',
+            previousKey: 'a',
+            newKey: 'b',
+            previousKeyStillRegistered: false,
+        });
+        expect(result).toBe('b');
+    });
+
+    it('keeps the selection when another marker still holds the old key', () => {
+        const result = selectedKeyAfterMarkerRekey({
+            selectedKey: 'a',
+            previousKey: 'a',
+            newKey: 'b',
+            previousKeyStillRegistered: true,
+        });
+        expect(result).toBe('a');
+    });
+
+    it('keeps an unrelated selection and a null selection', () => {
+        const base = { previousKey: 'a', newKey: 'b', previousKeyStillRegistered: false };
+        expect(selectedKeyAfterMarkerRekey({ ...base, selectedKey: 'z' })).toBe('z');
+        expect(selectedKeyAfterMarkerRekey({ ...base, selectedKey: null })).toBeNull();
+    });
+
+    it('keeps the selection when the marker did not change key', () => {
+        const result = selectedKeyAfterMarkerRekey({
+            selectedKey: 'a',
+            previousKey: 'a',
+            newKey: 'a',
+            previousKeyStillRegistered: false,
+        });
+        expect(result).toBe('a');
+    });
+});
+
+describe('isRapidReclick', () => {
+    const base = { nowMs: 1000, lastClickMs: 900, lastKey: 'a', key: 'a' };
+
+    it('flags a second click on the same marker inside the window', () => {
+        expect(isRapidReclick(base)).toBe(true);
+    });
+
+    it('does not flag a click once the window has elapsed', () => {
+        expect(isRapidReclick({ ...base, nowMs: base.lastClickMs + RAPID_RECLICK_WINDOW_MS })).toBe(false);
+    });
+
+    it('does not flag a click on a different marker', () => {
+        expect(isRapidReclick({ ...base, key: 'b' })).toBe(false);
+    });
+
+    it('does not flag the first click', () => {
+        expect(isRapidReclick({ ...base, lastKey: null })).toBe(false);
     });
 });

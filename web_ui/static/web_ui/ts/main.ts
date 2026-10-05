@@ -42,9 +42,11 @@ import {
 } from './liveActivityToolbar';
 import { runLastKnownLoad } from './lastKnownLoad';
 import {
+    createEscapeRestoreHandler,
+    isRapidReclick,
     type MapView,
     rememberPreSelectionView,
-    shouldRestoreViewOnEscape,
+    selectedKeyAfterMarkerRekey,
     shouldStartFocusFit,
     STREET_LEVEL_ZOOM,
     streetLevelZoom,
@@ -902,31 +904,16 @@ function restorePreSelectionView(): void {
     }
 }
 
-function isEditableTarget(target: EventTarget | null): boolean {
-    if (!(target instanceof HTMLElement)) {
-        return false;
-    }
-    return target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
-}
-
 function initMapEscapeRestore(): void {
-    document.addEventListener('keydown', (event: KeyboardEvent) => {
-        if (
-            !shouldRestoreViewOnEscape({
-                key: event.key,
-                defaultPrevented: event.defaultPrevented,
-                hasSelection: selectedLocationKey !== null,
-                overlayOpen: historicRangeCalendarApi?.isOpen() ?? false,
-                targetEditable: isEditableTarget(event.target),
-            })
-        ) {
-            return;
-        }
-        event.preventDefault();
-        restorePreSelectionView();
-    });
+    document.addEventListener(
+        'keydown',
+        createEscapeRestoreHandler({
+            hasSelection: () => selectedLocationKey !== null,
+            overlayOpen: () => historicRangeCalendarApi?.isOpen() ?? false,
+            restore: restorePreSelectionView,
+        }),
+    );
 }
-
 /**
  * Center on a selected point at street level. Prefers the registered marker; when the marker is not
  * on the map (e.g. a historic waypoint hidden by the accuracy filter) the row's own coordinates are
@@ -940,7 +927,8 @@ function focusLocationMarker(locationKey: string, openPopup: boolean, fallbackLo
     let latLng: L.LatLngExpression | null = null;
     if (registeredMarker) {
         latLng = registeredMarkerLatLng(registeredMarker.marker);
-    } else if (fallbackLocation) {
+    } else if (fallbackLocation && !showLastKnownOnly) {
+        // Last Known Only hides older waypoints, so zooming to a row's bare coordinates would land on nothing.
         const lat = parseFloat(String(fallbackLocation.latitude));
         const lng = parseFloat(String(fallbackLocation.longitude));
         latLng = Number.isFinite(lat) && Number.isFinite(lng) ? [lat, lng] : null;
@@ -948,9 +936,11 @@ function focusLocationMarker(locationKey: string, openPopup: boolean, fallbackLo
     if (!latLng) {
         return;
     }
-    // No animation: an animated zoom would race the popup's autoPan and end off-centre.
+    const popupWasOpen = registeredMarker?.marker.isPopupOpen() ?? false;
+    // No animation: an animated zoom would race Leaflet's popup autoPan and end off-centre.
     map.setView(latLng, streetLevelZoom(map.getZoom()), { animate: false });
-    if (openPopup) {
+    if (openPopup || popupWasOpen) {
+        // Re-opening re-runs autoPan, so a popup Leaflet opened on click is not clipped by the recenter.
         registeredMarker?.marker.openPopup();
     }
 }
@@ -964,6 +954,8 @@ function selectLocation(
         fallbackLocation?: TrackLocation;
     } = {},
 ): void {
+    // A selection is a user interaction: it must also invalidate an in-flight focus refit.
+    markMapUserInteraction();
     if (selectedLocationKey === locationKey) {
         // Toggling the selected point off mirrors Escape: clear the highlight and go back.
         restorePreSelectionView();
@@ -1024,12 +1016,23 @@ function attachLocationSelectionToEntry(entry: HTMLElement, location: TrackLocat
     });
 }
 
+/** Last marker click, so the second click of a double-click does not toggle the selection back off. */
+let lastMarkerClickMs = 0;
+let lastMarkerClickKey: string | null = null;
+
 function registerLocationMarker(location: TrackLocation, marker: LocationMarker, kind: RegisteredLocationMarker['kind']): void {
     if (showLastKnownOnly && kind === 'waypoint') {
         return;
     }
+    const previousKey = (marker as SelectableLocationMarker)._myTracksLocationKey;
     unregisterLocationMarker(marker);
     const locationKey = locationKeyFor(location);
+    selectedLocationKey = selectedKeyAfterMarkerRekey({
+        selectedKey: selectedLocationKey,
+        previousKey,
+        newKey: locationKey,
+        previousKeyStillRegistered: previousKey !== undefined && locationMarkersByKey.has(previousKey),
+    });
     const registeredMarkers = locationMarkersByKey.get(locationKey) ?? [];
     registeredMarkers.push({ marker, kind });
     locationMarkersByKey.set(locationKey, registeredMarkers);
@@ -1038,9 +1041,22 @@ function registerLocationMarker(location: TrackLocation, marker: LocationMarker,
     if (!selectableMarker._myTracksSelectionHandlerAttached) {
         marker.on('click', () => {
             const currentLocationKey = selectableMarker._myTracksLocationKey;
-            if (currentLocationKey) {
-                selectLocation(currentLocationKey, { scrollRow: true, focusMarker: true, openPopup: false });
+            if (!currentLocationKey) {
+                return;
             }
+            const nowMs = Date.now();
+            const rapidReclick = isRapidReclick({
+                nowMs,
+                lastClickMs: lastMarkerClickMs,
+                lastKey: lastMarkerClickKey,
+                key: currentLocationKey,
+            });
+            lastMarkerClickMs = nowMs;
+            lastMarkerClickKey = currentLocationKey;
+            if (rapidReclick) {
+                return;
+            }
+            selectLocation(currentLocationKey, { scrollRow: true, focusMarker: true, openPopup: false });
         });
         selectableMarker._myTracksSelectionHandlerAttached = true;
     }
@@ -1285,7 +1301,7 @@ let focusFitLastFinishedMs = 0;
 async function refreshAndFitToLatestLocations(request: LiveActivityRefreshRequest): Promise<void> {
     const startedMs = Date.now();
     const [, latestLatLngs] = await Promise.all([refreshLiveActivity(request), fetchLatestLocationLatLngs()]);
-    if (isLiveMode && lastMapUserInteractionMs <= startedMs) {
+    if (isLiveMode && lastMapUserInteractionMs < startedMs) {
         fitMapToLastKnownLocations(latestLatLngs);
     }
 }
@@ -1923,12 +1939,12 @@ function updateDeviceMarker(location: TrackLocation): void {
 
     // Center map on the marker in live mode only (when a single device is selected or first marker)
     // Avoid re-centering when showing "All Devices" — that creates constant map motion/jank.
-    if (isLiveMode && selectedDevice && selectedDevice === deviceName) {
+    if (isLiveMode && selectedLocationKey === null && selectedDevice && selectedDevice === deviceName) {
         map!.setView(latLng, map!.getZoom());
     }
 
     // If we're in live mode with no filter, only center when the very first marker is created.
-    if (isLiveMode && !selectedDevice && Object.keys(deviceMarkers).length === 1) {
+    if (isLiveMode && selectedLocationKey === null && !selectedDevice && Object.keys(deviceMarkers).length === 1) {
         map!.setView(latLng, map!.getZoom());
     }
     updateDeviceLegendVisibility();
@@ -2208,6 +2224,7 @@ function addLocationToTrail(location: TrackLocation): void {
     if (needsFitBounds && path.length > 0) {
         const latLng = L.latLng(path[path.length - 1][0], path[path.length - 1][1]);
         map!.setView(latLng, 17);
+        preSelectionView = null;
         needsFitBounds = false;
     }
     syncTrailPolylineVisibilityForLastKnownMode();
@@ -2399,6 +2416,7 @@ function drawLiveTrails(locationsByDevice: Record<string, TrackLocation[]>): voi
             } else {
                 map!.fitBounds(bounds, { padding: [50, 50], maxZoom: 17 });
             }
+            preSelectionView = null;
             needsFitBounds = false;
         }
     }
@@ -2599,6 +2617,7 @@ async function fetchAndDisplayTrail(): Promise<void> {
                     } else {
                         map!.fitBounds(bounds, { padding: [50, 50], maxZoom: 17 });
                     }
+                    preSelectionView = null;
                     needsFitBounds = false;
                 }
             }
@@ -2782,6 +2801,7 @@ async function fetchAndDisplayTrail(): Promise<void> {
                         maxZoom: 17, // Don't zoom in too much even for close points
                     });
                 }
+                preSelectionView = null;
                 needsFitBounds = false;
             }
         }
