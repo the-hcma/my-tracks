@@ -27,6 +27,15 @@ export const LAT_LON_DECIMAL_PLACES = 6;
 /** Window.fetch throws "Illegal invocation" when passed unbound as a callback. */
 export const boundFetch: typeof fetch = (...args: Parameters<typeof fetch>) => globalThis.fetch(...args);
 
+/** Overall deadline for live-activity and last-known requests (repo rule: no unbounded remote calls). */
+export const LIVE_FETCH_TIMEOUT_MS = 30_000;
+
+/** Add an overall deadline to a fetch init, keeping any caller-supplied abort signal. */
+export function withFetchTimeout(init: RequestInit = {}, timeoutMs: number = LIVE_FETCH_TIMEOUT_MS): RequestInit {
+    const deadline = AbortSignal.timeout(timeoutMs);
+    return { ...init, signal: init.signal ? AbortSignal.any([init.signal, deadline]) : deadline };
+}
+
 export function formatLatLonCoordinate(
     coordinate: string | number,
     precision = LAT_LON_DECIMAL_PLACES,
