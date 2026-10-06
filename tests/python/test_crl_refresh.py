@@ -1,10 +1,11 @@
 """The MQTT TLS CRL is issued with a long lifetime and refreshed before it lapses."""
 
+import asyncio
 import logging
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from typing import cast
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import time_machine
@@ -105,6 +106,20 @@ class TestRefreshCrl:
         self, broker: MagicMock, ca: tuple[bytes, bytes]
     ) -> None:
         broker.tls_config = self._tls_config(ca, [0xABC])
+        broker.tls_reload_failed = True
+
+        with (
+            patch.object(apps_module, "_load_tls_config") as load,
+            patch.object(apps_module, "trigger_tls_reload") as reload,
+        ):
+            await _refresh_crl()
+
+        load.assert_not_called()
+        reload.assert_called_once_with(reason="previous TLS reload failed", keep_tls_on_failure=True)
+
+    @pytest.mark.asyncio
+    async def test_retries_a_failed_enable_when_tls_was_off(self, broker: MagicMock) -> None:
+        broker.tls_config = None
         broker.tls_reload_failed = True
 
         with (
@@ -298,6 +313,7 @@ class TestTriggerTlsReloadKeepOnFailure:
     @pytest.fixture
     def running_broker(self) -> Iterator[MagicMock]:
         broker = MagicMock()
+        broker.trust_drop_pending = False
         loop = MagicMock()
         loop.is_closed.return_value = False
         with patch.object(apps_module._state, "broker", broker), patch.object(apps_module._state, "loop", loop):
@@ -316,6 +332,18 @@ class TestTriggerTlsReloadKeepOnFailure:
         schedule.assert_not_called()
         assert_that(caplog.text, contains_string("[mqtt-tls] TLS reload skipped"))
 
+    def test_a_pending_trust_drop_is_finished_without_reloading_the_listener(self, running_broker: MagicMock) -> None:
+        running_broker.trust_drop_pending = True
+        with (
+            patch.object(apps_module, "_load_tls_config", return_value=None),
+            patch.object(apps_module.asyncio, "run_coroutine_threadsafe") as schedule,
+        ):
+            apps_module.trigger_tls_reload(reason="previous TLS reload failed", keep_tls_on_failure=True)
+
+        running_broker.finish_pending_trust_drop.assert_called_once_with()
+        running_broker.reload_tls.assert_not_called()
+        schedule.assert_called_once()
+
     def test_explicit_reload_still_disables_tls_when_certificates_are_gone(self, running_broker: MagicMock) -> None:
         with (
             patch.object(apps_module, "_load_tls_config", return_value=None),
@@ -326,3 +354,30 @@ class TestTriggerTlsReloadKeepOnFailure:
 
         schedule.assert_called_once()
         running_broker.reload_tls.assert_called_once_with(None, -1, reason="certificate deactivated")
+
+
+class TestRefreshFinishesPendingTrustDrop:
+    """The periodic refresh completes an interrupted drop even when no certificates load."""
+
+    @pytest.mark.asyncio
+    async def test_refresh_completes_the_drop_without_mocking_the_reload_trigger(self) -> None:
+        broker = MagicMock(
+            reload_in_progress=False,
+            tls_reload_failed=True,
+            tls_config=None,
+            trust_drop_pending=True,
+            finish_pending_trust_drop=AsyncMock(),
+            reload_tls=AsyncMock(),
+        )
+        with (
+            patch.object(apps_module._state, "broker", broker),
+            patch.object(apps_module._state, "loop", asyncio.get_running_loop()),
+            patch.object(apps_module, "_load_tls_config", return_value=None),
+            patch.object(apps_module, "_run_with_fresh_db_connection", side_effect=lambda f, *a, **k: f(*a, **k)),
+        ):
+            await _refresh_crl()
+            for _ in range(5):
+                await asyncio.sleep(0)
+
+        broker.finish_pending_trust_drop.assert_awaited_once()
+        broker.reload_tls.assert_not_called()

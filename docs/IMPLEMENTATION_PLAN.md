@@ -434,7 +434,7 @@ Package the application as a production-ready container image deployable on a Ce
     - Prerequisite error messages now include platform-specific install instructions
 
 **Remaining hardening (future PRs)**:
-- **TLS 1.3 support** — Blocked by [cpython#83375](https://github.com/python/cpython/issues/83375) (open since Jan 2020, unassigned). When `asyncio.start_server` uses TLS 1.3 with `ssl.CERT_REQUIRED`, client certificate verification happens post-handshake; asyncio does not propagate the rejection, so invalid/expired/revoked certs silently get a dead connection instead of a handshake error. The workaround is `ctx.maximum_version = ssl.TLSVersion.TLSv1_2`. TLS 1.2 remains secure and is standard for MQTT/IoT. Monitor the CPython issue for a fix; when resolved, remove the `maximum_version` cap in `_CRLBroker._create_ssl_context()` and update the `test_caps_at_tls_1_2` test.
+- **TLS 1.3 support** — Blocked by [cpython#83375](https://github.com/python/cpython/issues/83375) (open since Jan 2020, unassigned). When `asyncio.start_server` uses TLS 1.3 with `ssl.CERT_REQUIRED`, client certificate verification happens post-handshake; asyncio does not propagate the rejection, so invalid/expired/revoked certs silently get a dead connection instead of a handshake error. The workaround is `ctx.maximum_version = ssl.TLSVersion.TLSv1_2`. TLS 1.2 remains secure and is standard for MQTT/IoT. Monitor the CPython issue for a fix; when resolved, remove the `maximum_version` cap in `build_server_ssl_context()` (`app/mqtt/broker.py`) and update the `test_caps_at_tls_1_2` test.
 
 ### Phase 7b: Production Hardening (In Progress)
 
@@ -588,15 +588,11 @@ Package the application as a production-ready container image deployable on a Ce
 
     **Priority**: implement as the next step (before opening port 443 to the internet).
 
-    **Problem**: No automated security scanning exists anywhere in the project today —
-    not in CI, not locally, not at deploy time. Dependency CVEs, credential leaks, and
-    Django misconfiguration can go undetected indefinitely.
+    **Problem**: No automated security scanning exists anywhere in the project today — not in CI, not locally, not at deploy time. Dependency CVEs, credential leaks, and Django misconfiguration can go undetected indefinitely.
 
-    **Goal**: Catch security issues continuously (per-PR via CI) and provide a pre-launch
-    gate before the service is exposed on port 443.
+    **Goal**: Catch security issues continuously (per-PR via CI) and provide a pre-launch gate before the service is exposed on port 443.
 
-    **Note**: all scan integrations below are **new** — none exist in the current
-    `ci.yml` or anywhere else in the project.
+    **Note**: all scan integrations below are **new** — none exist in the current `ci.yml` or anywhere else in the project.
 
     **Per-PR CI additions** (new steps in `ci.yml`):
     1. **Python dependency CVE audit** — new step in `backend-lint` job:
@@ -604,10 +600,8 @@ Package the application as a production-ready container image deployable on a Ce
        - name: Audit Python dependencies for CVEs
          run: uv run pip-audit
        ```
-       `pip-audit` is a new dev dependency (`pyproject.toml`). Exits non-zero on any
-       known CVE, blocking the PR. Fast — typically under 10 seconds.
-    2. **Django deployment hardening check** — new step in `backend-test` job, run after
-       migrations (Django process already running in that job):
+       `pip-audit` is a new dev dependency (`pyproject.toml`). Exits non-zero on any known CVE, blocking the PR. Fast — typically under 10 seconds.
+    2. **Django deployment hardening check** — new step in `backend-test` job, run after migrations (Django process already running in that job):
        ```yaml
        - name: Django deployment check
          run: uv run python manage.py check --deploy
@@ -616,51 +610,35 @@ Package the application as a production-ready container image deployable on a Ce
            SECRET_KEY: "ci-placeholder-not-a-real-secret"
            ALLOWED_HOSTS: "example.com"
        ```
-       Verifies `DEBUG=False`, `ALLOWED_HOSTS`, `SECRET_KEY` strength,
-       `SECURE_SSL_REDIRECT`, `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`,
-       HSTS headers, etc. Already enforced by Django — just needs to be wired in.
+       Verifies `DEBUG=False`, `ALLOWED_HOSTS`, `SECRET_KEY` strength, `SECURE_SSL_REDIRECT`, `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`, HSTS headers, etc. Already enforced by Django — just needs to be wired in.
     3. **Secret / credential leak scan** — new dedicated job `secret-scan`:
        ```yaml
        - name: Scan for leaked secrets
          uses: gitleaks/gitleaks-action@v2
        ```
-       Scans the full git history on every PR. Blocks if any credentials, API keys, or
-       tokens are found committed anywhere in the tree.
+       Scans the full git history on every PR. Blocks if any credentials, API keys, or tokens are found committed anywhere in the tree.
 
     **Scheduled weekly CI** (new `security-scan.yml` workflow, runs `0 6 * * 1`):
-    4. **Container image CVE scan** — `docker scout cves ghcr.io/the-hcma/my-tracks:latest`
-       run against the published image. Catches newly-disclosed CVEs in base image packages
-       between code changes. Not per-PR (would require building the image each time);
-       weekly is sufficient and keeps CI fast.
+    4. **Container image CVE scan** — `docker scout cves ghcr.io/the-hcma/my-tracks:latest` run against the published image. Catches newly-disclosed CVEs in base image packages between code changes. Not per-PR (would require building the image each time); weekly is sufficient and keeps CI fast.
 
     **Container manager pre-launch gate** (new `--security-check` command):
-    - Runs pip-audit, `manage.py check --deploy`, and `docker scout cves` against the
-      locally-built image in sequence. Exits non-zero on any high/critical finding.
-    - Gives the operator a single pre-flight command that covers what CI can't: the
-      actual built image and the real deployment config (`ALLOWED_HOSTS`, `SECRET_KEY`).
+    - Runs pip-audit, `manage.py check --deploy`, and `docker scout cves` against the locally-built image in sequence. Exits non-zero on any high/critical finding.
+    - Gives the operator a single pre-flight command that covers what CI can't: the actual built image and the real deployment config (`ALLOWED_HOSTS`, `SECRET_KEY`).
 
     **Files changed**:
     - `pyproject.toml`: add `pip-audit` as a dev dependency
-    - `.github/workflows/ci.yml`: add `pip-audit` step to `backend-lint` job,
-      add `manage.py check --deploy` step to `backend-test` job, add `secret-scan` job
-    - `.github/workflows/security-scan.yml`: new weekly scheduled workflow for
-      `docker scout cves`
+    - `.github/workflows/ci.yml`: add `pip-audit` step to `backend-lint` job, add `manage.py check --deploy` step to `backend-test` job, add `secret-scan` job
+    - `.github/workflows/security-scan.yml`: new weekly scheduled workflow for `docker scout cves`
     - `production/scripts/my-tracks-production-container-manager`: add `cmd_security_check`
 
 48. ✅ **GitHub Actions Workflow Linting (actionlint)** (PR #469)
 
-    **Problem**: GitHub Actions workflow YAML files had no linting — expression syntax
-    errors, invalid action inputs, and shell injection risks in `run:` steps went
-    undetected until runtime failures.
+    **Problem**: GitHub Actions workflow YAML files had no linting — expression syntax errors, invalid action inputs, and shell injection risks in `run:` steps went undetected until runtime failures.
 
     **What was done**:
-    - Added `workflow-lint` job to `ci.yml` using `rhysd/actionlint@v1.7.11`;
-      lints all `.github/workflows/` files on every PR; auto-updated by Dependabot
-    - Fixed script injection vulnerability in `cleanup-branch-on-merge.yml`:
-      `github.event.pull_request.head.ref` was interpolated directly into a shell script;
-      moved to `env:` vars (actionlint `[expression]` finding)
-    - Anchored domain-cert directory patterns in `.gitignore` with `/` prefix to prevent
-      repo-root certbot copies from being accidentally committed
+    - Added `workflow-lint` job to `ci.yml` using `rhysd/actionlint@v1.7.11`; lints all `.github/workflows/` files on every PR; auto-updated by Dependabot
+    - Fixed script injection vulnerability in `cleanup-branch-on-merge.yml`: `github.event.pull_request.head.ref` was interpolated directly into a shell script; moved to `env:` vars (actionlint `[expression]` finding)
+    - Anchored domain-cert directory patterns in `.gitignore` with `/` prefix to prevent repo-root certbot copies from being accidentally committed
 
     **Files changed**:
     - `.github/workflows/ci.yml`: new `workflow-lint` job

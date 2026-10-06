@@ -12,17 +12,17 @@ The broker handles OwnTracks MQTT protocol for:
 
 import asyncio
 import logging
+import os
 import ssl
 import tempfile
-import weakref
-from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
-from amqtt.adapters import ReaderAdapter, WriterAdapter
-from amqtt.broker import Broker, BrokerProtocolHandler, Server
-from amqtt.errors import AMQTTError, MQTTError, NoDataError
-from amqtt.session import Session
+from amqtt.broker import Broker
+from amqtt.contrib.listeners import ReloadableExternalTLSListener
+from cryptography import x509
 
 logger = logging.getLogger(__name__)
 
@@ -61,49 +61,6 @@ def _exception_from_asyncio_context(context: dict[str, Any]) -> BaseException | 
         return None
 
 
-def _log_background_task_exception(task: asyncio.Task[Any]) -> None:
-    """Log exceptions from fire-and-forget MQTT broker tasks (e.g. QoS 1 publish)."""
-    try:
-        exc = task.exception()
-    except asyncio.CancelledError:
-        return
-    if exc is None:
-        return
-    if isinstance(exc, TimeoutError):
-        logger.warning("[mqtt] Background publish timed out: %s", exc)
-        return
-    logger.warning(
-        "[mqtt] Background publish failed: %s",
-        exc,
-        exc_info=exc,
-    )
-
-
-def _apply_live_tls_to_session(
-    client_session: Session,
-    writer: WriterAdapter,
-) -> ssl.SSLObject | None:
-    """Bind the current connection's TLS peer to the MQTT session.
-
-    amqtt reuses persistent sessions but does not update ``ssl_object`` on
-    reconnect. Stale objects must be cleared when the new connection is not TLS.
-    """
-    fresh_ssl = writer.get_ssl_info()
-    if fresh_ssl is not None:
-        client_session.ssl_object = fresh_ssl
-    else:
-        client_session.ssl_object = None
-    return fresh_ssl
-
-
-def _attach_background_task_logging(task: asyncio.Task[Any]) -> None:
-    """Ensure a done callback logs task failures instead of asyncio ERROR noise."""
-    if getattr(task, "_mqtt_exception_logged", False):
-        return
-    task._mqtt_exception_logged = True  # type: ignore[attr-defined]
-    task.add_done_callback(_log_background_task_exception)
-
-
 def _mqtt_asyncio_exception_handler(
     loop: asyncio.AbstractEventLoop,
     context: dict[str, Any],
@@ -135,19 +92,6 @@ def _mqtt_asyncio_exception_handler(
         )
         return
 
-    if "Task exception was never retrieved" in message:
-        if isinstance(exception, TimeoutError):
-            logger.warning("[mqtt] %s", exception)
-        elif exception is not None:
-            logger.warning(
-                "[mqtt] Unhandled background task failed: %s",
-                exception,
-                exc_info=exception,
-            )
-        else:
-            logger.warning("[mqtt] %s", message)
-        return
-
     if "client_connected_cb" in message:
         if isinstance(exception, TimeoutError):
             logger.warning(
@@ -174,196 +118,8 @@ def _mqtt_asyncio_exception_handler(
         loop.default_exception_handler(context)
 
 
-class _CRLBroker(Broker):
-    """Broker subclass that enforces mutual TLS with optional CRL checking.
-
-    amqtt's ``_create_ssl_context`` hardcodes ``CERT_OPTIONAL``, which
-    silently accepts connections without a client certificate.  This
-    override switches to ``CERT_REQUIRED`` so that missing, invalid,
-    expired, or untrusted client certs cause an immediate handshake
-    failure.
-
-    TLS 1.3 is intentionally excluded: it defers client certificate
-    verification to a post-handshake exchange that ``asyncio.start_server``
-    does not propagate reliably, allowing invalid/expired/revoked certs
-    through (cpython#83375, open since 2020).  TLS 1.2 remains the
-    ceiling until Python/asyncio fixes this.
-
-    When ``_crl_pem`` is set, the override also enables leaf-level CRL
-    revocation checking so that revoked certs are rejected.
-    """
-
-    _crl_pem: bytes | None = None
-    _server_cert_sans: list[str] = []
-    _original_exception_handler: Any = None
-    # Maps ssl.SSLObject → SNI hostname sent by client in ClientHello.
-    # Populated by the servername callback during the TLS handshake.
-    # WeakKeyDictionary so entries are cleaned up automatically when the
-    # ssl object is garbage-collected (e.g. for connections that fail
-    # before reaching _initialize_client_session).
-    _sni_map: weakref.WeakKeyDictionary[ssl.SSLObject, str] = weakref.WeakKeyDictionary()
-
-    @staticmethod
-    def _create_ssl_context(listener: Any) -> ssl.SSLContext:
-        ctx = Broker._create_ssl_context(listener)
-        ctx.verify_mode = ssl.CERT_REQUIRED
-        ctx.maximum_version = ssl.TLSVersion.TLSv1_2
-        if _CRLBroker._crl_pem is not None:
-            ctx.verify_flags |= ssl.VERIFY_CRL_CHECK_LEAF
-            logger.info("CRL enforcement enabled for revocation checking")
-        # Capture the SNI hostname the client advertised in ClientHello.
-        # ssl.SSLObject.server_hostname is None on the server side (it
-        # reflects the client-side constructor parameter, not inbound SNI),
-        # so the only reliable way to read SNI server-side is this callback.
-
-        def _sni_callback(
-            ssl_obj: ssl.SSLSocket | ssl.SSLObject,
-            server_name: str | None,
-            ssl_context: ssl.SSLContext | ssl.SSLSocket,
-        ) -> None:
-            if server_name is not None and isinstance(ssl_obj, ssl.SSLObject):
-                _CRLBroker._sni_map[ssl_obj] = server_name
-
-        ctx.set_servername_callback(_sni_callback)
-        return ctx
-
-    async def start(self) -> None:
-        """Start the broker and install the TLS exception handler."""
-        await super().start()
-        loop = asyncio.get_running_loop()
-        _CRLBroker._original_exception_handler = loop.get_exception_handler()
-        loop.set_exception_handler(
-            lambda loop, ctx: _mqtt_asyncio_exception_handler(
-                loop,
-                ctx,
-                _CRLBroker._original_exception_handler,
-            )
-        )
-
-    async def shutdown(self) -> None:
-        """Shutdown the broker and restore the original exception handler."""
-        loop = asyncio.get_running_loop()
-        loop.set_exception_handler(_CRLBroker._original_exception_handler)
-        _CRLBroker._original_exception_handler = None
-        await super().shutdown()
-
-    async def _initialize_client_session(
-        self,
-        reader: ReaderAdapter,
-        writer: WriterAdapter,
-        remote_address: str,
-        remote_port: int,
-    ) -> tuple[BrokerProtocolHandler, Session]:
-        """Wrap parent to refresh TLS identity on reconnect and detect early disconnects.
-
-        amqtt reuses persistent sessions (``clean_session=False``) but does not copy
-        the new connection's ``ssl_object`` onto the cached session. mTLS auth then
-        reads a stale certificate and rejects valid clients until broker restart.
-
-        When a TLS handshake succeeds server-side but the client immediately closes
-        the connection (no MQTT data), it almost always means the client rejected
-        the server certificate (hostname not in SANs, untrusted CA, etc.).
-        """
-        try:
-            handler, client_session = await super()._initialize_client_session(
-                reader,
-                writer,
-                remote_address,
-                remote_port,
-            )
-        except AMQTTError, MQTTError, NoDataError:
-            ssl_obj = writer.get_ssl_info()
-            if ssl_obj is not None:
-                sans = ", ".join(_CRLBroker._server_cert_sans) or "none"
-                sni = _CRLBroker._sni_map.pop(ssl_obj, None) or "not sent"
-                logger.warning(
-                    "[mqtt-tls] Client %s:%s completed TLS handshake but "
-                    "disconnected before sending MQTT data. The client "
-                    "likely rejected the server certificate (hostname not "
-                    "in SANs, untrusted CA, or expired cert). "
-                    "Client expected hostname (SNI): %s — "
-                    "Server cert SANs: [%s]",
-                    remote_address,
-                    remote_port,
-                    sni,
-                    sans,
-                )
-            raise
-
-        _apply_live_tls_to_session(client_session, writer)
-        client_session.remote_address = remote_address
-        client_session.remote_port = remote_port
-        return handler, client_session
-
-    async def _handle_client_session(
-        self,
-        reader: ReaderAdapter,
-        writer: WriterAdapter,
-        client_session: Session,
-        handler: BrokerProtocolHandler,
-        server: Server,
-        listener_name: str,
-    ) -> None:
-        """Refresh TLS identity immediately before auth and clear it on exit.
-
-        ``_initialize_client_session`` runs before ``handler.attach``; the live
-        writer is only guaranteed here. Clearing ``ssl_object`` in ``finally``
-        prevents the next persistent-session reconnect from reusing a closed
-        TLS peer (``getpeercert`` → no CN / auth failures until broker restart).
-        """
-        fresh_ssl = _apply_live_tls_to_session(client_session, writer)
-        try:
-            await super()._handle_client_session(
-                reader,
-                writer,
-                client_session,
-                handler,
-                server,
-                listener_name,
-            )
-        finally:
-            # Do not clear session.ssl_object here: persistent sessions are reused
-            # across reconnects and take-over stops the old handler while the new
-            # connection's _handle_client_session is still running on the same
-            # Session instance. Stale peers are replaced in _apply_live_tls_to_session.
-            if fresh_ssl is not None:
-                _CRLBroker._sni_map.pop(fresh_ssl, None)
-
-    async def _client_connected(
-        self,
-        listener_name: str,
-        reader: ReaderAdapter,
-        writer: WriterAdapter,
-    ) -> None:
-        """Log connection-handler failures amqtt does not catch (e.g. SSL shutdown timeout)."""
-        try:
-            await super()._client_connected(listener_name, reader, writer)
-        except TimeoutError as exc:
-            tag = "[mqtt-tls]" if writer.get_ssl_info() is not None else "[mqtt]"
-            logger.warning(
-                "%s Client connection closed during shutdown on listener '%s': %s",
-                tag,
-                listener_name,
-                exc,
-            )
-
-    async def _run_broadcast(
-        self,
-        running_tasks: deque[asyncio.Task[Any]],
-    ) -> None:
-        """Attach logging to fire-and-forget publish tasks (QoS 1 PUBACK timeouts)."""
-        tasks_before = len(running_tasks)
-        await super()._run_broadcast(running_tasks)
-        for task in list(running_tasks)[tasks_before:]:
-            _attach_background_task_logging(task)
-
-
 def get_default_config(
     mqtt_port: int = 1883,
-    mqtt_tls_port: int = -1,
-    tls_certfile: str | None = None,
-    tls_keyfile: str | None = None,
-    tls_cafile: str | None = None,
     allow_anonymous: bool = True,
     use_django_auth: bool = False,
     use_owntracks_handler: bool = True,
@@ -373,10 +129,6 @@ def get_default_config(
 
     Args:
         mqtt_port: TCP port for MQTT connections (default: 1883)
-        mqtt_tls_port: TCP port for MQTT over TLS (default: -1 = disabled)
-        tls_certfile: Path to server certificate PEM file (required when TLS enabled)
-        tls_keyfile: Path to server private key PEM file (required when TLS enabled)
-        tls_cafile: Path to CA certificate PEM file for client cert verification
         allow_anonymous: Allow anonymous connections (default: True for initial setup)
         use_django_auth: Use Django authentication plugin (default: False)
         use_owntracks_handler: Use OwnTracks message handler plugin (default: True)
@@ -385,13 +137,18 @@ def get_default_config(
         Configuration dictionary for amqtt Broker
 
     Note:
+        The ``mqtt-tls`` listener is always declared as an ``external`` listener so the
+        broker can accept hand-offs from the ``ReloadableExternalTLSListener`` that
+        ``MQTTBroker`` starts when TLS is enabled (and can enable TLS later without
+        restarting the broker).
+
         When using the ``plugins`` dict config style, amqtt ignores
         the top-level ``auth`` section.  Authentication must be handled
         by including an auth plugin directly in the ``plugins`` dict
         (e.g. ``AnonymousAuthPlugin`` or ``DjangoAuthPlugin``).
     """
     plugins: dict[str, dict[str, Any]] = {
-        "app.mqtt.sys_plugin.BrokerSysPluginQos0": {"sys_interval": 30},
+        "amqtt.plugins.sys.broker.BrokerSysPlugin": {"sys_interval": 30, "qos": 0},
     }
 
     if use_django_auth and not allow_anonymous:
@@ -412,23 +169,168 @@ def get_default_config(
         },
     }
 
-    if mqtt_tls_port >= 0 and tls_certfile and tls_keyfile:
-        tls_listener: dict[str, Any] = {
-            "type": "tcp",
-            "bind": f"0.0.0.0:{mqtt_tls_port}",
-            "ssl": True,
-            "certfile": tls_certfile,
-            "keyfile": tls_keyfile,
-            "max_connections": 100,
-        }
-        if tls_cafile:
-            tls_listener["cafile"] = tls_cafile
-        listeners["mqtt-tls"] = tls_listener
+    # The bind value is never opened by amqtt for external listeners; it only has to exist.
+    # amqtt does not enforce max_connections for external listeners; _CappedTLSListener does.
+    listeners["mqtt-tls"] = {"type": "external", "bind": "0.0.0.0:0"}
 
     return {
         "listeners": listeners,
         "plugins": plugins,
     }
+
+
+_TLS_LISTENER_NAME = "mqtt-tls"
+# asyncio raises TimeoutError("SSL shutdown timed out") when a peer never completes the TLS close.
+_SSL_SHUTDOWN_TIMEOUT_TEXT = "SSL shutdown timed out"
+_TLS_BIND_HOST = "0.0.0.0"
+_TLS_MAX_CONNECTIONS = 100
+# How long stop() waits for TLS connection handlers to end after their transports are closed.
+_TLS_SHUTDOWN_DRAIN_SECONDS = 5.0
+
+
+class _TLSConnectionRegistry:
+    """Live TLS transports of the broker, shared by every listener generation.
+
+    A transport is counted once from accept until it closes, so a client that has finished the
+    handshake but not yet sent MQTT CONNECT is included, and a listener replaced by a port change
+    does not take its connections out of the count. A reload uses it to close the transports whose
+    trust changed, including the ones that have no MQTT session yet.
+    """
+
+    def __init__(self) -> None:
+        self._writers: set[asyncio.StreamWriter] = set()
+
+    def __len__(self) -> int:
+        return len(self._writers)
+
+    def add(self, writer: asyncio.StreamWriter) -> None:
+        self._writers.add(writer)
+
+    def close_matching(self, drop_reason: Callable[[ssl.SSLObject], str | None]) -> int:
+        """Close every transport for which ``drop_reason`` returns a reason; return how many."""
+        closed = 0
+        for writer in list(self._writers):
+            if writer.is_closing():
+                continue
+            ssl_object = writer.get_extra_info("ssl_object")
+            if ssl_object is None:
+                continue
+            reason = drop_reason(ssl_object)
+            if reason is None:
+                continue
+            logger.info("[mqtt-tls] Closing connection: reason=%s", reason)
+            writer.close()
+            closed += 1
+        return closed
+
+    def discard(self, writer: asyncio.StreamWriter) -> None:
+        self._writers.discard(writer)
+
+
+class _CappedTLSListener(ReloadableExternalTLSListener):
+    """Reloadable TLS listener that refuses connections beyond ``max_connections``.
+
+    amqtt applies ``max_connections`` only to listeners it opens itself, so the cap that the
+    old in-broker TLS listener had is enforced here for the external one, across every listener
+    generation through the shared ``registry``.
+    """
+
+    def __init__(self, *, max_connections: int, registry: _TLSConnectionRegistry, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.max_connections = max_connections
+        self.registry = registry
+
+    async def _client_connected(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        if len(self.registry) >= self.max_connections:
+            logger.warning(
+                "[mqtt-tls] Connection refused: limit reached (active=%d, max=%d)",
+                len(self.registry),
+                self.max_connections,
+            )
+            writer.close()
+            return
+        self.registry.add(writer)
+        try:
+            await super()._client_connected(reader, writer)
+        finally:
+            self.registry.discard(writer)
+
+
+class _ListenerShutdownTimeoutFilter(logging.Filter):
+    """Downgrade asyncio's "SSL shutdown timed out" in amqtt's TLS listener to one tagged WARNING.
+
+    ``ReloadableExternalTLSListener`` catches every exception from a connection and logs it with
+    ``logger.exception``, so a peer that never completes the TLS close would show up as an ERROR
+    with a traceback. It is routine for a client that drops off the network. Any other
+    exception, including a different ``TimeoutError``, keeps its level and traceback.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        exc = record.exc_info[1] if record.exc_info else None
+        if isinstance(exc, TimeoutError) and _SSL_SHUTDOWN_TIMEOUT_TEXT in str(exc):
+            listener_name = record.args[0] if isinstance(record.args, tuple) and record.args else _TLS_LISTENER_NAME
+            record.levelno = logging.WARNING
+            record.levelname = logging.getLevelName(logging.WARNING)
+            record.msg = "[mqtt-tls] Client connection closed during shutdown on listener '%s': %s"
+            record.args = (listener_name, exc)
+            record.exc_info = None
+            record.exc_text = None
+        return True
+
+
+def _demote_listener_shutdown_timeouts() -> None:
+    """Install :class:`_ListenerShutdownTimeoutFilter` on amqtt's listener logger once."""
+    listener_logger = logging.getLogger(ReloadableExternalTLSListener.__module__)
+    if not any(isinstance(existing, _ListenerShutdownTimeoutFilter) for existing in listener_logger.filters):
+        listener_logger.addFilter(_ListenerShutdownTimeoutFilter())
+
+
+def _revoked_serial_numbers(crl_pem: bytes) -> set[int]:
+    """Return the serial numbers listed in a PEM-encoded CRL."""
+    return {revoked.serial_number for revoked in x509.load_pem_x509_crl(crl_pem)}
+
+
+def _write_private_pem(directory: Path, name: str, data: bytes) -> str:
+    """Write ``data`` to ``directory/name`` readable only by the owner and return the path."""
+    path = directory / name
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as handle:
+        handle.write(data)
+    return str(path)
+
+
+def build_server_ssl_context(
+    tls_config: TLSConfig,
+    sni_callback: Callable[..., None] | None = None,
+) -> ssl.SSLContext:
+    """Build the mutual-TLS server context for the MQTT TLS listener.
+
+    ``ssl`` can only load a certificate chain and a CRL from files, so the PEM
+    material is written to a private temporary directory that is removed before
+    this function returns (the context keeps its own copy).
+
+    Client certificates are mandatory.  TLS 1.3 is intentionally excluded: it
+    defers client certificate verification to a post-handshake exchange that
+    asyncio does not propagate reliably, allowing invalid/expired/revoked certs
+    through (cpython#83375, open since 2020).  When the config carries a CRL,
+    leaf-level revocation checking is enabled.
+    """
+    ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH, cadata=tls_config.ca_cert_pem.decode("ascii"))
+    with tempfile.TemporaryDirectory(prefix="my-tracks-tls-") as tmp:
+        directory = Path(tmp)
+        ctx.load_cert_chain(
+            _write_private_pem(directory, "server.pem", tls_config.server_cert_pem),
+            _write_private_pem(directory, "server.key", tls_config.server_key_pem),
+        )
+        if tls_config.crl_pem:
+            ctx.load_verify_locations(cafile=_write_private_pem(directory, "crl.pem", tls_config.crl_pem))
+            ctx.verify_flags |= ssl.VERIFY_CRL_CHECK_LEAF
+            logger.info("[mqtt-tls] CRL enforcement enabled for revocation checking")
+    ctx.verify_mode = ssl.CERT_REQUIRED
+    ctx.maximum_version = ssl.TLSVersion.TLSv1_2
+    if sni_callback is not None:
+        ctx.set_servername_callback(sni_callback)
+    return ctx
 
 
 class MQTTBroker:
@@ -475,95 +377,29 @@ class MQTTBroker:
         self.use_django_auth = use_django_auth
         self.use_owntracks_handler = use_owntracks_handler
 
-        self._tls_temp_files: list[tempfile.NamedTemporaryFile] = []  # type: ignore[type-arg]
-        self._tls_certfile: str | None = None
-        self._tls_keyfile: str | None = None
-        self._tls_cafile: str | None = None
-
-        if tls_config and mqtt_tls_port >= 0:
-            self._setup_tls_files(tls_config)
-
         if config is not None:
             self._config = config
         else:
             self._config = get_default_config(
                 mqtt_port=mqtt_port,
-                mqtt_tls_port=mqtt_tls_port,
-                tls_certfile=self._tls_certfile,
-                tls_keyfile=self._tls_keyfile,
-                tls_cafile=self._tls_cafile,
                 allow_anonymous=allow_anonymous,
                 use_django_auth=use_django_auth,
                 use_owntracks_handler=use_owntracks_handler,
             )
 
         self._broker: Broker | None = None
+        self._tls_listener: _CappedTLSListener | None = None
+        self._original_exception_handler: Any = None
         self._running = False
         self._actual_mqtt_port: int | None = None
-        self._actual_tls_port: int | None = None
         self._reload_lock = asyncio.Lock()
-
-    def _setup_tls_files(self, tls_config: TLSConfig) -> None:
-        """Write TLS certificates to temporary files for amqtt.
-
-        amqtt requires file paths, not in-memory PEM data.
-        Files are cleaned up when the broker stops.
-        Also extracts server cert SANs for diagnostic logging.
-        """
-        from cryptography import x509
-        from cryptography.x509.oid import ExtensionOID
-
-        try:
-            cert = x509.load_pem_x509_certificate(tls_config.server_cert_pem)
-            san_ext = cert.extensions.get_extension_for_oid(
-                ExtensionOID.SUBJECT_ALTERNATIVE_NAME,
-            )
-            san_names = san_ext.value.get_values_for_type(x509.DNSName)
-            san_ips = [str(ip) for ip in san_ext.value.get_values_for_type(x509.IPAddress)]
-            _CRLBroker._server_cert_sans = san_names + san_ips
-        except Exception:
-            _CRLBroker._server_cert_sans = []
-
-        cert_file = tempfile.NamedTemporaryFile(suffix=".pem", delete=False)
-        cert_file.write(tls_config.server_cert_pem)
-        cert_file.flush()
-        self._tls_temp_files.append(cert_file)
-        self._tls_certfile = cert_file.name
-
-        key_file = tempfile.NamedTemporaryFile(suffix=".pem", delete=False)
-        key_file.write(tls_config.server_key_pem)
-        key_file.flush()
-        self._tls_temp_files.append(key_file)
-        self._tls_keyfile = key_file.name
-
-        ca_data = tls_config.ca_cert_pem
-        if tls_config.crl_pem:
-            ca_data = ca_data + b"\n" + tls_config.crl_pem
-        ca_file = tempfile.NamedTemporaryFile(suffix=".pem", delete=False)
-        ca_file.write(ca_data)
-        ca_file.flush()
-        self._tls_temp_files.append(ca_file)
-        self._tls_cafile = ca_file.name
-
-    def _cleanup_tls_files(self) -> None:
-        """Remove temporary TLS certificate files."""
-        import os as _os
-
-        for f in self._tls_temp_files:
-            try:
-                _os.unlink(f.name)
-            except OSError:
-                pass
-        self._tls_temp_files.clear()
+        self._tls_connections = _TLSConnectionRegistry()
+        # Why connected TLS clients must still be dropped when a reload's drop step failed part-way.
+        self._pending_trust_drop: str | None = None
 
     @property
     def is_running(self) -> bool:
-        """Check if the broker wrapper is running.
-
-        Note: during TLS hot-reload the inner amqtt Broker instance may be
-        temporarily unavailable even while the wrapper remains running.
-        Callers that need internal publish should also check ``amqtt_broker``.
-        """
+        """Check if the broker wrapper is running."""
         return self._running
 
     @property
@@ -581,7 +417,7 @@ class MQTTBroker:
 
         Args:
             listener_name: Name of the listener in the broker config
-                (e.g. ``"default"`` for TCP, ``"mqtt-tls"`` for TLS).
+                (e.g. ``"default"`` for TCP).
 
         Returns:
             The port number, or ``None`` if the broker hasn't started or
@@ -634,22 +470,45 @@ class MQTTBroker:
         """
         Get the actual MQTT TLS port after startup.
 
-        Returns None if TLS is disabled, broker hasn't started, or
-        port discovery failed.
+        Returns None if TLS is disabled or the TLS listener is not serving.
         """
         if self.mqtt_tls_port < 0:
             return None
-        if self._actual_tls_port is not None:
-            return self._actual_tls_port
+        if self._tls_listener is not None:
+            return self._tls_listener.actual_port
+        return None
+
+    def _sni_callback(self) -> Callable[..., None] | None:
+        """Return amqtt's inbound-SNI capture hook for contexts amqtt does not build itself.
+
+        amqtt only registers it on contexts it creates from listener config; a context handed to
+        the external listener has to register it so ``Session.inbound_sni`` and the early
+        post-TLS-disconnect diagnostic work.
+        """
         if self._broker is None:
             return None
+        return self._broker._sni_callback
 
-        port = self._discover_port("mqtt-tls")
-        if port is not None:
-            self._actual_tls_port = port
-            return port
+    async def _start_tls_listener(self, tls_config: TLSConfig, mqtt_tls_port: int) -> _CappedTLSListener:
+        """Create and start the reloadable TLS listener that hands connections to the broker.
 
-        return self.mqtt_tls_port
+        The caller owns the returned listener: nothing is stored on ``self`` so a failed or
+        superseded start cannot leave a half-registered listener behind.
+        """
+        if self._broker is None:
+            raise RuntimeError("Cannot start the TLS listener before the amqtt broker is running")
+        _demote_listener_shutdown_timeouts()
+        listener = _CappedTLSListener(
+            max_connections=_TLS_MAX_CONNECTIONS,
+            registry=self._tls_connections,
+            broker=self._broker,
+            listener_name=_TLS_LISTENER_NAME,
+            host=_TLS_BIND_HOST,
+            port=mqtt_tls_port,
+            ssl_context_factory=lambda: build_server_ssl_context(tls_config, self._sni_callback()),
+        )
+        await listener.start()
+        return listener
 
     async def start(self) -> None:
         """
@@ -669,15 +528,94 @@ class MQTTBroker:
             ports_msg += f" and {self.mqtt_tls_port} (TLS)"
         logger.info("Starting MQTT broker on %s", ports_msg)
 
-        if self.tls_config:
-            _CRLBroker._crl_pem = self.tls_config.crl_pem
-            self._broker = _CRLBroker(self._config)
-        else:
+        # Held until the TLS listener is up, so a reload triggered by a certificate change
+        # during startup waits for the listener to exist instead of racing to bind its own.
+        async with self._reload_lock:
             self._broker = Broker(self._config)
-        await self._broker.start()
-        self._running = True
+            await self._broker.start()
+            loop = asyncio.get_running_loop()
+            self._original_exception_handler = loop.get_exception_handler()
+            loop.set_exception_handler(
+                lambda loop, ctx: _mqtt_asyncio_exception_handler(loop, ctx, self._original_exception_handler)
+            )
+            if self.tls_config and self.mqtt_tls_port >= 0:
+                try:
+                    self._tls_listener = await self._start_tls_listener(self.tls_config, self.mqtt_tls_port)
+                except BaseException:
+                    # Undo the partial start so the TCP port is released and a later start() can retry.
+                    loop.set_exception_handler(self._original_exception_handler)
+                    self._original_exception_handler = None
+                    await self._broker.shutdown()
+                    self._broker = None
+                    raise
+            self._running = True
 
         logger.info("MQTT broker started successfully")
+
+    async def _disconnect_tls_sessions(self, drop_reason: Callable[[ssl.SSLObject], str | None]) -> int:
+        """Disconnect connected TLS sessions for which ``drop_reason`` returns a reason.
+
+        A reload only affects new handshakes, so a client authenticated under the old
+        configuration would otherwise stay connected until it reconnects on its own.
+
+        Returns:
+            Number of sessions asked to disconnect.
+        """
+        if self._broker is None:
+            return 0
+        dropped = 0
+        for client_id, (session, handler) in list(self._broker.sessions.items()):
+            ssl_object = session.ssl_object
+            if ssl_object is None or session.transitions.state != "connected":
+                continue
+            reason = drop_reason(ssl_object)
+            if reason is None:
+                continue
+            logger.info("[mqtt-tls] Dropping session: client=%s reason=%s", client_id, reason)
+            await handler.handle_disconnect(None)
+            dropped += 1
+        return dropped
+
+    @property
+    def trust_drop_pending(self) -> bool:
+        """True when a reload changed trust but did not finish dropping the connections that relied on it."""
+        return self._pending_trust_drop is not None
+
+    async def finish_pending_trust_drop(self) -> None:
+        """Finish an interrupted trust drop without touching the listener or its configuration."""
+        async with self._reload_lock:
+            cause = self._pending_trust_drop
+            if cause is None or not self._running or self._broker is None:
+                return
+            await self._drop_connections(lambda _ssl_object: cause)
+            self._pending_trust_drop = None
+            self.tls_reload_failed = False
+            logger.info("[mqtt-tls] Finished dropping connections after: %s", cause)
+
+    async def _drop_connections(self, drop_reason: Callable[[ssl.SSLObject], str | None]) -> int:
+        """Drop TLS sessions and the TLS transports that have no session yet (waiting for CONNECT).
+
+        Returns:
+            Number of sessions asked to disconnect.
+        """
+        dropped = await self._disconnect_tls_sessions(drop_reason)
+        self._tls_connections.close_matching(drop_reason)
+        return dropped
+
+    async def _disconnect_revoked_sessions(self, crl_pem: bytes) -> int:
+        """Drop TLS connections whose peer certificate is listed in the CRL."""
+        revoked_serials = _revoked_serial_numbers(crl_pem)
+        if not revoked_serials:
+            return 0
+
+        def revoked_reason(ssl_object: ssl.SSLObject) -> str | None:
+            der = ssl_object.getpeercert(binary_form=True)
+            if der is None:
+                return None
+            serial = x509.load_der_x509_certificate(der).serial_number
+            return f"certificate revoked (serial {serial:x})" if serial in revoked_serials else None
+
+        return await self._drop_connections(revoked_reason)
 
     async def reload_tls(
         self,
@@ -685,12 +623,14 @@ class MQTTBroker:
         mqtt_tls_port: int = -1,
         reason: str = "configuration changed",
     ) -> None:
-        """Hot-reload TLS configuration by restarting the internal amqtt broker.
+        """Hot-reload TLS configuration without restarting the amqtt broker.
 
-        The MQTTBroker wrapper stays alive (``_running`` remains True)
-        so the polling loop in ``apps._start_and_run`` is not interrupted.
-        Only the inner amqtt ``Broker`` instance is stopped and recreated
-        with the new certificate material.
+        The TLS accept socket is rebuilt with the new certificate material (or
+        started / closed when TLS is being enabled / disabled, or moved to a new
+        port).  Existing MQTT connections are kept, so only new handshakes see the
+        new certificates, with these exceptions: disabling TLS or replacing the CA
+        drops every connected TLS session, and a new CRL drops the sessions whose
+        certificate it revokes.
 
         Args:
             tls_config: New TLS certificates, or None to disable TLS.
@@ -698,49 +638,49 @@ class MQTTBroker:
             reason: Human-readable reason for the reload (included in logs).
         """
         async with self._reload_lock:
+            if not self._running or self._broker is None:
+                raise RuntimeError("MQTT broker is not running")
             logger.info("TLS hot-reload triggered — reason: %s", reason)
 
             # Cleared only when the new listener is up, so a reload that dies half-way
-            # (broker stopped, new one never started) stays visible to the CRL refresh check.
+            # stays visible to the CRL refresh check.
             self.tls_reload_failed = True
 
-            if self._broker is not None:
-                logger.info("Stopping current MQTT broker for TLS reload")
-                await self._broker.shutdown()
-                self._broker = None
-
-            self._cleanup_tls_files()
-            _CRLBroker._crl_pem = None
+            enabled = tls_config is not None and mqtt_tls_port >= 0
+            previous_config = self.tls_config
+            old_listener = self._tls_listener
+            if tls_config is not None and enabled:
+                if old_listener is not None and old_listener.port == mqtt_tls_port:
+                    # Same port: amqtt rebinds in place and tries to restore the previous socket on failure;
+                    # if that rebind fails too, no listener stays bound and the error propagates.
+                    await old_listener.reload(lambda: build_server_ssl_context(tls_config, self._sni_callback()))
+                else:
+                    # New port (or TLS newly enabled): start the replacement first so a bind failure
+                    # leaves the old listener, and the configuration that describes it, untouched.
+                    self._tls_listener = await self._start_tls_listener(tls_config, mqtt_tls_port)
+                    if old_listener is not None:
+                        await old_listener.close()
+            elif old_listener is not None:
+                await old_listener.close()
+                self._tls_listener = None
 
             self.tls_config = tls_config
             self.mqtt_tls_port = mqtt_tls_port
-            self._tls_certfile = None
-            self._tls_keyfile = None
-            self._tls_cafile = None
-
-            if tls_config and mqtt_tls_port >= 0:
-                self._setup_tls_files(tls_config)
-
-            self._config = get_default_config(
-                mqtt_port=self.mqtt_port,
-                mqtt_tls_port=mqtt_tls_port,
-                tls_certfile=self._tls_certfile,
-                tls_keyfile=self._tls_keyfile,
-                tls_cafile=self._tls_cafile,
-                allow_anonymous=self.allow_anonymous,
-                use_django_auth=self.use_django_auth,
-                use_owntracks_handler=self.use_owntracks_handler,
-            )
-
-            if tls_config:
-                _CRLBroker._crl_pem = tls_config.crl_pem
-                self._broker = _CRLBroker(self._config)
-            else:
-                self._broker = Broker(self._config)
-
-            await self._broker.start()
-            self._actual_mqtt_port = None
-            self._actual_tls_port = None
+            cause: str | None = None
+            if previous_config is not None and (
+                tls_config is None or not enabled or tls_config.ca_cert_pem != previous_config.ca_cert_pem
+            ):
+                # Their certificates were issued under a CA the broker no longer trusts, or TLS is off.
+                cause = "TLS disabled" if tls_config is None or not enabled else "CA certificate replaced"
+            # A retry after a failed drop sees an unchanged configuration, so it must finish the earlier drop.
+            cause = cause or self._pending_trust_drop
+            if cause is not None:
+                self._pending_trust_drop = cause
+                drop_cause = cause
+                await self._drop_connections(lambda _ssl_object: drop_cause)
+                self._pending_trust_drop = None
+            elif tls_config is not None and enabled and tls_config.crl_pem:
+                await self._disconnect_revoked_sessions(tls_config.crl_pem)
 
             tls_status = f"TLS on port {mqtt_tls_port}" if mqtt_tls_port >= 0 else "TLS disabled"
             self.tls_reload_failed = False
@@ -755,16 +695,33 @@ class MQTTBroker:
         Raises:
             RuntimeError: If the broker is not running
         """
-        if not self._running or self._broker is None:
-            raise RuntimeError("MQTT broker is not running")
+        # Serialized with reload_tls so a reload that is replacing the listener cannot assign it after shutdown.
+        async with self._reload_lock:
+            if not self._running or self._broker is None:
+                raise RuntimeError("MQTT broker is not running")
 
-        logger.info("Stopping MQTT broker...")
+            logger.info("Stopping MQTT broker...")
 
-        await self._broker.shutdown()
-        self._broker = None
-        self._running = False
-        self._cleanup_tls_files()
-        _CRLBroker._crl_pem = None
+            listener = self._tls_listener
+            if listener is not None:
+                await listener.close()
+                self._tls_listener = None
+            # Streams that finished the handshake but never sent CONNECT have no session, so the amqtt
+            # shutdown would leave them (and their registry entries) behind; replaced listeners' too.
+            self._tls_connections.close_matching(lambda _ssl_object: "broker stopping")
+            if listener is not None:
+                try:
+                    await listener.wait_connections_closed(timeout=_TLS_SHUTDOWN_DRAIN_SECONDS)
+                except TimeoutError:
+                    logger.warning(
+                        "[mqtt-tls] Connection handlers still running %.0fs after shutdown closed their transports",
+                        _TLS_SHUTDOWN_DRAIN_SECONDS,
+                    )
+            asyncio.get_running_loop().set_exception_handler(self._original_exception_handler)
+            self._original_exception_handler = None
+            await self._broker.shutdown()
+            self._broker = None
+            self._running = False
 
         logger.info("MQTT broker stopped")
 
