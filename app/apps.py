@@ -382,15 +382,9 @@ def _run_mqtt_broker(mqtt_port: int, mqtt_tls_port: int = -1) -> None:
             logger.critical("MQTT broker failed to start: %s", exc)
         # Fatal: bring down the entire server — a half-running server
         # (HTTP up, MQTT down) would silently drop all location updates.
-        # Clean up temp TLS key files before hard exit so they don't linger
-        # in /tmp across a container restart.
-        if _state.broker is not None:
-            _state.broker._cleanup_tls_files()
         os._exit(1)
     except Exception:
         logger.critical("MQTT broker startup failed unexpectedly", exc_info=True)
-        if _state.broker is not None:
-            _state.broker._cleanup_tls_files()
         os._exit(1)
     else:
         # _start_and_run() returned normally.  If shutdown was not requested,

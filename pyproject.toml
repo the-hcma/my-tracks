@@ -14,7 +14,8 @@ dependencies = [
     "daphne>=4.2.3",
     "whitenoise>=6.12.0",
     "typer>=0.27.2",
-    "amqtt>=0.12.1",
+    "amqtt[dollarsys]>=0.12.1",
+    "sqlalchemy>=2.0.41",  # amqtt.contrib/__init__ imports it unconditionally (needed for ReloadableExternalTLSListener)
     "cryptography>=50.0.2",
     "dj-database-url>=3.1.2",
     "h2==4.4.1",
@@ -81,6 +82,8 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 filterwarnings = [
     "ignore::ResourceWarning",
+    # amqtt warns on every BrokerSysPlugin load even when the amqtt[dollarsys] extra is installed.
+    "ignore:`BrokerSysPlugin`.*psutil:DeprecationWarning",
 ]
 
 [tool.coverage.run]
@@ -131,3 +134,7 @@ dev = [
 # Keep pyyaml>=6.0 because pyyaml 5.4.1 has no Python 3.14 wheel.
 [tool.uv]
 constraint-dependencies = ["pyyaml>=6.0"]
+
+# Validation only: amqtt main (11 merged upstream PRs, unreleased). Revert to the PyPI release once cut.
+[tool.uv.sources]
+amqtt = { git = "https://github.com/Yakifo/amqtt.git", rev = "d5e1abb3516ba5fad6b3bab3f9a9480def0d2fa8" }
