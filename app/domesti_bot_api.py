@@ -170,22 +170,6 @@ class DomestiBotTestLocationUpdateView(APIView):
         )
 
 
-class DomestiBotRevealApiKeyView(APIView):
-    """``GET /api/admin/domesti-bot/reveal-api-key/`` — staff-only decrypted API key for Admin UI."""
-
-    permission_classes = [IsAdminUser]
-
-    def get(self, request: Request) -> Response:
-        del request
-        config = DomestiBotConfig.get_solo()
-        if not config.is_paired:
-            return Response({"detail": "Not paired"}, status=status.HTTP_403_FORBIDDEN)
-        api_key = config.get_api_key()
-        if not api_key:
-            return Response({"detail": "API key not configured"}, status=status.HTTP_404_NOT_FOUND)
-        return Response({"api_key": api_key})
-
-
 def _location_request_context(request: Request) -> tuple[str, str | None, str | None]:
     data = _request_data_as_str_dict(request)
     reason = str(data.get("reason", "")).strip()

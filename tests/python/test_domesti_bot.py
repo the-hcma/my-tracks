@@ -129,11 +129,23 @@ def test_pair_rejects_invalid_url(admin_client: APIClient) -> None:
     assert_that(recent_log[0]["success"], is_(False))
 
 
-def test_reveal_api_key_when_paired(admin_client: APIClient) -> None:
+def test_reveal_api_key_endpoint_is_gone(admin_client: APIClient) -> None:
     admin_client.post("/api/admin/domesti-bot/pair/", _pair_payload(), format="json")
     response = admin_client.get("/api/admin/domesti-bot/reveal-api-key/")
+    assert_that(response.status_code, equal_to(status.HTTP_404_NOT_FOUND))
+    assert_that(response.content.decode(), not_(contains_string("domesti-secret-key")))
+
+
+def test_admin_panel_never_contains_stored_relay_key(admin_client: APIClient) -> None:
+    admin_client.post("/api/admin/domesti-bot/pair/", _pair_payload(), format="json")
+    client = Client()
+    client.force_login(User.objects.get(username="admin"))
+    response = client.get("/admin-panel/")
+    body = response.content.decode()
     assert_that(response.status_code, equal_to(status.HTTP_200_OK))
-    assert_that(response.json()["api_key"], equal_to("domesti-secret-key"))
+    assert_that(body, not_(contains_string("domesti-secret-key")))
+    assert_that(body, not_(contains_string("reveal-api-key")))
+    assert_that(body, contains_string("The key is never shown"))
 
 
 def test_patch_config_requires_pairing(admin_client: APIClient) -> None:
@@ -499,7 +511,7 @@ def test_admin_panel_integrations_tab(django_admin_client: Client, admin_client:
     assert_that(content, contains_string("Per-device request cooldown"))
     assert_that(content, contains_string("domesti-bot instance"))
     assert_that(content, contains_string("http://192.168.1.10:8003"))
-    assert_that(content, contains_string('id="domesti-api-key-toggle"'))
+    assert_that(content, not_(contains_string('id="domesti-api-key-toggle"')))
     assert_that(content, contains_string("js-domesti-paired-at"))
     assert_that(content, not_(contains_string("Recent activity (last 5)")))
     assert_that(content, not_(contains_string("Save domesti-bot settings")))

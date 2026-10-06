@@ -94,7 +94,7 @@ Store settings in a **singleton** model (same pattern as `SmtpConfig`): `Domesti
 
 Admin Panel gains a **domesti-bot** section (staff only). The section header links to the [domesti-bot repository](https://github.com/the-hcma/domesti-bot) for setup docs.
 
-**Pairing state drives the UI.** `is_paired` is derived from `paired_at` and a configured `api_key` (both set by the pairing endpoint). Until paired, config fields are **read-only and visually grayed out**; after pairing they become editable (except the API key, which stays masked).
+**Pairing state drives the UI.** `is_paired` is derived from `paired_at` and a configured `api_key` (both set by the pairing endpoint). Until paired, config fields are **read-only and visually grayed out**; after pairing they become editable (the API key is never shown or editable here).
 
 | Field | Purpose | Set by | Used for |
 | --- | --- | --- | --- |
@@ -230,7 +230,7 @@ No my-tracks code pushes the API key to domesti-bot; direction is **domesti-bot 
 ### Paired
 
 - **Status badge:** “Paired” with `paired_at` in the browser local timezone; hover shows UTC.
-- **Fields shown:** domesti-bot instance URL, live location update URL, test location update URL; API key shows “configured” (masked, reveal toggle).
+- **Fields shown:** domesti-bot instance URL, live location update URL, test location update URL; API key shows “configured” with no reveal control; no endpoint returns the stored key.
 - **Location updates toggle:** **“Send location updates to domesti-bot”** — maps to `location_updates_enabled`. On when pairing succeeds; operator can disable without unpairing (pauses live webhook POSTs; test button still works).
 - **Re-pair hint:** “To rotate the API key or change URLs, use Pair in domesti-bot.”
 - **Test location update** button with inline success/failure feedback (uses `user_location_test_url`).

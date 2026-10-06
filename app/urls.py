@@ -10,7 +10,6 @@ from .domesti_bot_api import (
     DomestiBotPairView,
     DomestiBotRequestAllLocationsView,
     DomestiBotRequestDeviceLocationView,
-    DomestiBotRevealApiKeyView,
     DomestiBotTestLocationUpdateView,
 )
 from .views import (
@@ -86,11 +85,6 @@ urlpatterns: list[URLPattern | URLResolver] = [
         r"^admin/domesti-bot/test-location-update/?$",
         DomestiBotTestLocationUpdateView.as_view(),
         name="admin-domesti-bot-test-location-update",
-    ),
-    re_path(
-        r"^admin/domesti-bot/reveal-api-key/?$",
-        DomestiBotRevealApiKeyView.as_view(),
-        name="admin-domesti-bot-reveal-api-key",
     ),
     re_path(
         r"^domesti-bot/users/(?P<user_id>[^/]+)/request-location/?$",
