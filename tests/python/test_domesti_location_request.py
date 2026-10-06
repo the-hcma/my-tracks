@@ -91,6 +91,59 @@ def test_request_location_rejects_invalid_relay_key(api_client: APIClient, db: A
     assert_that(response.status_code, equal_to(status.HTTP_403_FORBIDDEN))
 
 
+@pytest.mark.parametrize(
+    "bad_key",
+    ["clé-secrète", "domesti-secret-key\u2603", "x" * 5000],
+    ids=["latin1-accents", "non-latin1-suffix", "oversized"],
+)
+def test_request_location_rejects_unusual_relay_key_with_403(
+    api_client: APIClient, db: Any, bad_key: str
+) -> None:
+    _pair_and_enable_remote_request()
+
+    response = api_client.post(
+        ALL_DEVICES_URL.format(user_id="kristen"),
+        _request_body(),
+        format="json",
+        headers=_auth_headers(bad_key),
+    )
+    assert_that(response.status_code, equal_to(status.HTTP_403_FORBIDDEN))
+    assert_that(response.json()["detail"], equal_to("Invalid or missing domesti-bot API key"))
+
+
+def test_request_location_accepts_non_ascii_stored_key(
+    api_client: APIClient,
+    db: Any,
+    tracked_user: User,
+) -> None:
+    config = DomestiBotConfig.get_solo()
+    pair_domesti_bot(
+        config,
+        api_key="clé-secrète",
+        user_location_test_url="http://192.168.1.10:8003/v1/webhooks/presence/test",
+        user_location_update_url="http://192.168.1.10:8003/v1/webhooks/presence",
+        domesti_base_url="http://192.168.1.10:8003",
+    )
+    config.remote_request_location_enabled = True
+    config.save(update_fields=["remote_request_location_enabled", "updated_at"])
+    Device.objects.create(
+        owner=tracked_user,
+        device_id="pixel7pro",
+        mqtt_user=tracked_user.username,
+    )
+
+    mock_request_location = MagicMock(return_value=True)
+    with patch("app.domesti_location_request.async_to_sync", return_value=mock_request_location):
+        response = api_client.post(
+            ALL_DEVICES_URL.format(user_id=tracked_user.username),
+            _request_body(),
+            format="json",
+            headers=_auth_headers("clé-secrète"),
+        )
+
+    assert_that(response.status_code, equal_to(status.HTTP_202_ACCEPTED))
+
+
 def test_request_location_rejects_when_capability_disabled(api_client: APIClient, db: Any) -> None:
     config = DomestiBotConfig.get_solo()
     pair_domesti_bot(
