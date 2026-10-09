@@ -2,19 +2,33 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
+import re
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime
+from collections.abc import Iterator
+from contextlib import AbstractContextManager, contextmanager
+from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlparse, urlunparse
 
+from django.db import transaction
 from django.utils import timezone
 
+from app.domesti_relay_keys import (
+    PENDING_PAIRING_TTL_SECONDS,
+    PREVIOUS_KEY_GRACE_SECONDS,
+    PROTOCOL_VERSION_LEGACY,
+    PROTOCOL_VERSION_SPLIT,
+    pending_pairing_is_live,
+    relay_key_verifier,
+    text_equal,
+)
 from app.location_report import location_reported_at
 from app.pki import decrypt_private_key, encrypt_private_key
 
@@ -88,6 +102,13 @@ def pair_domesti_bot(
     validate_absolute_http_url(base)
 
     config.set_api_key(key)
+    # A version 1 pairing shares one reversible key for both directions: drop any protocol 2 state.
+    config.protocol_version = PROTOCOL_VERSION_LEGACY
+    config.outbound_key_verifier = ""
+    config.previous_outbound_key_verifier = ""
+    config.previous_outbound_key_expires_at = None
+    config.pending_pairing = {}
+    config.activated_pairing_id = ""
     config.user_location_test_url = test_url
     config.user_location_update_url = location_url
     config.domesti_base_url = base
@@ -101,6 +122,199 @@ def pair_domesti_bot(
         user_location_test_url=test_url,
         user_location_update_url=location_url,
     )
+
+
+# One limit for the regex and the ``activated_pairing_id`` column (max_length=64), so a staged id can always activate.
+PAIRING_ID_MAX_LENGTH = 64
+_PAIRING_ID_RE = re.compile(rf"^[A-Za-z0-9_-]{{8,{PAIRING_ID_MAX_LENGTH}}}$")
+_PENDING_STR_KEYS = (
+    "pairing_id",
+    "expires_at",
+    "encrypted_api_key",
+    "outbound_key_verifier",
+    "user_location_test_url",
+    "user_location_update_url",
+    "domesti_base_url",
+)
+
+
+class PairingIdInUseError(ValueError):
+    """A stage reused the id of the pairing that is already active."""
+
+
+def normalized_pairing_id(raw: Any) -> str:
+    """The pairing id if it is well formed, else ``""`` (so malformed ids are simply unknown)."""
+    text = str(raw or "").strip()
+    return text if _PAIRING_ID_RE.fullmatch(text) else ""
+
+
+@contextmanager
+def locked_domesti_config() -> Iterator[DomestiBotConfig]:
+    """The singleton row, re-read inside a transaction (row-locked on PostgreSQL) for read-modify-write.
+
+    SQLite has no row locks; its single writer makes an interleaved writer fail loudly with "database is
+    locked" instead of silently overwriting, and the caller retries.
+    """
+    from app.models import DomestiBotConfig
+
+    with cast("AbstractContextManager[None]", transaction.atomic()):
+        DomestiBotConfig.get_solo()
+        yield DomestiBotConfig.objects.select_for_update().get(pk=1)
+
+
+def _pending_is_well_formed(pending: Any) -> bool:
+    return isinstance(pending, dict) and all(isinstance(pending.get(key), str) for key in _PENDING_STR_KEYS)
+
+
+def requested_protocol_version(data: dict[str, Any]) -> int:
+    """The protocol version a pair request asks for; absent means version 1. Raises ValueError on garbage."""
+    raw = data.get("protocol_version")
+    if raw is None or raw == "":
+        return PROTOCOL_VERSION_LEGACY
+    if isinstance(raw, bool):
+        msg = "protocol_version must be an integer"
+        raise ValueError(msg)
+    try:
+        requested = int(raw)
+    except TypeError, ValueError:
+        msg = "protocol_version must be an integer"
+        raise ValueError(msg) from None
+    if requested < PROTOCOL_VERSION_LEGACY:
+        msg = "protocol_version must be at least 1"
+        raise ValueError(msg)
+    return min(requested, PROTOCOL_VERSION_SPLIT)
+
+
+def stage_domesti_pairing(config: DomestiBotConfig, *, data: dict[str, Any]) -> dict[str, Any]:
+    """Protocol 2 stage: keep the new keys pending and leave the active pairing untouched.
+
+    Returns the response body. Nothing switches until :func:`activate_domesti_pairing`.
+    """
+    pairing_id = str(data.get("pairing_id", "")).strip()
+    if not _PAIRING_ID_RE.fullmatch(pairing_id):
+        msg = f"pairing_id is required (8-{PAIRING_ID_MAX_LENGTH} letters, digits, '-' or '_')"
+        raise ValueError(msg)
+    if config.activated_pairing_id and text_equal(str(config.activated_pairing_id), pairing_id):
+        msg = "pairing_id is already the active pairing; stage a new one with a fresh id"
+        raise PairingIdInUseError(msg)
+    inbound = str(data.get("api_key", "")).strip()
+    outbound = str(data.get("outbound_api_key", "")).strip()
+    if not inbound or not outbound:
+        msg = "api_key and outbound_api_key are required for protocol_version 2"
+        raise ValueError(msg)
+    if inbound == outbound:
+        msg = "api_key and outbound_api_key must differ"
+        raise ValueError(msg)
+    update_url, test_url = pairing_location_urls_from_data(data)
+    location_url = validate_absolute_http_url(update_url)
+    test_url = validate_absolute_http_url(test_url)
+    base = str(data.get("domesti_base_url", "") or "").strip() or extract_base_url_from_location_url(location_url)
+    validate_absolute_http_url(base)
+
+    expires = timezone.now() + timedelta(seconds=PENDING_PAIRING_TTL_SECONDS)
+    config.pending_pairing = {
+        "pairing_id": pairing_id,
+        "expires_at": expires.isoformat(),
+        "encrypted_api_key": base64.b64encode(encrypt_api_key(inbound)).decode("ascii"),
+        "outbound_key_verifier": relay_key_verifier(outbound),
+        "user_location_test_url": test_url,
+        "user_location_update_url": location_url,
+        "domesti_base_url": base,
+    }
+    config.save(update_fields=["pending_pairing", "updated_at"])
+    return {
+        "protocol_version": PROTOCOL_VERSION_SPLIT,
+        "pairing_id": pairing_id,
+        "status": "staged",
+        "expires_at": expires.isoformat(),
+    }
+
+
+def pairing_status(config: DomestiBotConfig, pairing_id: str) -> str:
+    """``active``, ``staged``, ``expired`` or ``unknown`` for a pairing id."""
+    if pairing_id and text_equal(str(config.activated_pairing_id), pairing_id):
+        return "active"
+    pending = cast(dict[str, Any], config.pending_pairing or {})
+    if pairing_id and _pending_is_well_formed(pending) and text_equal(str(pending["pairing_id"]), pairing_id):
+        return "staged" if pending_pairing_is_live(pending) else "expired"
+    return "unknown"
+
+
+def activate_domesti_pairing(pairing_id: str) -> tuple[str, DomestiBotConfig]:
+    """Promote the staged pairing atomically. Idempotent per pairing id; returns ``(status, config)``."""
+    with locked_domesti_config() as config:
+        state = pairing_status(config, pairing_id)
+        if state != "staged":
+            if state == "expired" or (config.pending_pairing and not _pending_is_well_formed(config.pending_pairing)):
+                config.pending_pairing = {}
+                config.save(update_fields=["pending_pairing", "updated_at"])
+            return state, config
+        pending = cast(dict[str, Any], config.pending_pairing)
+        now = timezone.now()
+        # Keep the key that authenticated domesti-bot until now valid for a short grace (requests in flight).
+        previous = ""
+        if config.protocol_version >= PROTOCOL_VERSION_SPLIT:
+            previous = str(config.outbound_key_verifier)
+        else:
+            try:
+                old_key = config.get_api_key()
+            except Exception:  # an undecryptable old key (changed SECRET_KEY) must not block moving to protocol 2
+                logger.warning("[domesti-bot] could not read the previous relay key while activating a pairing")
+                old_key = None
+            previous = relay_key_verifier(old_key) if old_key else ""
+        try:
+            new_inbound = base64.b64decode(str(pending["encrypted_api_key"]), validate=True)
+        except ValueError:
+            config.pending_pairing = {}
+            config.save(update_fields=["pending_pairing", "updated_at"])
+            return "unknown", config
+        config.previous_outbound_key_verifier = previous
+        config.previous_outbound_key_expires_at = (
+            now + timedelta(seconds=PREVIOUS_KEY_GRACE_SECONDS) if previous else None
+        )
+        config.encrypted_api_key = new_inbound
+        config.outbound_key_verifier = str(pending["outbound_key_verifier"])
+        config.protocol_version = PROTOCOL_VERSION_SPLIT
+        config.user_location_test_url = str(pending["user_location_test_url"])
+        config.user_location_update_url = str(pending["user_location_update_url"])
+        config.domesti_base_url = str(pending["domesti_base_url"])
+        config.paired_at = now
+        config.location_updates_enabled = True
+        config.activated_pairing_id = pairing_id
+        config.pending_pairing = {}
+        config.save()
+    log_pairing_activity(
+        config,
+        success=True,
+        domesti_base_url=str(config.domesti_base_url),
+        user_location_test_url=str(config.user_location_test_url),
+        user_location_update_url=str(config.user_location_update_url),
+    )
+    return "active", config
+
+
+def abort_domesti_pairing(config: DomestiBotConfig, pairing_id: str) -> str:
+    """Discard a staged pairing. ``aborted``, ``unknown`` (nothing to do) or ``active`` (too late)."""
+    state = pairing_status(config, pairing_id)
+    if state in ("staged", "expired"):
+        config.pending_pairing = {}
+        config.save(update_fields=["pending_pairing", "updated_at"])
+        return "aborted"
+    return state
+
+
+def pending_probe_credentials(config: DomestiBotConfig, pairing_id: str) -> tuple[str, str] | None:
+    """``(inbound key, test URL)`` of a live staged pairing, for probing it before activation."""
+    if pairing_status(config, pairing_id) != "staged":
+        return None
+    pending = cast(dict[str, Any], config.pending_pairing)
+    try:
+        return decrypt_api_key(base64.b64decode(str(pending["encrypted_api_key"]), validate=True)), str(
+            pending["user_location_test_url"]
+        )
+    except Exception:  # an undecryptable staged key cannot be probed; the caller reports it as unusable
+        logger.warning("[domesti-bot] could not read the staged relay key for a probe")
+        return None
 
 
 def apply_config_patch(config: DomestiBotConfig, data: dict[str, Any]) -> list[str]:
@@ -378,10 +592,15 @@ def send_location_webhook(
     *,
     payload: dict[str, Any],
     source: str,
+    api_key: str | None = None,
+    post_url: str | None = None,
 ) -> dict[str, Any]:
-    """POST a location payload to domesti-bot and return delivery metadata."""
-    post_url = location_post_url_for_source(config, source=source)
-    api_key = config.get_api_key()
+    """POST a location payload to domesti-bot and return delivery metadata.
+
+    ``api_key`` and ``post_url`` override the active pairing's (used to probe a staged pairing).
+    """
+    post_url = post_url or location_post_url_for_source(config, source=source)
+    api_key = api_key or config.get_api_key()
     if not api_key:
         msg = "api_key is not configured"
         raise ValueError(msg)

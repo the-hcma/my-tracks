@@ -8,6 +8,9 @@ from .admin_sync_export import AdminUsersWithDevicesExportView, AdminWaypointsEx
 from .domesti_bot_api import (
     DomestiBotAuthCheckView,
     DomestiBotConfigView,
+    DomestiBotPairAbortView,
+    DomestiBotPairActivateView,
+    DomestiBotPairStateView,
     DomestiBotPairView,
     DomestiBotRequestAllLocationsView,
     DomestiBotRequestDeviceLocationView,
@@ -81,6 +84,21 @@ urlpatterns: list[URLPattern | URLResolver] = [
         r"^admin/domesti-bot/pair/?$",
         DomestiBotPairView.as_view(),
         name="admin-domesti-bot-pair",
+    ),
+    re_path(
+        r"^admin/domesti-bot/pair/activate/?$",
+        DomestiBotPairActivateView.as_view(),
+        name="admin-domesti-bot-pair-activate",
+    ),
+    re_path(
+        r"^admin/domesti-bot/pair/abort/?$",
+        DomestiBotPairAbortView.as_view(),
+        name="admin-domesti-bot-pair-abort",
+    ),
+    re_path(
+        r"^admin/domesti-bot/pair/state/?$",
+        DomestiBotPairStateView.as_view(),
+        name="admin-domesti-bot-pair-state",
     ),
     re_path(
         r"^admin/domesti-bot/test-location-update/?$",

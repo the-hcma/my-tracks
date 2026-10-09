@@ -529,7 +529,7 @@ If you've been running My Tracks in development with SQLite and want to test wit
 
 This will:
 - Export data from your SQLite database using Django's `dumpdata`
-- Preserve your `SECRET_KEY` from `.env` so PKI private keys remain decryptable
+- Preserve your `SECRET_KEY` from `.env` so PKI private keys remain decryptable (and the domesti-bot relay keys: changing `SECRET_KEY` invalidates the stored domesti-bot pairing, which then has to be paired again from domesti-bot)
 - Preserve your `ALLOWED_HOSTS` so your domain works without 400 errors
 - Start PostgreSQL, run migrations, and import the data
 - Start the full stack with all your data (including PKI certificates) ready
