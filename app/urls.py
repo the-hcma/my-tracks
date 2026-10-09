@@ -6,6 +6,7 @@ from rest_framework.routers import DefaultRouter
 
 from .admin_sync_export import AdminUsersWithDevicesExportView, AdminWaypointsExportView
 from .domesti_bot_api import (
+    DomestiBotAuthCheckView,
     DomestiBotConfigView,
     DomestiBotPairView,
     DomestiBotRequestAllLocationsView,
@@ -85,6 +86,11 @@ urlpatterns: list[URLPattern | URLResolver] = [
         r"^admin/domesti-bot/test-location-update/?$",
         DomestiBotTestLocationUpdateView.as_view(),
         name="admin-domesti-bot-test-location-update",
+    ),
+    re_path(
+        r"^domesti-bot/auth-check/?$",
+        DomestiBotAuthCheckView.as_view(),
+        name="domesti-bot-auth-check",
     ),
     re_path(
         r"^domesti-bot/users/(?P<user_id>[^/]+)/request-location/?$",

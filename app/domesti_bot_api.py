@@ -24,7 +24,7 @@ from app.domesti_bot import (
     serialize_domesti_bot_config,
     serialize_domesti_bot_pair_response,
 )
-from app.domesti_bot_auth import DomestiRelayApiKeyPermission
+from app.domesti_bot_auth import DomestiRelayApiKeyPermission, DomestiRelayAuthCheckPermission
 from app.domesti_location_request import (
     LocationRequestError,
     serialize_location_request_batch_result,
@@ -74,6 +74,27 @@ class DomestiBotConfigView(APIView):
         if errors:
             return Response({"errors": errors}, status=status.HTTP_400_BAD_REQUEST)
         return _config_response(config)
+
+
+class DomestiBotAuthCheckView(APIView):
+    """``GET /api/domesti-bot/auth-check/`` — does this outbound key authenticate? No side effects.
+
+    Accepts the active key, or the staged key together with ``X-Domesti-Pairing-Id`` of a live pending
+    pairing. domesti-bot calls it to verify a staged key before activating the pairing.
+    """
+
+    authentication_classes: list[Any] = []
+    permission_classes = [DomestiRelayAuthCheckPermission]
+
+    def get(self, request: Request) -> Response:
+        config = DomestiBotConfig.get_solo()
+        return Response(
+            {
+                "ok": True,
+                "key": getattr(request, "auth_check_key", "active"),
+                "protocol_version": config.protocol_version,
+            }
+        )
 
 
 class DomestiBotPairView(APIView):
