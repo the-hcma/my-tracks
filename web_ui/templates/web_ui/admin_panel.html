@@ -1486,6 +1486,10 @@
                     <label>API key</label>
                     <div class="domesti-api-key-indicator" id="domesti-api-key-status">Configured. The key is never shown; pair again to replace it.</div>
                 </div>
+                <div class="form-group" style="margin-bottom:1rem;">
+                    <label>Relay key protocol</label>
+                    <div class="domesti-api-key-indicator" id="domesti-protocol-status">{% if domesti_bot_config.protocol_version >= 2 %}Version 2: separate keys per direction. This server stores only a verifier of the key domesti-bot presents to it.{% else %}Version 1: one shared key for both directions. Pair again from a current domesti-bot to move to version 2.{% endif %}{% if domesti_bot_config.pending_pairing %} A new pairing is staged and waiting for domesti-bot to activate it.{% endif %}</div>
+                </div>
                 {% endif %}
 
                 <div class="form-group" style="margin-bottom:1rem;">
