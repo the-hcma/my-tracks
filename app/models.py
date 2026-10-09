@@ -642,6 +642,38 @@ class DomestiBotConfig(models.Model):
         blank=True,
         help_text="When domesti-bot last completed pairing",
     )
+    protocol_version = models.PositiveSmallIntegerField(
+        default=1,  # type: ignore[reportArgumentType]
+        help_text="Relay key protocol: 1 shares one reversible key, 2 keeps a verifier-only outbound key",
+    )
+    outbound_key_verifier = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="Protocol 2: keyed HMAC-SHA-256 (hex) of the key domesti-bot presents to my-tracks",
+    )
+    previous_outbound_key_verifier = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="Protocol 2: the previous outbound verifier, accepted until previous_outbound_key_expires_at",
+    )
+    previous_outbound_key_expires_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the previous outbound verifier stops being accepted",
+    )
+    pending_pairing = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Protocol 2: a staged pairing (id, expiry, encrypted inbound key, outbound verifier, URLs)",
+    )
+    activated_pairing_id = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="Protocol 2: id of the pairing that last became active (activation is idempotent per id)",
+    )
     location_updates_enabled = models.BooleanField(
         default=False,  # type: ignore[reportArgumentType]
         help_text="When enabled, POST each saved location to domesti-bot",
@@ -718,6 +750,42 @@ class DomestiBotConfig(models.Model):
         from app.domesti_bot import decrypt_api_key
 
         return decrypt_api_key(cast(bytes, self.encrypted_api_key))
+
+    def outbound_key_matches(self, presented: str) -> bool:
+        """Does ``presented`` authenticate domesti-bot's requests to my-tracks (the active outbound key)?
+
+        Protocol 2 compares keyed verifiers (the current one, and the previous one until it expires);
+        protocol 1 compares against the single shared key.
+        """
+        from django.utils import timezone
+
+        from app.domesti_bot_auth import relay_api_keys_match
+        from app.domesti_relay_keys import PROTOCOL_VERSION_SPLIT, verifier_matches
+
+        if self.protocol_version >= PROTOCOL_VERSION_SPLIT:
+            if verifier_matches(presented, str(self.outbound_key_verifier)):
+                return True
+            expires = self.previous_outbound_key_expires_at
+            return bool(
+                self.previous_outbound_key_verifier
+                and expires is not None
+                and expires > timezone.now()
+                and verifier_matches(presented, str(self.previous_outbound_key_verifier))
+            )
+        stored = self.get_api_key()
+        return bool(stored) and relay_api_keys_match(presented, cast(str, stored))
+
+    def pending_outbound_key_matches(self, presented: str, pairing_id: str) -> bool:
+        """Does ``presented`` match the staged outbound key of the live pending pairing ``pairing_id``?"""
+        from app.domesti_relay_keys import pending_pairing_is_live, text_equal, verifier_matches
+
+        pending = cast(dict[str, Any], self.pending_pairing or {})
+        return (
+            bool(pairing_id)
+            and pending_pairing_is_live(pending)
+            and text_equal(str(pending.get("pairing_id", "")), pairing_id)
+            and verifier_matches(presented, str(pending.get("outbound_key_verifier", "")))
+        )
 
 
 class LocationQualitySettings(models.Model):

@@ -151,6 +151,7 @@ def serialize_domesti_bot_config(config: DomestiBotConfig) -> dict[str, Any]:
         "user_location_update_url": config.user_location_update_url,
         "api_key_configured": config.api_key_configured,
         "paired_at": config.paired_at.isoformat() if config.paired_at else None,
+        "protocol_version": config.protocol_version,
         "location_updates_enabled": config.location_updates_enabled,
         "remote_request_location_enabled": config.remote_request_location_enabled,
         "location_request_device_cooldown_seconds": device_cooldown_seconds,

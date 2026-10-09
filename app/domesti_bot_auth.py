@@ -11,6 +11,7 @@ from rest_framework.views import APIView
 from app.models import DomestiBotConfig
 
 DOMESTI_API_KEY_HEADER = "X-Domesti-Api-Key"
+DOMESTI_PAIRING_ID_HEADER = "X-Domesti-Pairing-Id"
 # Longest header value compared; anything longer cannot be a key this service issued.
 _MAX_API_KEY_LENGTH = 512
 
@@ -42,11 +43,32 @@ class DomestiRelayApiKeyPermission(BasePermission):
             return False
 
         provided_key = str(request.headers.get(DOMESTI_API_KEY_HEADER, "")).strip()
-        stored_key = config.get_api_key()
-        if not stored_key or not provided_key:
-            self.message = "Invalid or missing domesti-bot API key"
-            return False
-        if not relay_api_keys_match(provided_key, stored_key):
+        if not provided_key or not config.outbound_key_matches(provided_key):
             self.message = "Invalid or missing domesti-bot API key"
             return False
         return True
+
+
+class DomestiRelayAuthCheckPermission(BasePermission):
+    """Accept the active outbound key, or the staged one for the live pending pairing named in the header.
+
+    Used only by the auth-check endpoint, which lets domesti-bot verify a staged key without queuing a
+    location request or activating anything. It does not require the request-location opt-in.
+    """
+
+    message = "Invalid or missing domesti-bot API key"
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        del view
+        provided_key = str(request.headers.get(DOMESTI_API_KEY_HEADER, "")).strip()
+        if not provided_key:
+            return False
+        config = DomestiBotConfig.get_solo()
+        pairing_id = str(request.headers.get(DOMESTI_PAIRING_ID_HEADER, "")).strip()
+        if pairing_id and config.pending_outbound_key_matches(provided_key, pairing_id):
+            request.auth_check_key = "pending"  # type: ignore[attr-defined]
+            return True
+        if config.is_paired and config.outbound_key_matches(provided_key):
+            request.auth_check_key = "active"  # type: ignore[attr-defined]
+            return True
+        return False
