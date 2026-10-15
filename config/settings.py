@@ -337,33 +337,6 @@ class DaphneHttpProtocolFilter(logging.Filter):
         return True
 
 
-class AmqttConnectionFilter(logging.Filter):
-    """Rewrite amqtt's ambiguous 'connections acquired' messages."""
-
-    _prev_count: dict[str, int] = {}
-    _LISTENER_TO_TRANSPORT = {"default": "mqtt", "mqtt-tls": "mqtt-tls"}
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        msg = str(getattr(record, "msg", ""))
-        if "connections acquired" not in msg:
-            return True
-        try:
-            parts = msg.split("'")
-            listener = parts[1]
-            count_part = parts[2].split("/")[0].strip().rstrip(":").strip()
-            count = int(count_part)
-        except IndexError, ValueError:
-            return True
-        prev = self._prev_count.get(listener, 0)
-        self._prev_count[listener] = count
-        tag = self._LISTENER_TO_TRANSPORT.get(listener, listener)
-        if count > prev:
-            record.msg = f"[{tag}] Client connected ({count} active)"
-        else:
-            record.msg = f"[{tag}] Client disconnected ({count} active)"
-        return True
-
-
 # URL prefixes that are WebSocket-only (no HTTP handler registered).
 # HTTP requests to these paths always 404 — that is expected, not a problem.
 _WS_PREFIXES = ("/ws/",)
@@ -453,9 +426,6 @@ LOGGING = {
         "daphne_http_protocol_filter": {
             "()": "config.settings.DaphneHttpProtocolFilter",
         },
-        "amqtt_connection_filter": {
-            "()": "config.settings.AmqttConnectionFilter",
-        },
         "ws_not_found_filter": {
             "()": "config.settings.WebSocketNotFoundFilter",
         },
@@ -492,7 +462,6 @@ LOGGING = {
         "amqtt.broker": {
             "handlers": _all_handlers,
             "level": "INFO",
-            "filters": ["amqtt_connection_filter"],
             "propagate": False,
         },
         "transitions.core": {

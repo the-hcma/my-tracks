@@ -10,10 +10,12 @@ actual PKI material (CA, server cert, client certs), and verify that:
 """
 
 import asyncio
+import gc
+import logging
 import os
 import ssl
 import tempfile
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -27,9 +29,8 @@ from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 from hamcrest import assert_that, equal_to, is_, not_none
 from tiny_pki import generate_crl, get_certificate_serial_number
 
-from app.mqtt.broker import MQTTBroker, TLSConfig
-from app.pki import (generate_ca_certificate, generate_client_certificate,
-                     generate_server_certificate)
+from app.mqtt.broker import MQTTBroker, TLSConfig, get_default_config
+from app.pki import generate_ca_certificate, generate_client_certificate, generate_server_certificate
 
 _TEST_KEY_SIZE = 2048
 
@@ -461,7 +462,7 @@ class TestMQTTBrokerTLSEndToEnd:
         """Without a CRL loaded, a revoked cert is accepted (no revocation check).
 
         This documents the difference: CRL enforcement is opt-in via
-        the _CRLBroker subclass.
+        ``TLSConfig.crl_pem``.
         """
         tls_config = tls_fixture.make_tls_config(with_crl=False)
         broker = MQTTBroker(
@@ -483,6 +484,299 @@ class TestMQTTBrokerTLSEndToEnd:
             )
             writer.close()
             await writer.wait_closed()
+        finally:
+            if broker.is_running:
+                await broker.stop()
+
+
+_CONNECT_PACKET = b"\x10\x10\x00\x04MQTT\x04\x02\x00\x3c\x00\x04tst1"
+_CONNACK_ACCEPTED = b"\x20\x02\x00\x00"
+_POLL_TIMEOUT_SECONDS = 5.0
+_PINGREQ_PACKET = b"\xc0\x00"
+_PINGRESP_PACKET = b"\xd0\x00"
+
+
+async def _wait_until(condition: Callable[[], bool]) -> bool:
+    """Poll ``condition`` on the event loop until it holds or the poll deadline passes."""
+    deadline = asyncio.get_running_loop().time() + _POLL_TIMEOUT_SECONDS
+    while asyncio.get_running_loop().time() < deadline:
+        if condition():
+            return True
+        await asyncio.sleep(0.02)
+    return condition()
+
+
+async def _tls_connection_rejected(tls_port: int, ctx: ssl.SSLContext) -> bool:
+    """Return True when the broker refuses a TLS client (handshake or first read fails)."""
+    try:
+        reader, writer = await asyncio.open_connection("127.0.0.1", tls_port, ssl=ctx, server_hostname="localhost")
+        writer.write(_CONNECT_PACKET)
+        await writer.drain()
+        data = await reader.read(4)
+        writer.close()
+        return data != _CONNACK_ACCEPTED
+    except (ssl.SSLError, OSError):
+        return True
+
+
+class TestTLSReloadAndAmqttIntegration:
+    """Behavior of the reloadable listener and stock amqtt features that replaced our overrides."""
+
+    @pytest.mark.asyncio
+    async def test_reload_with_crl_rejects_revoked_cert_on_new_connections(self, tls_fixture: _TLSFixture) -> None:
+        broker = MQTTBroker(
+            mqtt_port=0, mqtt_tls_port=0, tls_config=tls_fixture.make_tls_config(with_crl=False),
+            use_owntracks_handler=False,
+        )
+        try:
+            await broker.start()
+            tls_port = broker.actual_tls_port
+            assert tls_port is not None
+            revoked_ctx = tls_fixture.client_ssl_context(tls_fixture.revoked_cert_file, tls_fixture.revoked_key_file)
+            valid_ctx = tls_fixture.client_ssl_context(tls_fixture.valid_cert_file, tls_fixture.valid_key_file)
+            assert_that(await _tls_connection_rejected(tls_port, revoked_ctx), is_(False))
+
+            await broker.reload_tls(tls_fixture.make_tls_config(with_crl=True), mqtt_tls_port=0)
+
+            # Port 0 asks the OS for a fresh port on every bind; a configured port is re-bound as is.
+            tls_port = broker.actual_tls_port
+            assert tls_port is not None
+            assert_that(await _tls_connection_rejected(tls_port, revoked_ctx), is_(True))
+            assert_that(await _tls_connection_rejected(tls_port, valid_ctx), is_(False))
+        finally:
+            if broker.is_running:
+                await broker.stop()
+
+    @pytest.mark.asyncio
+    async def test_reload_drops_established_connection_of_newly_revoked_cert(
+        self, tls_fixture: _TLSFixture,
+    ) -> None:
+        """A reload with a CRL that revokes a connected client's certificate disconnects it."""
+        broker = MQTTBroker(
+            mqtt_port=0, mqtt_tls_port=0, tls_config=tls_fixture.make_tls_config(with_crl=False),
+            use_owntracks_handler=False,
+        )
+        writer: asyncio.StreamWriter | None = None
+        try:
+            await broker.start()
+            tls_port = broker.actual_tls_port
+            assert tls_port is not None
+            client_ctx = tls_fixture.client_ssl_context(tls_fixture.revoked_cert_file, tls_fixture.revoked_key_file)
+            reader, writer = await asyncio.open_connection(
+                "127.0.0.1", tls_port, ssl=client_ctx, server_hostname="localhost",
+            )
+            writer.write(_CONNECT_PACKET)
+            await writer.drain()
+            assert_that(await reader.read(4), equal_to(_CONNACK_ACCEPTED))
+
+            await broker.reload_tls(tls_fixture.make_tls_config(with_crl=True), mqtt_tls_port=0)
+
+            assert_that(await asyncio.wait_for(reader.read(), _POLL_TIMEOUT_SECONDS), equal_to(b""))
+        finally:
+            if writer is not None:
+                writer.close()
+            if broker.is_running:
+                await broker.stop()
+
+    @pytest.mark.asyncio
+    async def test_reload_keeps_established_connection_of_unrevoked_cert(
+        self, tls_fixture: _TLSFixture,
+    ) -> None:
+        """Sessions whose certificate is not in the new CRL are left alone by a reload."""
+        broker = MQTTBroker(
+            mqtt_port=0, mqtt_tls_port=0, tls_config=tls_fixture.make_tls_config(with_crl=False),
+            use_owntracks_handler=False,
+        )
+        writer: asyncio.StreamWriter | None = None
+        try:
+            await broker.start()
+            tls_port = broker.actual_tls_port
+            assert tls_port is not None
+            client_ctx = tls_fixture.client_ssl_context(tls_fixture.valid_cert_file, tls_fixture.valid_key_file)
+            reader, writer = await asyncio.open_connection(
+                "127.0.0.1", tls_port, ssl=client_ctx, server_hostname="localhost",
+            )
+            writer.write(_CONNECT_PACKET)
+            await writer.drain()
+            assert_that(await reader.read(4), equal_to(_CONNACK_ACCEPTED))
+
+            await broker.reload_tls(tls_fixture.make_tls_config(with_crl=True), mqtt_tls_port=0)
+
+            writer.write(_PINGREQ_PACKET)
+            await writer.drain()
+            assert_that(await asyncio.wait_for(reader.read(2), _POLL_TIMEOUT_SECONDS), equal_to(_PINGRESP_PACKET))
+        finally:
+            if writer is not None:
+                writer.close()
+            if broker.is_running:
+                await broker.stop()
+
+    @pytest.mark.asyncio
+    async def test_reload_can_enable_then_disable_the_tls_listener(self, tls_fixture: _TLSFixture) -> None:
+        broker = MQTTBroker(mqtt_port=0, mqtt_tls_port=-1, use_owntracks_handler=False)
+        try:
+            await broker.start()
+            assert_that(broker.actual_tls_port, is_(None))
+
+            await broker.reload_tls(tls_fixture.make_tls_config(), mqtt_tls_port=0)
+            tls_port = broker.actual_tls_port
+            assert tls_port is not None
+            valid_ctx = tls_fixture.client_ssl_context(tls_fixture.valid_cert_file, tls_fixture.valid_key_file)
+            assert_that(await _tls_connection_rejected(tls_port, valid_ctx), is_(False))
+
+            await broker.reload_tls(None, mqtt_tls_port=-1)
+            assert_that(broker.actual_tls_port, is_(None))
+            assert_that(await _tls_connection_rejected(tls_port, valid_ctx), is_(True))
+        finally:
+            if broker.is_running:
+                await broker.stop()
+
+    @pytest.mark.asyncio
+    async def test_inbound_sni_is_recorded_on_the_session(self, tls_fixture: _TLSFixture) -> None:
+        broker = MQTTBroker(
+            mqtt_port=0, mqtt_tls_port=0, tls_config=tls_fixture.make_tls_config(), use_owntracks_handler=False,
+        )
+        writer: asyncio.StreamWriter | None = None
+        try:
+            await broker.start()
+            tls_port = broker.actual_tls_port
+            assert tls_port is not None
+            ctx = tls_fixture.client_ssl_context(tls_fixture.valid_cert_file, tls_fixture.valid_key_file)
+            reader, writer = await asyncio.open_connection("127.0.0.1", tls_port, ssl=ctx, server_hostname="localhost")
+            writer.write(_CONNECT_PACKET)
+            await writer.drain()
+            assert_that(await reader.read(4), equal_to(_CONNACK_ACCEPTED))
+
+            amqtt_broker = broker.amqtt_broker
+            assert amqtt_broker is not None
+            session, _handler = amqtt_broker._sessions["tst1"]
+            assert_that(session.inbound_sni, equal_to("localhost"))
+        finally:
+            if writer is not None:
+                writer.close()
+            if broker.is_running:
+                await broker.stop()
+
+    @pytest.mark.asyncio
+    async def test_early_disconnect_after_handshake_is_diagnosed_with_sni(
+        self, tls_fixture: _TLSFixture, caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        caplog.set_level(logging.INFO)
+        broker = MQTTBroker(
+            mqtt_port=0, mqtt_tls_port=0, tls_config=tls_fixture.make_tls_config(), use_owntracks_handler=False,
+        )
+        try:
+            await broker.start()
+            tls_port = broker.actual_tls_port
+            assert tls_port is not None
+            ctx = tls_fixture.client_ssl_context(tls_fixture.valid_cert_file, tls_fixture.valid_key_file)
+            _reader, writer = await asyncio.open_connection(
+                "127.0.0.1", tls_port, ssl=ctx, server_hostname="localhost",
+            )
+            writer.close()
+            await writer.wait_closed()
+
+            def diagnosed() -> bool:
+                return any(
+                    "closed before MQTT CONNECT" in r.getMessage() and "inbound_sni='localhost'" in r.getMessage()
+                    for r in caplog.records
+                )
+
+            assert_that(await _wait_until(diagnosed), is_(True))
+        finally:
+            if broker.is_running:
+                await broker.stop()
+
+    @pytest.mark.asyncio
+    async def test_unacked_qos1_publish_times_out_without_error_noise(
+        self, caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """A subscriber that never sends PUBACK must not produce WARNING/ERROR records."""
+        caplog.set_level(logging.INFO)
+        config = get_default_config(mqtt_port=0, use_owntracks_handler=False)
+        config["qos1_puback_timeout"] = 0.2
+        broker = MQTTBroker(mqtt_port=0, config=config)
+        publisher: MQTTClient | None = None
+        writer: asyncio.StreamWriter | None = None
+        try:
+            await broker.start()
+            port = broker.actual_mqtt_port
+            assert port is not None
+            reader, writer = await asyncio.open_connection("127.0.0.1", port)
+            writer.write(_CONNECT_PACKET)
+            await writer.drain()
+            assert_that(await reader.read(4), equal_to(_CONNACK_ACCEPTED))
+            # SUBSCRIBE packet id 1, topic "t/x", requested QoS 1
+            writer.write(b"\x82\x08\x00\x01\x00\x03t/x\x01")
+            await writer.drain()
+            assert_that(await reader.read(5), equal_to(b"\x90\x03\x00\x01\x01"))
+
+            publisher = MQTTClient(client_id="pub-noack", config={"auto_reconnect": False})
+            await publisher.connect(f"mqtt://127.0.0.1:{port}")
+            await publisher.publish("t/x", b"hello", qos=1)
+
+            def timed_out() -> bool:
+                return any("acknowledgement timed out" in r.getMessage() for r in caplog.records)
+
+            # amqtt reaps finished broadcast tasks when the next broadcast is processed (in
+            # production the periodic $SYS tick); publish to an unrelated topic to drive that.
+            assert publisher is not None
+            deadline = asyncio.get_running_loop().time() + _POLL_TIMEOUT_SECONDS
+            while not timed_out() and asyncio.get_running_loop().time() < deadline:
+                await publisher.publish("t/tick", b"x", qos=0)
+                await asyncio.sleep(0.05)
+            assert_that(timed_out(), is_(True))
+            gc.collect()
+            noisy = [
+                r.getMessage() for r in caplog.records
+                if r.levelno >= logging.WARNING or "never retrieved" in r.getMessage()
+            ]
+            assert_that(noisy, equal_to([]))
+        finally:
+            if publisher is not None:
+                await publisher.disconnect()
+            if writer is not None:
+                writer.close()
+            if broker.is_running:
+                await broker.stop()
+
+    @pytest.mark.asyncio
+    async def test_persistent_session_reconnect_refreshes_peer_certificate(self, tls_fixture: _TLSFixture) -> None:
+        """A reused (clean_session=0) session must expose the *new* connection's client certificate."""
+        persistent_connect = b"\x10\x10\x00\x04MQTT\x04\x00\x00\x3c\x00\x04tst1"
+        broker = MQTTBroker(
+            mqtt_port=0, mqtt_tls_port=0, tls_config=tls_fixture.make_tls_config(with_crl=False), use_owntracks_handler=False,
+        )
+        try:
+            await broker.start()
+            tls_port = broker.actual_tls_port
+            amqtt_broker = broker.amqtt_broker
+            assert tls_port is not None and amqtt_broker is not None
+
+            common_names: list[str] = []
+            # Second CONNACK carries session-present=1, proving the session object was reused.
+            for cert_file, key_file, expected_connack in (
+                (tls_fixture.valid_cert_file, tls_fixture.valid_key_file, _CONNACK_ACCEPTED),
+                (tls_fixture.revoked_cert_file, tls_fixture.revoked_key_file, b"\x20\x02\x01\x00"),
+            ):
+                ctx = tls_fixture.client_ssl_context(cert_file, key_file)
+                reader, writer = await asyncio.open_connection(
+                    "127.0.0.1", tls_port, ssl=ctx, server_hostname="localhost",
+                )
+                writer.write(persistent_connect)
+                await writer.drain()
+                assert_that(await reader.read(4), equal_to(expected_connack))
+                session, _handler = amqtt_broker._sessions["tst1"]
+                assert session.ssl_object is not None
+                peer = session.ssl_object.getpeercert()
+                assert peer is not None
+                subject = {k: v for rdn in peer["subject"] for k, v in rdn}
+                common_names.append(subject["commonName"])
+                writer.close()
+                await writer.wait_closed()
+                assert_that(await _wait_until(lambda: session.transitions.state != "connected"), is_(True))
+
+            assert_that(common_names, equal_to(["validuser", "revokeduser"]))
         finally:
             if broker.is_running:
                 await broker.stop()
