@@ -28,7 +28,7 @@ dependencies = [
     "filelock>=4.1.0",
     "librt>=0.16.0",
     "packaging==26.3",
-    "platformdirs>=4.12.4",
+    "platformdirs>=4.13.0",
     "rich==15.0.0",
     "zope-interface>=8.6",
     "pytest-django>=4.14.0",
