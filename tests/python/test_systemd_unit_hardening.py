@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _USER_UNIT = _REPO_ROOT / "etc" / "systemd" / "my-tracks.service"
 # What the process needs: sockets for HTTP, MQTT and its TLS port (AF_INET*), the database socket when PostgreSQL is
@@ -109,9 +111,5 @@ def test_the_parser_joins_continued_lines_skips_comments_inside_them_and_keeps_r
 def test_a_repeated_pinned_directive_is_rejected(tmp_path: Path) -> None:
     unit = tmp_path / "x.service"
     unit.write_text("[Service]\nRestrictAddressFamilies=AF_INET\nRestrictAddressFamilies=AF_PACKET\n", encoding="utf-8")
-    try:
+    with pytest.raises(AssertionError, match="exactly one"):
         _single(unit, "RestrictAddressFamilies")
-    except AssertionError as exc:
-        assert "exactly one" in str(exc)
-    else:
-        raise AssertionError("Expected a repeated directive to be rejected")
