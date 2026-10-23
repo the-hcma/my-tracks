@@ -47,12 +47,12 @@ Where `PrivateTmp` is enforced, a local PostgreSQL whose Unix socket lives under
 Before adding a directive, run the real server under it in an isolated transient unit on other ports and check `/api/health/`, the MQTT broker and the web UI. Run it from a separate checkout or worktree that has its own SQLite database (a shared `.env` with a PostgreSQL `DATABASE_URL` would point the probe at the live database), never the one the installed service runs from: the server writes `config/.runtime-config.json` in its working directory and removes it on exit, so a probe started from the live checkout would clobber the running service's file.
 
 ```bash
-systemd-run --user --unit=my-tracks-probe -p NoNewPrivileges=true -p PrivateTmp=true -p ProtectSystem=full \
+systemd-run --user --collect --unit=my-tracks-probe -p NoNewPrivileges=true -p PrivateTmp=true -p ProtectSystem=full \
   -p "RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK AF_UNIX" -p SystemCallArchitectures=native -p RuntimeMaxSec=300 -p WorkingDirectory="$PWD" \
   -E PATH="$PATH" -E HOME="$HOME" "$PWD/scripts/my-tracks-server" --http-port 18080 --mqtt-port 0 --mqtt-tls-port 18883
 ```
 
-`systemd-run` returns while the probe keeps running, so stop it when you are done (`systemctl --user stop my-tracks-probe`) before starting another run under the same name; the `RuntimeMaxSec` above is a safety net.
+`systemd-run` returns while the probe keeps running, so stop it when you are done (`systemctl --user stop my-tracks-probe`) before starting another run under the same name; the `RuntimeMaxSec` above is a safety net, and `--collect` makes systemd forget the unit even when it times out or crashes (without it a failed probe stays loaded and the same name cannot be reused until `systemctl --user reset-failed`).
 
 If a host does enforce the mount namespace but the unit fails with `status=226/NAMESPACE`, set `PrivateTmp=false` and `ProtectSystem=no` in a drop-in (`systemctl --user edit my-tracks`), which survives a `setup-service` reinstall, instead of editing the shipped unit. `tests/python/test_systemd_unit_hardening.py` pins the directives and the ones that must stay off.
 
