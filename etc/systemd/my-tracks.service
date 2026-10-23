@@ -12,5 +12,23 @@ ExecStartPost=/bin/bash -c 'i=0; while [ $i -lt 30 ]; do sleep 1; curl -sf http:
 Restart=on-failure
 RestartSec=5s
 
+# Baseline hardening (my-tracks#1400). ``NoNewPrivileges``, ``RestrictAddressFamilies`` and
+# ``SystemCallArchitectures`` are enforced everywhere. ``PrivateTmp`` and ``ProtectSystem`` need a mount namespace,
+# which a user manager builds inside an unprivileged user namespace: where that is not allowed
+# (``kernel.apparmor_restrict_unprivileged_userns=1``) systemd starts the unit without them and without an error, so
+# they take effect only on hosts that allow it. ``PrivateTmp`` is worth having here: the MQTT broker writes its TLS
+# key and certificates to the temp directory for the SSL context, and a private /tmp that systemd removes at stop
+# keeps them from lingering after a crash. A local PostgreSQL whose Unix socket is under /tmp would be hidden by it:
+# use a socket directory outside /tmp, or set ``PrivateTmp=false`` in a drop-in. ``ProtectHome`` and
+# ``ProtectSystem=strict`` stay off on purpose: the log is under the home directory and the SQLite database and
+# media live in the checkout. ``AF_NETLINK`` is the C library's interface listing; raw packet sockets are not used.
+# ``SystemCallArchitectures=native`` keeps 32-bit x86 calls from bypassing the address-family filter on hosts that
+# also run 32-bit code.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK AF_UNIX
+SystemCallArchitectures=native
+
 [Install]
 WantedBy=default.target
