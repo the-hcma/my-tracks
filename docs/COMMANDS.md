@@ -31,8 +31,7 @@ uv run python -c "import django; print(django.get_version())"
 
 ## Virtual Environment
 
-**Note**: With `uv run`, you don't need to manually activate the virtual environment.
-The `uv run` prefix automatically uses the project's virtual environment.
+**Note**: With `uv run`, you don't need to manually activate the virtual environment. The `uv run` prefix automatically uses the project's virtual environment.
 
 ```bash
 # Create virtual environment (uv venv creates .venv by default)
@@ -392,11 +391,13 @@ gh stack bottom
 
 ### Merge (GitHub merge queue)
 
+After the user explicitly confirms (name every PR of a stack first), merge from the PR's worktree:
+
 ```bash
-gh pr merge <pr-number> --auto --squash
+"${REPOSITORY_HELPERS_DIR:-$HOME/work/ai/repository-helpers}/scripts/dev/merge-stack" --pr <pr-number>
 ```
 
-Do **not** use Graphite enqueue labels (`merge-it`, `merge-mq`).
+It picks the right command for the repository's merge setup (`gh stack merge` for a stacked PR, the merge queue or auto-merge otherwise) and confirms the enqueue. Do **not** call `gh pr merge` or `gh stack merge` by hand, do **not** use the retired Graphite enqueue labels (`merge-it`, `merge-mq`), and do **not** pipe the command through `tail` or `head`: read its exit status and output.
 
 ## Production Commands
 
@@ -418,9 +419,7 @@ daphne -b 0.0.0.0 -p 8080 config.asgi:application
 
 ### Systemd (local development — user service)
 
-Persistent background server on your machine (no root). Installed via
-[repository-helpers](https://github.com/the-hcma/repository-helpers); see
-[SYSTEMD.md](SYSTEMD.md).
+Persistent background server on your machine (no root). Installed via [repository-helpers](https://github.com/the-hcma/repository-helpers); see [SYSTEMD.md](SYSTEMD.md).
 
 ```bash
 # Install or update (migrations, frontend build, restart)
@@ -442,8 +441,7 @@ tail -f ~/scratch/my-tracks/my-tracks.log
 
 ### Systemd (production bare-metal — system unit)
 
-For a traditional Linux server deployment, see [DEPLOYMENT.md](DEPLOYMENT.md#systemd-service)
-(`/etc/systemd/system/my-tracks.service`, `sudo systemctl …`).
+For a traditional Linux server deployment, see [DEPLOYMENT.md](DEPLOYMENT.md#systemd-service) (`/etc/systemd/system/my-tracks.service`, `sudo systemctl …`).
 
 ### Database Backup (PostgreSQL)
 
