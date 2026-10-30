@@ -2,13 +2,12 @@ version = 1
 revision = 5
 requires-python = ">=3.14"
 resolution-markers = [
-    "python_full_version >= '3.15' and platform_python_implementation == 'PyPy' and sys_platform == 'win32'",
-    "(python_full_version >= '3.15' and platform_python_implementation != 'PyPy') or (python_full_version >= '3.15' and sys_platform != 'win32')",
-    "python_full_version < '3.15' and platform_python_implementation == 'PyPy' and sys_platform == 'win32'",
-    "(python_full_version < '3.15' and platform_python_implementation != 'PyPy') or (python_full_version < '3.15' and sys_platform != 'win32')",
+    "python_full_version >= '3.15' and platform_python_implementation == 'CPython'",
+    "python_full_version < '3.15' and platform_python_implementation == 'CPython'",
 ]
-
-[options]
+supported-markers = [
+    "platform_python_implementation == 'CPython'",
+]
 
 [manifest]
 constraints = [{ name = "pyyaml", specifier = ">=6.0" }]
@@ -179,53 +178,26 @@ wheels = [
 
 [[package]]
 name = "autobahn"
-version = "25.12.2"
+version = "26.10.2"
 source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "python_full_version >= '3.15' and platform_python_implementation == 'PyPy' and sys_platform == 'win32'",
-    "python_full_version < '3.15' and platform_python_implementation == 'PyPy' and sys_platform == 'win32'",
-]
 dependencies = [
     { name = "cbor2" },
     { name = "cffi" },
     { name = "cryptography" },
     { name = "hyperlink" },
-    { name = "py-ubjson" },
+    { name = "msgpack" },
     { name = "txaio" },
-    { name = "u-msgpack-python" },
     { name = "ujson" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/54/d5/9adf0f5b9eb244e58e898e9f3db4b00c09835ef4b6c37d491886e0376b4f/autobahn-25.12.2.tar.gz", hash = "sha256:754c06a54753aeb7e8d10c5cbf03249ad9e2a1a32bca8be02865c6f00628a98c", size = 13893652, upload-time = "2025-12-15T11:13:19.086Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e5/84/8ea0607facb3c97a3beae3c767213fc716f9ab2f157570dc5aeba1174730/autobahn-26.10.2.tar.gz", hash = "sha256:6c69fca89106567060941c5568e67a5369738813d883db4e3d62b76f0a2c497e", size = 14327659, upload-time = "2026-10-21T01:26:41.3Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f6/58/e498821606db57305c8f3c26d9b28fd73e4e0583a1f48330df500721c418/autobahn-25.12.2-cp314-cp314-win_amd64.whl", hash = "sha256:18b12e8af7fc115487715afa10b3f5b5a4b5989bebbe05b71722cf9fce7b1bfb", size = 2184111, upload-time = "2025-12-15T11:13:12.461Z" },
-]
-
-[[package]]
-name = "autobahn"
-version = "26.7.1"
-source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "(python_full_version >= '3.15' and platform_python_implementation != 'PyPy') or (python_full_version >= '3.15' and sys_platform != 'win32')",
-    "(python_full_version < '3.15' and platform_python_implementation != 'PyPy') or (python_full_version < '3.15' and sys_platform != 'win32')",
-]
-dependencies = [
-    { name = "cbor2" },
-    { name = "cffi" },
-    { name = "cryptography" },
-    { name = "hyperlink" },
-    { name = "msgpack", marker = "platform_python_implementation == 'CPython'" },
-    { name = "txaio" },
-    { name = "u-msgpack-python", marker = "platform_python_implementation != 'CPython'" },
-    { name = "ujson" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/de/73/f109f563c27e048e45d135d81af19e6ca391e24905550b06bd1c9d674c57/autobahn-26.7.1.tar.gz", hash = "sha256:c6949a2c6eb95fb1c218837dbda0a59abbbebafb8b11098551c01a7061dfd245", size = 14056542, upload-time = "2026-07-15T19:14:01.246Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/51/3e/200471878093a502f8e8078c1ca19fd82acc68ae9ac363e395170da6dbe2/autobahn-26.7.1-cp314-cp314-macosx_15_0_arm64.whl", hash = "sha256:f3d1be925e3fb33fff5280c1bd02027047519812c400d3efa5477d3968686c94", size = 1987070, upload-time = "2026-07-15T19:13:47.112Z" },
-    { url = "https://files.pythonhosted.org/packages/61/d1/704f881fd2c52b056dc0f14e6d0d640b1f3ff43f3b84cf85d3631e3243f4/autobahn-26.7.1-cp314-cp314-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:44f8094b0c0fa29a4963ce12130b7932469f89afa0242ff858d2b26541a81005", size = 2082939, upload-time = "2026-07-15T19:13:48.569Z" },
-    { url = "https://files.pythonhosted.org/packages/a8/27/84e76aec7abbcb502d4cd34ef5c859eaa19a3b707cda68ab7ce68478dd92/autobahn-26.7.1-cp314-cp314-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:a0fcf9c3ff6b9b2bc85d6e1814a94d1d941d62f7df36d350b523d77df85d66ea", size = 2254983, upload-time = "2026-07-15T19:13:49.802Z" },
-    { url = "https://files.pythonhosted.org/packages/e6/81/a810732a10342c5d6b90d19f83fa2bc9b6126e7c0cda7c4df867e311aa2e/autobahn-26.7.1-cp314-cp314-musllinux_1_2_aarch64.whl", hash = "sha256:4f82e5a113f6c1ff14cec99aa411f7da8fceec3dcd4647d7ebdfc0278811e14d", size = 3174295, upload-time = "2026-07-15T19:13:51.227Z" },
-    { url = "https://files.pythonhosted.org/packages/a6/c6/4886fdaecfeda013e085288a9d83bad6f1ded9995b8088ca933d9ec37201/autobahn-26.7.1-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:919309cbe41b28b0a3028e7c6fed52aca9fd21639619f372d3270c44341b6bdc", size = 3403713, upload-time = "2026-07-15T19:13:52.744Z" },
-    { url = "https://files.pythonhosted.org/packages/42/08/0106af17fcbe65a85040a8d98015bdcf2ef68144e12df500a72b91a5873e/autobahn-26.7.1-cp314-cp314-win_amd64.whl", hash = "sha256:354298aa0ab79861578f45f5bf543e4757c32070ff801282beda80c6c4f2a41e", size = 2206827, upload-time = "2026-07-15T19:13:54.499Z" },
+    { url = "https://files.pythonhosted.org/packages/8b/e8/ebde870d335a9d89e24e6bdae020693bf67ea6fe0279cf11a773abbd110c/autobahn-26.10.2-cp314-cp314-macosx_15_0_arm64.whl", hash = "sha256:59d4ccfc0a1e1956a5dccd874990cf624168f992bdac3212141196d3b97e126d", size = 2014345, upload-time = "2026-10-21T01:26:23.757Z" },
+    { url = "https://files.pythonhosted.org/packages/52/68/77c724f1ed16e7e704232c7b4690f4ac7dec7eeeb5036dc2ca9b2512df5c/autobahn-26.10.2-cp314-cp314-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:d226f421bc8487e7892752d3a44fea4a7034484bc5412dadcafcd8bafdb2c4ee", size = 2109694, upload-time = "2026-10-21T01:26:25.436Z" },
+    { url = "https://files.pythonhosted.org/packages/82/fc/2340b34d824cb61db0e916f2bc18c8ef5d19623630316afeb855485c88f1/autobahn-26.10.2-cp314-cp314-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:9f0f35dcfea02def14f26f80a73140e594b7d8bd5bd051f7a3ca5b4b0343b1c5", size = 2281676, upload-time = "2026-10-21T01:26:26.921Z" },
+    { url = "https://files.pythonhosted.org/packages/a5/68/b9285ec63be71adcf70538db857c635c5f9ae84217d7e4834c71af3e5610/autobahn-26.10.2-cp314-cp314-musllinux_1_2_aarch64.whl", hash = "sha256:86564b68da0058509988ea6831013362333ae2395ae8f3673588720b26c84687", size = 3204841, upload-time = "2026-10-21T01:26:28.415Z" },
+    { url = "https://files.pythonhosted.org/packages/0b/41/a8e796f0192900ffa439cbd86bb994748c52a55197a861b690a4396730d5/autobahn-26.10.2-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:c053843bea234593ad6ec5cc9c120786ce3c20a9684127b4a37196cde432ec0a", size = 3432250, upload-time = "2026-10-21T01:26:30.155Z" },
+    { url = "https://files.pythonhosted.org/packages/50/95/e0cc74303b81eb2778e8431524ed725ba3632b5ba701189f723e96949906/autobahn-26.10.2-cp314-cp314-win_amd64.whl", hash = "sha256:42dad227dd9297ec00a1bc20c1bef2098a8dc5476b5ba23e8de34823e1d4bf0c", size = 2233810, upload-time = "2026-10-21T01:26:31.669Z" },
+    { url = "https://files.pythonhosted.org/packages/85/79/3093627f9fc02765a66fd03b0dbfde431383c1ac133868c55dfd8e2886ac/autobahn-26.10.2-cp314-cp314-win_arm64.whl", hash = "sha256:6f55fa24013593f45c70f0d335df6ff3f6ee090f548a07af190ad34a7d19c576", size = 2123048, upload-time = "2026-10-21T01:26:33.419Z" },
 ]
 
 [[package]]
@@ -592,7 +564,7 @@ name = "cryptography"
 version = "50.0.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cffi", marker = "platform_python_implementation != 'PyPy'" },
+    { name = "cffi" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/9d/af/182eb91b0df3fe75c4d9f26fe70684569566745f6ba7e5c9c73a862c5252/cryptography-50.0.2.tar.gz", hash = "sha256:7b46165bb56eb4704e2eaaf86f3c940d19154535d9b0ca7d6d590b04060e00d5", size = 880623, upload-time = "2026-09-30T15:30:04.884Z" }
 wheels = [
@@ -680,8 +652,7 @@ version = "4.2.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "asgiref" },
-    { name = "autobahn", version = "25.12.2", source = { registry = "https://pypi.org/simple" }, marker = "platform_python_implementation == 'PyPy' and sys_platform == 'win32'" },
-    { name = "autobahn", version = "26.7.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_python_implementation != 'PyPy' or sys_platform != 'win32'" },
+    { name = "autobahn" },
     { name = "twisted", extra = ["tls"] },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/ed/23/81d442839029f3f343e536650ee49dbfb5a444520876fadb5b5f19f33c02/daphne-4.2.3.tar.gz", hash = "sha256:1c458f81926b37301cadc8ec1b6316d9a5db53fba061fc4826610395fe5d5c81", size = 47898, upload-time = "2026-07-21T13:15:19.753Z" }
@@ -1002,6 +973,7 @@ dependencies = [
     { name = "annotated-doc" },
     { name = "asgiref" },
     { name = "ast-serialize" },
+    { name = "autobahn" },
     { name = "cbor2" },
     { name = "certifi" },
     { name = "cffi" },
@@ -1081,6 +1053,7 @@ requires-dist = [
     { name = "annotated-doc", specifier = "==0.0.5" },
     { name = "asgiref", specifier = "==3.12.1" },
     { name = "ast-serialize", specifier = ">=0.13.1" },
+    { name = "autobahn", specifier = ">=26.10.1" },
     { name = "cbor2", specifier = ">=6.1.5" },
     { name = "certifi", specifier = "==2026.10.19" },
     { name = "cffi", specifier = ">=2.1.1" },
@@ -1160,7 +1133,7 @@ version = "2.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "ast-serialize" },
-    { name = "librt", marker = "platform_python_implementation != 'PyPy'" },
+    { name = "librt" },
     { name = "mypy-extensions" },
     { name = "pathspec" },
     { name = "typing-extensions" },
@@ -1406,12 +1379,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/73/21/d250cfca8ff30c2e5
 wheels = [
     { url = "https://files.pythonhosted.org/packages/9b/bf/7595e817906a29453ba4d99394e781b6fabe55d21f3c15d240f85dd06bb1/py_serializable-2.1.0-py3-none-any.whl", hash = "sha256:b56d5d686b5a03ba4f4db5e769dc32336e142fc3bd4d68a8c25579ebb0a67304", size = 23045, upload-time = "2025-07-21T09:56:46.848Z" },
 ]
-
-[[package]]
-name = "py-ubjson"
-version = "0.16.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/1d/c7/28220d37e041fe1df03e857fe48f768dcd30cd151480bf6f00da8713214a/py-ubjson-0.16.1.tar.gz", hash = "sha256:b9bfb8695a1c7e3632e800fb83c943bf67ed45ddd87cd0344851610c69a5a482", size = 50316, upload-time = "2020-04-18T15:05:57.698Z" }
 
 [[package]]
 name = "pyasn1"
@@ -1882,15 +1849,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/5e/a7/c202b344c5ca7daf398f3b8a477eeb205cf3b6f32e7ec3a6bac0629ca975/tzdata-2025.3.tar.gz", hash = "sha256:de39c2ca5dc7b0344f2eba86f49d614019d29f060fc4ebc8a417896a620b56a7", size = 196772, upload-time = "2025-12-13T17:45:35.667Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c7/b0/003792df09decd6849a5e39c28b513c06e84436a54440380862b5aeff25d/tzdata-2025.3-py2.py3-none-any.whl", hash = "sha256:06a47e5700f3081aab02b2e513160914ff0694bce9947d6b76ebd6bf57cfc5d1", size = 348521, upload-time = "2025-12-13T17:45:33.889Z" },
-]
-
-[[package]]
-name = "u-msgpack-python"
-version = "2.8.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/36/9d/a40411a475e7d4838994b7f6bcc6bfca9acc5b119ce3a7503608c4428b49/u-msgpack-python-2.8.0.tar.gz", hash = "sha256:b801a83d6ed75e6df41e44518b4f2a9c221dc2da4bcd5380e3a0feda520bc61a", size = 18167, upload-time = "2023-05-18T09:28:12.187Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/b1/5e/512aeb40fd819f4660d00f96f5c7371ee36fc8c6b605128c5ee59e0b28c6/u_msgpack_python-2.8.0-py2.py3-none-any.whl", hash = "sha256:1d853d33e78b72c4228a2025b4db28cda81214076e5b0422ed0ae1b1b2bb586a", size = 10590, upload-time = "2023-05-18T09:28:10.323Z" },
 ]
 
 [[package]]
