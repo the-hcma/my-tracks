@@ -20,8 +20,7 @@ dependencies = [
     "dj-database-url>=3.1.2",
     "h2==4.4.1",
     "priority>=2.0.0",
-    "cbor2>=6.1.5; platform_python_implementation != 'PyPy'",
-    "cbor2==5.9.0; platform_python_implementation == 'PyPy'",
+    "cbor2>=6.1.5",
     "pyasn1>=0.6.4",
     "pygments>=2.21.0",
     "pyopenssl>=26.4.0",
@@ -132,4 +131,6 @@ dev = [
 
 # Keep pyyaml>=6.0 because pyyaml 5.4.1 has no Python 3.14 wheel.
 [tool.uv]
+# CPython only — never resolve PyPy marker branches (autobahn pins cbor2==5.9.0 there).
+environments = ["platform_python_implementation == 'CPython'"]
 constraint-dependencies = ["pyyaml>=6.0"]
