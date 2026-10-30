@@ -19,7 +19,8 @@ dependencies = [
     "dj-database-url>=3.1.2",
     "h2==4.4.1",
     "priority>=2.0.0",
-    "cbor2>=6.1.5",
+    "cbor2>=6.1.5; platform_python_implementation != 'PyPy'",
+    "cbor2==5.9.0; platform_python_implementation == 'PyPy'",
     "pyasn1>=0.6.4",
     "pygments>=2.21.0",
     "pyopenssl>=26.4.0",
@@ -63,6 +64,7 @@ dependencies = [
     "annotated-doc==0.0.5",
     "sqlparse>=0.6.0",
     "tiny-pki==1.0.0",
+    "autobahn>=26.10.1",
 ]
 
 [build-system]
