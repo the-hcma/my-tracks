@@ -21,7 +21,7 @@ dependencies = [
     "h2==4.4.1",
     "priority>=2.0.0",
     "cbor2>=6.1.5",
-    "pyasn1>=0.6.4",
+    "pyasn1>=0.6.5",
     "pygments>=2.21.0",
     "pyopenssl>=26.4.0",
     "ujson>=6.0.0",
