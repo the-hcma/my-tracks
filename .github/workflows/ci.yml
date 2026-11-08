@@ -120,20 +120,23 @@ jobs:
     - name: Set up pnpm via Corepack
       uses: the-hcma/repository-helpers/actions/setup-pnpm-corepack@999844287d1b2684baa91c3e8a5b62eda9f4915e
 
+    - name: Set up temp layout
+      uses: the-hcma/repository-helpers/actions/setup-tmp-layout@bfee0e1f2d682e83c6207a0d6a0f7feefa576fd8
+
     - name: Install dependencies
-      run: pnpm install --frozen-lockfile
+      run: bash .github/ci/pnpm-run pnpm install --frozen-lockfile
 
     - name: TypeScript type check
-      run: pnpm run typecheck
+      run: bash .github/ci/pnpm-run pnpm run typecheck
 
     - name: ESLint check
-      run: pnpm run lint
+      run: bash .github/ci/pnpm-run pnpm run lint
 
     - name: Build TypeScript
-      run: pnpm run build
+      run: bash .github/ci/pnpm-run pnpm run build
 
     - name: Run TypeScript tests
-      run: pnpm run test
+      run: bash .github/ci/pnpm-run pnpm run test
 
   python-static:
     name: Python lint & format checks
@@ -151,11 +154,14 @@ jobs:
       with:
         version: "latest"
 
+    - name: Set up temp layout
+      uses: the-hcma/repository-helpers/actions/setup-tmp-layout@bfee0e1f2d682e83c6207a0d6a0f7feefa576fd8
+
     - name: Python lint & format checks
       run: bash .github/ci/python-static
 
     - name: Check for pending migrations
-      run: uv run python manage.py makemigrations --check --dry-run
+      run: bash .github/ci/uv-run uv run python manage.py makemigrations --check --dry-run
 
   backend-test:
     name: Backend Tests
@@ -173,11 +179,14 @@ jobs:
       with:
         version: "latest"
 
+    - name: Set up temp layout
+      uses: the-hcma/repository-helpers/actions/setup-tmp-layout@bfee0e1f2d682e83c6207a0d6a0f7feefa576fd8
+
     - name: Set up Python
-      run: uv python install 3.14
+      run: bash .github/ci/uv-run uv python install 3.14
 
     - name: Install dependencies
-      run: uv sync --all-extras
+      run: bash .github/ci/uv-run uv sync --all-extras
 
     - name: Set up Node.js
       uses: actions/setup-node@v7.1.0
@@ -189,19 +198,21 @@ jobs:
       uses: the-hcma/repository-helpers/actions/setup-pnpm-corepack@999844287d1b2684baa91c3e8a5b62eda9f4915e
 
     - name: Build frontend assets
-      run: pnpm install --frozen-lockfile && pnpm run build
+      run: |
+        bash .github/ci/pnpm-run pnpm install --frozen-lockfile
+        bash .github/ci/pnpm-run pnpm run build
 
     - name: Run migrations
-      run: uv run python manage.py migrate
+      run: bash .github/ci/uv-run uv run python manage.py migrate
 
     - name: Collect static files
-      run: uv run python manage.py collectstatic --noinput
+      run: bash .github/ci/uv-run uv run python manage.py collectstatic --noinput
 
     - name: Run tests with coverage
-      run: uv run pytest --cov=app --cov-fail-under=90 --cov-report=term-missing
+      run: bash .github/ci/pytest-run --cov=app --cov-fail-under=90 --cov-report=term-missing
 
     - name: Django deployment hardening check
-      run: uv run python manage.py check --deploy
+      run: bash .github/ci/uv-run uv run python manage.py check --deploy
       env:
         DEBUG: "False"
         SECRET_KEY: "ci-placeholder-not-a-real-secret-but-long-enough-for-django"
@@ -257,11 +268,14 @@ jobs:
       with:
         version: "latest"
 
+    - name: Set up temp layout
+      uses: the-hcma/repository-helpers/actions/setup-tmp-layout@bfee0e1f2d682e83c6207a0d6a0f7feefa576fd8
+
     - name: Set up Python
-      run: uv python install 3.14
+      run: bash .github/ci/uv-run uv python install 3.14
 
     - name: Install dependencies
-      run: uv sync --all-extras
+      run: bash .github/ci/uv-run uv sync --all-extras
 
     - name: Set up Node.js
       uses: actions/setup-node@v7.1.0
@@ -273,13 +287,15 @@ jobs:
       uses: the-hcma/repository-helpers/actions/setup-pnpm-corepack@999844287d1b2684baa91c3e8a5b62eda9f4915e
 
     - name: Build frontend assets
-      run: pnpm install --frozen-lockfile && pnpm run build
+      run: |
+        bash .github/ci/pnpm-run pnpm install --frozen-lockfile
+        bash .github/ci/pnpm-run pnpm run build
 
     - name: Install shellcheck
       run: sudo apt-get update && sudo apt-get install -y shellcheck
 
     - name: Set up database
-      run: uv run python manage.py migrate
+      run: bash .github/ci/uv-run uv run python manage.py migrate
 
     - name: Run shell script tests
-      run: ./tests/bash/test-my-tracks-server
+      run: bash .github/ci/uv-run ./tests/bash/test-my-tracks-server
