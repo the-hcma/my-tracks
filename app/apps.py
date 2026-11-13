@@ -10,7 +10,7 @@ import sys
 import threading
 import time
 import warnings
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePath
 from typing import Any
@@ -269,8 +269,9 @@ async def _crl_refresh_reason() -> str | None:
         # tls_reload_failed stays set for the whole reload (e.g. a revocation-triggered one),
         # so it says nothing about the outcome yet; do not queue a second reload behind it.
         return None
-    if broker.tls_reload_failed and broker.tls_config is not None:
-        # A previous reload stopped the old listener and never brought the new one up.
+    if broker.tls_reload_failed:
+        # A previous reload did not finish: amqtt tried to restore the old listener but may have left
+        # none bound, or dropping sessions (revoked, CA replaced, TLS disabled) failed after the reload.
         return "previous TLS reload failed"
     if broker.tls_config is None or broker.tls_config.crl_pem is None:
         return None
@@ -293,7 +294,7 @@ async def _crl_refresh_reason() -> str | None:
 
 
 async def _refresh_crl() -> None:
-    """Hot-reload MQTT TLS (dropping connected clients) when the loaded CRL is out of date.
+    """Hot-reload MQTT TLS when the loaded CRL is out of date (clients it revokes are dropped).
 
     Never raises: a failed check must not take the broker's event loop down.
     """
@@ -382,15 +383,9 @@ def _run_mqtt_broker(mqtt_port: int, mqtt_tls_port: int = -1) -> None:
             logger.critical("MQTT broker failed to start: %s", exc)
         # Fatal: bring down the entire server — a half-running server
         # (HTTP up, MQTT down) would silently drop all location updates.
-        # Clean up temp TLS key files before hard exit so they don't linger
-        # in /tmp across a container restart.
-        if _state.broker is not None:
-            _state.broker._cleanup_tls_files()
         os._exit(1)
     except Exception:
         logger.critical("MQTT broker startup failed unexpectedly", exc_info=True)
-        if _state.broker is not None:
-            _state.broker._cleanup_tls_files()
         os._exit(1)
     else:
         # _start_and_run() returned normally.  If shutdown was not requested,
@@ -450,6 +445,10 @@ def trigger_tls_reload(reason: str = "configuration changed", *, keep_tls_on_fai
 
     tls_config = _load_tls_config()
     if tls_config is None and keep_tls_on_failure:
+        if _state.broker.trust_drop_pending:
+            # The listener stays as it is, but a drop that failed part-way must still finish.
+            _schedule_on_broker_loop(_state.broker.finish_pending_trust_drop(), "finish the pending TLS trust drop")
+            return
         logger.warning(
             "[mqtt-tls] TLS reload skipped, keeping the current listener: certificates not loadable (reason: %s)",
             reason,
@@ -469,6 +468,20 @@ def trigger_tls_reload(reason: str = "configuration changed", *, keep_tls_on_fai
                 _log_cert_info(tls_config.server_cert_pem, tls_config.ca_cert_pem)
         except Exception:
             logger.exception("Failed to hot-reload MQTT TLS configuration")
+
+    future.add_done_callback(_on_done)
+
+
+def _schedule_on_broker_loop(coroutine: Coroutine[Any, Any, None], description: str) -> None:
+    """Run ``coroutine`` on the broker's event loop and log a failure instead of raising."""
+    assert _state.loop is not None
+    future = asyncio.run_coroutine_threadsafe(coroutine, _state.loop)
+
+    def _on_done(f: concurrent.futures.Future[None]) -> None:
+        try:
+            f.result()
+        except Exception:
+            logger.exception("[mqtt-tls] Failed to %s", description)
 
     future.add_done_callback(_on_done)
 
