@@ -69,6 +69,8 @@ import type { HistoricRangeCalendarApi } from './historicRangeCalendar';
 import { getPreferredTheme, setTheme, toggleTheme } from './theme';
 import { boundFetch, clampHistoricToDate, collapseLocations, defaultHistoricDateRange, extractResultsList, formatDwellDuration, formatDwellHoverHtml, formatLatLonCoordinate, formatLatLonPair, formatMinutesAsTime, getTodayDateString, historicDatesAfterSameDayToggle, historicFetchResolutionSeconds, historicPeriodToTimestamps, HISTORIC_MAX_SPAN_DAYS, HISTORIC_WARN_SPAN_DAYS, inclusiveDaySpan, prepareHistoricTripLocations, restoredHistoricPeriodFromSavedState, selectStablePaletteColor, tripSnapshotMaxPoints, withFetchTimeout } from './utils';
 import { formatActivityLogMeta } from './locationMeta';
+import { googleMapsPopupLinkHtml, setPopupContentKeepingLinkFocus } from './googleMaps';
+import { attachGoogleMapsActionsToEntry, hideLocationContextMenu, isLocationContextMenuOpen, showLocationContextMenuForMarker } from './locationContextMenu';
 import {
     compareLocationsByReportTimeDesc,
     formatFixObservedLogLine,
@@ -910,7 +912,7 @@ function initMapEscapeRestore(): void {
         'keydown',
         createEscapeRestoreHandler({
             hasSelection: () => selectedLocationKey !== null,
-            overlayOpen: () => historicRangeCalendarApi?.isOpen() ?? false,
+            overlayOpen: () => (historicRangeCalendarApi?.isOpen() ?? false) || isLocationContextMenuOpen(),
             restore: restorePreSelectionView,
         }),
     );
@@ -1015,6 +1017,7 @@ function attachLocationSelectionToEntry(entry: HTMLElement, location: TrackLocat
         event.preventDefault();
         selectLocation(locationKey, { focusMarker: true, openPopup: true, fallbackLocation: location });
     });
+    attachGoogleMapsActionsToEntry(entry, location.latitude, location.longitude);
 }
 
 /** Last marker click, so the second click of a double-click does not toggle the selection back off. */
@@ -1058,6 +1061,9 @@ function registerLocationMarker(location: TrackLocation, marker: LocationMarker,
                 return;
             }
             selectLocation(currentLocationKey, { scrollRow: true, focusMarker: true, openPopup: false });
+        });
+        marker.on('contextmenu', (event: L.LeafletMouseEvent) => {
+            showLocationContextMenuForMarker(event.originalEvent, marker.getLatLng());
         });
         selectableMarker._myTracksSelectionHandlerAttached = true;
     }
@@ -1741,6 +1747,7 @@ function initMap(): void {
     }).addTo(map!);
 
     // Save map position on move/zoom
+    map.on('movestart', hideLocationContextMenu);
     map.on('moveend', saveMapPosition);
     map.on('zoomend', saveMapPosition);
     // User-initiated moves only (programmatic setView/fitBounds do not fire these), so a slow
@@ -1781,6 +1788,7 @@ function getPopupContent(location: TrackLocation): string {
         <strong>Accuracy:</strong> ${acc}m<br>
         <strong>Speed:</strong> ${vel} km/h<br>
         <strong>Battery:</strong> ${batt}%
+        ${googleMapsPopupLinkHtml(location.latitude, location.longitude)}
     </div>`;
 }
 
@@ -2217,6 +2225,15 @@ function addLocationToTrail(location: TrackLocation): void {
                 className: 'waypoint-tooltip',
             });
 
+            // Popup carries the Google Maps link so it is reachable by tap on touch devices
+            marker.bindPopup(`
+                <div class="waypoint-popup">
+                    <b>Waypoint #${waypointNumber}</b>${deviceInfo}<br>
+                    ${timestamp}
+                    ${googleMapsPopupLinkHtml(latLng[0], latLng[1])}
+                </div>
+            `);
+
             registerLocationMarker(loc, marker, 'waypoint');
             trailElements.markers.push(marker);
         });
@@ -2398,6 +2415,15 @@ function drawLiveTrails(locationsByDevice: Record<string, TrackLocation[]>): voi
                     className: 'waypoint-tooltip',
                 });
 
+                // Popup carries the Google Maps link so it is reachable by tap on touch devices
+                marker.bindPopup(`
+                    <div class="waypoint-popup">
+                        <b>Waypoint #${waypointNumber}</b>${deviceInfo}<br>
+                        ${timestamp}
+                        ${googleMapsPopupLinkHtml(latLng[0], latLng[1])}
+                    </div>
+                `);
+
                 registerLocationMarker(loc, marker, 'waypoint');
                 trailElements.markers.push(marker);
             });
@@ -2555,7 +2581,8 @@ async function fetchAndDisplayTrail(): Promise<void> {
                                 ${timestamp}<br>
                                 ${collapsedInfo}
                                 <span class="loading-address">📍 Click to load address...</span>
-                            </div>
+                            ${googleMapsPopupLinkHtml(latLng[0], latLng[1])}
+</div>
                         `;
                         marker.bindPopup(popupContent);
 
@@ -2575,9 +2602,10 @@ async function fetchAndDisplayTrail(): Promise<void> {
                                             <b>${deviceName} - Waypoint #${waypointNumber}</b><br>
                                             ${timestamp}<br>
                                             📍 ${address}
-                                        </div>
+                                        ${googleMapsPopupLinkHtml(latLng[0], latLng[1])}
+</div>
                                     `;
-                                    popup.setContent(newContent);
+                                    setPopupContentKeepingLinkFocus(popup, newContent);
                                 } catch (e) {
                                     console.error('Geocoding error:', e);
                                 }
@@ -2749,7 +2777,8 @@ async function fetchAndDisplayTrail(): Promise<void> {
                         ${timestamp}<br>
                         ${collapsedInfo}
                         <span class="loading-address">📍 Click to load address...</span>
-                    </div>
+                    ${googleMapsPopupLinkHtml(latLng[0], latLng[1])}
+</div>
                 `;
                 marker.bindPopup(popupContent);
 
@@ -2769,9 +2798,10 @@ async function fetchAndDisplayTrail(): Promise<void> {
                                     <b>Waypoint #${waypointNumber}</b><br>
                                     ${timestamp}<br>
                                     📍 ${address}
-                                </div>
+                                ${googleMapsPopupLinkHtml(latLng[0], latLng[1])}
+</div>
                             `;
-                            popup.setContent(newContent);
+                            setPopupContentKeepingLinkFocus(popup, newContent);
                         } catch (e) {
                             console.error('Geocoding error:', e);
                         }

@@ -231,6 +231,55 @@ a:hover {
     opacity: 0.35;
 }
 
+/* Long-press opens our own menu: on touch-only devices, stop it from also starting text selection. */
+@media (hover: none) and (pointer: coarse) {
+    .log-entry {
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        user-select: none;
+    }
+}
+
+.log-map-link {
+    display: inline-block;
+    min-width: 24px;
+    margin-right: 6px;
+    text-align: center;
+    text-decoration: none;
+}
+
+.location-context-menu {
+    position: fixed;
+    z-index: 10000;
+    padding: 4px;
+    background: var(--bg-main);
+    color: var(--text-main);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.location-context-menu-item {
+    display: block;
+    padding: 10px 14px;
+    border-radius: 4px;
+    font-size: 14px;
+    white-space: nowrap;
+    color: var(--link-color);
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.location-context-menu-item:hover,
+.location-context-menu-item:focus-visible {
+    background: var(--endpoint-bg);
+}
+
+.location-context-menu-item:focus-visible {
+    outline: 2px solid var(--link-color);
+    outline-offset: -2px;
+}
+
 /* Shown in activity log but omitted from map trail when accuracy filter is enabled */
 .log-entry-low-accuracy {
     border-left-color: #f59e0b;
