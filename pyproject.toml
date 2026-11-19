@@ -13,7 +13,7 @@ dependencies = [
     "channels>=4.3.2",
     "daphne>=4.2.3",
     "whitenoise>=6.12.0",
-    "typer>=0.28.0",
+    "typer>=0.29.0",
     "amqtt[dollarsys]>=0.12.2",
     "autobahn>=26.11.1",
     "sqlalchemy>=2.1.8",  # amqtt.contrib/__init__ imports it unconditionally (needed for ReloadableExternalTLSListener)
@@ -27,7 +27,7 @@ dependencies = [
     "pyopenssl>=26.4.0",
     "ujson>=6.1.0",
     "charset-normalizer>=3.5.2",
-    "filelock>=4.2.9",
+    "filelock>=4.2.10",
     "librt>=0.16.0",
     "packaging==26.3",
     "platformdirs>=4.14.5",
