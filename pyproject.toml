@@ -21,7 +21,7 @@ dependencies = [
     "dj-database-url>=3.1.2",
     "h2==4.4.1",
     "priority>=2.0.0",
-    "cbor2>=6.2.1",
+    "cbor2>=6.3.0",
     "pyasn1>=0.6.5",
     "pygments>=2.21.0",
     "pyopenssl>=26.4.0",
