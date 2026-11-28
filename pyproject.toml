@@ -13,7 +13,7 @@ dependencies = [
     "channels>=4.3.2",
     "daphne>=4.2.3",
     "whitenoise>=6.12.0",
-    "typer>=0.29.1",
+    "typer>=0.29.2",
     "amqtt[dollarsys]>=0.12.2",
     "autobahn>=26.11.1",
     "sqlalchemy>=2.1.9",  # amqtt.contrib/__init__ imports it unconditionally (needed for ReloadableExternalTLSListener)
@@ -62,7 +62,7 @@ dependencies = [
     "transitions==0.9.3",
     "ruff>=0.17.5",
     "asgiref>=3.13.0",
-    "annotated-doc>=0.0.6",
+    "annotated-doc>=0.0.7",
     "sqlparse>=0.6.1",
     "tiny-pki==1.0.0",
 ]
